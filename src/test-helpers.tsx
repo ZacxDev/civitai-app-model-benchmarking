@@ -5,8 +5,9 @@
 // file, so it isn't collected as a suite.
 
 import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
+import type { SharedAppendValue, SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
-import type { PublishOutputs, GatedCellComponent } from './lib/generation-bridge.js';
+import type { GatedCellComponent } from './components/GatedCell.js';
 
 export const CKPT_SDXL: BlockResourceInfo = {
   versionId: 1001,
@@ -31,22 +32,57 @@ export const LORA_SDXL: BlockResourceInfo = {
 
 export const immediateSleep = () => Promise.resolve();
 
-/** A recording publish fake that returns a fixed set of published image ids. */
-export function fakePublish(imageIds: number[]) {
-  const calls: Array<{ workflowId: string; imageIndexes?: number[] }> = [];
-  const publishOutputs: PublishOutputs = async (args) => {
-    calls.push(args);
-    return { imageIds };
+/**
+ * An in-memory fake {@link UseSharedStorage} whose `list()` can be made to LAG —
+ * i.e. NOT reflect a just-appended/updated row (`reflectMutations: false`). Used
+ * to prove the App's optimistic reconcile makes a new row appear WITHOUT the
+ * list() re-fetch returning it (item 1, read-after-write lag).
+ */
+export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedListItem[] } = {}) {
+  const reflect = opts.reflectMutations ?? true;
+  const rows: SharedListItem[] = [...(opts.seed ?? [])];
+  let n = 0;
+  const appends: SharedAppendValue[] = [];
+  const shared: UseSharedStorage = {
+    async list() {
+      return { items: [...rows] };
+    },
+    async getCount() {
+      return 0;
+    },
+    async getCounts() {
+      return {};
+    },
+    async append(value) {
+      appends.push(value);
+      const key = `fk_${(n += 1)}`;
+      if (reflect) rows.unshift({ key, authorUserId: 0, value, count: 0, createdAt: new Date(), updatedAt: new Date() });
+      return { key };
+    },
+    async update(key, value) {
+      const r = rows.find((x) => x.key === key);
+      if (reflect && r) r.value = value;
+    },
+    async vote() {
+      return 1;
+    },
+    async unvote() {
+      return 0;
+    },
+    async withdraw() {
+      return { ok: true, deleted: true };
+    },
   };
-  return { publishOutputs, calls };
+  return { shared, appends };
 }
 
 /**
- * A fake gated-cell component: renders `result-image` for any id in `visibleIds`
- * and `result-hidden` for any id in `hiddenIds` — so a test can assert BOTH the
- * visible and the gated-hidden render paths deterministically (without the real
- * 0.30 hook). Any id not listed defaults to hidden (fail-closed, mirrors the
- * real bridge).
+ * A pure gated-cell COMPONENT stub for the standalone ResultsGrid render test
+ * (which renders the grid WITHOUT a mock host). Renders `result-image` for any id
+ * in `visibleIds` and `result-hidden` otherwise. This is a component render stub
+ * matching the real `GatedCellComponent` prop shape — NOT a hook-shape fake; the
+ * full run→publish→gated path is covered end-to-end against the real mock host in
+ * e2e.test.tsx (`useGatedImages`/`usePublishGenerationOutputs`).
  */
 export function fakeGatedCell(opts: { visibleIds?: number[]; hiddenIds?: number[] } = {}): GatedCellComponent {
   const visible = new Set(opts.visibleIds ?? []);

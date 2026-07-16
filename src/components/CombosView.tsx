@@ -3,6 +3,8 @@
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 
+import { Fragment } from 'react';
+
 import type { CombinationRow } from '../types.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { VoteButton } from './VoteButton.js';
@@ -18,6 +20,8 @@ export interface CombosViewProps {
   onVote: (key: string) => Promise<number> | void;
   onUnvote: (key: string) => Promise<number> | void;
   onRequireAuth: () => void;
+  /** Edit one of the viewer's OWN combinations (in-place). */
+  onEdit: (combo: CombinationRow) => void;
 }
 
 export function CombosView({
@@ -31,6 +35,7 @@ export function CombosView({
   onVote,
   onUnvote,
   onRequireAuth,
+  onEdit,
 }: CombosViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="combos-view">
@@ -60,7 +65,13 @@ export function CombosView({
 
       <Stack gap={10} data-testid="combos-list">
         {combinations.map((combo) => {
-          const eco = ecosystemForBaseModel(combo.data.checkpoint.baseModel);
+          const isOwn = viewerId != null && combo.authorUserId === viewerId;
+          // Distinct ecosystems across the combo's configs (in first-seen order).
+          const ecos: string[] = [];
+          for (const cfg of combo.data.configs) {
+            const e = ecosystemForBaseModel(cfg.checkpoint.baseModel);
+            if (!ecos.includes(e)) ecos.push(e);
+          }
           return (
             <Card key={combo.key} withBorder padding="md" data-testid="combo-card" data-key={combo.key}>
               <Group justify="space-between" align="flex-start">
@@ -72,23 +83,44 @@ export function CombosView({
                         Included
                       </Badge>
                     )}
-                    <Badge variant="light">{ecosystemMeta(eco).label}</Badge>
+                    <Badge variant="light" data-testid="combo-config-count">
+                      {combo.data.configs.length} config{combo.data.configs.length === 1 ? '' : 's'}
+                    </Badge>
+                    {ecos.map((e) => (
+                      <Badge key={e} variant="light" size="sm">
+                        {ecosystemMeta(e).label}
+                      </Badge>
+                    ))}
                   </Group>
                   {combo.description && <span style={{ opacity: 0.7, fontSize: 13 }}>{combo.description}</span>}
-                  <span style={{ opacity: 0.6, fontSize: 12 }}>
-                    {combo.data.checkpoint.modelName ?? `Checkpoint #${combo.data.checkpoint.versionId}`}
-                    {combo.data.loras.length > 0 && ` · ${combo.data.loras.length} LoRA`}
+                  <span style={{ opacity: 0.6, fontSize: 12 }} data-testid="combo-config-summary">
+                    {combo.data.configs.map((cfg, i) => (
+                      <Fragment key={cfg.id}>
+                        {i > 0 && ' · '}
+                        {cfg.label?.trim() ||
+                          cfg.checkpoint.modelName ||
+                          `Checkpoint #${cfg.checkpoint.versionId}`}
+                        {cfg.loras.length > 0 && ` (+${cfg.loras.length} LoRA)`}
+                      </Fragment>
+                    ))}
                   </span>
                 </Stack>
-                <VoteButton
-                  count={combo.count}
-                  voted={votedKeys.has(combo.key)}
-                  disabled={viewerId == null}
-                  onVote={() => onVote(combo.key)}
-                  onUnvote={() => onUnvote(combo.key)}
-                  onRequireAuth={onRequireAuth}
-                  data-testid="combo-vote"
-                />
+                <Group gap={6} align="center">
+                  {isOwn && (
+                    <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="combo-edit">
+                      Edit
+                    </Button>
+                  )}
+                  <VoteButton
+                    count={combo.count}
+                    voted={votedKeys.has(combo.key)}
+                    disabled={viewerId == null}
+                    onVote={() => onVote(combo.key)}
+                    onUnvote={() => onUnvote(combo.key)}
+                    onRequireAuth={onRequireAuth}
+                    data-testid="combo-vote"
+                  />
+                </Group>
               </Group>
             </Card>
           );

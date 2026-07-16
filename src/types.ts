@@ -11,22 +11,29 @@
 export type RecordKind = 'combination' | 'prompt' | 'result';
 
 // ---------------------------------------------------------------------------
-// Combination — a checkpoint + weighted LoRA stack to benchmark (vote-able).
+// Combination — a NAMED GROUP of model configs to benchmark together (vote-able).
+//
+// 🔴 v2 data-model reframe: a "combination" is no longer ONE checkpoint + a LoRA
+// stack. It is an array of `ModelConfig`s — each config (one checkpoint + its
+// own LoRA stack) is the atomic BENCHMARKABLE unit. The grid's rows are the
+// configs (grouped under their combination); each (config × prompt) is a cell.
+// v1 combinations (single `checkpoint`+`loras`) migrate on read into a single
+// config (see lib/benchmark.ts `parseCombination`).
 // ---------------------------------------------------------------------------
 
-/** A checkpoint pinned to a combination (from useResourcePicker, Checkpoint). */
+/** A checkpoint pinned to a model config (from useResourcePicker, Checkpoint). */
 export interface CheckpointRef {
   versionId: number;
   modelId: number;
   /** The base model family (e.g. 'SDXL 1.0', 'Pony', 'Flux.1 D') — the ECOSYSTEM
-   * discriminant. A combination runs a prompt's entry for the ecosystem this
-   * base model maps to (see lib/ecosystem.ts). */
+   * discriminant. A config runs a prompt's entry for the ecosystem this base
+   * model maps to (see lib/ecosystem.ts). */
   baseModel: string;
   modelName?: string;
   versionName?: string;
 }
 
-/** One weighted LoRA in a combination's stack (from useResourcePicker, LORA). */
+/** One weighted LoRA in a config's stack (from useResourcePicker, LORA). */
 export interface LoraRef {
   versionId: number;
   /** Applied weight/strength (clamped to [min,max]). */
@@ -37,12 +44,28 @@ export interface LoraRef {
   maxStrength?: number;
 }
 
-/** The opaque structured payload for a `combination` shared record. */
-export interface CombinationData {
-  v: 1;
-  kind: 'combination';
+/**
+ * One benchmarkable model setup inside a combination: a checkpoint + its own
+ * (checkpoint-scoped) LoRA stack, plus a stable `id` (so result rows survive a
+ * config being reordered/renamed) and an optional author label.
+ */
+export interface ModelConfig {
+  /** Stable id for result keying. Minted on create; a deterministic sentinel
+   * (`V1_CONFIG_ID`) on a v1 migration so pre-existing v1 result rows still
+   * match the migrated config. */
+  id: string;
+  /** Optional author-supplied label (e.g. "with detail LoRA"). */
+  label?: string;
   checkpoint: CheckpointRef;
   loras: LoraRef[];
+}
+
+/** The opaque structured payload for a `combination` shared record (v2). */
+export interface CombinationData {
+  v: 2;
+  kind: 'combination';
+  /** ≥1 model configs to benchmark together. */
+  configs: ModelConfig[];
 }
 
 // ---------------------------------------------------------------------------
@@ -80,15 +103,21 @@ export interface PromptData {
 // ---------------------------------------------------------------------------
 
 /** The opaque structured payload for a `result` shared record. Small refs only —
- * NO image URLs (URLs are read per-viewer via the gated hook at render time). */
+ * NO image URLs (URLs are read per-viewer via the gated hook at render time).
+ * v2: a result now keys on (comboKey, configId, promptKey) since the benchmark
+ * unit is a CONFIG, not the whole combination. v1 result rows (no `configId`)
+ * migrate on read to `configId = V1_CONFIG_ID` — matching the migrated v1
+ * combination's single config. */
 export interface ResultData {
-  v: 1;
+  v: 2;
   kind: 'result';
-  /** The shared key of the combination this result belongs to (matrix ROW). */
+  /** The shared key of the combination this result belongs to. */
   comboKey: string;
+  /** The stable id of the config (within the combination) this result is for. */
+  configId: string;
   /** The shared key of the prompt this result belongs to (matrix COLUMN). */
   promptKey: string;
-  /** The ecosystem the prompt was matched to the combo on. */
+  /** The ecosystem the prompt was matched to the config on. */
   ecosystem: string;
   /** The bare scanned Image row ids the runner published (via the gated bridge). */
   imageIds: number[];
@@ -145,6 +174,8 @@ export type CellRunStatus =
 
 export interface CellRun {
   comboKey: string;
+  /** The config (within the combination) this run is for. */
+  configId: string;
   promptKey: string;
   ecosystem: string;
   status: CellRunStatus;

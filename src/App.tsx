@@ -27,6 +27,7 @@ import {
   useRequestSignIn,
   useResourcePicker,
   useSharedStorage,
+  usePublishGenerationOutputs,
 } from '@civitai/blocks-react';
 import type { SharedAppendValue, UseSharedStorage } from '@civitai/blocks-react';
 import { Alert, Badge, Button, Group, Modal, NumberInput, Stack } from '@civitai/blocks-react/ui';
@@ -41,23 +42,28 @@ import {
   buildResultPayload,
   cellHasResult,
   cellKey,
+  combinationToInput,
   DEFAULT_TOP_N,
+  flattenConfigs,
+  promptToInput,
+  reconcileOptimistic,
   resolveCell,
   splitRows,
   topByVotes,
+  type BenchConfig,
   type CombinationInput,
+  type PendingOptimistic,
   type PromptInput,
   type RawSharedItem,
 } from './lib/benchmark.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
-import { usePublishOutputs, type GatedCellComponent, type PublishOutputs } from './lib/generation-bridge.js';
 import { SegmentedControl } from './components/SegmentedControl.js';
 import { CombosView } from './components/CombosView.js';
 import { PromptsView } from './components/PromptsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
 import { CombinationForm } from './components/CombinationForm.js';
 import { PromptForm } from './components/PromptForm.js';
-import { GatedCell as DefaultGatedCell } from './components/GatedCell.js';
+import { GatedCell as DefaultGatedCell, type GatedCellComponent } from './components/GatedCell.js';
 
 export interface AppDeps {
   pickResource: (opts: {
@@ -68,8 +74,9 @@ export interface AppDeps {
   estimate: (body: WorkflowBody) => Promise<BlockWorkflowSnapshot>;
   submit: (body: WorkflowBody) => Promise<BlockWorkflowSnapshot>;
   poll: (workflowId: string) => Promise<BlockWorkflowSnapshot>;
-  /** Publish a completed generation's own scanned outputs → { imageIds }. */
-  publishOutputs: PublishOutputs;
+  /** Publish a completed generation's own scanned outputs → the created bare
+   * `Image` row ids (matches `usePublishGenerationOutputs().publish`). */
+  publish: (args: { workflowId: string; imageIndexes?: number[]; title?: string }) => Promise<number[]>;
   shared: UseSharedStorage;
   /** The gated grid-cell renderer (per-viewer moderation boundary). */
   GatedCell: GatedCellComponent;
@@ -85,7 +92,12 @@ export interface AppProps {
 }
 
 type View = 'combos' | 'prompts' | 'grid';
-type ModalKind = 'none' | 'combo' | 'prompt';
+
+/** The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode. */
+type ModalState =
+  | { kind: 'none' }
+  | { kind: 'combo'; edit?: CombinationRow }
+  | { kind: 'prompt'; edit?: PromptRow };
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
@@ -100,7 +112,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const buzz = useBuzzBalance();
   const { requestConsent } = useRequestConsent();
   const { requestSignIn } = useRequestSignIn();
-  const publish = usePublishOutputs();
+  const { publish } = usePublishGenerationOutputs();
 
   const rootRef = useRef<HTMLDivElement>(null);
   useBlockResize(rootRef);
@@ -114,7 +126,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       estimate: workflow.estimate,
       submit: workflow.submit,
       poll: workflow.poll,
-      publishOutputs: publish,
+      publish,
       shared: sharedHook,
       GatedCell: DefaultGatedCell,
       requestConsent,
@@ -133,7 +145,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- view + modal state ----
   const [view, setView] = useState<View>('combos');
-  const [modal, setModal] = useState<ModalKind>('none');
+  const [modal, setModal] = useState<ModalState>({ kind: 'none' });
+  const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
   const [topN, setTopN] = useState<number>(DEFAULT_TOP_N);
 
   // ---- data ----
@@ -144,6 +157,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  // Locally-applied optimistic append/edit mutations awaiting host confirmation
+  // (item 1) — reconciled against every list() re-fetch so a just-added row is
+  // never wiped by a read-after-write-lagged list.
+  const pendingRef = useRef<Map<string, PendingOptimistic>>(new Map());
 
   useEffect(() => {
     if (!ready) return;
@@ -153,7 +170,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       setError(null);
       try {
         const all = await listAll(depsRef.current.shared);
-        if (!cancelled) setItems(all);
+        if (cancelled) return;
+        const { items: merged, pending } = reconcileOptimistic(all, pendingRef.current);
+        pendingRef.current = pending;
+        setItems(merged);
       } catch (e) {
         if (!cancelled) setError(errMsg(e));
       } finally {
@@ -168,6 +188,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const { combinations, prompts, results } = useMemo(() => splitRows(items), [items]);
   const includedCombos = useMemo(() => topByVotes(combinations, topN), [combinations, topN]);
   const includedPrompts = useMemo(() => topByVotes(prompts, topN), [prompts, topN]);
+  // The grid's benchmarkable ROWS are the included combos' configs (flattened,
+  // grouped under their combination).
+  const includedConfigs = useMemo(() => flattenConfigs(includedCombos), [includedCombos]);
   const includedComboKeys = useMemo(() => new Set(includedCombos.map((r) => r.key)), [includedCombos]);
   const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
 
@@ -204,25 +227,73 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     if (!viewer) depsRef.current.requestSignIn();
   }, [viewer]);
 
-  // ---- submit wiring ----
+  // ---- submit + edit wiring ----
+  // Record an optimistic INSERT so a just-appended row shows immediately (item 1)
+  // and survives a lagged list() (see reconcileOptimistic).
+  const optimisticInsert = useCallback(
+    (key: string, value: SharedAppendValue) => {
+      if (!viewer) return;
+      pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'insert' });
+      setItems((prev) =>
+        prev.some((it) => it.key === key) ? prev : [{ key, count: 0, authorUserId: viewer.id, value }, ...prev],
+      );
+    },
+    [viewer],
+  );
+
+  // Record an optimistic UPDATE so an edited row shows its new value immediately
+  // and survives a lagged list() until the host reflects it.
+  const optimisticUpdate = useCallback(
+    (key: string, value: SharedAppendValue) => {
+      if (!viewer) return;
+      pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'update' });
+      setItems((prev) => prev.map((it) => (it.key === key ? { ...it, value } : it)));
+    },
+    [viewer],
+  );
+
   const submitCombination = useCallback(
     async (input: CombinationInput) => {
       const payload = buildCombinationPayload(input) as SharedAppendValue;
-      await depsRef.current.shared.append(payload);
-      setModal('none');
+      const { key } = await depsRef.current.shared.append(payload);
+      optimisticInsert(key, payload);
+      closeModal();
       reload();
     },
-    [reload],
+    [reload, closeModal, optimisticInsert],
   );
 
   const submitPrompt = useCallback(
     async (input: PromptInput) => {
       const payload = buildPromptPayload(input) as SharedAppendValue;
-      await depsRef.current.shared.append(payload);
-      setModal('none');
+      const { key } = await depsRef.current.shared.append(payload);
+      optimisticInsert(key, payload);
+      closeModal();
       reload();
     },
-    [reload],
+    [reload, closeModal, optimisticInsert],
+  );
+
+  const updateCombination = useCallback(
+    async (key: string, input: CombinationInput) => {
+      const payload = buildCombinationPayload(input) as SharedAppendValue;
+      await depsRef.current.shared.update(key, payload);
+      optimisticUpdate(key, payload);
+      closeModal();
+      reload();
+    },
+    [reload, closeModal, optimisticUpdate],
+  );
+
+  const updatePrompt = useCallback(
+    async (key: string, input: PromptInput) => {
+      const payload = buildPromptPayload(input) as SharedAppendValue;
+      await depsRef.current.shared.update(key, payload);
+      optimisticUpdate(key, payload);
+      closeModal();
+      reload();
+    },
+    [reload, closeModal, optimisticUpdate],
   );
 
   // ---- runner: estimate → confirm → submit → poll → publish → append ----
@@ -239,11 +310,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   }, []);
 
   const beginRun = useCallback(
-    async (combo: CombinationRow, prompt: PromptRow) => {
-      const ck = cellKey(combo.key, prompt.key);
+    async (row: BenchConfig, prompt: PromptRow) => {
+      const ck = cellKey(row.comboKey, row.config.id, prompt.key);
       // Best-effort dedup: a result already in the grid isn't re-run.
-      if (cellHasResult(results, combo.key, prompt.key)) return;
-      if (!resolveCell(combo, prompt)) return; // not runnable (no ecosystem prompt)
+      if (cellHasResult(results, row.comboKey, row.config.id, prompt.key)) return;
+      const matched = resolveCell(row.config, prompt);
+      if (!matched) return; // not runnable (no ecosystem prompt)
       if (!viewer) {
         depsRef.current.requestSignIn();
         return;
@@ -252,9 +324,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
         return;
       }
-      setRun(ck, { comboKey: combo.key, promptKey: prompt.key, ecosystem: resolveCell(combo, prompt)!.ecosystem, status: 'estimating', error: undefined });
+      setRun(ck, { comboKey: row.comboKey, configId: row.config.id, promptKey: prompt.key, ecosystem: matched.ecosystem, status: 'estimating', error: undefined });
       try {
-        const body = buildCellWorkflowBody(combo, prompt);
+        const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
         const snap = await depsRef.current.estimate(body);
         setRun(ck, { status: 'confirming', estimatedCost: snap.cost?.total });
       } catch (e) {
@@ -265,11 +337,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
 
   const confirmRun = useCallback(
-    async (combo: CombinationRow, prompt: PromptRow) => {
-      const ck = cellKey(combo.key, prompt.key);
+    async (row: BenchConfig, prompt: PromptRow) => {
+      const ck = cellKey(row.comboKey, row.config.id, prompt.key);
       setRun(ck, { status: 'submitting' });
       try {
-        const body = buildCellWorkflowBody(combo, prompt);
+        const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
         const first = await depsRef.current.submit(body);
         if (first.status === 'failed') {
           setRun(ck, { status: 'failed', error: first.error ?? 'Generation failed.' });
@@ -291,12 +363,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         }
         // Publish the generation's own scanned outputs, then append the result row.
         setRun(ck, { status: 'publishing' });
-        const { imageIds } = await depsRef.current.publishOutputs({ workflowId: terminal.workflowId });
-        const matched = resolveCell(combo, prompt);
+        const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
+        const matched = resolveCell(row.config, prompt);
         // Re-check dedup right before append (another viewer may have raced).
-        if (!cellHasResult(results, combo.key, prompt.key) && imageIds.length > 0) {
+        if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
           const payload = buildResultPayload({
-            comboKey: combo.key,
+            comboKey: row.comboKey,
+            configId: row.config.id,
             promptKey: prompt.key,
             ecosystem: matched?.ecosystem ?? '',
             imageIds,
@@ -312,8 +385,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [results, reload, setRun],
   );
 
-  const cancelRun = useCallback((combo: CombinationRow, prompt: PromptRow) => {
-    setRun(cellKey(combo.key, prompt.key), null);
+  const cancelRun = useCallback((row: BenchConfig, prompt: PromptRow) => {
+    setRun(cellKey(row.comboKey, row.config.id, prompt.key), null);
   }, [setRun]);
 
   const buzzTotal =
@@ -365,10 +438,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             viewerId={viewer?.id ?? null}
             loading={loading}
             error={error}
-            onSubmitNew={() => setModal('combo')}
+            onSubmitNew={() => setModal({ kind: 'combo' })}
             onVote={onVote}
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
+            onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
           />
         )}
 
@@ -380,10 +454,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             viewerId={viewer?.id ?? null}
             loading={loading}
             error={error}
-            onSubmitNew={() => setModal('prompt')}
+            onSubmitNew={() => setModal({ kind: 'prompt' })}
             onVote={onVote}
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
+            onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
           />
         )}
 
@@ -419,7 +494,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               </Alert>
             )}
             <ResultsGrid
-              combinations={includedCombos}
+              configs={includedConfigs}
               prompts={includedPrompts}
               results={results}
               runs={runs}
@@ -433,11 +508,44 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           </Stack>
         )}
 
-        <Modal opened={modal === 'combo'} onClose={() => setModal('none')} title="Submit a combination" size="lg">
-          <CombinationForm pickResource={deps.pickResource} onSubmit={submitCombination} onCancel={() => setModal('none')} />
+        <Modal
+          opened={modal.kind === 'combo'}
+          onClose={closeModal}
+          title={modal.kind === 'combo' && modal.edit ? 'Edit combination' : 'Submit a combination'}
+          size="lg"
+        >
+          {modal.kind === 'combo' && (
+            <CombinationForm
+              key={modal.edit?.key ?? 'new'}
+              pickResource={deps.pickResource}
+              initial={modal.edit ? combinationToInput(modal.edit) : undefined}
+              submitLabel={modal.edit ? 'Save changes' : undefined}
+              onSubmit={
+                modal.edit
+                  ? (input) => updateCombination(modal.edit!.key, input)
+                  : submitCombination
+              }
+              onCancel={closeModal}
+            />
+          )}
         </Modal>
-        <Modal opened={modal === 'prompt'} onClose={() => setModal('none')} title="Submit a prompt" size="lg">
-          <PromptForm onSubmit={submitPrompt} onCancel={() => setModal('none')} />
+        <Modal
+          opened={modal.kind === 'prompt'}
+          onClose={closeModal}
+          title={modal.kind === 'prompt' && modal.edit ? 'Edit prompt' : 'Submit a prompt'}
+          size="lg"
+        >
+          {modal.kind === 'prompt' && (
+            <PromptForm
+              key={modal.edit?.key ?? 'new'}
+              initial={modal.edit ? promptToInput(modal.edit) : undefined}
+              submitLabel={modal.edit ? 'Save changes' : undefined}
+              onSubmit={
+                modal.edit ? (input) => updatePrompt(modal.edit!.key, input) : submitPrompt
+              }
+              onCancel={closeModal}
+            />
+          )}
         </Modal>
       </div>
     </div>

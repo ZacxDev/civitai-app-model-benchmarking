@@ -20,21 +20,36 @@ import {
 import type { EcosystemPrompt, PromptParams } from '../types.js';
 import { validatePrompt, type PromptInput } from '../lib/benchmark.js';
 import { ECOSYSTEMS, ecosystemMeta } from '../lib/ecosystem.js';
+import { defaultParamsForEcosystem } from '../lib/gen-defaults.js';
 
 export interface PromptFormProps {
   onSubmit: (input: PromptInput) => Promise<void>;
   onCancel: () => void;
+  /** Prefill (edit-in-place): the stored prompt as a builder input. */
+  initial?: PromptInput;
+  /** Submit button label (defaults to "Submit prompt"; "Save changes" in edit mode). */
+  submitLabel?: string;
 }
 
-function emptyEntry(): EcosystemPrompt {
-  return { prompt: '', params: { negativePrompt: '', cfgScale: undefined, steps: undefined, seed: null } };
+/** A fresh entry for an ecosystem, params pre-filled with that family's on-site
+ * generator defaults (item 4). */
+function newEntry(eco: string): EcosystemPrompt {
+  return { prompt: '', params: defaultParamsForEcosystem(eco) };
 }
 
-export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.Element {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+/** Insertion-ordered entries from a prefill input (preserving map order). */
+function entriesFromInitial(initial?: PromptInput): Array<{ eco: string; value: EcosystemPrompt }> {
+  if (!initial) return [];
+  return Object.entries(initial.byEcosystem).map(([eco, value]) => ({ eco, value }));
+}
+
+export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptFormProps): React.JSX.Element {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
   // Insertion-ordered ecosystem entries.
-  const [entries, setEntries] = useState<Array<{ eco: string; value: EcosystemPrompt }>>([]);
+  const [entries, setEntries] = useState<Array<{ eco: string; value: EcosystemPrompt }>>(() =>
+    entriesFromInitial(initial),
+  );
   const [addEco, setAddEco] = useState<string>(ECOSYSTEMS[0].key);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -44,7 +59,7 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
 
   const addEntry = () => {
     if (usedEcos.has(addEco)) return;
-    setEntries((prev) => [...prev, { eco: addEco, value: emptyEntry() }]);
+    setEntries((prev) => [...prev, { eco: addEco, value: newEntry(addEco) }]);
     const next = ECOSYSTEMS.find((e) => e.key !== addEco && !usedEcos.has(e.key));
     if (next) setAddEco(next.key);
   };
@@ -161,6 +176,7 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
                   step={0.5}
                   value={value.params.cfgScale ?? null}
                   onChange={(v) => patchParams(eco, { cfgScale: v ?? undefined })}
+                  data-testid="prompt-cfg"
                 />
               </div>
               <div style={{ width: 110 }}>
@@ -170,6 +186,7 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
                   max={50}
                   value={value.params.steps ?? null}
                   onChange={(v) => patchParams(eco, { steps: v ?? undefined })}
+                  data-testid="prompt-steps"
                 />
               </div>
               <div style={{ width: 140 }}>
@@ -178,6 +195,7 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
                   value={value.params.sampler ?? ''}
                   onChange={(e) => patchParams(eco, { sampler: e.currentTarget.value || undefined })}
                   placeholder="Euler"
+                  data-testid="prompt-sampler"
                 />
               </div>
               <div style={{ width: 140 }}>
@@ -185,6 +203,38 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
                   label="Seed"
                   value={value.params.seed ?? null}
                   onChange={(v) => patchParams(eco, { seed: v })}
+                />
+              </div>
+              <div style={{ width: 110 }}>
+                <NumberInput
+                  label="Width"
+                  min={64}
+                  max={2048}
+                  step={64}
+                  value={value.params.width ?? null}
+                  onChange={(v) => patchParams(eco, { width: v ?? undefined })}
+                  data-testid="prompt-width"
+                />
+              </div>
+              <div style={{ width: 110 }}>
+                <NumberInput
+                  label="Height"
+                  min={64}
+                  max={2048}
+                  step={64}
+                  value={value.params.height ?? null}
+                  onChange={(v) => patchParams(eco, { height: v ?? undefined })}
+                  data-testid="prompt-height"
+                />
+              </div>
+              <div style={{ width: 110 }}>
+                <NumberInput
+                  label="Clip skip"
+                  min={1}
+                  max={12}
+                  value={value.params.clipSkip ?? null}
+                  onChange={(v) => patchParams(eco, { clipSkip: v ?? undefined })}
+                  data-testid="prompt-clip-skip"
                 />
               </div>
             </Group>
@@ -207,7 +257,7 @@ export function PromptForm({ onSubmit, onCancel }: PromptFormProps): React.JSX.E
           Cancel
         </Button>
         <Button onClick={submit} loading={busy} data-testid="prompt-submit">
-          Submit prompt
+          {submitLabel ?? 'Submit prompt'}
         </Button>
       </Group>
     </Stack>

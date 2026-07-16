@@ -1,18 +1,23 @@
-// Submit a checkpoint + weighted-LoRA COMBINATION. The checkpoint is picked
-// first (any base model); the LoRA picker is then family-scoped to the
-// checkpoint's baseModel (via `baseModelGroup`) so a pick stays in the
-// checkpoint's ecosystem. On submit the payload is built with the moderation
-// split (names in title/body, ids/weights in opaque data).
+// Submit a COMBINATION — a named GROUP of one-or-more model configs to benchmark
+// together (v2 data model). Each config = one checkpoint + its own weighted LoRA
+// stack (the atomic benchmarkable unit). Per config: the checkpoint is picked
+// first (any base model); the LoRA picker is then family-scoped to THAT
+// checkpoint's baseModel (via `baseModelGroup`) so a pick stays in the config's
+// ecosystem. At least one config with a checkpoint is required. On submit the
+// payload is built with the moderation split (names/labels in title/body,
+// ids/weights in opaque data). Reused in an EDIT mode (prefill via `initial`).
 
 import { useState } from 'react';
 import type { BlockResourceInfo, BlockResourcePickerType } from '@civitai/app-sdk/blocks';
 import { Alert, Button, Card, Group, Slider, Stack, TextInput, Textarea } from '@civitai/blocks-react/ui';
 
-import type { CheckpointRef, LoraRef } from '../types.js';
+import type { ModelConfig } from '../types.js';
 import {
   checkpointFromPick,
   loraFromPick,
+  MAX_CONFIGS,
   MAX_LORAS,
+  newConfig,
   validateCombination,
   type CombinationInput,
 } from '../lib/benchmark.js';
@@ -25,45 +30,72 @@ export interface CombinationFormProps {
   }) => Promise<BlockResourceInfo | null>;
   onSubmit: (input: CombinationInput) => Promise<void>;
   onCancel: () => void;
+  /** Prefill (edit-in-place): the stored combination as a builder input. */
+  initial?: CombinationInput;
+  /** Submit button label (defaults to "Submit combination"; "Save changes" in edit mode). */
+  submitLabel?: string;
 }
 
-export function CombinationForm({ pickResource, onSubmit, onCancel }: CombinationFormProps): React.JSX.Element {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [checkpoint, setCheckpoint] = useState<CheckpointRef | undefined>();
-  const [loras, setLoras] = useState<LoraRef[]>([]);
+export function CombinationForm({
+  pickResource,
+  onSubmit,
+  onCancel,
+  initial,
+  submitLabel,
+}: CombinationFormProps): React.JSX.Element {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [description, setDescription] = useState(initial?.description ?? '');
+  const [configs, setConfigs] = useState<ModelConfig[]>(() =>
+    initial && initial.configs.length > 0 ? initial.configs.map((c) => ({ ...c })) : [newConfig()],
+  );
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
-  const ecosystem = checkpoint ? ecosystemForBaseModel(checkpoint.baseModel) : undefined;
+  const patchConfig = (id: string, patch: Partial<ModelConfig>) =>
+    setConfigs((prev) => prev.map((cfg) => (cfg.id === id ? { ...cfg, ...patch } : cfg)));
 
-  const pickCheckpoint = async () => {
+  const addConfig = () =>
+    setConfigs((prev) => (prev.length >= MAX_CONFIGS ? prev : [...prev, newConfig()]));
+
+  const removeConfig = (id: string) =>
+    setConfigs((prev) => (prev.length <= 1 ? prev : prev.filter((cfg) => cfg.id !== id)));
+
+  const pickCheckpoint = async (id: string) => {
     const pick = await pickResource({ resourceType: 'Checkpoint' });
     if (pick) {
-      setCheckpoint(checkpointFromPick(pick));
-      // A checkpoint change can invalidate the LoRA family — clear the stack.
-      setLoras([]);
+      // A checkpoint change can invalidate the config's LoRA family — clear its stack.
+      patchConfig(id, { checkpoint: checkpointFromPick(pick), loras: [] });
     }
   };
 
-  const addLora = async () => {
-    if (!checkpoint || loras.length >= MAX_LORAS) return;
+  const addLora = async (cfg: ModelConfig) => {
+    if (!cfg.checkpoint || cfg.loras.length >= MAX_LORAS) return;
     const pick = await pickResource({
       resourceType: 'LORA',
-      baseModelGroup: ecosystemMeta(ecosystemForBaseModel(checkpoint.baseModel)).baseModelGroup,
+      baseModelGroup: ecosystemMeta(ecosystemForBaseModel(cfg.checkpoint.baseModel)).baseModelGroup,
     });
-    if (pick) setLoras((prev) => [...prev, loraFromPick(pick)]);
+    if (pick) patchConfig(cfg.id, { loras: [...cfg.loras, loraFromPick(pick)] });
   };
 
-  const setLoraWeight = (versionId: number, weight: number) =>
-    setLoras((prev) => prev.map((l) => (l.versionId === versionId ? { ...l, weight } : l)));
+  const setLoraWeight = (id: string, versionId: number, weight: number) =>
+    setConfigs((prev) =>
+      prev.map((cfg) =>
+        cfg.id === id
+          ? { ...cfg, loras: cfg.loras.map((l) => (l.versionId === versionId ? { ...l, weight } : l)) }
+          : cfg,
+      ),
+    );
 
-  const removeLora = (versionId: number) =>
-    setLoras((prev) => prev.filter((l) => l.versionId !== versionId));
+  const removeLora = (id: string, versionId: number) =>
+    setConfigs((prev) =>
+      prev.map((cfg) =>
+        cfg.id === id ? { ...cfg, loras: cfg.loras.filter((l) => l.versionId !== versionId) } : cfg,
+      ),
+    );
 
   const submit = async () => {
-    const input: CombinationInput = { name, description, checkpoint: checkpoint!, loras };
-    const errs = checkpoint ? validateCombination(input) : ['Pick a checkpoint.'];
+    const input: CombinationInput = { name, description, configs };
+    const errs = validateCombination(input);
     if (errs.length) {
       setErrors(errs);
       return;
@@ -86,79 +118,137 @@ export function CombinationForm({ pickResource, onSubmit, onCancel }: Combinatio
         required
         value={name}
         onChange={(e) => setName(e.currentTarget.value)}
-        placeholder="e.g. DreamShaper + Neon Glow"
+        placeholder="e.g. Realism showdown"
         data-testid="combo-name"
       />
       <Textarea
         label="Description"
         value={description}
         onChange={(e) => setDescription(e.currentTarget.value)}
-        placeholder="What makes this stack worth comparing?"
+        placeholder="What are these model setups being compared on?"
         data-testid="combo-description"
         minRows={2}
       />
 
-      <Card withBorder padding="md" data-testid="combo-checkpoint">
-        <Stack gap={8}>
-          <Group justify="space-between">
-            <strong>Checkpoint</strong>
-            <Button size="sm" variant="light" onClick={pickCheckpoint} data-testid="pick-checkpoint">
-              {checkpoint ? 'Change' : 'Pick checkpoint'}
-            </Button>
-          </Group>
-          {checkpoint ? (
-            <Group gap={8} data-testid="checkpoint-name">
-              <span>{checkpoint.modelName ?? `#${checkpoint.versionId}`}</span>
-              <span style={{ opacity: 0.6 }}>
-                {checkpoint.baseModel} → {ecosystemMeta(ecosystem!).label}
-              </span>
-            </Group>
-          ) : (
-            <span style={{ opacity: 0.6 }}>No checkpoint picked.</span>
-          )}
-        </Stack>
-      </Card>
+      <Group justify="space-between" align="center">
+        <strong>Model configs ({configs.length}/{MAX_CONFIGS})</strong>
+        <Button
+          size="sm"
+          variant="light"
+          onClick={addConfig}
+          disabled={configs.length >= MAX_CONFIGS}
+          data-testid="add-config"
+        >
+          Add model config
+        </Button>
+      </Group>
+      <span style={{ opacity: 0.6, fontSize: 12 }}>
+        Each config (one checkpoint + its LoRAs) is a benchmarkable row in the grid, grouped under this
+        combination.
+      </span>
 
-      <Card withBorder padding="md" data-testid="combo-loras">
-        <Stack gap={10}>
-          <Group justify="space-between">
-            <strong>LoRAs ({loras.length}/{MAX_LORAS})</strong>
-            <Button
-              size="sm"
-              variant="light"
-              onClick={addLora}
-              disabled={!checkpoint || loras.length >= MAX_LORAS}
-              data-testid="add-lora"
-            >
-              Add LoRA
-            </Button>
-          </Group>
-          {!checkpoint && <span style={{ opacity: 0.6 }}>Pick a checkpoint first.</span>}
-          {loras.map((l) => (
-            <Group key={l.versionId} justify="space-between" data-testid="lora-row" data-version-id={l.versionId}>
-              <span>{l.modelName ?? `#${l.versionId}`}</span>
-              <Group gap={8} align="center">
-                <div style={{ width: 140 }}>
-                  <Slider
-                    aria-label={`Weight for ${l.modelName ?? l.versionId}`}
-                    min={l.minStrength ?? -1}
-                    max={l.maxStrength ?? 2}
-                    step={0.05}
-                    value={l.weight}
-                    onChange={(v: number) => setLoraWeight(l.versionId, v)}
-                  />
-                </div>
-                <span style={{ width: 44, textAlign: 'right' }} data-testid="lora-weight">
-                  {l.weight.toFixed(2)}
-                </span>
-                <Button size="sm" variant="subtle" color="error" onClick={() => removeLora(l.versionId)}>
-                  Remove
+      {configs.map((cfg, i) => {
+        const eco = cfg.checkpoint ? ecosystemForBaseModel(cfg.checkpoint.baseModel) : undefined;
+        return (
+          <Card key={cfg.id} withBorder padding="md" data-testid="config-card" data-config-id={cfg.id}>
+            <Stack gap={10}>
+              <Group justify="space-between" align="center">
+                <strong style={{ fontSize: 13 }}>Config {i + 1}</strong>
+                {configs.length > 1 && (
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    color="error"
+                    onClick={() => removeConfig(cfg.id)}
+                    data-testid="remove-config"
+                  >
+                    Remove config
+                  </Button>
+                )}
+              </Group>
+
+              <TextInput
+                label="Config label (optional)"
+                value={cfg.label ?? ''}
+                onChange={(e) => patchConfig(cfg.id, { label: e.currentTarget.value || undefined })}
+                placeholder="e.g. base, or + detail LoRA"
+                data-testid="config-label"
+              />
+
+              <Group justify="space-between" align="center">
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Checkpoint</span>
+                <Button
+                  size="sm"
+                  variant="light"
+                  onClick={() => pickCheckpoint(cfg.id)}
+                  data-testid="pick-checkpoint"
+                >
+                  {cfg.checkpoint ? 'Change' : 'Pick checkpoint'}
                 </Button>
               </Group>
-            </Group>
-          ))}
-        </Stack>
-      </Card>
+              {cfg.checkpoint ? (
+                <Group gap={8} data-testid="checkpoint-name">
+                  <span>{cfg.checkpoint.modelName ?? `#${cfg.checkpoint.versionId}`}</span>
+                  <span style={{ opacity: 0.6 }}>
+                    {cfg.checkpoint.baseModel} → {ecosystemMeta(eco!).label}
+                  </span>
+                </Group>
+              ) : (
+                <span style={{ opacity: 0.6 }}>No checkpoint picked.</span>
+              )}
+
+              <Group justify="space-between" align="center">
+                <span style={{ fontSize: 13, fontWeight: 600 }}>
+                  LoRAs ({cfg.loras.length}/{MAX_LORAS})
+                </span>
+                <Button
+                  size="sm"
+                  variant="light"
+                  onClick={() => addLora(cfg)}
+                  disabled={!cfg.checkpoint || cfg.loras.length >= MAX_LORAS}
+                  data-testid="add-lora"
+                >
+                  Add LoRA
+                </Button>
+              </Group>
+              {!cfg.checkpoint && <span style={{ opacity: 0.6 }}>Pick a checkpoint first.</span>}
+              {cfg.loras.map((l) => (
+                <Group
+                  key={l.versionId}
+                  justify="space-between"
+                  data-testid="lora-row"
+                  data-version-id={l.versionId}
+                >
+                  <span>{l.modelName ?? `#${l.versionId}`}</span>
+                  <Group gap={8} align="center">
+                    <div style={{ width: 140 }}>
+                      <Slider
+                        aria-label={`Weight for ${l.modelName ?? l.versionId}`}
+                        min={l.minStrength ?? -1}
+                        max={l.maxStrength ?? 2}
+                        step={0.05}
+                        value={l.weight}
+                        onChange={(v: number) => setLoraWeight(cfg.id, l.versionId, v)}
+                      />
+                    </div>
+                    <span style={{ width: 44, textAlign: 'right' }} data-testid="lora-weight">
+                      {l.weight.toFixed(2)}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      color="error"
+                      onClick={() => removeLora(cfg.id, l.versionId)}
+                    >
+                      Remove
+                    </Button>
+                  </Group>
+                </Group>
+              ))}
+            </Stack>
+          </Card>
+        );
+      })}
 
       {errors.length > 0 && (
         <Alert color="error" data-testid="combo-errors">
@@ -175,7 +265,7 @@ export function CombinationForm({ pickResource, onSubmit, onCancel }: Combinatio
           Cancel
         </Button>
         <Button onClick={submit} loading={busy} data-testid="combo-submit">
-          Submit combination
+          {submitLabel ?? 'Submit combination'}
         </Button>
       </Group>
     </Stack>

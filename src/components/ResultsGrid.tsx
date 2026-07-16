@@ -1,35 +1,44 @@
-// The results matrix: included COMBINATIONS (rows) × included PROMPTS (columns).
-// Each cell shows that combo's published outputs on that prompt so models
-// compare side-by-side on identical prompts. The matrix layout itself is
-// HAND-ROLLED (a CSS grid with sticky headers) — it's too bespoke for the /ui
-// pack (per rule #112) — but every atom (Button/Badge/Card/Loader) and the
-// gated cell come from the pack, and it's styled off the pack's `--ci-*` vars +
-// the app palette so it reads as one system.
+// The results matrix: included CONFIGS (rows, grouped under their combination) ×
+// included PROMPTS (columns). Each row is one benchmarkable config (a checkpoint
+// + its LoRA stack); rows sharing a combination are visually grouped (a heavier
+// separator + the combo name on the first row of the group). Each cell shows
+// that config's published outputs on that prompt so models compare side-by-side
+// on identical prompts. The matrix layout itself is HAND-ROLLED (a CSS grid with
+// sticky headers) — too bespoke for the /ui pack (per rule #112) — but every atom
+// (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
+// the pack's `--ci-*` vars + the app palette so it reads as one system.
 
 import type { Palette } from '../theme.js';
-import type { CellRun, CombinationRow, PromptRow, ResultRow } from '../types.js';
-import { cellKey, indexResultsByCell, resolveCell } from '../lib/benchmark.js';
+import type { CellRun, PromptRow, ResultRow } from '../types.js';
+import {
+  cellKey,
+  configLabel,
+  indexResultsByCell,
+  resolveCell,
+  type BenchConfig,
+} from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
-import type { GatedCellComponent } from '../lib/generation-bridge.js';
+import type { GatedCellComponent } from './GatedCell.js';
 
 export interface ResultsGridProps {
-  combinations: CombinationRow[];
+  /** Flattened, benchmarkable config rows (grouped under their combination). */
+  configs: BenchConfig[];
   prompts: PromptRow[];
   results: ResultRow[];
   runs: Record<string, CellRun>;
   c: Palette;
   canRun: boolean;
   GatedCell: GatedCellComponent;
-  onRunCell: (combo: CombinationRow, prompt: PromptRow) => void;
-  onConfirmRun: (combo: CombinationRow, prompt: PromptRow) => void;
-  onCancelRun: (combo: CombinationRow, prompt: PromptRow) => void;
+  onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
+  onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
 const CELL_W = 200;
 const ROW_H_HEADER = 56;
 
 export function ResultsGrid({
-  combinations,
+  configs,
   prompts,
   results,
   runs,
@@ -42,16 +51,16 @@ export function ResultsGrid({
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
 
-  if (combinations.length === 0 || prompts.length === 0) {
+  if (configs.length === 0 || prompts.length === 0) {
     return (
       <div data-testid="grid-empty" style={{ opacity: 0.7, padding: 24, textAlign: 'center' }}>
-        The benchmark grid appears once there is at least one included combination AND one included
-        prompt. Submit and vote to fill the top slots.
+        The benchmark grid appears once there is at least one included combination (with a model config)
+        AND one included prompt. Submit and vote to fill the top slots.
       </div>
     );
   }
 
-  const gridTemplateColumns = `minmax(160px, 200px) repeat(${prompts.length}, ${CELL_W}px)`;
+  const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, ${CELL_W}px)`;
 
   return (
     <div data-testid="results-grid" style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: 10 }}>
@@ -79,11 +88,12 @@ export function ResultsGrid({
           </div>
         ))}
 
-        {/* Body: one row per combination */}
-        {combinations.map((combo) => (
+        {/* Body: one row per CONFIG (grouped under its combination) */}
+        {configs.map((row, i) => (
           <RowFragment
-            key={combo.key}
-            combo={combo}
+            key={`${row.comboKey}:${row.config.id}`}
+            row={row}
+            groupStart={i === 0 || configs[i - 1].comboKey !== row.comboKey}
             prompts={prompts}
             byCell={byCell}
             runs={runs}
@@ -118,26 +128,29 @@ function HeaderCorner({ c }: { c: Palette }): React.JSX.Element {
         boxSizing: 'border-box',
       }}
     >
-      combos × prompts
+      configs × prompts
     </div>
   );
 }
 
 interface RowProps {
-  combo: CombinationRow;
+  row: BenchConfig;
+  /** True when this is the first config of its combination group (heavier separator + combo name). */
+  groupStart: boolean;
   prompts: PromptRow[];
   byCell: Map<string, ResultRow>;
   runs: Record<string, CellRun>;
   c: Palette;
   canRun: boolean;
   GatedCell: GatedCellComponent;
-  onRunCell: (combo: CombinationRow, prompt: PromptRow) => void;
-  onConfirmRun: (combo: CombinationRow, prompt: PromptRow) => void;
-  onCancelRun: (combo: CombinationRow, prompt: PromptRow) => void;
+  onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
+  onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
 function RowFragment({
-  combo,
+  row,
+  groupStart,
   prompts,
   byCell,
   runs,
@@ -148,36 +161,48 @@ function RowFragment({
   onConfirmRun,
   onCancelRun,
 }: RowProps): React.JSX.Element {
-  const eco = ecosystemForBaseModel(combo.data.checkpoint.baseModel);
+  const eco = ecosystemForBaseModel(row.config.checkpoint.baseModel);
+  // A heavier top border opens each combination group; a light one between its configs.
+  const topBorder = groupStart ? `2px solid ${c.border}` : `1px solid ${c.border}`;
   return (
     <>
-      {/* Sticky row header (the combination) */}
+      {/* Sticky row header (the config, labeled under its combination) */}
       <div
         data-testid="grid-row-header"
+        data-combo-key={row.comboKey}
+        data-config-id={row.config.id}
         style={{
           position: 'sticky',
           left: 0,
           zIndex: 1,
           background: c.headerBg,
-          borderTop: `1px solid ${c.border}`,
+          borderTop: topBorder,
           padding: '8px 10px',
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ fontWeight: 600, fontSize: 13 }}>{combo.name || `#${combo.key}`}</div>
-        <div style={{ fontSize: 11, opacity: 0.65 }}>{ecosystemMeta(eco).label} · ▲ {combo.count}</div>
-        {combo.data.loras.length > 0 && (
-          <div style={{ fontSize: 11, opacity: 0.5 }}>+{combo.data.loras.length} LoRA</div>
+        {groupStart && (
+          <div style={{ fontSize: 11, opacity: 0.6, fontWeight: 600 }} data-testid="grid-group-combo">
+            {row.comboName || `#${row.comboKey}`} · ▲ {row.comboCount}
+          </div>
         )}
+        <div style={{ fontWeight: 600, fontSize: 13 }} data-testid="grid-config-label">
+          {configLabel(row)}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.65 }}>
+          {ecosystemMeta(eco).label}
+          {row.config.loras.length > 0 && ` · +${row.config.loras.length} LoRA`}
+        </div>
       </div>
 
       {prompts.map((prompt) => (
         <Cell
           key={prompt.key}
-          combo={combo}
+          row={row}
           prompt={prompt}
-          result={byCell.get(cellKey(combo.key, prompt.key)) ?? null}
-          run={runs[cellKey(combo.key, prompt.key)]}
+          result={byCell.get(cellKey(row.comboKey, row.config.id, prompt.key)) ?? null}
+          run={runs[cellKey(row.comboKey, row.config.id, prompt.key)]}
+          topBorder={topBorder}
           c={c}
           canRun={canRun}
           GatedCell={GatedCell}
@@ -191,23 +216,25 @@ function RowFragment({
 }
 
 interface CellProps {
-  combo: CombinationRow;
+  row: BenchConfig;
   prompt: PromptRow;
   result: ResultRow | null;
   run: CellRun | undefined;
+  topBorder: string;
   c: Palette;
   canRun: boolean;
   GatedCell: GatedCellComponent;
-  onRunCell: (combo: CombinationRow, prompt: PromptRow) => void;
-  onConfirmRun: (combo: CombinationRow, prompt: PromptRow) => void;
-  onCancelRun: (combo: CombinationRow, prompt: PromptRow) => void;
+  onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
+  onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
 function Cell({
-  combo,
+  row,
   prompt,
   result,
   run,
+  topBorder,
   c,
   canRun,
   GatedCell,
@@ -215,18 +242,19 @@ function Cell({
   onConfirmRun,
   onCancelRun,
 }: CellProps): React.JSX.Element {
-  const runnable = resolveCell(combo, prompt) !== null;
-  const eco = ecosystemForBaseModel(combo.data.checkpoint.baseModel);
+  const runnable = resolveCell(row.config, prompt) !== null;
+  const eco = ecosystemForBaseModel(row.config.checkpoint.baseModel);
+  const label = `${configLabel(row)} × ${prompt.name}`;
 
   const base: React.CSSProperties = {
-    borderTop: `1px solid ${c.border}`,
+    borderTop: topBorder,
     borderLeft: `1px solid ${c.border}`,
     padding: 8,
     minHeight: 110,
     boxSizing: 'border-box',
   };
 
-  // 1. Not runnable — the prompt has no entry for this combo's ecosystem.
+  // 1. Not runnable — the prompt has no entry for this config's ecosystem.
   if (!runnable) {
     return (
       <div data-testid="grid-cell" data-state="na" style={{ ...base, background: c.cellEmpty, opacity: 0.6 }}>
@@ -239,7 +267,7 @@ function Cell({
   if (result) {
     return (
       <div data-testid="grid-cell" data-state="result" style={base}>
-        <GatedCell imageIds={result.data.imageIds} label={`${combo.name} × ${prompt.name}`} />
+        <GatedCell imageIds={result.data.imageIds} label={label} />
       </div>
     );
   }
@@ -248,7 +276,7 @@ function Cell({
   if (run && run.status !== 'idle') {
     return (
       <div data-testid="grid-cell" data-state="running" style={base}>
-        <CellRunState run={run} onConfirm={() => onConfirmRun(combo, prompt)} onCancel={() => onCancelRun(combo, prompt)} />
+        <CellRunState run={run} onConfirm={() => onConfirmRun(row, prompt)} onCancel={() => onCancelRun(row, prompt)} />
       </div>
     );
   }
@@ -262,7 +290,7 @@ function Cell({
           type="button"
           data-testid="run-cell"
           disabled={!canRun}
-          onClick={() => onRunCell(combo, prompt)}
+          onClick={() => onRunCell(row, prompt)}
           style={{
             fontSize: 12,
             padding: '4px 10px',

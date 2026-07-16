@@ -16,6 +16,7 @@ import type {
   CombinationRow,
   EcosystemPrompt,
   LoraRef,
+  ModelConfig,
   PromptData,
   PromptParams,
   PromptRow,
@@ -35,6 +36,14 @@ export const DEFAULT_WEIGHT = 1;
 
 /** Default included-set size (top-N by votes) for combos AND prompts. */
 export const DEFAULT_TOP_N = 5;
+
+/** Max model configs a single combination can group. */
+export const MAX_CONFIGS = 8;
+
+/** The deterministic config id assigned to a migrated v1 combination's single
+ * config. A v1 result row (no `configId`) also resolves to this id, so a
+ * pre-existing v1 result still matches the migrated config. */
+export const V1_CONFIG_ID = 'v1cfg';
 
 let idCounter = 0;
 /** A process-local stable id (persistence-irrelevant local ids only). */
@@ -82,48 +91,88 @@ export function loraFromPick(pick: BlockResourceInfo): LoraRef {
   };
 }
 
+/** A fresh, empty model config (no checkpoint yet) with a minted stable id. */
+export function newConfig(): ModelConfig {
+  return { id: newId('cfg'), checkpoint: undefined as unknown as CheckpointRef, loras: [] };
+}
+
 // ---------------------------------------------------------------------------
 // Combination — build (publish) + parse (read) with the moderation split
 // ---------------------------------------------------------------------------
 
+/** The builder/edit input for a combination: a name/desc + ≥1 model configs. */
 export interface CombinationInput {
   name: string;
   description: string;
-  checkpoint: CheckpointRef;
-  loras: LoraRef[];
+  configs: ModelConfig[];
+}
+
+/** Config rows that actually carry a picked checkpoint (a half-filled row is dropped). */
+function filledConfigs(configs: ModelConfig[]): ModelConfig[] {
+  return configs.filter((cfg) => cfg && cfg.checkpoint && isNum(cfg.checkpoint.versionId));
 }
 
 /** Human-readable validation errors that block a combination submit. */
 export function validateCombination(input: CombinationInput): string[] {
   const errs: string[] = [];
   if (!input.name.trim()) errs.push('Give the combination a name.');
-  if (!input.checkpoint) errs.push('Pick a checkpoint.');
-  if (input.loras.length > MAX_LORAS) errs.push(`At most ${MAX_LORAS} LoRAs.`);
+  const filled = filledConfigs(input.configs);
+  if (filled.length === 0) errs.push('Add at least one model config (pick a checkpoint).');
+  if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} configs.`);
+  if (filled.some((cfg) => cfg.loras.length > MAX_LORAS)) errs.push(`At most ${MAX_LORAS} LoRAs per config.`);
   return errs;
+}
+
+/** Display names of every resource across all configs (for the moderated body). */
+function comboResourceNames(configs: ModelConfig[]): string[] {
+  const names: string[] = [];
+  for (const cfg of configs) {
+    if (cfg.checkpoint?.modelName) names.push(cfg.checkpoint.modelName);
+    for (const l of cfg.loras) if (l.modelName) names.push(l.modelName);
+    if (cfg.label?.trim()) names.push(cfg.label.trim());
+  }
+  return names;
 }
 
 /**
  * THE SPLIT for a combination:
- *  - `title`/`body`  → ALL user-visible TEXT (name + description + the resource
- *    display names) — moderated.
- *  - `data`          → the opaque structured combo (resource ids + weights +
- *    baseModel). Unmoderated; carries no visible text not ALSO in title/body.
+ *  - `title`/`body`  → ALL user-visible TEXT (name + description + every config's
+ *    label + resource display names) — moderated.
+ *  - `data`          → the opaque structured combo (v2 configs: resource ids +
+ *    weights + baseModel). Unmoderated; carries no visible text not ALSO in
+ *    title/body.
+ * Half-filled config rows (no checkpoint) are dropped; each config's LoRA stack
+ * is capped at MAX_LORAS and the config list at MAX_CONFIGS.
  */
 export function buildCombinationPayload(input: CombinationInput): SharedStorageValue {
-  const names = [
-    input.checkpoint.modelName,
-    ...input.loras.map((l) => l.modelName).filter(Boolean),
-  ].filter(Boolean) as string[];
+  const configs = filledConfigs(input.configs)
+    .slice(0, MAX_CONFIGS)
+    .map((cfg) => ({
+      id: cfg.id || newId('cfg'),
+      ...(cfg.label?.trim() ? { label: cfg.label.trim() } : {}),
+      checkpoint: cfg.checkpoint,
+      loras: cfg.loras.slice(0, MAX_LORAS),
+    }));
+  const names = comboResourceNames(configs);
   const bodyLines: string[] = [];
   if (input.description.trim()) bodyLines.push(input.description.trim());
   if (names.length) bodyLines.push(`Resources: ${names.join(', ')}`);
-  const data: CombinationData = {
-    v: 1,
-    kind: 'combination',
-    checkpoint: input.checkpoint,
-    loras: input.loras.slice(0, MAX_LORAS),
-  };
+  const data: CombinationData = { v: 2, kind: 'combination', configs };
   return { title: input.name.trim(), body: bodyLines.join('\n'), data };
+}
+
+/** Convert a parsed combination row back into a builder input (for edit-in-place). */
+export function combinationToInput(row: CombinationRow): CombinationInput {
+  return {
+    name: row.name,
+    description: row.description,
+    configs: row.data.configs.map((cfg) => ({
+      id: cfg.id,
+      label: cfg.label,
+      checkpoint: cfg.checkpoint,
+      loras: cfg.loras.map((l) => ({ ...l })),
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +216,15 @@ export function buildPromptPayload(input: PromptInput): SharedStorageValue {
   return { title: input.name.trim(), body: bodyLines.join('\n'), data };
 }
 
+/** Convert a parsed prompt row back into a builder input (for edit-in-place). */
+export function promptToInput(row: PromptRow): PromptInput {
+  const byEcosystem: Record<string, EcosystemPrompt> = {};
+  for (const [eco, entry] of Object.entries(row.data.byEcosystem)) {
+    byEcosystem[eco] = { prompt: entry.prompt, params: { ...entry.params } };
+  }
+  return { name: row.name, description: row.description, byEcosystem };
+}
+
 /** Keep only defined, in-shape param fields (drops undefined + unknown keys). */
 export function sanitizeParams(p: PromptParams | undefined): PromptParams {
   const out: PromptParams = {};
@@ -193,9 +251,9 @@ export function sanitizeParams(p: PromptParams | undefined): PromptParams {
  * the small refs (combo/prompt keys, ecosystem, published image ids).
  */
 export function buildResultPayload(data: Omit<ResultData, 'v' | 'kind'>): SharedStorageValue {
-  const full: ResultData = { v: 1, kind: 'result', ...data };
+  const full: ResultData = { v: 2, kind: 'result', ...data };
   return {
-    title: `result:${data.comboKey}×${data.promptKey}`,
+    title: `result:${data.comboKey}·${data.configId}×${data.promptKey}`,
     body: '',
     data: full,
   };
@@ -205,10 +263,11 @@ export function buildResultPayload(data: Omit<ResultData, 'v' | 'kind'>): Shared
 // Parse / migrate (defensive — `data` is app-owned but a forged row is possible)
 // ---------------------------------------------------------------------------
 
-/** The `data.kind` discriminant of a shared row, or null when unrecognised. */
+/** The `data.kind` discriminant of a shared row, or null when unrecognised.
+ * Accepts any known schema version (v1 legacy + v2 current). */
 export function recordKind(value: SharedStorageValue): RecordKind | null {
   const d = value.data as { kind?: unknown; v?: unknown } | undefined;
-  if (!d || d.v !== 1) return null;
+  if (!d || (d.v !== 1 && d.v !== 2)) return null;
   if (d.kind === 'combination' || d.kind === 'prompt' || d.kind === 'result') return d.kind;
   return null;
 }
@@ -220,20 +279,22 @@ export interface RawSharedItem {
   value: SharedStorageValue;
 }
 
-/** Parse a shared row into a typed CombinationRow, or null if it isn't one. */
-export function parseCombination(item: RawSharedItem): CombinationRow | null {
-  const d = item.value.data as Partial<CombinationData> | undefined;
-  if (!d || d.v !== 1 || d.kind !== 'combination') return null;
-  if (!d.checkpoint || !isNum(d.checkpoint.versionId) || !isNum(d.checkpoint.modelId)) return null;
-  const checkpoint: CheckpointRef = {
-    versionId: d.checkpoint.versionId,
-    modelId: d.checkpoint.modelId,
-    baseModel: typeof d.checkpoint.baseModel === 'string' ? d.checkpoint.baseModel : '',
-    modelName: d.checkpoint.modelName,
-    versionName: d.checkpoint.versionName,
+/** Defensive checkpoint parse — null when the required ids are missing/bad. */
+function parseCheckpoint(raw: Partial<CheckpointRef> | undefined | null): CheckpointRef | null {
+  if (!raw || !isNum(raw.versionId) || !isNum(raw.modelId)) return null;
+  return {
+    versionId: raw.versionId,
+    modelId: raw.modelId,
+    baseModel: typeof raw.baseModel === 'string' ? raw.baseModel : '',
+    modelName: raw.modelName,
+    versionName: raw.versionName,
   };
-  const loras: LoraRef[] = Array.isArray(d.loras)
-    ? d.loras
+}
+
+/** Defensive LoRA-stack parse — filters junk, re-clamps stale weights, caps length. */
+function parseLoras(raw: unknown): LoraRef[] {
+  return Array.isArray(raw)
+    ? raw
         .filter((l): l is LoraRef => !!l && isNum((l as LoraRef).versionId))
         .slice(0, MAX_LORAS)
         .map((l) => ({
@@ -249,13 +310,60 @@ export function parseCombination(item: RawSharedItem): CombinationRow | null {
           maxStrength: l.maxStrength,
         }))
     : [];
+}
+
+/** Defensive single-config parse (v2) — null when its checkpoint is unusable. */
+function parseConfig(raw: Partial<ModelConfig> | undefined | null): ModelConfig | null {
+  if (!raw) return null;
+  const checkpoint = parseCheckpoint(raw.checkpoint);
+  if (!checkpoint) return null;
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : newId('cfg'),
+    ...(typeof raw.label === 'string' && raw.label.trim() ? { label: raw.label } : {}),
+    checkpoint,
+    loras: parseLoras(raw.loras),
+  };
+}
+
+/**
+ * Parse a shared row into a typed CombinationRow, or null if it isn't one.
+ * 🔴 BACK-COMPAT: a v1 combination (`data.checkpoint` + `data.loras`) migrates
+ * on read into a single-config v2 (`configs:[{ id: V1_CONFIG_ID, checkpoint,
+ * loras }]`) so pre-existing prod rows keep working. A v2 row parses its
+ * `configs[]` defensively (junk configs dropped, length capped).
+ */
+export function parseCombination(item: RawSharedItem): CombinationRow | null {
+  const d = item.value.data as
+    | {
+        v?: number;
+        kind?: string;
+        configs?: Array<Partial<ModelConfig>>;
+        checkpoint?: Partial<CheckpointRef>;
+        loras?: unknown;
+      }
+    | undefined;
+  if (!d || d.kind !== 'combination') return null;
+
+  let configs: ModelConfig[] = [];
+  if (d.v === 2 && Array.isArray(d.configs)) {
+    configs = d.configs
+      .map((cfg) => parseConfig(cfg))
+      .filter((cfg): cfg is ModelConfig => cfg !== null)
+      .slice(0, MAX_CONFIGS);
+  } else if (d.v === 1) {
+    // Migrate the legacy single-checkpoint shape into one config.
+    const checkpoint = parseCheckpoint(d.checkpoint);
+    if (checkpoint) configs = [{ id: V1_CONFIG_ID, checkpoint, loras: parseLoras(d.loras) }];
+  }
+  if (configs.length === 0) return null;
+
   return {
     key: item.key,
     count: item.count,
     authorUserId: item.authorUserId,
     name: item.value.title ?? '',
     description: firstParagraph(item.value.body),
-    data: { v: 1, kind: 'combination', checkpoint, loras },
+    data: { v: 2, kind: 'combination', configs },
   };
 }
 
@@ -284,24 +392,87 @@ export function parsePrompt(item: RawSharedItem): PromptRow | null {
   };
 }
 
-/** Parse a shared row into a typed ResultRow, or null if it isn't one. */
+/**
+ * Parse a shared row into a typed ResultRow, or null if it isn't one.
+ * 🔴 BACK-COMPAT: a v1 result row (no `configId`) resolves to `V1_CONFIG_ID` —
+ * the same id the v1 combination migrates its single config to — so a
+ * pre-existing v1 result still lands in the right cell.
+ */
 export function parseResult(item: RawSharedItem): ResultRow | null {
-  const d = item.value.data as Partial<ResultData> | undefined;
-  if (!d || d.v !== 1 || d.kind !== 'result') return null;
+  const d = item.value.data as (Omit<Partial<ResultData>, 'v'> & { v?: number }) | undefined;
+  if (!d || (d.v !== 1 && d.v !== 2) || d.kind !== 'result') return null;
   if (typeof d.comboKey !== 'string' || typeof d.promptKey !== 'string') return null;
   const imageIds = Array.isArray(d.imageIds) ? d.imageIds.filter(isNum) : [];
+  const configId = typeof d.configId === 'string' && d.configId ? d.configId : V1_CONFIG_ID;
   return {
     key: item.key,
     authorUserId: item.authorUserId,
     data: {
-      v: 1,
+      v: 2,
       kind: 'result',
       comboKey: d.comboKey,
+      configId,
       promptKey: d.promptKey,
       ecosystem: typeof d.ecosystem === 'string' ? d.ecosystem : '',
       imageIds,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Optimistic reconcile — make a just-appended/updated row appear IMMEDIATELY,
+// surviving a read-after-write-lagged list() re-fetch (item 1).
+// ---------------------------------------------------------------------------
+
+export type PendingKind = 'insert' | 'update';
+
+/** A locally-applied optimistic mutation awaiting host confirmation. */
+export interface PendingOptimistic {
+  value: SharedStorageValue;
+  authorUserId: number;
+  kind: PendingKind;
+}
+
+function valuesEqual(a: SharedStorageValue, b: SharedStorageValue): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Merge a freshly-fetched shared list with locally-pending optimistic mutations,
+ * so a just-appended row (absent from a lagging list) still shows, and a
+ * just-edited row shows its new value until the host list catches up.
+ *  - `insert` pending: prepended while ABSENT from the fetch; dropped once present.
+ *  - `update` pending: overrides the fetched row's value while they DIFFER;
+ *    dropped once the fetch reflects the new value (or the row is gone).
+ * Returns the merged items (newest-first: surviving inserts, then the fetched
+ * list with update-overrides applied) AND the still-pending map to carry forward.
+ */
+export function reconcileOptimistic(
+  fetched: RawSharedItem[],
+  pending: Map<string, PendingOptimistic>,
+): { items: RawSharedItem[]; pending: Map<string, PendingOptimistic> } {
+  const byKey = new Map(fetched.map((i) => [i.key, i]));
+  const nextPending = new Map<string, PendingOptimistic>();
+  const inserts: RawSharedItem[] = [];
+  const overrides = new Map<string, SharedStorageValue>();
+  for (const [key, p] of pending) {
+    const hit = byKey.get(key);
+    if (p.kind === 'insert') {
+      if (hit) continue; // host confirmed the append — drop the optimistic row
+      inserts.push({ key, count: 0, authorUserId: p.authorUserId, value: p.value });
+      nextPending.set(key, p);
+    } else {
+      if (!hit) continue; // the row is gone — drop
+      if (valuesEqual(hit.value, p.value)) continue; // host caught up — drop
+      overrides.set(key, p.value);
+      nextPending.set(key, p);
+    }
+  }
+  const items = [
+    ...inserts,
+    ...fetched.map((i) => (overrides.has(i.key) ? { ...i, value: overrides.get(i.key)! } : i)),
+  ];
+  return { items, pending: nextPending };
 }
 
 /** Split a flat list of shared rows into typed combos / prompts / results. */
@@ -354,9 +525,9 @@ export function topByVotes<T extends { key: string; count: number }>(
 // Cell dedup — first-append-wins
 // ---------------------------------------------------------------------------
 
-/** Canonical key for a matrix cell (combo × prompt). */
-export function cellKey(comboKey: string, promptKey: string): string {
-  return `${comboKey}::${promptKey}`;
+/** Canonical key for a matrix cell (config-within-combo × prompt). */
+export function cellKey(comboKey: string, configId: string, promptKey: string): string {
+  return `${comboKey}::${configId}::${promptKey}`;
 }
 
 /**
@@ -369,7 +540,7 @@ export function indexResultsByCell(results: ResultRow[]): Map<string, ResultRow>
   const byCell = new Map<string, ResultRow>();
   // Sort by key so the lexically-smallest (earliest-minted) wins deterministically.
   for (const r of [...results].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
-    const ck = cellKey(r.data.comboKey, r.data.promptKey);
+    const ck = cellKey(r.data.comboKey, r.data.configId, r.data.promptKey);
     if (!byCell.has(ck)) byCell.set(ck, r);
   }
   return byCell;
@@ -379,9 +550,10 @@ export function indexResultsByCell(results: ResultRow[]): Map<string, ResultRow>
 export function cellHasResult(
   results: ResultRow[],
   comboKey: string,
+  configId: string,
   promptKey: string,
 ): boolean {
-  return indexResultsByCell(results).has(cellKey(comboKey, promptKey));
+  return indexResultsByCell(results).has(cellKey(comboKey, configId, promptKey));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,35 +561,39 @@ export function cellHasResult(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve which ecosystem a combination runs a prompt on + that ecosystem's
- * prompt entry. Returns null when the prompt has no entry for the combo's
+ * Resolve which ecosystem a config runs a prompt on + that ecosystem's prompt
+ * entry. Returns null when the prompt has no entry for the config's checkpoint
  * ecosystem (the cell is not runnable — skip/disable it).
  */
 export function resolveCell(
-  combo: CombinationRow,
+  config: ModelConfig,
   prompt: PromptRow,
 ): { ecosystem: string; entry: EcosystemPrompt } | null {
-  const m = matchPromptToCombo(combo.data.checkpoint.baseModel, prompt.data.byEcosystem);
+  const m = matchPromptToCombo(config.checkpoint.baseModel, prompt.data.byEcosystem);
   if (!m) return null;
   return { ecosystem: m.ecosystem, entry: m.entry as EcosystemPrompt };
 }
 
 /**
- * Build the `WorkflowBody` for running one (combo × prompt) cell. Deterministic:
- * the checkpoint `modelVersionId` + the LoRA stack as `additionalResources` +
- * the ecosystem's prompt string + its params + `sharedContentKey = combo.key`
+ * Build the `WorkflowBody` for running one (config × prompt) cell. Deterministic:
+ * the config checkpoint `modelVersionId` + its LoRA stack as `additionalResources`
+ * + the ecosystem's prompt string + its params + `sharedContentKey = comboKey`
  * (combo-submitter attribution). Throws when the cell isn't runnable (no prompt
- * entry for the combo's ecosystem) — callers gate with {@link resolveCell}.
+ * entry for the config's ecosystem) — callers gate with {@link resolveCell}.
  *
  * DISCOVERY-ONLY ids: `modelVersionId` / `additionalResources[].modelVersionId`
  * are hints; the server re-validates + re-prices every id at estimate/submit.
  */
-export function buildCellWorkflowBody(combo: CombinationRow, prompt: PromptRow): WorkflowBody {
-  const cell = resolveCell(combo, prompt);
+export function buildCellWorkflowBody(
+  config: ModelConfig,
+  comboKey: string,
+  prompt: PromptRow,
+): WorkflowBody {
+  const cell = resolveCell(config, prompt);
   if (!cell) {
     throw new Error(
       `Prompt "${prompt.name}" has no entry for the "${ecosystemForBaseModel(
-        combo.data.checkpoint.baseModel,
+        config.checkpoint.baseModel,
       )}" ecosystem — cell is not runnable.`,
     );
   }
@@ -435,15 +611,15 @@ export function buildCellWorkflowBody(combo: CombinationRow, prompt: PromptRow):
 
   const body: WorkflowBody = {
     kind: 'textToImage',
-    modelId: combo.data.checkpoint.modelId,
-    modelVersionId: combo.data.checkpoint.versionId,
+    modelId: config.checkpoint.modelId,
+    modelVersionId: config.checkpoint.versionId,
     params,
     // Combo-submitter attribution (G5): the generation runs "on behalf of" the
-    // combination's shared row.
-    sharedContentKey: combo.key,
+    // combination's shared row (still the combo key, NOT the config).
+    sharedContentKey: comboKey,
   };
 
-  const loras = combo.data.loras.slice(0, MAX_LORAS);
+  const loras = config.loras.slice(0, MAX_LORAS);
   if (loras.length > 0) {
     body.additionalResources = loras.map((l) => ({
       modelVersionId: l.versionId,
@@ -457,11 +633,57 @@ export function buildCellWorkflowBody(combo: CombinationRow, prompt: PromptRow):
   return body;
 }
 
-/** All modelVersion ids a combination references (checkpoint + LoRAs), deduped. */
+/** All modelVersion ids a combination references (every config's checkpoint + LoRAs), deduped. */
 export function comboVersionIds(combo: CombinationRow): number[] {
-  const ids = new Set<number>([combo.data.checkpoint.versionId]);
-  for (const l of combo.data.loras) ids.add(l.versionId);
+  const ids = new Set<number>();
+  for (const cfg of combo.data.configs) {
+    ids.add(cfg.checkpoint.versionId);
+    for (const l of cfg.loras) ids.add(l.versionId);
+  }
   return [...ids];
+}
+
+// ---------------------------------------------------------------------------
+// Config flattening — the grid rows are CONFIGS grouped under their combination
+// ---------------------------------------------------------------------------
+
+/** One benchmarkable grid row: a config carried with its parent combination's
+ * key/name/vote-count (so the grid can label + group configs under their combo,
+ * key results on the config, and attribute runs to the combo). */
+export interface BenchConfig {
+  comboKey: string;
+  comboName: string;
+  comboCount: number;
+  /** Index of this config within its combination (for a fallback label). */
+  configIndex: number;
+  config: ModelConfig;
+}
+
+/** Flatten included combinations into their benchmarkable config rows, in
+ * combination order then config order. */
+export function flattenConfigs(combos: CombinationRow[]): BenchConfig[] {
+  const rows: BenchConfig[] = [];
+  for (const combo of combos) {
+    combo.data.configs.forEach((config, configIndex) => {
+      rows.push({
+        comboKey: combo.key,
+        comboName: combo.name,
+        comboCount: combo.count,
+        configIndex,
+        config,
+      });
+    });
+  }
+  return rows;
+}
+
+/** A human label for a config row (author label → checkpoint name → "Config N"). */
+export function configLabel(row: BenchConfig): string {
+  return (
+    row.config.label?.trim() ||
+    row.config.checkpoint.modelName ||
+    `Config ${row.configIndex + 1}`
+  );
 }
 
 function isNum(v: unknown): v is number {

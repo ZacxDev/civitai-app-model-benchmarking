@@ -19,6 +19,8 @@ export interface PromptsViewProps {
   onVote: (key: string) => Promise<number> | void;
   onUnvote: (key: string) => Promise<number> | void;
   onRequireAuth: () => void;
+  /** Edit one of the viewer's OWN prompts (in-place). */
+  onEdit: (prompt: PromptRow) => void;
 }
 
 export function PromptsView({
@@ -32,6 +34,7 @@ export function PromptsView({
   onVote,
   onUnvote,
   onRequireAuth,
+  onEdit,
 }: PromptsViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="prompts-view">
@@ -62,6 +65,7 @@ export function PromptsView({
       <Stack gap={10} data-testid="prompts-list">
         {prompts.map((prompt) => {
           const ecos = Object.keys(prompt.data.byEcosystem);
+          const isOwn = viewerId != null && prompt.authorUserId === viewerId;
           return (
             <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
               <Group justify="space-between" align="flex-start">
@@ -83,15 +87,22 @@ export function PromptsView({
                     ))}
                   </Group>
                 </Stack>
-                <VoteButton
-                  count={prompt.count}
-                  voted={votedKeys.has(prompt.key)}
-                  disabled={viewerId == null}
-                  onVote={() => onVote(prompt.key)}
-                  onUnvote={() => onUnvote(prompt.key)}
-                  onRequireAuth={onRequireAuth}
-                  data-testid="prompt-vote"
-                />
+                <Group gap={6} align="center">
+                  {isOwn && (
+                    <Button size="sm" variant="subtle" onClick={() => onEdit(prompt)} data-testid="prompt-edit">
+                      Edit
+                    </Button>
+                  )}
+                  <VoteButton
+                    count={prompt.count}
+                    voted={votedKeys.has(prompt.key)}
+                    disabled={viewerId == null}
+                    onVote={() => onVote(prompt.key)}
+                    onUnvote={() => onUnvote(prompt.key)}
+                    onRequireAuth={onRequireAuth}
+                    data-testid="prompt-vote"
+                  />
+                </Group>
               </Group>
             </Card>
           );

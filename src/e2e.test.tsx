@@ -10,17 +10,22 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { Harness } from '@civitai/blocks-react/testing';
-import type { MockSharedSeed } from '@civitai/blocks-react/testing';
+import type { MockHostOptions, MockSharedSeed } from '@civitai/blocks-react/testing';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
-import { CKPT_SDXL, LORA_SDXL, fakeGatedCell, fakePublish, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, LORA_SDXL, immediateSleep } from './test-helpers.js';
 
 const comboSeed: CombinationData = {
-  v: 1,
+  v: 2,
   kind: 'combination',
-  checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
-  loras: [{ versionId: 2002, weight: 0.8, minStrength: 0, maxStrength: 1.5, modelName: 'Detail Tweaker' }],
+  configs: [
+    {
+      id: 'cfgSeed',
+      checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+      loras: [{ versionId: 2002, weight: 0.8, minStrength: 0, maxStrength: 1.5, modelName: 'Detail Tweaker' }],
+    },
+  ],
 };
 const promptSeed: PromptData = {
   v: 1,
@@ -28,12 +33,17 @@ const promptSeed: PromptData = {
   byEcosystem: { SDXL: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } } },
 };
 
-function renderApp(opts: { seed?: MockSharedSeed[]; deps?: Partial<AppDeps> } = {}) {
+// NOTE: publish + gated-image reads flow through the REAL SDK hooks
+// (usePublishGenerationOutputs / useGatedImages) → the mock host — NOT injected
+// fakes — so the tests exercise the real hook→message→host shapes and would
+// catch a shape drift. Only the poll clock + resource resolve are seamed.
+function renderApp(
+  opts: { seed?: MockSharedSeed[]; deps?: Partial<AppDeps>; harness?: Partial<MockHostOptions> } = {},
+) {
   const deps: Partial<AppDeps> = {
     resolveResources: async () => [],
     pollIntervalMs: 0,
     sleep: immediateSleep,
-    GatedCell: fakeGatedCell({ visibleIds: [501, 502] }),
     ...opts.deps,
   };
   render(
@@ -48,6 +58,7 @@ function renderApp(opts: { seed?: MockSharedSeed[]; deps?: Partial<AppDeps> } = 
       cannedPicks={{ Checkpoint: CKPT_SDXL, LORA: LORA_SDXL }}
       shared={{ seed: opts.seed ?? [] }}
       showLog={false}
+      {...opts.harness}
     >
       <App deps={deps} />
     </Harness>,
@@ -104,6 +115,58 @@ describe('submit a multi-ecosystem prompt', () => {
   });
 });
 
+describe('edit-in-place: the author edits their OWN combination', () => {
+  it('updates the row in place (same card, new name) — no duplicate, and only the author sees Edit', async () => {
+    renderApp({
+      seed: [
+        // authored by the viewer (id 99) → editable
+        { value: { title: 'Mine', body: '', data: comboSeed }, authorUserId: 99, voters: [1, 2, 3] },
+        // authored by someone else → NOT editable
+        { value: { title: 'Theirs', body: '', data: comboSeed }, authorUserId: 7, voters: [1] },
+      ],
+    });
+
+    const cards = await screen.findAllByTestId('combo-card');
+    expect(cards).toHaveLength(2);
+    const mine = cards.find((el) => within(el).queryByText('Mine'))!;
+    const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
+    // Author-scoped affordance: Edit only on the viewer's own row.
+    expect(within(mine).getByTestId('combo-edit')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('combo-edit')).toBeNull();
+
+    // Open the edit form (prefilled), rename, save.
+    await userEvent.click(within(mine).getByTestId('combo-edit'));
+    const form = await screen.findByTestId('combination-form');
+    const nameInput = within(form).getByTestId('combo-name') as HTMLInputElement;
+    expect(nameInput.value).toBe('Mine'); // prefilled from the stored row
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'Mine (edited)');
+    await userEvent.click(within(form).getByTestId('combo-submit'));
+
+    // Still exactly two cards (in-place update, NOT an append) and the name changed.
+    await waitFor(() => expect(screen.getByText('Mine (edited)')).toBeInTheDocument());
+    expect(screen.getAllByTestId('combo-card')).toHaveLength(2);
+    expect(screen.queryByText('Mine')).toBeNull();
+  });
+});
+
+describe('edit-in-place: the author edits their OWN prompt', () => {
+  it('updates the prompt row in place (same card, new name)', async () => {
+    renderApp({ seed: [{ value: { title: 'My Prompt', body: '[SDXL] x', data: promptSeed }, authorUserId: 99, voters: [1] }] });
+    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    const card = await screen.findByTestId('prompt-card');
+    await userEvent.click(within(card).getByTestId('prompt-edit'));
+    const form = await screen.findByTestId('prompt-form');
+    const nameInput = within(form).getByTestId('prompt-name') as HTMLInputElement;
+    expect(nameInput.value).toBe('My Prompt');
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'My Prompt v2');
+    await userEvent.click(within(form).getByTestId('prompt-submit'));
+    await waitFor(() => expect(screen.getByText('My Prompt v2')).toBeInTheDocument());
+    expect(screen.getAllByTestId('prompt-card')).toHaveLength(1);
+  });
+});
+
 describe('vote on a combination', () => {
   it('increments the vote count through the shared store', async () => {
     renderApp({ seed: [{ value: { title: 'Votable Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [] }] });
@@ -116,15 +179,13 @@ describe('vote on a combination', () => {
   });
 });
 
-describe('run a cell → publish → grid-append', () => {
-  it('estimates, confirms, publishes outputs, and appends a result row shown in the grid', async () => {
-    const publish = fakePublish([501, 502]);
+describe('run a cell → publish → grid-append (real publish + gated hooks via mock host)', () => {
+  it('estimates, confirms, publishes outputs (real hook → number[]), and renders the gated result', async () => {
     renderApp({
       seed: [
         { value: { title: 'Grid Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [1, 2] },
         { value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, authorUserId: 8, voters: [1, 2, 3] },
       ],
-      deps: { publishOutputs: publish.publishOutputs },
     });
 
     // go to the grid tab
@@ -140,10 +201,29 @@ describe('run a cell → publish → grid-append', () => {
     expect(screen.getByTestId('cell-confirm')).toHaveTextContent('12');
     await userEvent.click(confirm);
 
-    // publish is called with the workflowId, and a result appears in the grid
-    await waitFor(() => expect(publish.calls.length).toBe(1));
+    // The real usePublishGenerationOutputs().publish resolves the mock host's
+    // default published ids [9001, 9002]; the real useGatedImages().getImages
+    // then projects 9001 → visible (url) and 9002 → hidden (no url).
+    await waitFor(() => expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result'), { timeout: 3000 });
     const resultImgs = await screen.findAllByTestId('result-image', {}, { timeout: 3000 });
-    expect(resultImgs.length).toBe(2);
-    expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result');
+    expect(resultImgs).toHaveLength(1); // 9001 visible
+    expect(resultImgs[0]).toHaveAttribute('src', expect.stringContaining('gated-9001'));
+    expect(screen.getByTestId('result-hidden')).toBeInTheDocument(); // 9002 gated-hidden
+  });
+
+  it('surfaces a gated-read error (real useGatedImages error path)', async () => {
+    renderApp({
+      seed: [
+        { value: { title: 'Grid Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [1, 2] },
+        { value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, authorUserId: 8, voters: [1, 2, 3] },
+      ],
+      harness: { gatedImagesError: 'gated read failed' },
+    });
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+    await userEvent.click(within(grid).getByTestId('run-cell'));
+    await userEvent.click(await screen.findByTestId('cell-confirm-run'));
+    // The result row appends, but the gated cell reports the read failure.
+    expect(await screen.findByTestId('gated-error', {}, { timeout: 3000 })).toHaveTextContent('gated read failed');
   });
 });
