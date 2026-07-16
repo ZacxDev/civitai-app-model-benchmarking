@@ -1,0 +1,27 @@
+{
+  "name": "My App Block",
+  "blockId": "<slug>",
+  "version": "0.1.0",
+  "description": "A new Civitai App Block. Replace this with what it does.",
+  "minApiVersion": "0.5.0",
+  "contentRating": "g",
+  "renderMode": "iframe",
+  "trustTier": "internal",
+  "scopes": [
+    "models:read:self",
+    "user:read:self"
+  ],
+  "iframe": {
+    "src": "https://<slug>.apps.civitaic.com/",
+    "minHeight": 200,
+    "maxHeight": 1600,
+    "resizable": true
+  },
+  "targets": [
+    {
+      "slotId": "model.sidebar_top",
+      "priority": 100
+    }
+  ],
+  "publicSettingsKeys": []
+}
