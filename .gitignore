@@ -1,0 +1,8 @@
+node_modules
+dist
+*.log
+.DS_Store
+.env.local
+
+# Interim lockfile pins pre-0.30 versions (target ^0.25/^0.30 unpublished at build); regenerated on install.
+package-lock.json

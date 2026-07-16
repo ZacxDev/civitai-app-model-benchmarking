@@ -1,27 +1,31 @@
 {
-  "name": "My App Block",
-  "blockId": "<slug>",
+  "$schema": "https://civitai.com/schemas/app-block/v1.json",
+  "blockId": "model-benchmarking",
   "version": "0.1.0",
-  "description": "A new Civitai App Block. Replace this with what it does.",
-  "minApiVersion": "0.5.0",
-  "contentRating": "g",
-  "renderMode": "iframe",
-  "trustTier": "internal",
+  "name": "Model Benchmarking",
+  "type": "block",
+  "category": "generation",
   "scopes": [
-    "models:read:self",
-    "user:read:self"
+    "ai:write:budgeted",
+    "buzz:read:self",
+    "apps:storage:shared:read",
+    "apps:storage:shared:write"
   ],
-  "iframe": {
-    "src": "https://<slug>.apps.civitaic.com/",
-    "minHeight": 200,
-    "maxHeight": 1600,
-    "resizable": true
+  "page": {
+    "path": "/",
+    "title": "Model Benchmarking",
+    "icon": "chart-bar",
+    "buzzBudgetPerGen": 1000
   },
-  "targets": [
-    {
-      "slotId": "model.sidebar_top",
-      "priority": 100
-    }
-  ],
-  "publicSettingsKeys": []
+  "iframe": {
+    "minHeight": 640,
+    "maxHeight": 4000,
+    "resizable": true,
+    "sandbox": "allow-scripts allow-forms",
+    "src": "https://model-benchmarking.civit.ai/"
+  },
+  "contentRating": "pg13",
+  "minApiVersion": "1.0",
+  "buildCommand": "npm run build",
+  "outputDir": "dist"
 }

@@ -1,111 +1,129 @@
-# civitai-apps/starter — App Blocks v0 starter template
+# Model Benchmarking — Civitai App Block (Phase 1)
 
-This directory is the source material for the `civitai-apps/starter` repo on
-Forgejo. It is **not** consumed by Flux or any cluster automation — push the
-files here to Forgejo as a template repo, and `blocks.submitApp` will clone
-from it every time a new app is submitted.
+A full-page, first-party Civitai App Block: a **crowdsourced model-comparison grid**.
+Users submit + vote on checkpoint+LoRA **combinations** and multi-ecosystem
+**prompts**; the top-voted set forms a **combinations × prompts** matrix; anyone
+can **run** an included cell (matched to the combination's ecosystem) and the
+outputs publish to a **shared** grid so every model compares side-by-side on
+identical prompts.
 
-## Bootstrap (one-time, after the Forgejo IngressRoute lands)
+blockId `model-benchmarking` · version `0.1.0` · page app.
+
+## Product (Phase 1, crowdsourced)
+
+- **Submit + vote on combinations** — a checkpoint (any base model) + a
+  family-scoped weighted LoRA stack.
+- **Submit + vote on prompts** — each prompt is **multi-ecosystem**: one raw
+  prompt string + generation params per ecosystem (SDXL / Pony / Flux / …).
+- **Included set** — top-N by votes (combos → rows, prompts → cols), derived
+  client-side, N configurable in the Grid tab.
+- **Run a cell** — pick an included (combination × prompt) cell; the app maps the
+  combo's `baseModel` → ecosystem and runs the prompt's entry for that ecosystem;
+  best-effort dedup (a cell already in the grid isn't re-run); on completion the
+  scanned outputs are **published** and a `result` row is appended to the shared
+  grid so ALL viewers see them.
+- **Browse the grid** — combos (rows) × prompts (cols); each cell renders that
+  combo's outputs on that prompt via the **per-viewer gated read**.
+
+## Data model (shared storage; moderation split)
+
+One append-only shared list holds three record kinds, discriminated by
+`data.kind` and versioned (`data.v: 1`, defensively parsed/migrated on read):
+
+| kind | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |
+|---|---|---|
+| `combination` | name / description + resource display names | `{v:1, kind, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,min/maxStrength,…}]}` |
+| `prompt` | name / description + **every** per-ecosystem prompt + negative | `{v:1, kind, byEcosystem:{[eco]:{prompt, params}}}` |
+| `result` | terse machine label | `{v:1, kind, comboKey, promptKey, ecosystem, imageIds:number[]}` |
+
+The split mirrors the shipped `custom-generators` block: `collectVisibleText`-style
+sweeping of ALL user-authored text into the moderated `title`/`body`; `data` holds
+only ids/params/refs. See `src/lib/benchmark.ts`.
+
+## Ecosystem matching
+
+`src/lib/ecosystem.ts` maps a checkpoint's precise `baseModel` string (e.g.
+`"SDXL 1.0"`, `"Pony"`, `"Flux.1 D"`) to an ecosystem **group key** (the key a
+prompt's `byEcosystem` map is keyed by). SDXL-derivatives (Pony/Illustrious/NoobAI)
+win over the generic SDXL rule; unknowns fall to an explicit `Other` bucket. A
+cell is runnable iff the prompt has an entry for the combo's ecosystem — otherwise
+the grid cell is a disabled **N/A** with a clear note.
+
+## SDK hooks + scopes wired
+
+Targets **`@civitai/app-sdk@^0.25.0`** + **`@civitai/blocks-react@^0.30.0`**.
+
+| Hook | Use |
+|---|---|
+| `useResourcePicker` | pick checkpoint, then LoRAs family-scoped via `baseModelGroup` |
+| `useGenerationResources` | (rehydrate resource metadata) |
+| `useBuzzWorkflow` | estimate → submit → poll the cell run |
+| `useBuzzBalance` | show the wallet |
+| `useSharedStorage` | list / append / **vote / unvote** / (withdraw) combos, prompts, results |
+| `useRequestConsent` / `useRequestSignIn` | gate the consent-gated generation scope |
+| **`usePublishGenerationOutputs`** (0.30) | after a cell completes → `{ imageIds }` published to the grid |
+| **`useGatedImages`** (0.30) | per-viewer gated display data for grid cells (the moderation boundary) |
+
+**Declared scopes** (`block.manifest.json`, in lockstep with `src/scopes.ts`):
+`ai:write:budgeted`, `buzz:read:self`, `apps:storage:shared:read`,
+`apps:storage:shared:write`. No per-user KV (`apps:storage:read/write`) — Phase 1
+keeps no private per-viewer state.
+🔴 Whether `useGatedImages` needs an extra `images:read`-style scope is **unconfirmed**
+(0.30 was not on npm at build time); under-declaring fails closed, so add it from
+the 0.30 dist if the host rejects the gated read.
+
+## 🔴 The 0.30 bridge (`src/lib/generation-bridge.ts`)
+
+`@civitai/blocks-react@^0.30` (with `usePublishGenerationOutputs` + `useGatedImages`)
+was **not yet published** when this block was built (latest was 0.29). Those two
+hooks are accessed **defensively** off the package namespace behind normalized
+adapters + local types, so typecheck/test/build pass against 0.29 and the real
+hooks are picked up at runtime the moment 0.30 is installed — **no code change**.
+Both are also routed through the App's injectable `deps` bag, so the test suite
+drives the publish + gated-visible + gated-hidden paths with fakes and never
+touches the real hooks. **When 0.30 lands**: read
+`node_modules/@civitai/blocks-react/dist/hooks/usePublishGenerationOutputs.d.ts` +
+`useGatedImages.d.ts` and tighten the adapters in that one file to the real
+names/shapes.
+
+## UI (the `@civitai/blocks-react/ui` pack)
+
+All UI is built on the pack (Button/TextInput/Textarea/Card/Stack/Group/Alert/
+Loader/Badge/Modal/Slider/NumberInput/Select + `injectBlocksStyles`/`data-theme`).
+Two intentional exceptions, both on the pack's `--ci-*` CSS vars so they stay
+auto-themed in light + dark:
+
+- **`SegmentedControl`** (`src/components/SegmentedControl.tsx`) — the combos /
+  prompts / grid view-switcher. VENDORED because the pack lacks a view-switcher;
+  a companion PR adds it to `@civitai/blocks-react/ui`. Delete this file and
+  switch to the pack export once that PR ships (the API is identical by design).
+- **The results matrix** (`src/components/ResultsGrid.tsx`) + the **vote control**
+  (`src/components/VoteButton.tsx`) — hand-rolled: the matrix data-layout is too
+  bespoke for the pack (per the App Blocks component-pack rule), and the vote
+  control is an app-policy composition of the pack's Button + Badge.
+
+## Develop / validate
 
 ```bash
-# 1. Set up Forgejo auth (admin token from SOPS forgejo-admin secret).
-export FORGEJO_TOKEN=$(sops -d \
-  /home/zach/workspace/civit/datapacket-talos/clusters/production/apps/forgejo/secrets/forgejo-admin.enc.yaml \
-  | yq '.[] | select(.metadata.name=="forgejo-admin") | .stringData.password')
-
-# 2. Create the starter repo via the Forgejo API (idempotent on 422).
-curl -sS -X POST https://forgejo.civitaic.com/api/v1/orgs/civitai-apps/repos \
-  -u "civitai-admin:$FORGEJO_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "starter",
-    "description": "Civitai App Blocks v0 starter template — used by blocks.submitApp",
-    "private": true,
-    "auto_init": false,
-    "default_branch": "main",
-    "template": true
-  }'
-
-# 3. Push the contents of this directory to it.
-cd $(mktemp -d)
-git init -b main
-cp -r /home/zach/workspace/civit/datapacket-talos/claudedocs/app-blocks-starter-template/* .
-git add .
-git commit -m "initial starter"
-git remote add origin "https://civitai-admin:$FORGEJO_TOKEN@forgejo.civitaic.com/civitai-apps/starter.git"
-git push -u origin main
-
-# 4. Mark as template via the API (auto_template doesn't always stick at create-time).
-curl -sS -X PATCH https://forgejo.civitaic.com/api/v1/repos/civitai-apps/starter \
-  -u "civitai-admin:$FORGEJO_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "template": true }'
+npm install
+npm run dev:harness   # local mock host (seeded combos/prompts) at :5189
+npm run typecheck     # tsc --noEmit
+npm test              # vitest: node (pure logic) + jsdom (component/e2e)
+npm run build         # tsc + vite build → dist/
 ```
 
-## What's in the template
+## Deferred to Phase 2
 
-- `block.manifest.json` — minimal valid manifest. The webhook handler
-  validates it against `BlockManifestValidator`; any field outside the
-  v0 contract is rejected at the build gate.
-- `package.json` — pinned SDK + dev tooling versions.
-- `pnpm-lock.yaml` — committed so `pnpm install --frozen-lockfile` is
-  reproducible.
-- `vite.config.ts` — base `/`, build to `dist/`, no external dependencies.
-- `tsconfig.json`, `index.html`, `src/main.tsx`, `src/App.tsx` — minimum
-  React 19 + TS stub.
-- `nginx.conf` — serves `dist/` + a `/healthz` endpoint for the K8s
-  probes. CSP `frame-ancestors` locked to civitai.com / www.civitai.com /
-  civitaic.com.
-- `Dockerfile` — multi-stage: pnpm build → nginx:1.27-alpine + assets.
-
-## Substitution markers
-
-The starter intentionally leaves `<slug>` as a literal in `block.manifest.json`
-(blockId, iframe.src). The webhook validates that `blockId === <repo-slug>`
-and `iframe.src === https://<slug>.apps.civitaic.com/`, so the developer
-**must** rename both before pushing. The Forgejo repo description shown in
-`blocks.submitApp` mentions this step.
-
-## Updating the starter
-
-Push a new commit to `civitai-apps/starter` on Forgejo (or `main` here +
-manually push). Newly submitted apps get the latest content; existing apps
-are unaffected (their content is independent).
-
-## Open dependency: SDK packages not on npm
-
-`package.json` declares `@civitai/app-sdk@0.5.0` and
-`@civitai/blocks-react@0.3.0` but those are currently **vendored as tgz**
-inside `civitai-block-generate-from-model/vendor/` (per SKILL.md gotcha #12).
-Until they're published to a registry Tekton can reach, `pnpm install` in
-the Tekton build task fails with `ENOTFOUND` / `404` for those scopes.
-
-Three v0 options to unblock:
-
-1. **Publish to npm** — fastest if the team is OK with public packages
-   under the `@civitai/*` scope. Requires npm publish creds in
-   civitai-app-starters CI.
-2. **Private registry** — stand up Verdaccio in-cluster on dp-1, point
-   pnpm at it via a `.npmrc` mounted in the build task workspace.
-   ~1 day of work; W2-v1 nice-to-have.
-3. **Vendor in-repo at first push** — for v0 starter clones, copy the
-   `.tgz` from the existing hackathon block into the new repo's
-   `vendor/` and set `package.json` deps to `file:./vendor/...`.
-   Lowest-friction but every app has to update tgz manually on SDK
-   bumps. Acceptable for civitai-team-only v0.
-
-Until one of these lands, **`blocks.submitApp` will create the repo but
-the first push will fail at the Tekton build step**. The Forgejo commit
-status surfaces this clearly. Track in W2-v1 alongside the rest of the
-external-developer polish.
-
-The Phase 7 hackathon migration (`generate-from-model`) does NOT hit this
-because its repo already vendors the tgz files in `vendor/`. The starter
-just needs the same treatment before any non-vendoring app submits.
-
-## Initial `pnpm-lock.yaml`
-
-Run `pnpm install` once locally (with vendored tgz copied in if you've
-gone option 3) and commit the resulting `pnpm-lock.yaml` before pushing
-the starter to Forgejo — Tekton uses `--frozen-lockfile` so the absence
-of a lock file is a build failure, not a slow first install.
+- **Vote-state persistence** across reloads — the host `list()` returns a vote
+  `count` but not "did THIS viewer vote"; Phase 1 tracks the viewer's votes
+  optimistically in memory (idempotent server-side). A host per-viewer vote read
+  would make the ▲ state durable.
+- **Cross-viewer live run coordination** — dedup is best-effort first-append-wins
+  (two racing runners can both publish; the earliest key wins on read). A host
+  lock / claim would make generate-once strict.
+- **Resource rehydrate on browse** — combos store display names in the moderated
+  body already; `useGenerationResources` wiring exists but a full metadata refresh
+  on the grid is deferred.
+- **Result curation / re-run** — no owner controls to hide/replace a published
+  cell yet; withdraw exists on the shared row but isn't surfaced.
+- Richer per-ecosystem param editing (samplers dropdown, dimensions presets).
