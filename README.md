@@ -8,8 +8,12 @@ community list you can **vote** on, the Buzz **generation-workflow** bridge, the
 against the *published* SDK packages, with a mock host so you can run it in two
 commands.
 
-🔗 **Live:** [model-benchmarking.civit.ai](https://model-benchmarking.civit.ai) ·
-[civitai.com/apps/run/model-benchmarking](https://civitai.com/apps/run/model-benchmarking)
+🔗 **Live:** [civitai.com/apps/run/model-benchmarking](https://civitai.com/apps/run/model-benchmarking)
+
+> The app is served from its own origin (`model-benchmarking.civit.ai`) purely to be
+> **embedded** by the Civitai page host — open it via the `/apps/run/…` link above, not
+> the bare subdomain (loaded on its own it has no host to hand it a viewer/session, so it
+> just shows a loading state). See [Handling direct traffic](#handling-direct-traffic).
 
 > **This is a reference/example, not the canonical deployment.** It demonstrates
 > the App Blocks platform seams; the production app is deployed separately. An App
@@ -157,6 +161,27 @@ See the parse/migrate tests in [`lib/benchmark.test.ts`](src/lib/benchmark.test.
 (Pony / Illustrious / NoobAI) win over the generic SDXL rule; unknowns fall to an
 explicit `Other` bucket. A cell is runnable **iff** the prompt has an entry for the
 combo's ecosystem.
+
+## Handling direct traffic
+
+An App Block is served from its **own origin** (`<slug>.civit.ai`) but is designed to run
+**embedded** inside the Civitai page host at `civitai.com/apps/run/<slug>`. The host is what
+hands the block its runtime context — the viewer, a scoped session token, and the theme —
+over a `postMessage` `BLOCK_INIT` handshake (see `useBlockContext()`).
+
+So if you open the bare `<slug>.civit.ai` URL **directly** (a top-level navigation, not
+inside the host iframe), there is no parent host to send `BLOCK_INIT`, `ready` never flips,
+and the app sits on its loading state forever. That's expected — the subdomain is an *embed
+origin*, not a user destination. **Always share/link the `civitai.com/apps/run/<slug>`
+route**, which loads the block through the host.
+
+If you want a bare-subdomain visit to degrade gracefully (redirect to the host route, or show
+an "Open on Civitai" landing) rather than hang on a loading spinner, that's a
+**platform-level** concern, not something an individual block should hand-roll — a top-level
+load is distinguishable both at the edge (the `Sec-Fetch-Dest: document` request header on a
+direct navigation vs `iframe`/`nested-document` when the host embeds it) and in the client
+(`window.self === window.top`). This reference intentionally keeps the block itself simple and
+leaves that to the platform.
 
 ## UI — the `@civitai/blocks-react/ui` component pack
 
