@@ -83,11 +83,10 @@ function promptRow(over: Partial<PromptRow> = {}): PromptRow {
     name: 'Portrait',
     description: '',
     data: {
-      v: 1,
+      v: 3,
       kind: 'prompt',
-      byEcosystem: {
-        SDXL: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30, sampler: 'Euler', negativePrompt: 'blurry' } },
-      },
+      default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30, sampler: 'Euler', negativePrompt: 'blurry' } },
+      overrides: { Pony: { prompt: 'score_9 portrait', params: { cfgScale: 7 } } },
     },
     ...over,
   };
@@ -176,36 +175,51 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
   });
 });
 
-describe('prompt payload (moderation split)', () => {
-  it('concatenates every ecosystem prompt string into the moderated body', () => {
+describe('prompt payload (v3 default + overrides, moderation split)', () => {
+  it('sweeps the default AND every override prompt string (+ negatives) into the moderated body', () => {
     const v = buildPromptPayload({
       name: 'Portrait',
       description: 'desc',
-      byEcosystem: {
-        SDXL: { prompt: 'sdxl prompt', params: { negativePrompt: 'sdxl neg' } },
-        Pony: { prompt: 'pony prompt', params: {} },
+      default: { prompt: 'default prompt', params: { negativePrompt: 'default neg' } },
+      overrides: {
+        Pony: { prompt: 'pony prompt', params: { negativePrompt: 'pony neg' } },
+        Flux: { params: { cfgScale: 3.5 } }, // params-only override (no prompt)
       },
     });
     expect(v.title).toBe('Portrait');
-    expect(v.body).toContain('sdxl prompt');
+    expect(v.body).toContain('default prompt');
+    expect(v.body).toContain('default neg'); // default negative moderated
     expect(v.body).toContain('pony prompt');
-    expect(v.body).toContain('sdxl neg'); // negatives are moderated too
-    const data = v.data as { kind: string; byEcosystem: Record<string, unknown> };
+    expect(v.body).toContain('pony neg'); // override negatives moderated too
+    const data = v.data as { v: number; kind: string; default: { prompt: string }; overrides: Record<string, unknown> };
+    expect(data.v).toBe(3);
     expect(data.kind).toBe('prompt');
-    expect(Object.keys(data.byEcosystem).sort()).toEqual(['Pony', 'SDXL']);
+    expect(data.default.prompt).toBe('default prompt');
+    expect(Object.keys(data.overrides).sort()).toEqual(['Flux', 'Pony']);
   });
-  it('drops empty-string ecosystems', () => {
+
+  it('drops an empty override (no prompt, no params) and trims the default prompt', () => {
     const v = buildPromptPayload({
       name: 'x',
       description: '',
-      byEcosystem: { SDXL: { prompt: 'ok', params: {} }, Pony: { prompt: '   ', params: {} } },
+      default: { prompt: '  ok  ', params: {} },
+      overrides: { Pony: { prompt: '   ', params: {} }, SDXL: { prompt: 'sdxl', params: {} } },
     });
-    const data = v.data as { byEcosystem: Record<string, unknown> };
-    expect(Object.keys(data.byEcosystem)).toEqual(['SDXL']);
+    const data = v.data as { default: { prompt: string }; overrides?: Record<string, unknown> };
+    expect(data.default.prompt).toBe('ok');
+    expect(Object.keys(data.overrides ?? {})).toEqual(['SDXL']); // Pony (empty) dropped
   });
-  it('requires at least one non-empty ecosystem', () => {
-    expect(validatePrompt({ name: 'x', description: '', byEcosystem: {} }))
-      .toContain('Add a prompt for at least one ecosystem.');
+
+  it('omits `overrides` entirely when there are none', () => {
+    const v = buildPromptPayload({ name: 'x', description: '', default: { prompt: 'ok', params: {} }, overrides: {} });
+    expect((v.data as { overrides?: unknown }).overrides).toBeUndefined();
+  });
+
+  it('requires a non-empty default prompt', () => {
+    expect(validatePrompt({ name: 'x', description: '', default: { prompt: '  ', params: {} }, overrides: {} }))
+      .toContain('Add a default prompt (it applies to every ecosystem).');
+    expect(validatePrompt({ name: 'x', description: '', default: { prompt: 'ok', params: {} }, overrides: {} }))
+      .toHaveLength(0);
   });
 });
 
@@ -258,13 +272,63 @@ describe('parse / migrate (defensive)', () => {
     expect(parseResult(raw({ v: 1, kind: 'prompt' }))).toBeNull();
   });
 
-  it('parses a prompt and skips blank ecosystem entries', () => {
-    const p = parsePrompt(raw({ v: 1, kind: 'prompt', byEcosystem: { SDXL: { prompt: 'x', params: {} }, Pony: { prompt: '', params: {} } } }));
+  it('parses a v3 prompt (default + overrides) and drops empty overrides', () => {
+    const p = parsePrompt(
+      raw({
+        v: 3,
+        kind: 'prompt',
+        default: { prompt: 'base', params: { cfgScale: 6 } },
+        overrides: { Pony: { prompt: 'pony', params: {} }, Flux: { prompt: '  ', params: {} } },
+      }),
+    );
     expect(p).not.toBeNull();
-    expect(Object.keys(p!.data.byEcosystem)).toEqual(['SDXL']);
+    expect(p!.data.v).toBe(3);
+    expect(p!.data.default.prompt).toBe('base');
+    expect(Object.keys(p!.data.overrides ?? {})).toEqual(['Pony']); // Flux (empty) dropped
   });
 
-  it('returns null for a prompt with no usable ecosystem', () => {
+  it('returns null for a v3 prompt with no usable default prompt', () => {
+    expect(parsePrompt(raw({ v: 3, kind: 'prompt', default: { prompt: '  ', params: {} } }))).toBeNull();
+    expect(parsePrompt(raw({ v: 3, kind: 'prompt' }))).toBeNull();
+  });
+
+  it('🔴 MIGRATES a legacy v1 byEcosystem prompt → v3 default + overrides (SDXL preferred as default)', () => {
+    const p = parsePrompt(
+      raw({
+        v: 1,
+        kind: 'prompt',
+        byEcosystem: {
+          Pony: { prompt: 'pony prompt', params: { cfgScale: 7 } },
+          SDXL: { prompt: 'sdxl prompt', params: { cfgScale: 5 } },
+          Flux: { prompt: 'flux prompt', params: { cfgScale: 3.5 } },
+        },
+      }),
+    );
+    expect(p).not.toBeNull();
+    expect(p!.data.v).toBe(3);
+    // SDXL is present → chosen as the default; the rest become overrides.
+    expect(p!.data.default.prompt).toBe('sdxl prompt');
+    expect(Object.keys(p!.data.overrides ?? {}).sort()).toEqual(['Flux', 'Pony']);
+    expect(p!.data.overrides!.Pony.prompt).toBe('pony prompt');
+    expect(p!.data.overrides!.Flux.params!.cfgScale).toBe(3.5);
+  });
+
+  it('🔴 MIGRATES a v1 prompt with NO SDXL entry using the first entry as default', () => {
+    const p = parsePrompt(
+      raw({ v: 1, kind: 'prompt', byEcosystem: { Flux: { prompt: 'flux', params: {} }, Pony: { prompt: 'pony', params: {} } } }),
+    );
+    expect(p!.data.default.prompt).toBe('flux'); // first insertion-ordered entry
+    expect(Object.keys(p!.data.overrides ?? {})).toEqual(['Pony']);
+  });
+
+  it('🔴 collapses identical v1 entries into just the default (no redundant overrides)', () => {
+    const same = { prompt: 'same', params: { cfgScale: 7, steps: 30 } };
+    const p = parsePrompt(raw({ v: 1, kind: 'prompt', byEcosystem: { SDXL: same, Pony: same } }));
+    expect(p!.data.default.prompt).toBe('same');
+    expect(p!.data.overrides).toBeUndefined(); // Pony identical to default → collapsed
+  });
+
+  it('returns null for a v1 prompt with no usable ecosystem', () => {
     expect(parsePrompt(raw({ v: 1, kind: 'prompt', byEcosystem: {} }))).toBeNull();
   });
 
@@ -287,7 +351,7 @@ describe('splitRows', () => {
   it('splits a mixed list into typed combos / prompts / results', () => {
     const items: RawSharedItem[] = [
       { key: 'c1', count: 1, authorUserId: 1, value: buildCombinationPayload({ name: 'C', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }) },
-      { key: 'p1', count: 2, authorUserId: 1, value: buildPromptPayload({ name: 'P', description: '', byEcosystem: { SDXL: { prompt: 'x', params: {} } } }) },
+      { key: 'p1', count: 2, authorUserId: 1, value: buildPromptPayload({ name: 'P', description: '', default: { prompt: 'x', params: {} }, overrides: {} }) },
       { key: 'r1', count: 0, authorUserId: 1, value: buildResultPayload({ comboKey: 'c1', configId: 'a', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [7] }) },
       { key: 'junk', count: 0, authorUserId: 1, value: { title: 'x', body: '', data: { hello: true } } },
     ];
@@ -354,20 +418,62 @@ describe('cell dedup (first-append-wins, keyed on config)', () => {
   });
 });
 
-describe('resolveCell + buildCellWorkflowBody (per config)', () => {
-  it('resolves the matched ecosystem entry for a config', () => {
-    const cell = resolveCell(sdxlConfig(), promptRow());
-    expect(cell).not.toBeNull();
-    expect(cell!.ecosystem).toBe('SDXL');
-    expect(cell!.entry.prompt).toBe('cyberpunk portrait');
+describe('resolveCell + buildCellWorkflowBody (per config, default + overrides)', () => {
+  it('resolves a non-overridden config to the DEFAULT prompt + params', () => {
+    const cell = resolveCell(sdxlConfig(), promptRow()); // SDXL has no override
+    expect(cell.ecosystem).toBe('SDXL');
+    expect(cell.entry.prompt).toBe('cyberpunk portrait'); // the default
+    expect(cell.entry.params.cfgScale).toBe(5); // default params
   });
 
-  it('returns null when the prompt has no entry for the config ecosystem', () => {
+  it('🔴 a default-only prompt runs on EVERY ecosystem (no more N/A cells)', () => {
+    const defaultOnly = promptRow({
+      data: { v: 3, kind: 'prompt', default: { prompt: 'universal', params: { steps: 20 } } },
+    });
+    for (const baseModel of ['SDXL 1.0', 'Flux.1 D', 'Pony', 'SD 1.5', 'NoobAI', 'SomeFutureModel']) {
+      const cfg = sdxlConfig({ checkpoint: { versionId: 9, modelId: 9, baseModel } });
+      const cell = resolveCell(cfg, defaultOnly);
+      expect(cell.entry.prompt).toBe('universal');
+      expect(cell.entry.params.steps).toBe(20);
+    }
+  });
+
+  it('🔴 an override applies ONLY for its ecosystem; params merge over the default', () => {
+    // Pony config → the Pony override prompt; cfgScale overridden to 7, other
+    // default params (steps 30, sampler) preserved via the merge.
+    const pony = sdxlConfig({ checkpoint: { versionId: 4, modelId: 4, baseModel: 'Pony' } });
+    const cellPony = resolveCell(pony, promptRow());
+    expect(cellPony.ecosystem).toBe('Pony');
+    expect(cellPony.entry.prompt).toBe('score_9 portrait'); // the override prompt
+    expect(cellPony.entry.params.cfgScale).toBe(7); // overridden
+    expect(cellPony.entry.params.steps).toBe(30); // default preserved through the merge
+    expect(cellPony.entry.params.sampler).toBe('Euler'); // default preserved
+
+    // A DIFFERENT ecosystem (Flux) is untouched by the Pony override → default.
     const flux = sdxlConfig({ checkpoint: { versionId: 3, modelId: 3, baseModel: 'Flux.1 D' } });
-    expect(resolveCell(flux, promptRow())).toBeNull();
+    const cellFlux = resolveCell(flux, promptRow());
+    expect(cellFlux.ecosystem).toBe('Flux');
+    expect(cellFlux.entry.prompt).toBe('cyberpunk portrait'); // the default, not the Pony override
+    expect(cellFlux.entry.params.cfgScale).toBe(5);
   });
 
-  it('builds the WorkflowBody from the config with combo-key attribution', () => {
+  it('a params-only override keeps the default prompt but patches params', () => {
+    const p = promptRow({
+      data: {
+        v: 3,
+        kind: 'prompt',
+        default: { prompt: 'base', params: { cfgScale: 5, steps: 30 } },
+        overrides: { Flux: { params: { cfgScale: 3.5 } } },
+      },
+    });
+    const flux = sdxlConfig({ checkpoint: { versionId: 3, modelId: 3, baseModel: 'Flux.1 D' } });
+    const cell = resolveCell(flux, p);
+    expect(cell.entry.prompt).toBe('base'); // default prompt (no prompt override)
+    expect(cell.entry.params.cfgScale).toBe(3.5); // patched
+    expect(cell.entry.params.steps).toBe(30); // default retained
+  });
+
+  it('builds the WorkflowBody from the config with combo-key attribution (default resolution)', () => {
     const body = buildCellWorkflowBody(sdxlConfig(), 'c1', promptRow());
     expect(body.kind).toBe('textToImage');
     expect(body.modelVersionId).toBe(1001);
@@ -380,9 +486,11 @@ describe('resolveCell + buildCellWorkflowBody (per config)', () => {
     expect(body.sharedContentKey).toBe('c1');
   });
 
-  it('throws when the cell is not runnable', () => {
+  it('builds a runnable WorkflowBody for a config with no matching override (uses the default)', () => {
     const flux = sdxlConfig({ checkpoint: { versionId: 3, modelId: 3, baseModel: 'Flux.1 D' } });
-    expect(() => buildCellWorkflowBody(flux, 'c1', promptRow())).toThrow(/not runnable/);
+    const body = buildCellWorkflowBody(flux, 'c1', promptRow());
+    expect(body.params.prompt).toBe('cyberpunk portrait'); // default — no throw, always runnable
+    expect(body.modelVersionId).toBe(3);
   });
 });
 
@@ -454,10 +562,24 @@ describe('round-trip to builder input (edit-in-place prefill)', () => {
     expect(rebuilt.configs[0].id).toBe('cfg1');
   });
 
-  it('promptToInput reproduces the builder input from a parsed row', () => {
+  it('promptToInput reproduces the builder input (default + overrides) from a parsed row', () => {
     const row = promptRow({ name: 'P', description: 'd' });
     const input = promptToInput(row);
     expect(input.name).toBe('P');
-    expect(input.byEcosystem.SDXL.prompt).toBe('cyberpunk portrait');
+    expect(input.default.prompt).toBe('cyberpunk portrait');
+    expect(input.default.params.cfgScale).toBe(5);
+    expect(input.overrides.Pony.prompt).toBe('score_9 portrait');
+    expect(input.overrides.Pony.params!.cfgScale).toBe(7);
+  });
+
+  it('🔴 edit-in-place round-trip: promptToInput → buildPromptPayload → parsePrompt is stable', () => {
+    const row = promptRow({ name: 'P', description: 'd' });
+    const rebuilt = buildPromptPayload(promptToInput(row));
+    const reparsed = parsePrompt({ key: 'p1', count: 0, authorUserId: 1, value: rebuilt });
+    expect(reparsed).not.toBeNull();
+    expect(reparsed!.data.default.prompt).toBe('cyberpunk portrait');
+    expect(reparsed!.data.default.params.cfgScale).toBe(5);
+    expect(reparsed!.data.overrides!.Pony.prompt).toBe('score_9 portrait');
+    expect(reparsed!.data.overrides!.Pony.params!.cfgScale).toBe(7);
   });
 });

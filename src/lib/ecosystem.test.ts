@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  ecosystemForBaseModel,
-  ecosystemMeta,
-  matchPromptToCombo,
-  OTHER_ECOSYSTEM,
-} from './ecosystem.js';
+import { ecosystemForBaseModel, ecosystemMeta, OTHER_ECOSYSTEM } from './ecosystem.js';
 
 describe('ecosystemForBaseModel', () => {
   it.each([
@@ -51,23 +46,5 @@ describe('ecosystemMeta', () => {
   });
   it('synthesises metadata for an unknown key so a forged/legacy row still renders', () => {
     expect(ecosystemMeta('Zzz')).toEqual({ key: 'Zzz', label: 'Zzz', baseModelGroup: 'Zzz' });
-  });
-});
-
-describe('matchPromptToCombo', () => {
-  const byEcosystem = {
-    SDXL: { prompt: 'a', params: {} },
-    Pony: { prompt: 'b', params: {} },
-  };
-
-  it('matches a combo to its ecosystem entry', () => {
-    const m = matchPromptToCombo('SDXL 1.0', byEcosystem);
-    expect(m).not.toBeNull();
-    expect(m!.ecosystem).toBe('SDXL');
-    expect(m!.entry.prompt).toBe('a');
-  });
-
-  it('returns null when the prompt has no entry for the combo ecosystem', () => {
-    expect(matchPromptToCombo('Flux.1 D', byEcosystem)).toBeNull();
   });
 });

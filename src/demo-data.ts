@@ -48,28 +48,32 @@ const comboLegacyV1 = {
   loras: [{ versionId: 2201, weight: 1, modelName: 'Amateur Photo', minStrength: 0, maxStrength: 1.5 }],
 } as unknown as CombinationData;
 
+// A v3 prompt: a DEFAULT that runs on every ecosystem, plus a Pony override (a
+// score_-prefixed prompt) and a Flux override (Flux's cfg/steps, no sampler).
 const promptPortrait: PromptData = {
-  v: 1,
+  v: 3,
   kind: 'prompt',
-  byEcosystem: {
-    SDXL: { prompt: 'cyberpunk portrait, neon rim light, 85mm', params: { cfgScale: 7, steps: 30, sampler: 'Euler a', width: 1024, height: 1024, clipSkip: 2 } },
-    Pony: { prompt: 'score_9, cyberpunk portrait, neon rim light', params: { cfgScale: 7, steps: 30, sampler: 'Euler a', width: 1024, height: 1024, clipSkip: 2 } },
-    Flux: { prompt: 'cyberpunk portrait, neon rim light, 85mm', params: { cfgScale: 3.5, steps: 25, width: 1024, height: 1024 } },
+  default: { prompt: 'cyberpunk portrait, neon rim light, 85mm', params: { cfgScale: 7, steps: 30, sampler: 'Euler a', width: 1024, height: 1024, clipSkip: 2 } },
+  overrides: {
+    Pony: { prompt: 'score_9, cyberpunk portrait, neon rim light', params: { cfgScale: 7, steps: 30, sampler: 'Euler a' } },
+    Flux: { params: { cfgScale: 3.5, steps: 25 } },
   },
 };
 
-const promptLandscape: PromptData = {
+// A LEGACY v1 prompt (byEcosystem) — left intentionally in the old shape so the
+// harness exercises the v1→v3 default+overrides migration on read.
+const promptLandscape = {
   v: 1,
   kind: 'prompt',
   byEcosystem: {
     SDXL: { prompt: 'sweeping alien landscape, twin moons, volumetric fog', params: { cfgScale: 7, steps: 30, sampler: 'Euler a', width: 1024, height: 1024, clipSkip: 2 } },
   },
-};
+} as unknown as PromptData;
 
 export const DEMO_SHARED_SEED: MockSharedSeed[] = [
   { value: { title: 'SDXL: base vs +detail', body: 'Sharp SDXL baseline, two configs', data: comboSdxl }, authorUserId: 7, voters: [1, 2, 3] },
   { value: { title: 'AutismMix Pony', body: 'Pony baseline', data: comboPony }, authorUserId: 8, voters: [1] },
   { value: { title: 'Flux Realism (legacy v1)', body: 'Amateur photo look', data: comboLegacyV1 }, authorUserId: 8, voters: [1, 2] },
-  { value: { title: 'Cyberpunk portrait', body: '[SDXL] cyberpunk portrait\n[Pony] score_9, cyberpunk portrait\n[Flux] cyberpunk portrait', data: promptPortrait }, authorUserId: 9, voters: [1, 2, 3, 4] },
+  { value: { title: 'Cyberpunk portrait', body: 'cyberpunk portrait, neon rim light, 85mm\n[Pony] score_9, cyberpunk portrait, neon rim light', data: promptPortrait }, authorUserId: 9, voters: [1, 2, 3, 4] },
   { value: { title: 'Alien landscape', body: '[SDXL] sweeping alien landscape', data: promptLandscape }, authorUserId: 9, voters: [2] },
 ];

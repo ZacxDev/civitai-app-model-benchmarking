@@ -69,10 +69,19 @@ export interface CombinationData {
 }
 
 // ---------------------------------------------------------------------------
-// Prompt — a multi-ecosystem prompt (vote-able). One entry per ecosystem.
+// Prompt — a DEFAULT prompt (+ params) applying to ALL ecosystems, with OPTIONAL
+// sparse per-ecosystem overrides (vote-able).
+//
+// 🔴 v3 data-model reframe: a prompt is no longer "one required entry per
+// ecosystem". It is ONE `default` prompt + params that runs on EVERY ecosystem,
+// plus optional `overrides` that replace the prompt and/or patch the params for a
+// specific base-model family. Consequence: every config is ALWAYS runnable —
+// there is always a default. Legacy v1 `byEcosystem` prompts migrate on read (see
+// lib/benchmark.ts `parsePrompt`): one entry becomes the `default`, the rest
+// become `overrides` (identical entries collapse into just the default).
 // ---------------------------------------------------------------------------
 
-/** Per-ecosystem generation parameters (subset of BlockTextToImageParams). */
+/** Generation parameters (subset of BlockTextToImageParams). */
 export interface PromptParams {
   negativePrompt?: string;
   cfgScale?: number;
@@ -84,18 +93,35 @@ export interface PromptParams {
   clipSkip?: number;
 }
 
-/** One ecosystem's raw prompt string + params inside a multi-ecosystem prompt. */
+/** One fully-resolved prompt entry — a raw prompt string + full params. Used for
+ * the `default` AND for the per-cell EFFECTIVE prompt the runner resolves. */
 export interface EcosystemPrompt {
   prompt: string;
   params: PromptParams;
 }
 
-/** The opaque structured payload for a `prompt` shared record. Keyed by the
- * ecosystem group key (see lib/ecosystem.ts `ECOSYSTEMS`). */
+/** The DEFAULT prompt (+ full params) applied to EVERY ecosystem unless a
+ * per-ecosystem override narrows it. Structurally an {@link EcosystemPrompt}. */
+export type PromptDefault = EcosystemPrompt;
+
+/** An OPTIONAL, sparse per-ecosystem override: a replacement prompt string
+ * and/or a partial params patch layered over the default's params. Both fields
+ * are optional (a params-only or prompt-only override is valid). */
+export interface PromptOverride {
+  prompt?: string;
+  params?: Partial<PromptParams>;
+}
+
+/** The opaque structured payload for a `prompt` shared record (v3).
+ *  - `default` runs on EVERY ecosystem (so every config is runnable).
+ *  - `overrides[baseModelGroup]` optionally replaces the prompt and/or patches
+ *    the params for configs whose checkpoint maps to that ecosystem group key
+ *    (see lib/ecosystem.ts `ECOSYSTEMS`). Sparse — most prompts carry none. */
 export interface PromptData {
-  v: 1;
+  v: 3;
   kind: 'prompt';
-  byEcosystem: Record<string, EcosystemPrompt>;
+  default: PromptDefault;
+  overrides?: Record<string, PromptOverride>;
 }
 
 // ---------------------------------------------------------------------------

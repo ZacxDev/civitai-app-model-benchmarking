@@ -314,8 +314,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const ck = cellKey(row.comboKey, row.config.id, prompt.key);
       // Best-effort dedup: a result already in the grid isn't re-run.
       if (cellHasResult(results, row.comboKey, row.config.id, prompt.key)) return;
+      // Every cell is runnable now — there is always a default prompt.
       const matched = resolveCell(row.config, prompt);
-      if (!matched) return; // not runnable (no ecosystem prompt)
       if (!viewer) {
         depsRef.current.requestSignIn();
         return;
@@ -371,7 +371,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             comboKey: row.comboKey,
             configId: row.config.id,
             promptKey: prompt.key,
-            ecosystem: matched?.ecosystem ?? '',
+            ecosystem: matched.ecosystem,
             imageIds,
           }) as SharedAppendValue;
           await depsRef.current.shared.append(payload);

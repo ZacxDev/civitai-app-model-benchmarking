@@ -1,9 +1,10 @@
 // Grid render matrix: rows are CONFIGS (flattened + grouped under their
-// combination). A RESULT cell (gated visible + gated HIDDEN image), an EMPTY cell
-// (offering a run), and a NOT-RUNNABLE (N/A) cell where the prompt has no entry
-// for the config's ecosystem. Renders ResultsGrid directly with hand-built config
-// rows so the matrix + gated-cell + config-grouping paths are exercised
-// deterministically (no key-minting from the mock host).
+// combination). A RESULT cell (gated visible + gated HIDDEN image) and EMPTY
+// cells (offering a run). Every config×prompt cell is runnable now (a prompt
+// always has a default), so there are NO N/A cells — a Flux config renders an
+// empty runnable cell against an SDXL-authored prompt. Renders ResultsGrid
+// directly with hand-built config rows so the matrix + gated-cell +
+// config-grouping paths are exercised deterministically.
 
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -51,7 +52,7 @@ const p1: PromptRow = {
   authorUserId: 1,
   name: 'Portrait',
   description: '',
-  data: { v: 1, kind: 'prompt', byEcosystem: { SDXL: { prompt: 'x', params: {} } } },
+  data: { v: 3, kind: 'prompt', default: { prompt: 'x', params: {} } },
 };
 const p2: PromptRow = {
   key: 'p2',
@@ -59,7 +60,7 @@ const p2: PromptRow = {
   authorUserId: 1,
   name: 'Landscape',
   description: '',
-  data: { v: 1, kind: 'prompt', byEcosystem: { SDXL: { prompt: 'y', params: {} } } },
+  data: { v: 3, kind: 'prompt', default: { prompt: 'y', params: {} } },
 };
 // A result exists ONLY for the c1/cfgA × p1 cell.
 const result: ResultRow = {
@@ -124,18 +125,24 @@ describe('ResultsGrid render (config rows)', () => {
   it('the sibling config (cfgB × p1) is a distinct EMPTY cell — not deduped by the cfgA result', () => {
     const { onRunCell, configs } = renderGrid();
     const empties = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'empty');
-    // cfgA×p2, cfgB×p1, cfgB×p2 = 3 empty SDXL cells
-    expect(empties).toHaveLength(3);
+    // Every non-result cell is now runnable (default prompt): cfgA×p2, cfgB×p1,
+    // cfgB×p2, cfgC(Flux)×p1, cfgC(Flux)×p2 = 5 empty cells.
+    expect(empties).toHaveLength(5);
     within(empties[0]).getByTestId('run-cell').click();
     // first empty is cfgA × p2
     expect(onRunCell).toHaveBeenCalledWith(configs[0], p2);
   });
 
-  it('renders N/A cells where the prompt has no entry for the config ecosystem (Flux × SDXL-only)', () => {
-    renderGrid();
-    const na = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'na');
-    expect(na).toHaveLength(2); // Flux config × p1 and × p2
-    expect(na[0]).toHaveTextContent(/No Flux prompt/);
+  it('🔴 renders NO N/A cells — a Flux config against an SDXL-authored prompt is a runnable EMPTY cell', () => {
+    const { configs } = renderGrid();
+    // No cell is in the (removed) "na" state.
+    expect(screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'na')).toHaveLength(0);
+    // The Flux config (cfgC) rows are empty + runnable, not N/A.
+    const fluxConfig = configs.find((c) => c.config.id === 'cfgC')!;
+    expect(fluxConfig.config.checkpoint.baseModel).toBe('Flux.1 D');
+    const empties = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'empty');
+    // The last two empty cells are the Flux config's — their run buttons are enabled.
+    expect(within(empties[empties.length - 1]).getByTestId('run-cell')).not.toBeDisabled();
   });
 
   it('disables the run affordance when the viewer cannot generate', () => {

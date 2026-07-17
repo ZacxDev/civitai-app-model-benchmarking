@@ -18,13 +18,15 @@ import type {
   LoraRef,
   ModelConfig,
   PromptData,
+  PromptDefault,
+  PromptOverride,
   PromptParams,
   PromptRow,
   RecordKind,
   ResultData,
   ResultRow,
 } from '../types.js';
-import { ecosystemForBaseModel, matchPromptToCombo } from './ecosystem.js';
+import { ecosystemForBaseModel } from './ecosystem.js';
 
 /** Max LoRAs the server accepts in `additionalResources` (mirrors the Zod gate). */
 export const MAX_LORAS = 5;
@@ -182,47 +184,85 @@ export function combinationToInput(row: CombinationRow): CombinationInput {
 export interface PromptInput {
   name: string;
   description: string;
-  byEcosystem: Record<string, EcosystemPrompt>;
+  /** The default prompt + params, applied to ALL ecosystems. Always present. */
+  default: PromptDefault;
+  /** Optional, sparse per-ecosystem overrides (keyed by ecosystem group key). */
+  overrides: Record<string, PromptOverride>;
 }
 
 export function validatePrompt(input: PromptInput): string[] {
   const errs: string[] = [];
   if (!input.name.trim()) errs.push('Give the prompt a name.');
-  const ecos = Object.keys(input.byEcosystem).filter((k) => input.byEcosystem[k]?.prompt.trim());
-  if (ecos.length === 0) errs.push('Add a prompt for at least one ecosystem.');
+  if (!input.default?.prompt?.trim()) errs.push('Add a default prompt (it applies to every ecosystem).');
   return errs;
 }
 
+/** Sanitize a raw override into the stored shape: a trimmed non-empty prompt
+ * and/or a non-empty params patch. Returns null when the override carries
+ * NEITHER (an empty override is dropped). */
+function sanitizeOverride(raw: PromptOverride | undefined): PromptOverride | null {
+  const out: PromptOverride = {};
+  const prompt = (raw?.prompt ?? '').trim();
+  if (prompt) out.prompt = prompt;
+  const params = sanitizeParams(raw?.params as PromptParams | undefined);
+  if (Object.keys(params).length > 0) out.params = params;
+  if (out.prompt === undefined && out.params === undefined) return null;
+  return out;
+}
+
 /**
- * THE SPLIT for a prompt: EVERY per-ecosystem prompt string is concatenated into
- * `body` so the content-safety belt moderates them all; the structured copy
- * (prompt + params keyed by ecosystem) rides the opaque `data.byEcosystem`.
- * Empty-string ecosystems are dropped.
+ * THE SPLIT for a prompt: the default prompt string AND every override prompt
+ * string (plus their negatives) are concatenated into `body` so the
+ * content-safety belt moderates them all; the structured copy (default +
+ * overrides) rides the opaque `data`. Empty overrides are dropped.
  */
 export function buildPromptPayload(input: PromptInput): SharedStorageValue {
-  const byEcosystem: Record<string, EcosystemPrompt> = {};
+  const def: PromptDefault = {
+    prompt: (input.default?.prompt ?? '').trim(),
+    params: sanitizeParams(input.default?.params),
+  };
   const bodyLines: string[] = [];
   if (input.description.trim()) bodyLines.push(input.description.trim());
-  for (const [eco, entry] of Object.entries(input.byEcosystem)) {
-    const prompt = (entry?.prompt ?? '').trim();
-    if (!prompt) continue;
-    byEcosystem[eco] = { prompt, params: sanitizeParams(entry.params) };
-    // Push BOTH the prompt and the negative into the moderated body.
-    bodyLines.push(`[${eco}] ${prompt}`);
-    const neg = (entry.params?.negativePrompt ?? '').trim();
+  // The default prompt (+ negative) is swept into the moderated body.
+  if (def.prompt) bodyLines.push(def.prompt);
+  const defNeg = (def.params.negativePrompt ?? '').trim();
+  if (defNeg) bodyLines.push(`negative: ${defNeg}`);
+
+  const overrides: Record<string, PromptOverride> = {};
+  for (const [eco, raw] of Object.entries(input.overrides ?? {})) {
+    const ov = sanitizeOverride(raw);
+    if (!ov) continue;
+    overrides[eco] = ov;
+    // Push each override prompt + its negative into the moderated body too.
+    if (ov.prompt) bodyLines.push(`[${eco}] ${ov.prompt}`);
+    const neg = (ov.params?.negativePrompt ?? '').trim();
     if (neg) bodyLines.push(`[${eco}] negative: ${neg}`);
   }
-  const data: PromptData = { v: 1, kind: 'prompt', byEcosystem };
+
+  const data: PromptData = {
+    v: 3,
+    kind: 'prompt',
+    default: def,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+  };
   return { title: input.name.trim(), body: bodyLines.join('\n'), data };
 }
 
 /** Convert a parsed prompt row back into a builder input (for edit-in-place). */
 export function promptToInput(row: PromptRow): PromptInput {
-  const byEcosystem: Record<string, EcosystemPrompt> = {};
-  for (const [eco, entry] of Object.entries(row.data.byEcosystem)) {
-    byEcosystem[eco] = { prompt: entry.prompt, params: { ...entry.params } };
+  const overrides: Record<string, PromptOverride> = {};
+  for (const [eco, ov] of Object.entries(row.data.overrides ?? {})) {
+    overrides[eco] = {
+      ...(ov.prompt !== undefined ? { prompt: ov.prompt } : {}),
+      ...(ov.params !== undefined ? { params: { ...ov.params } } : {}),
+    };
   }
-  return { name: row.name, description: row.description, byEcosystem };
+  return {
+    name: row.name,
+    description: row.description,
+    default: { prompt: row.data.default.prompt, params: { ...row.data.default.params } },
+    overrides,
+  };
 }
 
 /** Keep only defined, in-shape param fields (drops undefined + unknown keys). */
@@ -264,10 +304,10 @@ export function buildResultPayload(data: Omit<ResultData, 'v' | 'kind'>): Shared
 // ---------------------------------------------------------------------------
 
 /** The `data.kind` discriminant of a shared row, or null when unrecognised.
- * Accepts any known schema version (v1 legacy + v2 current). */
+ * Accepts any known schema version (v1 legacy … v3 current prompt). */
 export function recordKind(value: SharedStorageValue): RecordKind | null {
   const d = value.data as { kind?: unknown; v?: unknown } | undefined;
-  if (!d || (d.v !== 1 && d.v !== 2)) return null;
+  if (!d || (d.v !== 1 && d.v !== 2 && d.v !== 3)) return null;
   if (d.kind === 'combination' || d.kind === 'prompt' || d.kind === 'result') return d.kind;
   return null;
 }
@@ -367,28 +407,94 @@ export function parseCombination(item: RawSharedItem): CombinationRow | null {
   };
 }
 
-/** Parse a shared row into a typed PromptRow, or null if it isn't one. */
+/**
+ * Parse a shared row into a typed PromptRow, or null if it isn't one.
+ * 🔴 BACK-COMPAT: a v3 prompt (`data.default` + optional `data.overrides`) parses
+ * directly; a legacy v1 prompt (`data.byEcosystem`) MIGRATES on read into the v3
+ * shape (see {@link migratePromptV1}) so pre-existing prod prompts keep working
+ * AND resolve to a runnable prompt for every config. A junk/forged row → null.
+ */
 export function parsePrompt(item: RawSharedItem): PromptRow | null {
-  const d = item.value.data as Partial<PromptData> | undefined;
-  if (!d || d.v !== 1 || d.kind !== 'prompt') return null;
-  const rawMap = (d.byEcosystem && typeof d.byEcosystem === 'object' ? d.byEcosystem : {}) as Record<
-    string,
-    Partial<EcosystemPrompt>
-  >;
-  const byEcosystem: Record<string, EcosystemPrompt> = {};
-  for (const [eco, entry] of Object.entries(rawMap)) {
-    const prompt = typeof entry?.prompt === 'string' ? entry.prompt : '';
-    if (!prompt.trim()) continue;
-    byEcosystem[eco] = { prompt, params: sanitizeParams(entry?.params as PromptParams | undefined) };
-  }
-  if (Object.keys(byEcosystem).length === 0) return null;
+  const d = item.value.data as
+    | { v?: number; kind?: string; default?: unknown; overrides?: unknown; byEcosystem?: unknown }
+    | undefined;
+  if (!d || d.kind !== 'prompt') return null;
+
+  let data: PromptData | null = null;
+  if (d.v === 3) data = parsePromptV3(d);
+  else if (d.v === 1) data = migratePromptV1(d);
+  if (!data) return null;
+
   return {
     key: item.key,
     count: item.count,
     authorUserId: item.authorUserId,
     name: item.value.title ?? '',
     description: firstParagraph(item.value.body),
-    data: { v: 1, kind: 'prompt', byEcosystem },
+    data,
+  };
+}
+
+/** Defensive parse of a v3 prompt payload — null when there is no usable default
+ * prompt (a prompt with no runnable default is dropped). */
+function parsePromptV3(d: { default?: unknown; overrides?: unknown }): PromptData | null {
+  const def = d.default as Partial<PromptDefault> | undefined;
+  const prompt = typeof def?.prompt === 'string' ? def.prompt : '';
+  if (!prompt.trim()) return null;
+  const defaultEntry: PromptDefault = { prompt, params: sanitizeParams(def?.params) };
+
+  const overrides: Record<string, PromptOverride> = {};
+  const rawOv = (d.overrides && typeof d.overrides === 'object' ? d.overrides : {}) as Record<
+    string,
+    Partial<PromptOverride>
+  >;
+  for (const [eco, raw] of Object.entries(rawOv)) {
+    const ov = sanitizeOverride(raw as PromptOverride | undefined);
+    if (ov) overrides[eco] = ov;
+  }
+  return {
+    v: 3,
+    kind: 'prompt',
+    default: defaultEntry,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+  };
+}
+
+/**
+ * Migrate a legacy v1 prompt (`byEcosystem`) into the v3 default+overrides shape.
+ * Rule: pick ONE ecosystem entry as the `default` (prefer SDXL if present, else
+ * the first insertion-ordered entry); every OTHER entry becomes an override —
+ * UNLESS it is identical to the default (identical entries collapse into just the
+ * default). Returns null when no ecosystem carried a usable prompt.
+ */
+function migratePromptV1(d: { byEcosystem?: unknown }): PromptData | null {
+  const rawMap = (d.byEcosystem && typeof d.byEcosystem === 'object' ? d.byEcosystem : {}) as Record<
+    string,
+    Partial<EcosystemPrompt>
+  >;
+  const entries: Array<[string, EcosystemPrompt]> = [];
+  for (const [eco, entry] of Object.entries(rawMap)) {
+    const prompt = typeof entry?.prompt === 'string' ? entry.prompt : '';
+    if (!prompt.trim()) continue;
+    entries.push([eco, { prompt, params: sanitizeParams(entry?.params as PromptParams | undefined) }]);
+  }
+  if (entries.length === 0) return null;
+
+  const sdxlIdx = entries.findIndex(([eco]) => eco === 'SDXL');
+  const [defaultEco, defaultEntry] = sdxlIdx >= 0 ? entries[sdxlIdx] : entries[0];
+
+  const overrides: Record<string, PromptOverride> = {};
+  for (const [eco, entry] of entries) {
+    if (eco === defaultEco) continue;
+    // Identical to the default → collapse (no override needed).
+    if (JSON.stringify(entry) === JSON.stringify(defaultEntry)) continue;
+    overrides[eco] = { prompt: entry.prompt, params: entry.params };
+  }
+  return {
+    v: 3,
+    kind: 'prompt',
+    default: defaultEntry,
+    ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
   };
 }
 
@@ -561,25 +667,32 @@ export function cellHasResult(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve which ecosystem a config runs a prompt on + that ecosystem's prompt
- * entry. Returns null when the prompt has no entry for the config's checkpoint
- * ecosystem (the cell is not runnable — skip/disable it).
+ * Resolve which ecosystem a config runs a prompt on + the EFFECTIVE prompt entry
+ * for that ecosystem. 🔴 Every cell is runnable: there is always a `default`, so
+ * this NEVER returns null. The effective prompt is `overrides[X]?.prompt` (when a
+ * non-empty override prompt exists) else `default.prompt`; the effective params
+ * are `{ ...default.params, ...(overrides[X]?.params ?? {}) }` — the default
+ * params apply to every non-overridden ecosystem, a matching override patches
+ * over them.
  */
 export function resolveCell(
   config: ModelConfig,
   prompt: PromptRow,
-): { ecosystem: string; entry: EcosystemPrompt } | null {
-  const m = matchPromptToCombo(config.checkpoint.baseModel, prompt.data.byEcosystem);
-  if (!m) return null;
-  return { ecosystem: m.ecosystem, entry: m.entry as EcosystemPrompt };
+): { ecosystem: string; entry: EcosystemPrompt } {
+  const ecosystem = ecosystemForBaseModel(config.checkpoint.baseModel);
+  const d = prompt.data;
+  const ov = d.overrides?.[ecosystem];
+  const effectivePrompt = ov?.prompt ? ov.prompt : d.default.prompt;
+  const effectiveParams: PromptParams = { ...d.default.params, ...(ov?.params ?? {}) };
+  return { ecosystem, entry: { prompt: effectivePrompt, params: effectiveParams } };
 }
 
 /**
  * Build the `WorkflowBody` for running one (config × prompt) cell. Deterministic:
  * the config checkpoint `modelVersionId` + its LoRA stack as `additionalResources`
- * + the ecosystem's prompt string + its params + `sharedContentKey = comboKey`
- * (combo-submitter attribution). Throws when the cell isn't runnable (no prompt
- * entry for the config's ecosystem) — callers gate with {@link resolveCell}.
+ * + the EFFECTIVE (default, override-patched) prompt string + params +
+ * `sharedContentKey = comboKey` (combo-submitter attribution). Always runnable —
+ * there is always a default prompt for the config's ecosystem.
  *
  * DISCOVERY-ONLY ids: `modelVersionId` / `additionalResources[].modelVersionId`
  * are hints; the server re-validates + re-prices every id at estimate/submit.
@@ -589,15 +702,7 @@ export function buildCellWorkflowBody(
   comboKey: string,
   prompt: PromptRow,
 ): WorkflowBody {
-  const cell = resolveCell(config, prompt);
-  if (!cell) {
-    throw new Error(
-      `Prompt "${prompt.name}" has no entry for the "${ecosystemForBaseModel(
-        config.checkpoint.baseModel,
-      )}" ecosystem — cell is not runnable.`,
-    );
-  }
-  const { entry } = cell;
+  const { entry } = resolveCell(config, prompt);
   const p = entry.params;
   const params: WorkflowBody['params'] = { prompt: entry.prompt };
   if (p.negativePrompt) params.negativePrompt = p.negativePrompt;

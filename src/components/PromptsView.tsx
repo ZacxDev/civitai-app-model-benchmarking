@@ -40,8 +40,8 @@ export function PromptsView({
     <Stack gap={14} data-testid="prompts-view">
       <Group justify="space-between">
         <span style={{ opacity: 0.7, fontSize: 13 }}>
-          Submit and vote on prompts. Each prompt carries one entry per ecosystem; the top {includedKeys.size || 'N'} are
-          the grid's columns.
+          Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
+          overrides; the top {includedKeys.size || 'N'} are the grid's columns.
         </span>
         <Button size="sm" onClick={onSubmitNew} data-testid="submit-prompt">
           Submit prompt
@@ -64,7 +64,7 @@ export function PromptsView({
 
       <Stack gap={10} data-testid="prompts-list">
         {prompts.map((prompt) => {
-          const ecos = Object.keys(prompt.data.byEcosystem);
+          const overrideEcos = Object.keys(prompt.data.overrides ?? {});
           const isOwn = viewerId != null && prompt.authorUserId === viewerId;
           return (
             <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
@@ -80,8 +80,11 @@ export function PromptsView({
                   </Group>
                   {prompt.description && <span style={{ opacity: 0.7, fontSize: 13 }}>{prompt.description}</span>}
                   <Group gap={4} wrap>
-                    {ecos.map((eco) => (
-                      <Badge key={eco} variant="light" size="sm" data-testid="prompt-eco-badge">
+                    <Badge color="success" variant="light" size="sm" data-testid="prompt-default-badge">
+                      Default
+                    </Badge>
+                    {overrideEcos.map((eco) => (
+                      <Badge key={eco} variant="light" size="sm" data-testid="prompt-override-badge">
                         {ecosystemMeta(eco).label}
                       </Badge>
                     ))}

@@ -28,9 +28,9 @@ const comboSeed: CombinationData = {
   ],
 };
 const promptSeed: PromptData = {
-  v: 1,
+  v: 3,
   kind: 'prompt',
-  byEcosystem: { SDXL: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } } },
+  default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } },
 };
 
 // NOTE: publish + gated-image reads flow through the REAL SDK hooks
@@ -86,8 +86,8 @@ describe('submit a combination', () => {
   });
 });
 
-describe('submit a multi-ecosystem prompt', () => {
-  it('adds entries for two ecosystems and publishes them', async () => {
+describe('submit a prompt (default + a per-ecosystem override)', () => {
+  it('fills the default prompt, adds a Pony override, and publishes both', async () => {
     renderApp();
     // switch to the prompts tab
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
@@ -95,23 +95,26 @@ describe('submit a multi-ecosystem prompt', () => {
     const form = await screen.findByTestId('prompt-form');
     await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
 
-    // first ecosystem (default SDXL)
-    await userEvent.click(within(form).getByTestId('prompt-add-eco'));
-    const sdxlEntry = await within(form).findByTestId('prompt-eco-entry');
-    fireEvent.change(within(sdxlEntry).getByTestId('prompt-text'), { target: { value: 'sdxl cyberpunk portrait' } });
+    // The DEFAULT prompt (applies to every ecosystem).
+    fireEvent.change(within(form).getByTestId('prompt-default-text'), {
+      target: { value: 'default cyberpunk portrait' },
+    });
 
-    // second ecosystem (Pony)
-    await userEvent.selectOptions(within(form).getByTestId('prompt-add-eco-select'), 'Pony');
-    await userEvent.click(within(form).getByTestId('prompt-add-eco'));
-    await waitFor(() => expect(within(form).getAllByTestId('prompt-eco-entry')).toHaveLength(2));
-    const ponyEntry = within(form).getAllByTestId('prompt-eco-entry')[1];
-    fireEvent.change(within(ponyEntry).getByTestId('prompt-text'), { target: { value: 'score_9 portrait' } });
+    // Add a Pony override (its prompt pre-fills from the default; then edit it).
+    await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Pony');
+    await userEvent.click(within(form).getByTestId('prompt-add-override'));
+    const ponyOverride = await within(form).findByTestId('prompt-override-entry');
+    fireEvent.change(within(ponyOverride).getByTestId('prompt-override-text'), {
+      target: { value: 'score_9 portrait' },
+    });
 
     await userEvent.click(within(form).getByTestId('prompt-submit'));
 
     const card = await screen.findByTestId('prompt-card');
     expect(card).toHaveTextContent('Portrait Test');
-    expect(within(card).getAllByTestId('prompt-eco-badge')).toHaveLength(2);
+    // One Default badge (all ecosystems) + one override (Pony) badge.
+    expect(within(card).getByTestId('prompt-default-badge')).toBeInTheDocument();
+    expect(within(card).getAllByTestId('prompt-override-badge')).toHaveLength(1);
   });
 });
 

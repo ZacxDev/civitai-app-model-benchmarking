@@ -14,7 +14,6 @@ import {
   cellKey,
   configLabel,
   indexResultsByCell,
-  resolveCell,
   type BenchConfig,
 } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
@@ -242,8 +241,6 @@ function Cell({
   onConfirmRun,
   onCancelRun,
 }: CellProps): React.JSX.Element {
-  const runnable = resolveCell(row.config, prompt) !== null;
-  const eco = ecosystemForBaseModel(row.config.checkpoint.baseModel);
   const label = `${configLabel(row)} × ${prompt.name}`;
 
   const base: React.CSSProperties = {
@@ -254,16 +251,8 @@ function Cell({
     boxSizing: 'border-box',
   };
 
-  // 1. Not runnable — the prompt has no entry for this config's ecosystem.
-  if (!runnable) {
-    return (
-      <div data-testid="grid-cell" data-state="na" style={{ ...base, background: c.cellEmpty, opacity: 0.6 }}>
-        <span style={{ fontSize: 11 }}>No {ecosystemMeta(eco).label} prompt</span>
-      </div>
-    );
-  }
-
-  // 2. Already generated — render the gated outputs (generate-once).
+  // 1. Already generated — render the gated outputs (generate-once). Every cell
+  //    is runnable now (there is always a default prompt), so no N/A state.
   if (result) {
     return (
       <div data-testid="grid-cell" data-state="result" style={base}>
@@ -272,7 +261,7 @@ function Cell({
     );
   }
 
-  // 3. A run is in flight / awaiting confirm for this cell.
+  // 2. A run is in flight / awaiting confirm for this cell.
   if (run && run.status !== 'idle') {
     return (
       <div data-testid="grid-cell" data-state="running" style={base}>
@@ -281,7 +270,7 @@ function Cell({
     );
   }
 
-  // 4. Empty — offer to contribute a run.
+  // 3. Empty — offer to contribute a run.
   return (
     <div data-testid="grid-cell" data-state="empty" style={{ ...base, background: c.cellEmpty }}>
       <div style={{ display: 'grid', gap: 6, placeItems: 'center', height: '100%' }}>

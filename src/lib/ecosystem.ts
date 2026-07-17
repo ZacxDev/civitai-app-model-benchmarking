@@ -1,9 +1,10 @@
 // PURE ecosystem mapping. A "combination" is pinned to a checkpoint whose
 // `baseModel` is a specific version string (e.g. 'SDXL 1.0', 'Pony', 'Flux.1 D',
-// 'Illustrious'); a "prompt" carries one entry per ECOSYSTEM (base-model
-// family). To run a (combo × prompt) cell we must collapse the combo's precise
-// baseModel down to the ecosystem GROUP key the prompt is keyed by, then look up
-// that key in the prompt's `byEcosystem` map.
+// 'Illustrious'); a "prompt" carries a DEFAULT entry plus optional per-ecosystem
+// overrides keyed by the ecosystem GROUP key. To run a (combo × prompt) cell we
+// collapse the combo's precise baseModel down to that ecosystem group key (this
+// module), then look it up in the prompt's `overrides` (falling back to the
+// default — see lib/benchmark.ts `resolveCell`).
 //
 // This mirrors the base-model → family grouping Civitai uses elsewhere (the
 // resource picker's `baseModelGroup` hint, the generator base-model families).
@@ -11,9 +12,9 @@
 // 'Other' bucket so a novel family is still benchmarkable (rather than silently
 // unmatchable), while staying an explicit, inspectable value.
 
-/** An ecosystem group — the key a prompt's `byEcosystem` map is keyed by. */
+/** An ecosystem group — the key a prompt's `overrides` map is keyed by. */
 export interface Ecosystem {
-  /** Stable group key used in `PromptData.byEcosystem` (NEVER user-facing text). */
+  /** Stable group key used in `PromptData.overrides` (NEVER user-facing text). */
   key: string;
   /** Human label for pickers / column headers. */
   label: string;
@@ -78,19 +79,4 @@ export function ecosystemForBaseModel(baseModel: string | undefined | null): str
  * label for an unknown key so a forged/legacy prompt key still renders). */
 export function ecosystemMeta(key: string): Ecosystem {
   return BY_KEY.get(key) ?? { key, label: key, baseModelGroup: key };
-}
-
-/**
- * Given a combination's checkpoint base model and a prompt's per-ecosystem map,
- * resolve the matched ecosystem + its prompt entry — or `null` when the prompt
- * has NO entry for the combo's ecosystem (the cell is then skipped/disabled).
- */
-export function matchPromptToCombo(
-  comboBaseModel: string | undefined | null,
-  byEcosystem: Record<string, { prompt: string; params: unknown }>,
-): { ecosystem: string; entry: { prompt: string; params: unknown } } | null {
-  const ecosystem = ecosystemForBaseModel(comboBaseModel);
-  const entry = byEcosystem[ecosystem];
-  if (!entry) return null;
-  return { ecosystem, entry };
 }
