@@ -1,0 +1,11 @@
+/* Only a bare reset — the @civitai/blocks-react/ui pack injects its own themed
+   styles (design tokens + component CSS) idempotently on first render. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+#root {
+  min-height: 100dvh;
+}

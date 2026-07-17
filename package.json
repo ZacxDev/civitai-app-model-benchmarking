@@ -1,0 +1,35 @@
+{
+  "name": "model-benchmarking",
+  "private": true,
+  "version": "0.1.2",
+  "type": "module",
+  "description": "Model Benchmarking — a Civitai App Block (full-page). A crowdsourced model-comparison grid: users submit + vote on checkpoint+LoRA COMBINATIONS and multi-ecosystem PROMPTS; the top-voted set forms a combinations×prompts matrix; anyone can run an included cell (matched to the combo's ecosystem) and the outputs publish to a SHARED grid so every model compares side-by-side on identical prompts. Phase 1 = crowdsourced submit/vote/run/browse.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "dev:harness": "VITE_DEV_HARNESS=true vite --host localhost --port 5189",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@civitai/app-sdk": "^0.25.0",
+    "@civitai/blocks-react": "^0.31.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@types/node": "^25.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "jsdom": "^25.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
+  }
+}

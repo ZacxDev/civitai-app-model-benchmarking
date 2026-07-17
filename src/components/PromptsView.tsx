@@ -1,0 +1,116 @@
+// Browse + vote on multi-ecosystem PROMPTS. The top-N by votes are badged
+// "Included" (they form the grid's columns). Each card shows which ecosystems
+// the prompt covers.
+
+import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
+
+import type { PromptRow } from '../types.js';
+import { ecosystemMeta } from '../lib/ecosystem.js';
+import { VoteButton } from './VoteButton.js';
+
+export interface PromptsViewProps {
+  prompts: PromptRow[];
+  includedKeys: Set<string>;
+  votedKeys: Set<string>;
+  viewerId: number | null;
+  loading: boolean;
+  error: string | null;
+  onSubmitNew: () => void;
+  onVote: (key: string) => Promise<number> | void;
+  onUnvote: (key: string) => Promise<number> | void;
+  onRequireAuth: () => void;
+  /** Edit one of the viewer's OWN prompts (in-place). */
+  onEdit: (prompt: PromptRow) => void;
+}
+
+export function PromptsView({
+  prompts,
+  includedKeys,
+  votedKeys,
+  viewerId,
+  loading,
+  error,
+  onSubmitNew,
+  onVote,
+  onUnvote,
+  onRequireAuth,
+  onEdit,
+}: PromptsViewProps): React.JSX.Element {
+  return (
+    <Stack gap={14} data-testid="prompts-view">
+      <Group justify="space-between">
+        <span style={{ opacity: 0.7, fontSize: 13 }}>
+          Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
+          overrides; the top {includedKeys.size || 'N'} are the grid's columns.
+        </span>
+        <Button size="sm" onClick={onSubmitNew} data-testid="submit-prompt">
+          Submit prompt
+        </Button>
+      </Group>
+
+      {error && (
+        <Alert color="error" data-testid="prompts-error">
+          {error}
+        </Alert>
+      )}
+
+      {loading && <Loader data-testid="prompts-loading" />}
+
+      {!loading && prompts.length === 0 && (
+        <span style={{ opacity: 0.6 }} data-testid="prompts-empty">
+          No prompts yet — be the first to submit one.
+        </span>
+      )}
+
+      <Stack gap={10} data-testid="prompts-list">
+        {prompts.map((prompt) => {
+          const overrideEcos = Object.keys(prompt.data.overrides ?? {});
+          const isOwn = viewerId != null && prompt.authorUserId === viewerId;
+          return (
+            <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
+              <Group justify="space-between" align="flex-start">
+                <Stack gap={4}>
+                  <Group gap={8}>
+                    <strong>{prompt.name || `#${prompt.key}`}</strong>
+                    {includedKeys.has(prompt.key) && (
+                      <Badge color="success" variant="light" data-testid="prompt-included">
+                        Included
+                      </Badge>
+                    )}
+                  </Group>
+                  {prompt.description && <span style={{ opacity: 0.7, fontSize: 13 }}>{prompt.description}</span>}
+                  <Group gap={4} wrap>
+                    <Badge color="success" variant="light" size="sm" data-testid="prompt-default-badge">
+                      Default
+                    </Badge>
+                    {overrideEcos.map((eco) => (
+                      <Badge key={eco} variant="light" size="sm" data-testid="prompt-override-badge">
+                        {ecosystemMeta(eco).label}
+                      </Badge>
+                    ))}
+                  </Group>
+                </Stack>
+                <Group gap={6} align="center">
+                  {isOwn && (
+                    <Button size="sm" variant="subtle" onClick={() => onEdit(prompt)} data-testid="prompt-edit">
+                      Edit
+                    </Button>
+                  )}
+                  <VoteButton
+                    count={prompt.count}
+                    voted={votedKeys.has(prompt.key)}
+                    disabled={viewerId == null}
+                    onVote={() => onVote(prompt.key)}
+                    onUnvote={() => onUnvote(prompt.key)}
+                    onRequireAuth={onRequireAuth}
+                    data-testid="prompt-vote"
+                  />
+                </Group>
+              </Group>
+            </Card>
+          );
+        })}
+      </Stack>
+    </Stack>
+  );
+}

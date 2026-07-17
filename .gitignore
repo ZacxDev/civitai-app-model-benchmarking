@@ -1,0 +1,11 @@
+node_modules
+dist
+*.local
+
+# Local env files — never commit these (only `.env.example` is tracked).
+.env
+.env.development
+.env.production
+.env*.local
+
+.DS_Store
