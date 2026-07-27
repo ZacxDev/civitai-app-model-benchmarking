@@ -9,3 +9,6 @@ dist
 .env*.local
 
 .DS_Store
+
+# Local screenshot scratch (curated shots live in docs/screenshots/).
+.shots
