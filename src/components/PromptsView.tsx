@@ -6,6 +6,8 @@ import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/block
 
 import type { PromptRow } from '../types.js';
 import { ecosystemMeta } from '../lib/ecosystem.js';
+import { mutedText, metaText } from '../theme.js';
+import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
 
 export interface PromptsViewProps {
@@ -38,8 +40,8 @@ export function PromptsView({
 }: PromptsViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="prompts-view">
-      <Group justify="space-between">
-        <span style={{ opacity: 0.7, fontSize: 13 }}>
+      <Group justify="space-between" align="center" gap={12}>
+        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
           Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
           overrides; the top {includedKeys.size || 'N'} are the grid's columns.
         </span>
@@ -54,12 +56,24 @@ export function PromptsView({
         </Alert>
       )}
 
-      {loading && <Loader data-testid="prompts-loading" />}
+      {loading && (
+        <Stack align="center" gap={10} style={{ padding: '28px 0' }}>
+          <Loader data-testid="prompts-loading" />
+          <span style={metaText}>Loading prompts…</span>
+        </Stack>
+      )}
 
       {!loading && prompts.length === 0 && (
-        <span style={{ opacity: 0.6 }} data-testid="prompts-empty">
-          No prompts yet — be the first to submit one.
-        </span>
+        <EmptyState
+          data-testid="prompts-empty"
+          title="No prompts yet"
+          body="Be the first to submit a prompt. Add optional per-ecosystem overrides so every model family gets a fair test."
+          action={
+            <Button size="sm" onClick={onSubmitNew}>
+              Submit prompt
+            </Button>
+          }
+        />
       )}
 
       <Stack gap={10} data-testid="prompts-list">
@@ -78,7 +92,7 @@ export function PromptsView({
                       </Badge>
                     )}
                   </Group>
-                  {prompt.description && <span style={{ opacity: 0.7, fontSize: 13 }}>{prompt.description}</span>}
+                  {prompt.description && <span style={mutedText}>{prompt.description}</span>}
                   <Group gap={4} wrap>
                     <Badge color="success" variant="light" size="sm" data-testid="prompt-default-badge">
                       Default

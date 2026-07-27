@@ -12,6 +12,7 @@ import type { BlockResourceInfo, BlockResourcePickerType } from '@civitai/app-sd
 import { Alert, Button, Card, Group, Slider, Stack, TextInput, Textarea } from '@civitai/blocks-react/ui';
 
 import type { ModelConfig } from '../types.js';
+import { metaText } from '../theme.js';
 import {
   checkpointFromPick,
   loraFromPick,
@@ -142,7 +143,7 @@ export function CombinationForm({
           Add model config
         </Button>
       </Group>
-      <span style={{ opacity: 0.6, fontSize: 12 }}>
+      <span style={metaText}>
         Each config (one checkpoint + its LoRAs) is a benchmarkable row in the grid, grouped under this
         combination.
       </span>
@@ -189,12 +190,12 @@ export function CombinationForm({
               {cfg.checkpoint ? (
                 <Group gap={8} data-testid="checkpoint-name">
                   <span>{cfg.checkpoint.modelName ?? `#${cfg.checkpoint.versionId}`}</span>
-                  <span style={{ opacity: 0.6 }}>
+                  <span style={metaText}>
                     {cfg.checkpoint.baseModel} → {ecosystemMeta(eco!).label}
                   </span>
                 </Group>
               ) : (
-                <span style={{ opacity: 0.6 }}>No checkpoint picked.</span>
+                <span style={metaText}>No checkpoint picked.</span>
               )}
 
               <Group justify="space-between" align="center">
@@ -211,7 +212,7 @@ export function CombinationForm({
                   Add LoRA
                 </Button>
               </Group>
-              {!cfg.checkpoint && <span style={{ opacity: 0.6 }}>Pick a checkpoint first.</span>}
+              {!cfg.checkpoint && <span style={metaText}>Pick a checkpoint first.</span>}
               {cfg.loras.map((l) => (
                 <Group
                   key={l.versionId}

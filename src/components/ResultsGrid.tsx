@@ -4,11 +4,14 @@
 // separator + the combo name on the first row of the group). Each cell shows
 // that config's published outputs on that prompt so models compare side-by-side
 // on identical prompts. The matrix layout itself is HAND-ROLLED (a CSS grid with
-// sticky headers) — too bespoke for the /ui pack (per rule #112) — but every atom
+// sticky headers) — too bespoke for the /ui pack (per rule 112) — but every atom
 // (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
-// the pack's `--ci-*` vars + the app palette so it reads as one system.
+// the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
+
+import { Button, Loader } from '@civitai/blocks-react/ui';
 
 import type { Palette } from '../theme.js';
+import { token, radius, metaText } from '../theme.js';
 import type { CellRun, PromptRow, ResultRow } from '../types.js';
 import {
   cellKey,
@@ -52,7 +55,17 @@ export function ResultsGrid({
 
   if (configs.length === 0 || prompts.length === 0) {
     return (
-      <div data-testid="grid-empty" style={{ opacity: 0.7, padding: 24, textAlign: 'center' }}>
+      <div
+        data-testid="grid-empty"
+        style={{
+          ...metaText,
+          padding: '32px 24px',
+          textAlign: 'center',
+          borderRadius: radius.md,
+          border: `1px dashed ${c.border}`,
+          background: c.card,
+        }}
+      >
         The benchmark grid appears once there is at least one included combination (with a model config)
         AND one included prompt. Submit and vote to fill the top slots.
       </div>
@@ -62,7 +75,12 @@ export function ResultsGrid({
   const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, ${CELL_W}px)`;
 
   return (
-    <div data-testid="results-grid" style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: 10 }}>
+    <div
+      data-testid="results-grid"
+      role="group"
+      aria-label="Benchmark results: configurations by prompts"
+      style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: radius.md }}
+    >
       <div style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}>
         {/* Header row: corner + one column header per prompt */}
         <HeaderCorner c={c} />
@@ -82,8 +100,8 @@ export function ResultsGrid({
               boxSizing: 'border-box',
             }}
           >
-            <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name || `#${p.key}`}</div>
-            <div style={{ fontSize: 11, opacity: 0.6 }}>▲ {p.count}</div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: token.text }}>{p.name || `#${p.key}`}</div>
+            <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>▲ {p.count}</div>
           </div>
         ))}
 
@@ -123,7 +141,7 @@ function HeaderCorner({ c }: { c: Palette }): React.JSX.Element {
         minHeight: ROW_H_HEADER,
         fontWeight: 600,
         fontSize: 12,
-        opacity: 0.75,
+        color: token.dimmed,
         boxSizing: 'border-box',
       }}
     >
@@ -181,14 +199,17 @@ function RowFragment({
         }}
       >
         {groupStart && (
-          <div style={{ fontSize: 11, opacity: 0.6, fontWeight: 600 }} data-testid="grid-group-combo">
+          <div
+            style={{ fontSize: 11, color: token.dimmed, fontWeight: 600, marginBottom: 2 }}
+            data-testid="grid-group-combo"
+          >
             {row.comboName || `#${row.comboKey}`} · ▲ {row.comboCount}
           </div>
         )}
-        <div style={{ fontWeight: 600, fontSize: 13 }} data-testid="grid-config-label">
+        <div style={{ fontWeight: 600, fontSize: 13, color: token.text }} data-testid="grid-config-label">
           {configLabel(row)}
         </div>
-        <div style={{ fontSize: 11, opacity: 0.65 }}>
+        <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>
           {ecosystemMeta(eco).label}
           {row.config.loras.length > 0 && ` · +${row.config.loras.length} LoRA`}
         </div>
@@ -273,26 +294,19 @@ function Cell({
   // 3. Empty — offer to contribute a run.
   return (
     <div data-testid="grid-cell" data-state="empty" style={{ ...base, background: c.cellEmpty }}>
-      <div style={{ display: 'grid', gap: 6, placeItems: 'center', height: '100%' }}>
-        <span style={{ fontSize: 11, opacity: 0.6 }}>not generated yet</span>
-        <button
-          type="button"
+      <div style={{ display: 'grid', gap: 8, placeItems: 'center', height: '100%' }}>
+        <span style={{ ...metaText, fontSize: 11 }}>not generated yet</span>
+        <Button
+          size="sm"
+          variant="light"
           data-testid="run-cell"
           disabled={!canRun}
           onClick={() => onRunCell(row, prompt)}
-          style={{
-            fontSize: 12,
-            padding: '4px 10px',
-            borderRadius: 6,
-            border: `1px solid ${c.border}`,
-            background: 'transparent',
-            color: c.fg,
-            cursor: canRun ? 'pointer' : 'not-allowed',
-            opacity: canRun ? 1 : 0.5,
-          }}
+          aria-label={`Run ${label}`}
+          leftSection={<span aria-hidden="true">▶</span>}
         >
           Run this cell
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -309,27 +323,29 @@ function CellRunState({
 }): React.JSX.Element {
   if (run.status === 'confirming') {
     return (
-      <div style={{ display: 'grid', gap: 6, fontSize: 12 }} data-testid="cell-confirm">
-        <span>Cost: {run.estimatedCost ?? '…'} Buzz</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" data-testid="cell-confirm-run" onClick={onConfirm}>
+      <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-confirm">
+        <span style={{ color: token.text }}>
+          Cost: <strong>{run.estimatedCost ?? '…'}</strong> Buzz
+        </span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Button size="sm" data-testid="cell-confirm-run" onClick={onConfirm}>
             Confirm
-          </button>
-          <button type="button" data-testid="cell-cancel-run" onClick={onCancel}>
+          </Button>
+          <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
     );
   }
   if (run.status === 'failed') {
     return (
-      <div style={{ fontSize: 11, color: 'var(--ci-color-error, #e03131)' }} data-testid="cell-failed">
-        Failed: {run.error ?? 'unknown error'}
+      <div style={{ display: 'grid', gap: 6, fontSize: 11 }} data-testid="cell-failed">
+        <span style={{ color: token.error }}>Failed: {run.error ?? 'unknown error'}</span>
         <div>
-          <button type="button" data-testid="cell-retry" onClick={onCancel}>
+          <Button size="sm" variant="subtle" color="error" data-testid="cell-retry" onClick={onCancel}>
             Dismiss
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -344,8 +360,15 @@ function CellRunState({
     canceled: 'Canceled',
   };
   return (
-    <div style={{ fontSize: 12, opacity: 0.8 }} data-testid="cell-progress" data-status={run.status}>
-      {labels[run.status] ?? run.status}
+    <div
+      style={{ display: 'flex', alignItems: 'center', gap: 8, ...metaText }}
+      data-testid="cell-progress"
+      data-status={run.status}
+      role="status"
+      aria-live="polite"
+    >
+      <Loader size="sm" />
+      <span>{labels[run.status] ?? run.status}</span>
     </div>
   );
 }
