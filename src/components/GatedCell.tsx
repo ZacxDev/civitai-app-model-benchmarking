@@ -15,6 +15,8 @@ import { useGatedImages } from '@civitai/blocks-react';
 import type { BlockGatedImage } from '@civitai/app-sdk/blocks';
 import { Loader } from '@civitai/blocks-react/ui';
 
+import { elevate, token } from '../theme.js';
+
 /** The injectable render seam for a gated grid cell (App wires the default;
  * pure ResultsGrid tests inject a component stub). */
 export type GatedCellComponent = ComponentType<{ imageIds: number[]; label?: string }>;
@@ -97,8 +99,13 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
               display: 'grid',
               placeItems: 'center',
               borderRadius: 6,
-              background: 'var(--civitai-color-surface-2)',
-              color: 'var(--civitai-color-text-dimmed)',
+              // NOT surface-2: in light theme surface-2 resolves to the same value
+              // as body -> an invisible white-on-white tile. `elevate()` mixes a
+              // little text into surface, so the recess reads in BOTH themes; the
+              // border makes the gated slot unambiguous regardless of fill contrast.
+              background: elevate(5),
+              border: `1px solid ${token.border}`,
+              color: token.dimmed,
               fontSize: 11,
               textAlign: 'center',
               padding: 4,

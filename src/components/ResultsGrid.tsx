@@ -4,9 +4,9 @@
 // separator + the combo name on the first row of the group). Each cell shows
 // that config's published outputs on that prompt so models compare side-by-side
 // on identical prompts. The matrix layout itself is HAND-ROLLED (a CSS grid with
-// sticky headers) — too bespoke for the /ui pack (per rule #112) — but every atom
+// sticky headers) — too bespoke for the /ui pack (per rule 112) — but every atom
 // (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
-// the pack's `--ci-*` vars + the app palette so it reads as one system.
+// the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
 
 import { Button, Loader } from '@civitai/blocks-react/ui';
 

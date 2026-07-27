@@ -141,8 +141,26 @@ export const metaText  = { color: token.dimmed, fontSize: 12, lineHeight: 1.45 }
   full opacity (`style={metaText}`). It's crisper and hits the intended contrast
   instead of stacking opacity on an already-dimmed color.
 
-Audit gate: `grep -rn "#[0-9a-fA-F]\{3,6\}\|opacity:\|--ci-" src --include=*.tsx | grep -v test`
-should come back empty (or only legitimate non-color opacity).
+Audit gate — **two greps, both must come back empty** (or only legitimate non-color opacity):
+
+```bash
+# (a) no hardcoded hex, no opacity-muting, no stale --ci-* fallbacks
+grep -rnE "#[0-9a-fA-F]{3,6}|opacity:|--ci-" src --include=*.tsx --include=*.ts | grep -v test
+
+# (b) no theme-INVARIANT / body-colliding token used as a FILL or BACKGROUND.
+#     surface-2 == body in LIGHT (invisible white-on-white tile), and the gray-*
+#     ramp is theme-invariant (looks fine in light, wrong in dark). This is the
+#     exact trap grep (a) MISSES — a var() fill reads clean to the hex scan but
+#     renders invisible. Use elevate() + a border for a recess that reads in BOTH
+#     themes; never surface-2/gray-* as a background/fill.
+grep -rniE "(background|fill)[^;]*(--civitai-color-surface-2|surface2|--civitai-color-gray-)" src --include=*.tsx --include=*.ts | grep -v test
+```
+
+> 🔴 **Why (b) exists:** grep (a) only sees literal colors. A gated placeholder tile
+> filled with `var(--civitai-color-surface-2)` passes (a) but is an invisible tile in
+> light theme (`surface-2` == `body`). Grep (b) catches `surface-2`/`gray-*` reached
+> for as a fill/background — the propagating trap. Fix by fill = `elevate(N)` + a
+> `1px solid var(--civitai-color-border)`.
 
 ### 1f. Use the `/ui` components for ALL UI — the actual inventory
 
@@ -266,5 +284,10 @@ call-sites are unchanged.
 - [ ] All UI is pack `/ui` components (no raw styled `<button>`/`<div>` controls); `Group wrap` is boolean.
 - [ ] Light + dark both verified in screenshots; card separation works in light (borders, not fills).
 - [ ] Loading / empty / error states, hover/focus/disabled, and narrow+wide layouts all handled.
-- [ ] Accessible names + `aria-pressed`/`role=status` where relevant.
+- [ ] Accessible names + `aria-pressed`/`role=status` where relevant — **and asserted by tests**
+      (see the reference repo: `VoteButton.test.tsx` asserts `aria-pressed` in both states +
+      the toggle's accessible name; `EmptyState.test.tsx` asserts the title/body/inline-action
+      render; `ResultsGrid.test.tsx` asserts the grid `aria-label`, per-cell run `aria-label`,
+      and the in-flight `role="status" aria-live="polite"` region). Copy these assertions —
+      an unasserted affordance regresses silently on the next refactor.
 - [ ] `tsc`, `npm run build`, `vitest` all green; block behavior/manifest unchanged.

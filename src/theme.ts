@@ -54,7 +54,6 @@ export interface Palette {
   muted: string;
   border: string;
   card: string;
-  chipBg: string;
   headerBg: string;
   cellEmpty: string;
 }
@@ -67,7 +66,6 @@ export function palette(): Palette {
     muted: token.dimmed,
     border: token.border,
     card: token.surface,
-    chipBg: token.surface2,
     headerBg: elevate(4), // subtle sticky-header lift, both themes
     cellEmpty: elevate(2), // faint "empty slot" recess
   };

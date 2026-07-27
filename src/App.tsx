@@ -424,7 +424,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Group
           justify="space-between"
           align="center"
-         
           gap={12}
           style={{ paddingBottom: 14, borderBottom: `1px solid ${c.border}` }}
         >

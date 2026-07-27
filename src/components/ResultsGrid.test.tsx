@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ResultsGrid } from './ResultsGrid.js';
 import { palette } from '../theme.js';
 import { fakeGatedCell } from '../test-helpers.js';
-import { flattenConfigs } from '../lib/benchmark.js';
+import { flattenConfigs, cellKey } from '../lib/benchmark.js';
 import type { CombinationRow, PromptRow, ResultRow } from '../types.js';
 
 const c = palette();
@@ -149,6 +149,52 @@ describe('ResultsGrid render (config rows)', () => {
     renderGrid(false);
     const empty = screen.getAllByTestId('grid-cell').find((el) => el.getAttribute('data-state') === 'empty')!;
     expect(within(empty).getByTestId('run-cell')).toBeDisabled();
+  });
+
+  it('a11y: the matrix has an accessible name and each run affordance is labelled', () => {
+    renderGrid();
+    // The grid region names itself for assistive tech.
+    expect(screen.getByLabelText('Benchmark results: configurations by prompts')).toBeInTheDocument();
+    // Every empty-cell run button carries a descriptive aria-label (config × prompt),
+    // not just the visible "Run this cell".
+    const runButtons = screen.getAllByTestId('run-cell');
+    expect(runButtons.length).toBeGreaterThan(0);
+    for (const btn of runButtons) {
+      expect(btn.getAttribute('aria-label')).toMatch(/^Run .+ × .+$/);
+    }
+  });
+
+  it('a11y: an in-flight cell exposes a role="status" aria-live region', () => {
+    const configs = flattenConfigs([comboSdxl, comboFlux]);
+    render(
+      <ResultsGrid
+        configs={configs}
+        prompts={[p1, p2]}
+        results={[]}
+        // cfgB × p1 is an empty cell with a run in flight.
+        runs={{
+          [cellKey('c1', 'cfgB', 'p1')]: {
+            comboKey: 'c1',
+            configId: 'cfgB',
+            promptKey: 'p1',
+            ecosystem: 'SDXL',
+            status: 'processing',
+          },
+        }}
+        c={c}
+        canRun
+        GatedCell={fakeGatedCell()}
+        onRunCell={vi.fn()}
+        onConfirmRun={vi.fn()}
+        onCancelRun={vi.fn()}
+      />,
+    );
+    // (the pack Loader also carries role="status", so target the progress region by testid)
+    const status = screen.getByTestId('cell-progress');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toHaveAttribute('data-status', 'processing');
+    expect(status).toHaveTextContent('Generating…');
   });
 
   it('shows the empty-state message when there are no included rows/columns', () => {
