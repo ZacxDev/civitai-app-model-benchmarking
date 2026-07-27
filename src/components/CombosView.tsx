@@ -7,6 +7,8 @@ import { Fragment } from 'react';
 
 import type { CombinationRow } from '../types.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
+import { mutedText, metaText } from '../theme.js';
+import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
 
 export interface CombosViewProps {
@@ -39,8 +41,8 @@ export function CombosView({
 }: CombosViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="combos-view">
-      <Group justify="space-between">
-        <span style={{ opacity: 0.7, fontSize: 13 }}>
+      <Group justify="space-between" align="center" gap={12}>
+        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
           Submit and vote on checkpoint + LoRA combinations. The top {includedKeys.size || 'N'} are included as
           the grid's rows.
         </span>
@@ -55,12 +57,24 @@ export function CombosView({
         </Alert>
       )}
 
-      {loading && <Loader data-testid="combos-loading" />}
+      {loading && (
+        <Stack align="center" gap={10} style={{ padding: '28px 0' }}>
+          <Loader data-testid="combos-loading" />
+          <span style={metaText}>Loading combinations…</span>
+        </Stack>
+      )}
 
       {!loading && combinations.length === 0 && (
-        <span style={{ opacity: 0.6 }} data-testid="combos-empty">
-          No combinations yet — be the first to submit one.
-        </span>
+        <EmptyState
+          data-testid="combos-empty"
+          title="No combinations yet"
+          body="Be the first to submit a checkpoint + LoRA combination for the community to vote on."
+          action={
+            <Button size="sm" onClick={onSubmitNew}>
+              Submit combination
+            </Button>
+          }
+        />
       )}
 
       <Stack gap={10} data-testid="combos-list">
@@ -92,8 +106,8 @@ export function CombosView({
                       </Badge>
                     ))}
                   </Group>
-                  {combo.description && <span style={{ opacity: 0.7, fontSize: 13 }}>{combo.description}</span>}
-                  <span style={{ opacity: 0.6, fontSize: 12 }} data-testid="combo-config-summary">
+                  {combo.description && <span style={mutedText}>{combo.description}</span>}
+                  <span style={metaText} data-testid="combo-config-summary">
                     {combo.data.configs.map((cfg, i) => (
                       <Fragment key={cfg.id}>
                         {i > 0 && ' · '}

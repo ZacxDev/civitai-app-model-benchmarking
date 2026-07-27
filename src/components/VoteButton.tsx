@@ -7,7 +7,7 @@
 // the pack's Button/Badge so it's auto-themed and consistent.
 
 import { useState } from 'react';
-import { Badge, Button } from '@civitai/blocks-react/ui';
+import { Button } from '@civitai/blocks-react/ui';
 
 export interface VoteButtonProps {
   count: number;
@@ -54,11 +54,15 @@ export function VoteButton({
       data-testid={testId ?? 'vote-button'}
       data-voted={voted ? 'true' : 'false'}
       aria-pressed={voted}
+      aria-label={voted ? `Remove your vote (${count})` : `Upvote (${count})`}
       leftSection={<span aria-hidden="true">▲</span>}
     >
-      <Badge variant="light" size="sm" data-testid="vote-count">
+      <span
+        data-testid="vote-count"
+        style={{ fontVariantNumeric: 'tabular-nums', minWidth: 14, textAlign: 'center' }}
+      >
         {count}
-      </Badge>
+      </span>
     </Button>
   );
 }

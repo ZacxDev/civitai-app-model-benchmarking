@@ -15,7 +15,7 @@ import { fakeGatedCell } from '../test-helpers.js';
 import { flattenConfigs } from '../lib/benchmark.js';
 import type { CombinationRow, PromptRow, ResultRow } from '../types.js';
 
-const c = palette(true);
+const c = palette();
 
 // A single combination with TWO configs (SDXL base + SDXL with LoRA) + one Flux
 // combination — so grouping, sibling-config cells, and N/A cells all appear.

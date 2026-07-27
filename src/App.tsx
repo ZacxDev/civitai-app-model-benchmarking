@@ -35,6 +35,7 @@ import {
   Badge,
   Button,
   Group,
+  Loader,
   Modal,
   NumberInput,
   SegmentedControl,
@@ -42,7 +43,7 @@ import {
 } from '@civitai/blocks-react/ui';
 
 import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
-import { palette, pageStyle, contentStyle } from './theme.js';
+import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
 import type { CellRun, CombinationRow, PromptRow } from './types.js';
 import {
   buildCellWorkflowBody,
@@ -125,7 +126,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const rootRef = useRef<HTMLDivElement>(null);
   useBlockResize(rootRef);
 
-  const c = palette(theme !== 'light');
+  const c = palette();
 
   const deps: AppDeps = useMemo(
     () => ({
@@ -409,9 +410,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   if (!ready) {
     return (
       <div ref={rootRef} data-theme={theme} style={pageStyle(c)}>
-        <div style={{ margin: 'auto', opacity: 0.7 }} data-testid="app-loading">
-          Loading Model Benchmarking…
-        </div>
+        <Stack align="center" gap={12} style={{ margin: 'auto' }} data-testid="app-loading">
+          <Loader />
+          <span style={metaText}>Loading Model Benchmarking…</span>
+        </Stack>
       </div>
     );
   }
@@ -419,14 +421,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   return (
     <div ref={rootRef} data-theme={theme} style={pageStyle(c)}>
       <div style={contentStyle}>
-        <Group justify="space-between" align="center">
-          <Stack gap={2}>
-            <strong style={{ fontSize: 18 }}>Model Benchmarking</strong>
-            <span style={{ opacity: 0.6, fontSize: 12 }}>Crowdsourced model-comparison grid</span>
-          </Stack>
+        <Group
+          justify="space-between"
+          align="center"
+         
+          gap={12}
+          style={{ paddingBottom: 14, borderBottom: `1px solid ${c.border}` }}
+        >
+          <Group gap={12} align="center" wrap={false}>
+            <span aria-hidden="true" style={brandMarkStyle(c)}>
+              <ChartBarIcon />
+            </span>
+            <Stack gap={2}>
+              <strong style={{ fontSize: 19, letterSpacing: '-0.01em', lineHeight: 1.2 }}>
+                Model Benchmarking
+              </strong>
+              <span style={metaText}>Crowdsourced model-comparison grid</span>
+            </Stack>
+          </Group>
           {buzzTotal != null && (
-            <Badge variant="light" data-testid="buzz-balance">
-              {buzzTotal} Buzz
+            <Badge variant="light" size="lg" data-testid="buzz-balance">
+              {buzzTotal.toLocaleString()} Buzz
             </Badge>
           )}
         </Group>
@@ -476,12 +491,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         )}
 
         {view === 'grid' && (
-          <Stack gap={12} data-testid="grid-view">
-            <Group justify="space-between" align="flex-end">
-              <span style={{ opacity: 0.7, fontSize: 13 }}>
+          <Stack gap={14} data-testid="grid-view">
+            <Group justify="space-between" align="flex-end" gap={12}>
+              <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
                 Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
               </span>
-              <div style={{ width: 130 }}>
+              <div style={{ width: 132 }}>
                 <NumberInput
                   label="Top-N included"
                   min={1}
@@ -494,7 +509,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             </Group>
             {!canGenerate && viewer && (
               <Alert color="info" data-testid="grid-consent">
-                <Group justify="space-between" align="center">
+                <Group justify="space-between" align="center" gap={10}>
                   <span>Grant generation access to run cells and contribute outputs.</span>
                   <Button
                     size="sm"
@@ -582,4 +597,35 @@ async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : 'Something went wrong.';
+}
+
+/** A tinted rounded tile that holds the brand mark (matches the manifest's
+ * `chart-bar` page icon), styled entirely off `--civitai-*` tokens. */
+function brandMarkStyle(c: Pick<ReturnType<typeof palette>, 'border'>): React.CSSProperties {
+  return {
+    display: 'grid',
+    placeItems: 'center',
+    width: 38,
+    height: 38,
+    flexShrink: 0,
+    borderRadius: radius.md,
+    color: token.primary,
+    background: token.primaryLight,
+    border: `1px solid ${c.border}`,
+  };
+}
+
+/** Inline `chart-bar` glyph (currentColor), no external icon dependency. */
+function ChartBarIcon(): React.JSX.Element {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h16M7 20V10M12 20V4M17 20v-7"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
