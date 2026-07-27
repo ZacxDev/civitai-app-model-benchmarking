@@ -282,6 +282,7 @@ deploys to `<blockId>.civit.ai`.
 
 ## Links
 
+- Developer docs — [developer.civitai.com](https://developer.civitai.com)
 - Live app — [model-benchmarking.civit.ai](https://model-benchmarking.civit.ai)
 - SDK contract — [`@civitai/app-sdk`](https://www.npmjs.com/package/@civitai/app-sdk)
 - React hooks + UI pack — [`@civitai/blocks-react`](https://www.npmjs.com/package/@civitai/blocks-react)
