@@ -22,6 +22,7 @@ import {
 } from '@civitai/blocks-react/ui';
 
 import type { PromptDefault, PromptOverride, PromptParams } from '../types.js';
+import { metaText } from '../theme.js';
 import { validatePrompt, type PromptInput } from '../lib/benchmark.js';
 import { ECOSYSTEMS, ecosystemMeta } from '../lib/ecosystem.js';
 import { defaultParamsForEcosystem } from '../lib/gen-defaults.js';
@@ -260,7 +261,7 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
             Add override
           </Button>
         </Group>
-        <span style={{ opacity: 0.6, fontSize: 12, display: 'block', marginTop: 6 }} data-testid="prompt-overrides-hint">
+        <span style={{ ...metaText, display: 'block', marginTop: 6 }} data-testid="prompt-overrides-hint">
           Optional. A config runs the DEFAULT prompt unless you add an override for its checkpoint's ecosystem
           (SDXL, Pony, Flux, …).
         </span>

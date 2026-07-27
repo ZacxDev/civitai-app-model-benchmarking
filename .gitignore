@@ -1,8 +1,14 @@
 node_modules
 dist
-*.log
-.DS_Store
-.env.local
+*.local
 
-# Interim lockfile pins pre-0.30 versions (target ^0.25/^0.30 unpublished at build); regenerated on install.
-package-lock.json
+# Local env files — never commit these (only `.env.example` is tracked).
+.env
+.env.development
+.env.production
+.env*.local
+
+.DS_Store
+
+# Local screenshot scratch (curated shots live in docs/screenshots/).
+.shots

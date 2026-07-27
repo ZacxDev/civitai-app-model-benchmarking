@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Harness } from '@civitai/blocks-react/testing';
 import type { MockHostOptions, MockSharedSeed } from '@civitai/blocks-react/testing';
+import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -228,5 +229,43 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     await userEvent.click(await screen.findByTestId('cell-confirm-run'));
     // The result row appends, but the gated cell reports the read failure.
     expect(await screen.findByTestId('gated-error', {}, { timeout: 3000 })).toHaveTextContent('gated read failed');
+  });
+
+  it('renders the published result in-session even when list() never reflects the append (optimistic insert)', async () => {
+    // A shared store whose list() LAGS: it always returns the seed combo+prompt
+    // but NEVER the appended result — modelling appsDb read-after-write lag. The
+    // optimistic insert in confirmRun is what makes the just-published result
+    // render immediately; without it the cell falls back to "not generated yet"
+    // until a later refetch/manual reload catches up (the reported bug).
+    const seedItems: SharedListItem[] = [
+      { key: 'c1', authorUserId: 7, count: 2, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'p1', authorUserId: 8, count: 3, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+    ];
+    const laggingShared: UseSharedStorage = {
+      list: async () => ({ items: seedItems }), // never includes the appended result
+      append: async () => ({ key: 'result-lagged' }),
+      update: async () => {},
+      getCount: async () => 0,
+      getCounts: async () => ({}),
+      vote: async () => 0,
+      unvote: async () => 0,
+      withdraw: async () => ({ ok: true, deleted: true }),
+    };
+
+    // publish + gated reads still flow through the real hooks → mock host.
+    renderApp({ deps: { shared: laggingShared } });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+    const emptyCell = within(grid).getByTestId('grid-cell');
+    expect(emptyCell).toHaveAttribute('data-state', 'empty');
+    await userEvent.click(within(emptyCell).getByTestId('run-cell'));
+    await userEvent.click(await screen.findByTestId('cell-confirm-run'));
+
+    // The result renders via the optimistic insert (publish → [9001,9002] → gated
+    // read), NOT a refetch — this store's list() never returns the result row.
+    await waitFor(() => expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result'), { timeout: 3000 });
+    const imgs = await screen.findAllByTestId('result-image', {}, { timeout: 3000 });
+    expect(imgs[0]).toHaveAttribute('src', expect.stringContaining('gated-9001'));
   });
 });

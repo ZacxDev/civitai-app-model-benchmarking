@@ -6,8 +6,9 @@
 
 import type {
   BlockResourceInfo,
+  BlockTextToImageParams,
   SharedStorageValue,
-  WorkflowBody,
+  WorkflowBodyTextToImage,
 } from '@civitai/app-sdk/blocks';
 
 import type {
@@ -701,10 +702,10 @@ export function buildCellWorkflowBody(
   config: ModelConfig,
   comboKey: string,
   prompt: PromptRow,
-): WorkflowBody {
+): WorkflowBodyTextToImage {
   const { entry } = resolveCell(config, prompt);
   const p = entry.params;
-  const params: WorkflowBody['params'] = { prompt: entry.prompt };
+  const params: BlockTextToImageParams = { prompt: entry.prompt };
   if (p.negativePrompt) params.negativePrompt = p.negativePrompt;
   if (isNum(p.cfgScale)) params.cfgScale = p.cfgScale;
   if (p.sampler) params.sampler = p.sampler;
@@ -714,7 +715,7 @@ export function buildCellWorkflowBody(
   if (isNum(p.height)) params.height = p.height;
   if (isNum(p.clipSkip)) params.clipSkip = p.clipSkip;
 
-  const body: WorkflowBody = {
+  const body: WorkflowBodyTextToImage = {
     kind: 'textToImage',
     modelId: config.checkpoint.modelId,
     modelVersionId: config.checkpoint.versionId,
