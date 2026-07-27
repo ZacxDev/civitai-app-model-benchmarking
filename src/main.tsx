@@ -2,6 +2,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BlockGate, injectBlocksStyles } from '@civitai/blocks-react/ui';
 
+// Design-system tokens (`--civitai-*` custom properties, light/dark via
+// `[data-theme]`). The pack's injectBlocksStyles() also injects these at runtime,
+// but importing the stylesheet makes @civitai/theme an explicit, first-paint
+// token source rather than a transitive side-effect of the pack.
+import '@civitai/theme/styles.css';
+
 import { App } from './App.js';
 import { Harness } from './Harness.js';
 import { installHarnessTransport } from './dev-transport.js';

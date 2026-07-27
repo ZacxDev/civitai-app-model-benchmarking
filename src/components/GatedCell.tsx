@@ -64,7 +64,7 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
 
   if (state.error) {
     return (
-      <div data-testid="gated-error" style={{ fontSize: 11, color: 'var(--ci-color-error, #e03131)', padding: 4 }}>
+      <div data-testid="gated-error" style={{ fontSize: 11, color: 'var(--civitai-color-error)', padding: 4 }}>
         {state.error}
       </div>
     );
@@ -97,8 +97,8 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
               display: 'grid',
               placeItems: 'center',
               borderRadius: 6,
-              background: 'var(--ci-color-surface-2, #f0f0f2)',
-              color: 'var(--ci-color-text-dimmed, #888)',
+              background: 'var(--civitai-color-surface-2)',
+              color: 'var(--civitai-color-text-dimmed)',
               fontSize: 11,
               textAlign: 'center',
               padding: 4,
