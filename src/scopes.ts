@@ -15,18 +15,27 @@
 //                                     combos/prompts/results, derive included set).
 //  - `apps:storage:shared:write`    → useSharedStorage().append/vote/unvote/
 //                                     withdraw (submit + vote + write result rows).
+//  - `apps:storage:read`            → useAppStorage().get (read this viewer's
+//                                     durable voted-set so their up-votes survive
+//                                     a reload — the shared list carries the
+//                                     aggregate `count` but NO per-viewer voted
+//                                     flag, so the highlight is app-owned state).
+//  - `apps:storage:write`           → useAppStorage().set (persist the voted-set).
 //
-// NOT declared: `apps:storage:read`/`write` (per-user KV) — Phase 1 keeps NO
-// private per-viewer state; every contribution goes straight to shared storage.
+// The per-user KV scopes (`apps:storage:read`/`write`) have NO OAuth bit and are
+// NOT consent-gated (the server gates them by presence in the approved scope set;
+// see the SDK `BLOCK_SCOPES` catalog) — the block token carries them on install,
+// so `useAppStorage` works without a consent round-trip. They are a private,
+// per-(viewer, block) KV store that never touches the viewer's civitai resources.
 //
-// 🔴 OPEN CONTRACT ITEM (pending @civitai/blocks-react@^0.30 publish): whether
-// `useGatedImages()` (the per-viewer gated grid read) requires an additional
-// `images:read`-style scope could not be confirmed against the installed SDK
-// (0.30 not yet on npm at build time). If the host rejects the gated read under
-// the current scope set, add the scope the 0.30 dist documents here + in the
-// manifest. Under-declaring fails CLOSED (a rejected read), never an over-grant.
+// `ai:write:budgeted` (above) is the ONLY consent-gated scope: the host mints the
+// first token WITHOUT it and only adds it after the viewer grants consent
+// (REQUEST_CONSENT → TOKEN_REFRESH). So the runner checks the live token scopes
+// before generating and, if absent, requests consent first.
 export const AI_WRITE_BUDGETED = 'ai:write:budgeted';
 export const BUZZ_READ_SELF = 'buzz:read:self';
+export const APPS_STORAGE_READ = 'apps:storage:read';
+export const APPS_STORAGE_WRITE = 'apps:storage:write';
 export const APPS_STORAGE_SHARED_READ = 'apps:storage:shared:read';
 export const APPS_STORAGE_SHARED_WRITE = 'apps:storage:shared:write';
 
@@ -34,6 +43,8 @@ export const APPS_STORAGE_SHARED_WRITE = 'apps:storage:shared:write';
 export const DECLARED_SCOPES = [
   AI_WRITE_BUDGETED,
   BUZZ_READ_SELF,
+  APPS_STORAGE_READ,
+  APPS_STORAGE_WRITE,
   APPS_STORAGE_SHARED_READ,
   APPS_STORAGE_SHARED_WRITE,
 ] as const;

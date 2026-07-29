@@ -2,6 +2,7 @@
 // form the grid's rows). The submit affordance opens the combination form.
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
+import { Tooltip } from '@civitai/components-react';
 
 import { Fragment } from 'react';
 
@@ -93,9 +94,13 @@ export function CombosView({
                   <Group gap={8}>
                     <strong>{combo.name || `#${combo.key}`}</strong>
                     {includedKeys.has(combo.key) && (
-                      <Badge color="success" variant="light" data-testid="combo-included">
-                        Included
-                      </Badge>
+                      <Tooltip label="Included: a top-voted combination — its model configs are the grid's rows.">
+                        <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
+                          <Badge color="success" variant="light" data-testid="combo-included">
+                            Included
+                          </Badge>
+                        </span>
+                      </Tooltip>
                     )}
                     <Badge variant="light" data-testid="combo-config-count">
                       {combo.data.configs.length} config{combo.data.configs.length === 1 ? '' : 's'}

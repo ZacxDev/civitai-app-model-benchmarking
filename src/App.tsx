@@ -17,6 +17,8 @@ import type {
 } from '@civitai/app-sdk/blocks';
 
 import {
+  useAppStorage,
+  useBlockAnalytics,
   useBlockContext,
   useBlockResize,
   useBlockToken,
@@ -29,7 +31,7 @@ import {
   useSharedStorage,
   usePublishGenerationOutputs,
 } from '@civitai/blocks-react';
-import type { SharedAppendValue, UseSharedStorage } from '@civitai/blocks-react';
+import type { SharedAppendValue, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
 import {
   Alert,
   Badge,
@@ -37,8 +39,8 @@ import {
   Group,
   Loader,
   Modal,
-  NumberInput,
   SegmentedControl,
+  Slider,
   Stack,
 } from '@civitai/blocks-react/ui';
 
@@ -91,6 +93,12 @@ export interface AppDeps {
   GatedCell: GatedCellComponent;
   requestConsent: (opts: { scopes: string[] }) => void;
   requestSignIn: () => void;
+  /** Per-(viewer, block) KV store — durably persists this viewer's voted-set so
+   * their up-votes survive a reload (the shared list carries only the aggregate
+   * `count`, no per-viewer voted flag). */
+  appStorage: UseAppStorage;
+  /** Fire-and-forget analytics — the host forwards events to its pipeline. */
+  track: (eventName: string, properties?: Record<string, unknown>) => void;
   /** Test seams for the poll loop. */
   pollIntervalMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -110,6 +118,9 @@ type ModalState =
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
+/** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
+ * the up-vote highlight survives a reload. Versioned for a future shape change. */
+const VOTED_STORAGE_KEY = 'voted:v1';
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -122,6 +133,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const { requestConsent } = useRequestConsent();
   const { requestSignIn } = useRequestSignIn();
   const { publish } = usePublishGenerationOutputs();
+  const appStorage = useAppStorage();
+  const { track } = useBlockAnalytics();
 
   const rootRef = useRef<HTMLDivElement>(null);
   useBlockResize(rootRef);
@@ -140,6 +153,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       GatedCell: DefaultGatedCell,
       requestConsent,
       requestSignIn,
+      appStorage,
+      track,
       ...depsOverride,
     }),
     // Hook objects are stable across renders (SDK contract); depsOverride is
@@ -161,6 +176,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
   const [votedKeys, setVotedKeys] = useState<Set<string>>(new Set());
+  // Mirror of votedKeys for computing the next set outside a state updater
+  // (so persistence gets the fresh set without a side-effect in the reducer).
+  const votedKeysRef = useRef(votedKeys);
+  votedKeysRef.current = votedKeys;
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +213,36 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     };
   }, [ready, reloadKey]);
 
+  // Durable vote-state: hydrate this viewer's voted-set from per-viewer KV so
+  // their up-vote highlight survives a reload. Best-effort — a KV miss/anon
+  // viewer/host error just leaves the in-memory set empty (the aggregate `count`
+  // is always host-authoritative regardless).
+  useEffect(() => {
+    if (!ready || !viewer) return;
+    let cancelled = false;
+    depsRef.current.appStorage
+      .get<string[]>(VOTED_STORAGE_KEY)
+      .then((arr) => {
+        if (!cancelled && Array.isArray(arr)) setVotedKeys(new Set(arr.filter((k) => typeof k === 'string')));
+      })
+      .catch(() => {
+        /* best-effort — leave the set empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, viewer?.id]);
+
+  // Fire a single `block_loaded` analytics event once the host handshake settles.
+  const loadedRef = useRef(false);
+  useEffect(() => {
+    if (ready && !loadedRef.current) {
+      loadedRef.current = true;
+      depsRef.current.track('block_loaded', { authed: !!viewer });
+    }
+  }, [ready, viewer]);
+
   const { combinations, prompts, results } = useMemo(() => splitRows(items), [items]);
   const includedCombos = useMemo(() => topByVotes(combinations, topN), [combinations, topN]);
   const includedPrompts = useMemo(() => topByVotes(prompts, topN), [prompts, topN]);
@@ -208,28 +257,42 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     setItems((prev) => prev.map((it) => (it.key === key ? { ...it, count } : it)));
   }, []);
 
+  // Persist the voted-set to per-viewer KV (best-effort, fire-and-forget). A
+  // persistence failure never blocks or fails the vote — the host vote itself is
+  // already durable; this only mirrors the per-viewer HIGHLIGHT.
+  const persistVoted = useCallback(
+    (next: Set<string>) => {
+      if (!viewer) return;
+      depsRef.current.appStorage.set(VOTED_STORAGE_KEY, [...next]).catch(() => {});
+    },
+    [viewer],
+  );
+
   const onVote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.vote(key);
       applyCount(key, count);
-      setVotedKeys((prev) => new Set(prev).add(key));
+      const next = new Set(votedKeysRef.current).add(key);
+      setVotedKeys(next);
+      persistVoted(next);
+      depsRef.current.track('vote');
       return count;
     },
-    [applyCount],
+    [applyCount, persistVoted],
   );
 
   const onUnvote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.unvote(key);
       applyCount(key, count);
-      setVotedKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
+      const next = new Set(votedKeysRef.current);
+      next.delete(key);
+      setVotedKeys(next);
+      persistVoted(next);
+      depsRef.current.track('vote_removed');
       return count;
     },
-    [applyCount],
+    [applyCount, persistVoted],
   );
 
   const requireAuth = useCallback(() => {
@@ -266,6 +329,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const payload = buildCombinationPayload(input) as SharedAppendValue;
       const { key } = await depsRef.current.shared.append(payload);
       optimisticInsert(key, payload);
+      depsRef.current.track('submit_combo', {
+        configCount: input.configs.filter((cfg) => cfg?.checkpoint).length,
+      });
       closeModal();
       reload();
     },
@@ -277,6 +343,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const payload = buildPromptPayload(input) as SharedAppendValue;
       const { key } = await depsRef.current.shared.append(payload);
       optimisticInsert(key, payload);
+      depsRef.current.track('submit_prompt', {
+        overrideCount: Object.keys(input.overrides ?? {}).length,
+      });
       closeModal();
       reload();
     },
@@ -334,6 +403,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         return;
       }
       setRun(ck, { comboKey: row.comboKey, configId: row.config.id, promptKey: prompt.key, ecosystem: matched.ecosystem, status: 'estimating', error: undefined });
+      depsRef.current.track('run_cell', { ecosystem: matched.ecosystem });
       try {
         const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
         const snap = await depsRef.current.estimate(body);
@@ -373,6 +443,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // Publish the generation's own scanned outputs, then append the result row.
         setRun(ck, { status: 'publishing' });
         const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
+        depsRef.current.track('publish', { imageCount: imageIds.length });
         const matched = resolveCell(row.config, prompt);
         // Re-check dedup right before append (another viewer may have raced).
         if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
@@ -382,6 +453,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             promptKey: prompt.key,
             ecosystem: matched.ecosystem,
             imageIds,
+            // App-level attribution of the PROMPT submitter (the column author),
+            // alongside the host's single-key spend attribution to the combo
+            // (sharedContentKey — see buildCellWorkflowBody). Omitted when the
+            // prompt's author is unknown/anonymous (id 0).
+            ...(prompt.authorUserId ? { promptAuthorUserId: prompt.authorUserId } : {}),
           }) as SharedAppendValue;
           const { key } = await depsRef.current.shared.append(payload);
           // Show the result in the grid immediately — an optimistic insert (like
@@ -495,13 +571,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
                 Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
               </span>
-              <div style={{ width: 132 }}>
-                <NumberInput
+              <div style={{ width: 200 }}>
+                <Slider
                   label="Top-N included"
+                  showValue
                   min={1}
                   max={20}
                   value={topN}
-                  onChange={(v) => setTopN(v ?? DEFAULT_TOP_N)}
+                  onChange={(v) => setTopN(v || DEFAULT_TOP_N)}
                   data-testid="top-n"
                 />
               </div>
