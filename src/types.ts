@@ -225,3 +225,21 @@ export interface CellRun {
   workflowId?: string;
   error?: string;
 }
+
+/**
+ * A single IN-FLIGHT cell run, persisted to per-viewer app storage the moment a
+ * generation is submitted and removed on terminal. 🔴 MONEY SAFETY: `runs` is
+ * in-memory component state, so a reload would otherwise reset a still-running
+ * cell to empty+runnable → a re-run = a SECOND real Buzz charge, and the first
+ * generation's outputs never reach the grid. Persisting `{ cellKey → workflowId
+ * + cell coords }` lets the app rehydrate the cell as in-flight on load (never
+ * empty+runnable) and offer a resume-poll instead. Keyed per cell under the
+ * `inflight:v1:` storage prefix so concurrent runs never RMW-clobber each other.
+ */
+export interface InflightRun {
+  workflowId: string;
+  comboKey: string;
+  configId: string;
+  promptKey: string;
+  ecosystem: string;
+}

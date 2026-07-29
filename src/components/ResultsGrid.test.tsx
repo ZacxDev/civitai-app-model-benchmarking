@@ -13,7 +13,7 @@ import { ResultsGrid } from './ResultsGrid.js';
 import { palette } from '../theme.js';
 import { fakeGatedCell } from '../test-helpers.js';
 import { flattenConfigs, cellKey } from '../lib/benchmark.js';
-import type { CombinationRow, PromptRow, ResultRow } from '../types.js';
+import type { CellRun, CombinationRow, PromptRow, ResultRow } from '../types.js';
 
 const c = palette();
 
@@ -80,14 +80,65 @@ function renderGrid(canRun = true) {
       runs={{}}
       c={c}
       canRun={canRun}
+      buzzTotal={5000}
       GatedCell={fakeGatedCell({ visibleIds: [501], hiddenIds: [777] })}
       onRunCell={onRunCell}
       onConfirmRun={vi.fn()}
+      onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
     />,
   );
   return { onRunCell, configs };
 }
+
+// A single-CONFIG combo so the grid has exactly ONE cell (c1/cfgA × p1) — keeps
+// the run-state assertions unambiguous.
+const comboOne: CombinationRow = {
+  key: 'c1',
+  count: 5,
+  authorUserId: 1,
+  name: 'Solo Combo',
+  description: '',
+  data: {
+    v: 2,
+    kind: 'combination',
+    configs: [{ id: 'cfgA', label: 'base', checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' }, loras: [] }],
+  },
+};
+
+/** Render the grid with a single run in a given state on the c1/cfgA × p1 cell. */
+function renderGridWithRun(run: CellRun, opts: { buzzTotal?: number | null } = {}) {
+  const onConfirmRun = vi.fn();
+  const onResumeRun = vi.fn();
+  const onCancelRun = vi.fn();
+  const configs = flattenConfigs([comboOne]);
+  render(
+    <ResultsGrid
+      configs={configs}
+      prompts={[p1]}
+      results={[]}
+      runs={{ [cellKey('c1', 'cfgA', 'p1')]: run }}
+      c={c}
+      canRun
+      buzzTotal={opts.buzzTotal === undefined ? 5000 : opts.buzzTotal}
+      GatedCell={fakeGatedCell()}
+      onRunCell={vi.fn()}
+      onConfirmRun={onConfirmRun}
+      onResumeRun={onResumeRun}
+      onCancelRun={onCancelRun}
+    />,
+  );
+  return { onConfirmRun, onResumeRun, onCancelRun, configs };
+}
+
+const confirmingRun = (estimatedCost: number | undefined): CellRun => ({
+  comboKey: 'c1',
+  configId: 'cfgA',
+  promptKey: 'p1',
+  ecosystem: 'SDXL',
+  status: 'confirming',
+  estimatedCost,
+});
 
 describe('ResultsGrid render (config rows)', () => {
   it('renders a 3-row × 2-col matrix (2 SDXL configs + 1 Flux config)', () => {
@@ -183,9 +234,11 @@ describe('ResultsGrid render (config rows)', () => {
         }}
         c={c}
         canRun
+        buzzTotal={5000}
         GatedCell={fakeGatedCell()}
         onRunCell={vi.fn()}
         onConfirmRun={vi.fn()}
+        onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
       />,
     );
@@ -197,6 +250,70 @@ describe('ResultsGrid render (config rows)', () => {
     expect(status).toHaveTextContent('Generating…');
   });
 
+  describe('money honesty: Confirm is balance-gated', () => {
+    it('ENABLES Confirm when the estimated cost fits the balance', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: 500 });
+      expect(screen.getByTestId('cell-confirm-run')).not.toBeDisabled();
+      expect(screen.queryByTestId('cell-insufficient')).toBeNull();
+    });
+
+    it('DISABLES Confirm + warns when the estimated cost exceeds the balance', () => {
+      renderGridWithRun(confirmingRun(600), { buzzTotal: 500 });
+      expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
+      expect(screen.getByTestId('cell-insufficient')).toHaveTextContent('Insufficient Buzz balance');
+    });
+
+    it('DISABLES Confirm (fail-closed) when the balance is unknown', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: null });
+      expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
+    });
+
+    it('DISABLES Confirm (fail-closed) when the cost is unknown', () => {
+      renderGridWithRun(confirmingRun(undefined), { buzzTotal: 5000 });
+      expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
+      expect(screen.getByTestId('cell-insufficient')).toHaveTextContent('Cost unavailable');
+    });
+
+    it('does NOT invoke onConfirmRun while the Confirm button is disabled', () => {
+      const { onConfirmRun } = renderGridWithRun(confirmingRun(600), { buzzTotal: 500 });
+      screen.getByTestId('cell-confirm-run').click();
+      expect(onConfirmRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('stalled recovery: a stalled cell offers a resume-poll, never empty+runnable', () => {
+    const stalledRun: CellRun = {
+      comboKey: 'c1',
+      configId: 'cfgA',
+      promptKey: 'p1',
+      ecosystem: 'SDXL',
+      status: 'stalled',
+      workflowId: 'wf-stalled',
+    };
+
+    it('renders a "Check status" affordance (not an empty/run cell) for a stalled run', () => {
+      renderGridWithRun(stalledRun);
+      // The cell is "running", NOT empty — so it can never be re-run/re-charged.
+      const cell = screen.getByTestId('grid-cell');
+      expect(cell).toHaveAttribute('data-state', 'running');
+      expect(screen.queryByTestId('run-cell')).toBeNull();
+      expect(screen.getByTestId('cell-stalled')).toBeInTheDocument();
+      expect(screen.getByTestId('cell-resume-run')).toBeInTheDocument();
+    });
+
+    it('invokes onResumeRun (resume-poll, no re-submit) when "Check status" is clicked', () => {
+      const { onResumeRun, configs } = renderGridWithRun(stalledRun);
+      screen.getByTestId('cell-resume-run').click();
+      expect(onResumeRun).toHaveBeenCalledWith(configs[0], p1);
+    });
+
+    it('invokes onCancelRun (explicit abandon) when "Dismiss" is clicked', () => {
+      const { onCancelRun, configs } = renderGridWithRun(stalledRun);
+      screen.getByTestId('cell-cancel-run').click();
+      expect(onCancelRun).toHaveBeenCalledWith(configs[0], p1);
+    });
+  });
+
   it('shows the empty-state message when there are no included rows/columns', () => {
     render(
       <ResultsGrid
@@ -206,9 +323,11 @@ describe('ResultsGrid render (config rows)', () => {
         runs={{}}
         c={c}
         canRun
+        buzzTotal={5000}
         GatedCell={fakeGatedCell()}
         onRunCell={vi.fn()}
         onConfirmRun={vi.fn()}
+        onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
       />,
     );
