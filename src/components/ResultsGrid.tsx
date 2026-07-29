@@ -361,6 +361,10 @@ function CellRunState({
         <span style={{ color: token.text }}>
           Cost: <strong>{cost ?? '…'}</strong> Buzz
         </span>
+        <span style={{ color: token.dimmed, fontSize: 11 }} data-testid="cell-public-notice">
+          This generates images that will be added to the <strong>public</strong> benchmark grid, visible to
+          all viewers.
+        </span>
         {!affordable && (
           <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
             {costKnown ? 'Insufficient Buzz balance' : 'Cost unavailable'}

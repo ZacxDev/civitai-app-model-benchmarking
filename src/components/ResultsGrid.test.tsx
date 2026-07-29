@@ -250,6 +250,17 @@ describe('ResultsGrid render (config rows)', () => {
     expect(status).toHaveTextContent('Generating…');
   });
 
+  describe('public-images consent at the point of commitment', () => {
+    it('warns that the run publishes to the PUBLIC grid, visible to all viewers', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: 500 });
+      const notice = screen.getByTestId('cell-public-notice');
+      expect(notice).toHaveTextContent(/public/i);
+      expect(notice).toHaveTextContent(/visible to all viewers/i);
+      // Shown right alongside the Confirm affordance (the point of commitment).
+      expect(within(screen.getByTestId('cell-confirm')).getByTestId('cell-confirm-run')).toBeInTheDocument();
+    });
+  });
+
   describe('money honesty: Confirm is balance-gated', () => {
     it('ENABLES Confirm when the estimated cost fits the balance', () => {
       renderGridWithRun(confirmingRun(100), { buzzTotal: 500 });
