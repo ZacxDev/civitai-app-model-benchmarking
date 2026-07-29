@@ -103,8 +103,10 @@ export function fakeAppStorage(seed: Record<string, unknown> = {}) {
       const deleted = store.delete(key);
       return { ok: true as const, deleted };
     },
-    async list() {
-      return { keys: [...store.keys()].map((key) => ({ key, updatedAt: new Date() })) };
+    async list(opts?: { prefix?: string; limit?: number; cursor?: string }) {
+      const prefix = opts?.prefix;
+      const keys = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
+      return { keys: keys.map((key) => ({ key, updatedAt: new Date() })) };
     },
     async getQuota() {
       return { usedBytes: 0, rowCount: store.size, limitBytes: 50_000_000, limitRows: 1_000_000 };

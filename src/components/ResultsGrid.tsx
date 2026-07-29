@@ -30,9 +30,14 @@ export interface ResultsGridProps {
   runs: Record<string, CellRun>;
   c: Palette;
   canRun: boolean;
+  /** The viewer's total spendable Buzz (blue+green+yellow), or `null` when the
+   * balance is unknown. Confirm is disabled unless the estimated cost fits. */
+  buzzTotal: number | null;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  /** Resume-poll a stalled cell's existing workflow (no re-submit, no re-charge). */
+  onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
@@ -46,9 +51,11 @@ export function ResultsGrid({
   runs,
   c,
   canRun,
+  buzzTotal,
   GatedCell,
   onRunCell,
   onConfirmRun,
+  onResumeRun,
   onCancelRun,
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
@@ -116,9 +123,11 @@ export function ResultsGrid({
             runs={runs}
             c={c}
             canRun={canRun}
+            buzzTotal={buzzTotal}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
             onConfirmRun={onConfirmRun}
+            onResumeRun={onResumeRun}
             onCancelRun={onCancelRun}
           />
         ))}
@@ -159,9 +168,11 @@ interface RowProps {
   runs: Record<string, CellRun>;
   c: Palette;
   canRun: boolean;
+  buzzTotal: number | null;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
@@ -173,9 +184,11 @@ function RowFragment({
   runs,
   c,
   canRun,
+  buzzTotal,
   GatedCell,
   onRunCell,
   onConfirmRun,
+  onResumeRun,
   onCancelRun,
 }: RowProps): React.JSX.Element {
   const eco = ecosystemForBaseModel(row.config.checkpoint.baseModel);
@@ -225,9 +238,11 @@ function RowFragment({
           topBorder={topBorder}
           c={c}
           canRun={canRun}
+          buzzTotal={buzzTotal}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
           onConfirmRun={onConfirmRun}
+          onResumeRun={onResumeRun}
           onCancelRun={onCancelRun}
         />
       ))}
@@ -243,9 +258,11 @@ interface CellProps {
   topBorder: string;
   c: Palette;
   canRun: boolean;
+  buzzTotal: number | null;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
 }
 
@@ -257,9 +274,11 @@ function Cell({
   topBorder,
   c,
   canRun,
+  buzzTotal,
   GatedCell,
   onRunCell,
   onConfirmRun,
+  onResumeRun,
   onCancelRun,
 }: CellProps): React.JSX.Element {
   const label = `${configLabel(row)} × ${prompt.name}`;
@@ -286,7 +305,13 @@ function Cell({
   if (run && run.status !== 'idle') {
     return (
       <div data-testid="grid-cell" data-state="running" style={base}>
-        <CellRunState run={run} onConfirm={() => onConfirmRun(row, prompt)} onCancel={() => onCancelRun(row, prompt)} />
+        <CellRunState
+          run={run}
+          buzzTotal={buzzTotal}
+          onConfirm={() => onConfirmRun(row, prompt)}
+          onResume={() => onResumeRun(row, prompt)}
+          onCancel={() => onCancelRun(row, prompt)}
+        />
       </div>
     );
   }
@@ -314,25 +339,58 @@ function Cell({
 
 function CellRunState({
   run,
+  buzzTotal,
   onConfirm,
+  onResume,
   onCancel,
 }: {
   run: CellRun;
+  buzzTotal: number | null;
   onConfirm: () => void;
+  onResume: () => void;
   onCancel: () => void;
 }): React.JSX.Element {
   if (run.status === 'confirming') {
+    const cost = run.estimatedCost;
+    // Money honesty: only allow Confirm when the estimate is known AND fits the
+    // viewer's balance. Unknown cost or unknown balance → disabled (fail-closed).
+    const costKnown = typeof cost === 'number';
+    const affordable = costKnown && buzzTotal != null && cost <= buzzTotal;
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-confirm">
         <span style={{ color: token.text }}>
-          Cost: <strong>{run.estimatedCost ?? '…'}</strong> Buzz
+          Cost: <strong>{cost ?? '…'}</strong> Buzz
         </span>
+        {!affordable && (
+          <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
+            {costKnown ? 'Insufficient Buzz balance' : 'Cost unavailable'}
+          </span>
+        )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Button size="sm" data-testid="cell-confirm-run" onClick={onConfirm}>
+          <Button size="sm" data-testid="cell-confirm-run" disabled={!affordable} onClick={onConfirm}>
             Confirm
           </Button>
           <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
             Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  // A generation that outran the poll window (or was rehydrated in-flight after a
+  // reload): keep the workflow, offer a resume-poll — NEVER drop to empty+runnable
+  // (that would re-charge). "Check status" re-polls the SAME workflow; "Dismiss"
+  // is an explicit user abandon.
+  if (run.status === 'stalled') {
+    return (
+      <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-stalled">
+        <span style={metaText}>Still generating…</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <Button size="sm" data-testid="cell-resume-run" onClick={onResume}>
+            Check status
+          </Button>
+          <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
+            Dismiss
           </Button>
         </div>
       </div>
@@ -354,7 +412,6 @@ function CellRunState({
     estimating: 'Estimating…',
     submitting: 'Submitting…',
     processing: 'Generating…',
-    stalled: 'Still generating…',
     publishing: 'Publishing…',
     succeeded: 'Done',
     canceled: 'Canceled',

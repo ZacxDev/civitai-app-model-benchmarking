@@ -46,7 +46,7 @@ import {
 
 import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
 import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
-import type { CellRun, CombinationRow, PromptRow } from './types.js';
+import type { CellRun, CombinationRow, InflightRun, PromptRow } from './types.js';
 import {
   buildCellWorkflowBody,
   buildCombinationPayload,
@@ -121,6 +121,11 @@ const MAX_PAGES = 40; // safety cap when paging the whole shared list
 /** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
  * the up-vote highlight survives a reload. Versioned for a future shape change. */
 const VOTED_STORAGE_KEY = 'voted:v1';
+/** Per-viewer KV key PREFIX under which each in-flight cell run is persisted
+ * (one row per cell: `inflight:v1:<cellKey>`). Read on load to rehydrate still-
+ * running cells so a reload never re-charges them (see {@link InflightRun}). */
+const INFLIGHT_PREFIX = 'inflight:v1:';
+const inflightKey = (ck: string): string => `${INFLIGHT_PREFIX}${ck}`;
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -181,6 +186,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const votedKeysRef = useRef(votedKeys);
   votedKeysRef.current = votedKeys;
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
+  // Mirror of `runs` for reading the live workflowId outside a state updater
+  // (resume-poll reads it without re-subscribing the callback to `runs`).
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  // 🔴 MONEY SAFETY: synchronous in-flight claim set — a second `confirmRun`/
+  // `resumeRun` for a cell already mid-submit returns immediately, so a double-
+  // fire (ghost tap, batched re-render before the confirm button unmounts) can
+  // NEVER spend Buzz twice. Deterministic, not render-timing-dependent.
+  const inFlightRef = useRef<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -228,6 +242,44 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       .catch(() => {
         /* best-effort — leave the set empty */
       });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, viewer?.id]);
+
+  // 🔴 MONEY SAFETY: rehydrate IN-FLIGHT cell runs from per-viewer KV on load, so
+  // a generation still running from a prior session/reload renders as in-flight
+  // (its workflowId + a resume-poll) rather than an empty runnable cell — which
+  // would let a re-run double-charge and orphan the first generation's outputs.
+  // Best-effort: an anon viewer / KV miss / host error just leaves `runs` empty.
+  useEffect(() => {
+    if (!ready || !viewer) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { keys } = await depsRef.current.appStorage.list({ prefix: INFLIGHT_PREFIX });
+        for (const { key } of keys) {
+          if (cancelled) return;
+          // Defensive: only trust keys under our prefix (a fake/host may over-return).
+          if (!key.startsWith(INFLIGHT_PREFIX)) continue;
+          const entry = await depsRef.current.appStorage.get<InflightRun>(key);
+          if (cancelled) return;
+          if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) continue;
+          const ck = cellKey(entry.comboKey, entry.configId, entry.promptKey);
+          setRun(ck, {
+            comboKey: entry.comboKey,
+            configId: entry.configId,
+            promptKey: entry.promptKey,
+            ecosystem: entry.ecosystem,
+            status: 'stalled',
+            workflowId: entry.workflowId,
+          });
+        }
+      } catch {
+        /* best-effort — leave `runs` empty */
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -387,6 +439,76 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     });
   }, []);
 
+  // Persist / clear ONE in-flight cell run in per-viewer KV (best-effort, fire-
+  // and-forget — a KV failure must never block or fail a real generation; the
+  // double-charge guard just degrades gracefully). One row per cell so concurrent
+  // runs can't read-modify-write-clobber a shared map.
+  const persistInflight = useCallback(
+    (ck: string, entry: InflightRun) => {
+      if (!viewer) return;
+      depsRef.current.appStorage.set(inflightKey(ck), entry).catch(() => {});
+    },
+    [viewer],
+  );
+  const clearInflight = useCallback(
+    (ck: string) => {
+      if (!viewer) return;
+      depsRef.current.appStorage.delete(inflightKey(ck)).catch(() => {});
+    },
+    [viewer],
+  );
+
+  // Shared tail of the money path: poll a submitted workflow to terminal, then —
+  // on success — publish its scanned outputs and append the result row. Used by
+  // BOTH the initial confirm AND the stalled-cell resume-poll. Clears the
+  // persisted in-flight row on any terminal outcome (success OR failure); a
+  // NON-terminal poll cap keeps it (still running → resumable).
+  const driveToResult = useCallback(
+    async (ck: string, row: BenchConfig, prompt: PromptRow, first: BlockWorkflowSnapshot) => {
+      const terminal = await pollToTerminal(depsRef.current.poll, first, {
+        sleep: depsRef.current.sleep,
+        delayMs: depsRef.current.pollIntervalMs,
+        maxDelayMs: depsRef.current.pollIntervalMs,
+      });
+      if (!isTerminalSnapshot(terminal.status)) {
+        // Poll window elapsed while still generating — keep the workflowId (and
+        // its persisted row) so the cell offers a resume-poll, never a re-charge.
+        setRun(ck, { status: 'stalled', workflowId: terminal.workflowId });
+        return;
+      }
+      clearInflight(ck); // terminal → no longer in-flight
+      if (terminal.status !== 'succeeded') {
+        setRun(ck, { status: mapSnapshotStatus(terminal.status), error: terminal.error });
+        return;
+      }
+      // Already published by a prior session/racer? Don't re-publish — just clear.
+      if (cellHasResult(results, row.comboKey, row.config.id, prompt.key)) {
+        setRun(ck, null);
+        reload();
+        return;
+      }
+      setRun(ck, { status: 'publishing' });
+      const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
+      depsRef.current.track('publish', { imageCount: imageIds.length });
+      const matched = resolveCell(row.config, prompt);
+      if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
+        const payload = buildResultPayload({
+          comboKey: row.comboKey,
+          configId: row.config.id,
+          promptKey: prompt.key,
+          ecosystem: matched.ecosystem,
+          imageIds,
+          ...(prompt.authorUserId ? { promptAuthorUserId: prompt.authorUserId } : {}),
+        }) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        optimisticInsert(key, payload);
+      }
+      setRun(ck, null);
+      reload();
+    },
+    [results, reload, setRun, optimisticInsert, clearInflight],
+  );
+
   const beginRun = useCallback(
     async (row: BenchConfig, prompt: PromptRow) => {
       const ck = cellKey(row.comboKey, row.config.id, prompt.key);
@@ -418,6 +540,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const confirmRun = useCallback(
     async (row: BenchConfig, prompt: PromptRow) => {
       const ck = cellKey(row.comboKey, row.config.id, prompt.key);
+      // 🔴 MONEY SAFETY: synchronous claim BEFORE any spend. A second confirm for
+      // this cell (double-tap / batched re-render) returns here → submit once.
+      if (inFlightRef.current.has(ck)) return;
+      inFlightRef.current.add(ck);
       setRun(ck, { status: 'submitting' });
       try {
         const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
@@ -427,57 +553,64 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           return;
         }
         setRun(ck, { status: 'processing', workflowId: first.workflowId });
-        const terminal = await pollToTerminal(depsRef.current.poll, first, {
-          sleep: depsRef.current.sleep,
-          delayMs: depsRef.current.pollIntervalMs,
-          maxDelayMs: depsRef.current.pollIntervalMs,
-        });
-        if (!isTerminalSnapshot(terminal.status)) {
-          setRun(ck, { status: 'stalled', workflowId: terminal.workflowId });
-          return;
-        }
-        if (terminal.status !== 'succeeded') {
-          setRun(ck, { status: mapSnapshotStatus(terminal.status), error: terminal.error });
-          return;
-        }
-        // Publish the generation's own scanned outputs, then append the result row.
-        setRun(ck, { status: 'publishing' });
-        const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
-        depsRef.current.track('publish', { imageCount: imageIds.length });
+        // Persist the in-flight workflow the instant it exists, so a reload before
+        // it terminates rehydrates the cell as in-flight (never empty+runnable).
         const matched = resolveCell(row.config, prompt);
-        // Re-check dedup right before append (another viewer may have raced).
-        if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
-          const payload = buildResultPayload({
-            comboKey: row.comboKey,
-            configId: row.config.id,
-            promptKey: prompt.key,
-            ecosystem: matched.ecosystem,
-            imageIds,
-            // App-level attribution of the PROMPT submitter (the column author),
-            // alongside the host's single-key spend attribution to the combo
-            // (sharedContentKey — see buildCellWorkflowBody). Omitted when the
-            // prompt's author is unknown/anonymous (id 0).
-            ...(prompt.authorUserId ? { promptAuthorUserId: prompt.authorUserId } : {}),
-          }) as SharedAppendValue;
-          const { key } = await depsRef.current.shared.append(payload);
-          // Show the result in the grid immediately — an optimistic insert (like
-          // submitCombination/submitPrompt) so the cell renders the published
-          // image right away instead of falling back to "not generated yet"
-          // until a lagged list() refetch (appsDb read-after-write) catches up.
-          optimisticInsert(key, payload);
-        }
-        setRun(ck, null);
-        reload();
+        persistInflight(ck, {
+          workflowId: first.workflowId,
+          comboKey: row.comboKey,
+          configId: row.config.id,
+          promptKey: prompt.key,
+          ecosystem: matched.ecosystem,
+        });
+        await driveToResult(ck, row, prompt, first);
       } catch (e) {
         setRun(ck, { status: 'failed', error: errMsg(e) });
+      } finally {
+        inFlightRef.current.delete(ck);
       }
     },
-    [results, reload, setRun, optimisticInsert],
+    [setRun, persistInflight, driveToResult],
   );
 
-  const cancelRun = useCallback((row: BenchConfig, prompt: PromptRow) => {
-    setRun(cellKey(row.comboKey, row.config.id, prompt.key), null);
-  }, [setRun]);
+  // Resume-poll a STALLED cell (poll-cap elapsed, or rehydrated in-flight from a
+  // prior session). Re-polls the existing workflowId to terminal — NO re-submit,
+  // so it never spends Buzz again — and publishes/appends on success.
+  const resumeRun = useCallback(
+    async (row: BenchConfig, prompt: PromptRow) => {
+      const ck = cellKey(row.comboKey, row.config.id, prompt.key);
+      if (inFlightRef.current.has(ck)) return;
+      const wfId = runsRef.current[ck]?.workflowId;
+      if (!wfId) {
+        // Nothing to resume (no known workflow) — clear the stale in-flight state.
+        clearInflight(ck);
+        setRun(ck, null);
+        return;
+      }
+      inFlightRef.current.add(ck);
+      setRun(ck, { status: 'processing', workflowId: wfId });
+      try {
+        const first = await depsRef.current.poll(wfId);
+        await driveToResult(ck, row, prompt, first);
+      } catch (e) {
+        setRun(ck, { status: 'failed', error: errMsg(e) });
+      } finally {
+        inFlightRef.current.delete(ck);
+      }
+    },
+    [setRun, clearInflight, driveToResult],
+  );
+
+  const cancelRun = useCallback(
+    (row: BenchConfig, prompt: PromptRow) => {
+      const ck = cellKey(row.comboKey, row.config.id, prompt.key);
+      // Explicit user abandon — drop the persisted in-flight row too so it doesn't
+      // rehydrate as stalled on the next load.
+      clearInflight(ck);
+      setRun(ck, null);
+    },
+    [setRun, clearInflight],
+  );
 
   const buzzTotal =
     buzz.balance != null ? buzz.balance.blue + buzz.balance.green + buzz.balance.yellow : null;
@@ -604,9 +737,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               runs={runs}
               c={c}
               canRun={canGenerate && !!viewer}
+              buzzTotal={buzzTotal}
               GatedCell={deps.GatedCell}
               onRunCell={beginRun}
               onConfirmRun={confirmRun}
+              onResumeRun={resumeRun}
               onCancelRun={cancelRun}
             />
           </Stack>
