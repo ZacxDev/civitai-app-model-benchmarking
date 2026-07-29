@@ -13,6 +13,11 @@
     "apps:storage:shared:read",
     "apps:storage:shared:write"
   ],
+  "scopeJustifications": {
+    "ai:write:budgeted": "Runs image generations for benchmark-grid cells; each run spends the viewer's Buzz within the per-gen budget to produce the side-by-side comparison outputs.",
+    "buzz:read:self": "Reads the viewer's Buzz balance to display it and to disable a cell's Confirm action when the balance is below the estimated cost.",
+    "apps:storage:shared:write": "Stores user-submitted checkpoint/LoRA combinations, prompts, votes, and generated-result references in the app's shared benchmark grid visible to all viewers."
+  },
   "page": {
     "path": "/",
     "title": "Model Benchmarking",
