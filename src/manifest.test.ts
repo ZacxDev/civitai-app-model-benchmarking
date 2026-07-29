@@ -7,7 +7,7 @@ describe('block manifest', () => {
   it('validates as a full BlockManifest (page-app source augmented)', () => {
     const validated = validateManifest();
     expect(validated.blockId).toBe('model-benchmarking');
-    expect(validated.version).toBe('0.1.2');
+    expect(validated.version).toBe('0.2.0');
   });
 
   it('declares exactly the scopes the code depends on (in lockstep with scopes.ts)', () => {

@@ -522,6 +522,9 @@ export function parseResult(item: RawSharedItem): ResultRow | null {
       promptKey: d.promptKey,
       ecosystem: typeof d.ecosystem === 'string' ? d.ecosystem : '',
       imageIds,
+      // App-level prompt-submitter attribution (optional; absent on v1 rows and
+      // on runs against an anonymous-authored prompt). Parsed defensively.
+      ...(isNum(d.promptAuthorUserId) ? { promptAuthorUserId: d.promptAuthorUserId } : {}),
     },
   };
 }

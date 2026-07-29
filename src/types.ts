@@ -147,6 +147,22 @@ export interface ResultData {
   ecosystem: string;
   /** The bare scanned Image row ids the runner published (via the gated bridge). */
   imageIds: number[];
+  /**
+   * App-level attribution of the PROMPT submitter (the column author), recorded
+   * on the result so the prompt author is credited for the cell alongside the
+   * combination author.
+   *
+   * 🔴 WHY app-level, not host spend-attribution: the generation's Buzz spend is
+   * host-attributed to a SINGLE `sharedContentKey` (the combination — see
+   * `buildCellWorkflowBody`), because the host contract exposes exactly one
+   * shared-content key per workflow (`WorkflowBody.sharedContentKey: string`),
+   * which it resolves to ONE content author. A cell is co-authored (combo × prompt),
+   * so the prompt submitter gets app-level credit recorded here (derivable from
+   * `promptKey` too, but recorded explicitly so a consumer needn't re-resolve the
+   * prompt row). True dual SPEND attribution would require a host/platform change.
+   * Optional (a v1 result / a run against an anonymous-authored prompt omits it).
+   */
+  promptAuthorUserId?: number;
 }
 
 // ---------------------------------------------------------------------------

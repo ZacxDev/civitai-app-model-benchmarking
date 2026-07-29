@@ -3,6 +3,7 @@
 // the prompt covers.
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
+import { Tooltip } from '@civitai/components-react';
 
 import type { PromptRow } from '../types.js';
 import { ecosystemMeta } from '../lib/ecosystem.js';
@@ -87,9 +88,13 @@ export function PromptsView({
                   <Group gap={8}>
                     <strong>{prompt.name || `#${prompt.key}`}</strong>
                     {includedKeys.has(prompt.key) && (
-                      <Badge color="success" variant="light" data-testid="prompt-included">
-                        Included
-                      </Badge>
+                      <Tooltip label="Included: a top-voted prompt — it forms one of the grid's columns.">
+                        <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
+                          <Badge color="success" variant="light" data-testid="prompt-included">
+                            Included
+                          </Badge>
+                        </span>
+                      </Tooltip>
                     )}
                   </Group>
                   {prompt.description && <span style={mutedText}>{prompt.description}</span>}
