@@ -121,6 +121,9 @@ const MAX_PAGES = 40; // safety cap when paging the whole shared list
 /** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
  * the up-vote highlight survives a reload. Versioned for a future shape change. */
 const VOTED_STORAGE_KEY = 'voted:v1';
+/** Per-viewer KV flag: set once the viewer dismisses the "How this works" panel,
+ * so the one-time explainer stays dismissed across reloads. */
+const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
 /** Per-viewer KV key PREFIX under which each in-flight cell run is persisted
  * (one row per cell: `inflight:v1:<cellKey>`). Read on load to rehydrate still-
  * running cells so a reload never re-charges them (see {@link InflightRun}). */
@@ -177,6 +180,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
   const [topN, setTopN] = useState<number>(DEFAULT_TOP_N);
+  // One-time "How this works" explainer. `null` = still hydrating the dismissed
+  // flag (render nothing yet — no flash-then-hide); `false` = show; `true` = hide.
+  const [howtoDismissed, setHowtoDismissed] = useState<boolean | null>(null);
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
@@ -247,6 +253,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, viewer?.id]);
+
+  // Hydrate the one-time "How this works" dismissed flag from per-viewer KV.
+  // Best-effort: a miss / anon viewer / host error just shows the explainer.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    depsRef.current.appStorage
+      .get<boolean>(HOWTO_STORAGE_KEY)
+      .then((v) => {
+        if (!cancelled) setHowtoDismissed(v === true);
+      })
+      .catch(() => {
+        if (!cancelled) setHowtoDismissed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  const dismissHowto = useCallback(() => {
+    setHowtoDismissed(true);
+    depsRef.current.appStorage.set(HOWTO_STORAGE_KEY, true).catch(() => {});
+  }, []);
 
   // 🔴 MONEY SAFETY: rehydrate IN-FLIGHT cell runs from per-viewer KV on load, so
   // a generation still running from a prior session/reload renders as in-flight
@@ -654,6 +684,43 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           )}
         </Group>
 
+        {howtoDismissed === false && (
+          <div
+            data-testid="how-this-works"
+            style={{
+              border: `1px solid ${c.border}`,
+              background: c.card,
+              borderRadius: radius.md,
+              padding: '12px 14px',
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <Group justify="space-between" align="center" gap={10}>
+              <strong style={{ fontSize: 14 }}>How this works</strong>
+              <Button size="sm" variant="subtle" onClick={dismissHowto} data-testid="howto-dismiss">
+                Got it
+              </Button>
+            </Group>
+            <ol style={{ ...mutedText, margin: 0, paddingLeft: 18, display: 'grid', gap: 3, fontSize: 13 }}>
+              <li>
+                <strong>Submit</strong> checkpoint + LoRA combinations and prompts.
+              </li>
+              <li>
+                <strong>Vote</strong> — the top-voted combinations and prompts become the grid's rows and
+                columns.
+              </li>
+              <li>
+                <strong>Run</strong> a cell to generate its images (spends Buzz). Outputs are added to the
+                shared <strong>public</strong> grid.
+              </li>
+              <li>
+                <strong>Compare</strong> models side-by-side on identical prompts.
+              </li>
+            </ol>
+          </div>
+        )}
+
         <SegmentedControl
           fullWidth
           value={view}
@@ -704,9 +771,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
                 Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
               </span>
-              <div style={{ width: 200 }}>
+              <div style={{ width: 240 }}>
                 <Slider
-                  label="Top-N included"
+                  label="Show top N (your view)"
+                  description="Only changes how many rows/columns YOU see — it doesn't change the shared grid or anyone else's view."
                   showValue
                   min={1}
                   max={20}

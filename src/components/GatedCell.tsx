@@ -37,8 +37,12 @@ interface GatedState {
   images: BlockGatedImage[];
 }
 
+/** The withheld tile's headline — names WHY the slot is empty (a deliberate
+ * maturity gate), so it never reads as a broken/failed cell. */
+const WITHHELD_TITLE = 'Hidden — rated mature';
+/** The actionable settings hint (also the tooltip + the accessible-name tail). */
 const WITHHELD_HINT =
-  'This output is above your current browsing level. Adjust your browsing settings on Civitai to view it.';
+  'This output is rated above your current browsing level. Adjust your content settings on Civitai to view it.';
 
 export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: string }): React.JSX.Element {
   const { getImages } = useGatedImages();
@@ -151,11 +155,12 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
               data-testid="result-hidden"
               tabIndex={0}
               role="img"
-              aria-label={`Hidden output. ${WITHHELD_HINT}`}
+              aria-label={`${WITHHELD_TITLE}. ${WITHHELD_HINT}`}
               style={{
                 aspectRatio: '1 / 1',
                 display: 'grid',
                 placeItems: 'center',
+                gap: 3,
                 borderRadius: 6,
                 // NOT surface-2: in light theme surface-2 resolves to the same value
                 // as body -> an invisible white-on-white tile. `elevate()` mixes a
@@ -171,7 +176,8 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
                 cursor: 'help',
               }}
             >
-              Hidden — adjust browsing settings
+              <span style={{ fontWeight: 600, color: token.text }}>{WITHHELD_TITLE}</span>
+              <span data-testid="result-hidden-hint">Adjust content settings to view</span>
             </span>
           </Tooltip>
         ),

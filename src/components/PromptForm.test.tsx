@@ -56,6 +56,30 @@ describe('PromptForm default section', () => {
     expect(within(form).getByTestId('prompt-errors')).toHaveTextContent(/default prompt/i);
   });
 
+  it('offers the sampler as a Select of KNOWN samplers (not free text), threading the choice to onSubmit', async () => {
+    const { onSubmit, form } = renderForm();
+    const sampler = within(form).getByTestId('prompt-default-sampler') as HTMLSelectElement;
+    // A real <select>, not a free-text input.
+    expect(sampler.tagName).toBe('SELECT');
+    // Seeded with the SDXL-family default…
+    expect(sampler.value).toBe('Euler a');
+    // …and the dropdown exposes the known on-site samplers.
+    const optionValues = Array.from(sampler.options).map((o) => o.value);
+    expect(optionValues).toEqual(
+      expect.arrayContaining(['Euler a', 'Euler', 'DDIM', 'DPM++ 2M Karras', 'DPM2', 'DPM2 a']),
+    );
+
+    await fillDefault(form);
+    await userEvent.selectOptions(sampler, 'DDIM');
+    await userEvent.click(within(form).getByTestId('prompt-submit'));
+    expect(onSubmit.mock.calls[0][0].default.params.sampler).toBe('DDIM');
+  });
+
+  it('shows the SDXL-family default note near the Default badge', () => {
+    const { form } = renderForm();
+    expect(within(form).getByTestId('prompt-default-sdxl-note')).toHaveTextContent(/SDXL-family/i);
+  });
+
   it('editing a default param still works and untouched defaults are preserved', async () => {
     const { onSubmit, form } = renderForm();
     await fillDefault(form, 'P', 'x');

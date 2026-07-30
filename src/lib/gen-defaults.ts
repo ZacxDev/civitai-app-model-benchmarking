@@ -16,6 +16,30 @@
 
 import type { PromptParams } from '../types.js';
 
+/**
+ * Known samplers offered by the on-site generator's sampler dropdown — mirrors
+ * civitai `src/shared/constants/generation.constants.ts` `samplers`. The prompt
+ * form offers exactly these (plus a "none" and any previously-stored custom value)
+ * instead of free text, so a submitted sampler is always a real, recognized name.
+ */
+export const SAMPLERS = [
+  'Euler a',
+  'Euler',
+  'Heun',
+  'LMS',
+  'DDIM',
+  'DPM++ 2M Karras',
+  'DPM2',
+  'DPM2 a',
+] as const;
+
+export type SamplerName = (typeof SAMPLERS)[number];
+
+/** Is `s` one of the known {@link SAMPLERS}? */
+export function isKnownSampler(s: string): s is SamplerName {
+  return (SAMPLERS as readonly string[]).includes(s);
+}
+
 /** SD-family scalar defaults (identical across SD1/SD2/SDXL/Pony/Illustrious/NoobAI). */
 const SD_BASE = { steps: 30, cfgScale: 7, sampler: 'Euler a', clipSkip: 2 } as const;
 /** Flux-family defaults — Flux uses NO sampler and NO clipSkip (omitted on purpose). */

@@ -25,7 +25,19 @@ import type { PromptDefault, PromptOverride, PromptParams } from '../types.js';
 import { metaText } from '../theme.js';
 import { validatePrompt, type PromptInput } from '../lib/benchmark.js';
 import { ECOSYSTEMS, ecosystemMeta } from '../lib/ecosystem.js';
-import { defaultParamsForEcosystem } from '../lib/gen-defaults.js';
+import { defaultParamsForEcosystem, SAMPLERS, isKnownSampler } from '../lib/gen-defaults.js';
+
+/** Sampler dropdown options: a "no sampler" choice (Flux uses none), every known
+ * sampler, and — so an edit never silently drops an older stored value — the
+ * current value if it isn't a recognized one. */
+function samplerOptions(current?: string): Array<{ value: string; label: string }> {
+  const opts = [
+    { value: '', label: 'None (model default)' },
+    ...SAMPLERS.map((s) => ({ value: s, label: s })),
+  ];
+  if (current && !isKnownSampler(current)) opts.push({ value: current, label: `${current} (custom)` });
+  return opts;
+}
 
 export interface PromptFormProps {
   onSubmit: (input: PromptInput) => Promise<void>;
@@ -91,12 +103,12 @@ function ParamFields({
             data-testid={`${prefix}-steps`}
           />
         </div>
-        <div style={{ width: 140 }}>
-          <TextInput
+        <div style={{ width: 160 }}>
+          <Select
             label="Sampler"
             value={params.sampler ?? ''}
-            onChange={(e) => onPatch({ sampler: e.currentTarget.value || undefined })}
-            placeholder="Euler"
+            onChange={(v) => onPatch({ sampler: v || undefined })}
+            options={samplerOptions(params.sampler)}
             data-testid={`${prefix}-sampler`}
           />
         </div>
@@ -231,6 +243,10 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
           <Group justify="space-between">
             <Badge>Default (all ecosystems)</Badge>
           </Group>
+          <span style={{ ...metaText, display: 'block' }} data-testid="prompt-default-sdxl-note">
+            These defaults are SDXL-family (steps 30, CFG 7, Euler a). Add a per-ecosystem override below to
+            tune Flux, Pony, or another family.
+          </span>
           <Textarea
             label="Default prompt"
             required

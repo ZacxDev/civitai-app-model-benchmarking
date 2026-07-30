@@ -49,8 +49,12 @@ describe('GatedCell', () => {
     mockGetImages.mockResolvedValue([hidden(9002)]);
     render(<GatedCell imageIds={[9002]} />);
     const tile = await screen.findByTestId('result-hidden');
-    // Visible copy hints at the fix; the accessible name carries the full reason.
-    expect(tile).toHaveTextContent(/adjust browsing settings/i);
+    // Reads as a deliberate maturity gate (not a broken cell): a "rated mature"
+    // headline + an actionable content-settings hint; the accessible name carries
+    // the full reason (still naming the browsing level).
+    expect(tile).toHaveTextContent(/rated mature/i);
+    expect(screen.getByTestId('result-hidden-hint')).toHaveTextContent(/content settings/i);
+    expect(tile.getAttribute('aria-label')).toMatch(/rated mature/i);
     expect(tile.getAttribute('aria-label')).toMatch(/browsing level/i);
     // No <img> / url ever rendered for a withheld cell.
     expect(screen.queryByTestId('result-image')).toBeNull();
