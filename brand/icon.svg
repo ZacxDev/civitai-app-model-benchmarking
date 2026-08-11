@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Model Benchmarking">
+  <!-- Model Benchmarking — "Settle it with a grid."
+       Motif: the grid that ranks itself. 3x3 field, exactly one cell lifted clear and magenta.
+       Order emerges from the matrix rather than being asserted over it.
+       Palette: plate #00BFA6 · cells #0B0E14 · winner #FF5C8A (3 colours). -->
+  <rect width="1024" height="1024" rx="224" fill="#00BFA6"/>
+  <g fill="#0B0E14">
+    <rect x="206" y="234" width="180" height="180" rx="28"/>
+    <rect x="638" y="234" width="180" height="180" rx="28"/>
+    <rect x="206" y="450" width="180" height="180" rx="28"/>
+    <rect x="422" y="450" width="180" height="180" rx="28"/>
+    <rect x="638" y="450" width="180" height="180" rx="28"/>
+    <rect x="206" y="666" width="180" height="180" rx="28"/>
+    <rect x="422" y="666" width="180" height="180" rx="28"/>
+    <rect x="638" y="666" width="180" height="180" rx="28"/>
+  </g>
+  <!-- the lifted cell: same grid column, raised clear of its row -->
+  <rect x="422" y="178" width="180" height="180" rx="28" fill="#FF5C8A"/>
+</svg>
