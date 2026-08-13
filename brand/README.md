@@ -39,6 +39,19 @@ removes that whole class — a drawn triangle cannot render the wrong way.
 🔴 **Why not author the whole thing?** A flat vector cannot carry the lit dimensional
 grammar the suite uses. Stage 2 is what supplies it.
 
+## 🔴 The COVER is no longer built from `cover.svg`
+
+`cover.svg` here is the superseded rev-5 cover: this app's icon mark tiled on a grid. It is
+kept only as the vector record of that design. **The live cover is a photographed scene** —
+the app's purpose expressed by analogy — generated rather than derived from a vector, because
+a pattern of our own glyph had no soul and was the worst available use of the generator.
+
+- Live cover source + rationale: `claudedocs/brand-assets-rev5-2026-08-13/COVERS-REV5.1.md`
+  in the `talos-infra` repo (private).
+- **`icon.svg` IS still the source of truth for the icon** — that half is unchanged.
+
+Do not regenerate the cover from `cover.svg`.
+
 ## Gates
 
 Every asset is checked before it is attached:
