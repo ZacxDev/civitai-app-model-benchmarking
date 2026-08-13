@@ -1,88 +1,56 @@
-# Model Benchmarking — brand
+# Model Benchmarking — brand kit
 
-> *Settle it with a grid.*
+> **Settle it with a grid.**
 
-Store assets for this app's Civitai App listing. **These files are the source of truth for
-this app's identity** — the listing images are exported from them, not the other way round.
+Vector sources are the source of truth. The store assets are derived from these files by
+the pipeline below; if you change a mark, regenerate rather than editing a raster.
 
-## Identity
+| | |
+|---|---|
+| Plate | `#00AB89` (teal, hue 168°) |
+| Mark | stepped, vertical |
+| Icon | `icon.svg` — 1024x1024 |
+| Cover | `cover.svg` — 1600x900 |
 
-**Voice.** Lab-neutral, evidence-first, quietly competitive. It doesn't have opinions; it has cells.
+## The mark
 
-**Motif.** **The grid that ranks itself.** A 3×3 field with exactly one cell lifted clear and filled magenta. Order emerges from the matrix rather than being asserted over it.
+A podium: three blocks, the centre one clearly tallest. Crowdsourced ranking — something WINS. Stepped and vertical, deliberately unlike Gen Matrix's uniform grid.
+
+Shades are **tonal** — every element is the plate hue at a different lightness
+(`-0.13` for bodies, `+0.30` for the hot element). Nothing introduces a second hue, which
+is what lets the colour-normalisation step below correct the plate without dragging an
+accent off its own value.
+
+## How the store assets are built
+
+Three stages. Each does something the others cannot:
+
+1. **Author** (`icon.svg` / `cover.svg`) — exact geometry, exact hex, exact direction.
+2. **Light** — img2img adds studio lighting while preserving composition:
+   `civitai generate "<lighting prompt>" --ecosystem NanoBanana --checkpoint 2725610 --image <authored.png> --aspect-ratio 1:1` (covers: `--aspect-ratio 16:9`).
+3. **Normalise** — a global modulate computed from the plate's own measured offset lands it
+   back on `#00AB89` exactly.
+
+🔴 **Why not generate the mark directly?** It was tried, twice. Text-to-image steers hue
+well but cannot be relied on for *meaning*: a "disc with a wedge cut out" renders as a cone,
+an "open cylinder" as a cup, and a triangle told to point right pointed up. Authoring
+removes that whole class — a drawn triangle cannot render the wrong way.
+
+🔴 **Why not author the whole thing?** A flat vector cannot carry the lit dimensional
+grammar the suite uses. Stage 2 is what supplies it.
+
+## Gates
+
+Every asset is checked before it is attached:
+
+- plate **dE <= 3.0** against `#00AB89` after normalisation
+- icon aspect 0.9-1.1, 128-4096 px, <= 1 MiB · cover aspect 1.3-2.4, min width 640, <= 4 MiB
+- renders legibly at **128 px** on both store themes (light `#F7F9FC` and dark `#0B0E14`)
+- the plate is **edge to edge** — the margin lives inside it. Never a surround: JPEG has no
+  alpha, so a baked surround cannot be cropped away and it destroys dual-theme survivability.
 
 ## Palette
 
-| Role | Hex | |
-|---|---|---|
-| Plate / dominant | `#00BFA6` | the icon background, edge to edge |
-| Secondary | `#0B0E14` | the mark itself |
-| Accent | `#FF5C8A` | the winning cell — used sparingly, one element only |
-| Cover ground | `#0B0E14` | |
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `icon.svg` | listing icon, 1024×1024 |
-| `cover.svg` | listing cover, 1600×900 |
-
-Export with `rsvg-convert`:
-
-```bash
-rsvg-convert -w 1024 -h 1024 brand/icon.svg  -o /tmp/icon.png
-rsvg-convert -w 1600 -h 900  brand/cover.svg -o /tmp/cover.png
-```
-
-🔴 **Flatten the icon's corners onto the plate colour before uploading** — do not upload it
-with transparency:
-
-```bash
-magick /tmp/icon.png -background '#00BFA6' -alpha remove -alpha off /tmp/icon-upload.png
-```
-
-The listing pipeline transcodes every asset to JPEG, which has no alpha channel, and the
-transparency is flattened to **black**. The store then clips the icon with a CSS avatar mask
-that is slightly *less* rounded than the plate, so a thin dark rim survives along the curve.
-Filling the corners with the plate colour removes the whole class — there is no transparency
-left to flatten.
-
-Attach with:
-
-```bash
-civitai app listing set-icon  /tmp/icon-upload.png
-civitai app listing set-cover /tmp/cover.png
-```
-
-On a live listing this opens a revision for moderator re-review; the current assets stay
-visible until it is approved. Setting the icon and cover in the same session puts both on one
-revision, so they are reviewed together.
-
-## Shared construction grammar
-
-This app is one of five first-party apps drawn to a common grammar, so a row of them reads as
-a suite while each stays individually memorable. Keep to it when changing anything here:
-
-- Flat vector. Solid fills only — no gradients, shading, bevel, glow or 3D.
-- Geometric primitives only: squares, triangles, circles, arcs, rings.
-- Thick, uniform stroke weight. This is the strongest family signal at thumbnail size.
-- Three colours maximum: one dominant, one accent, one neutral.
-- The plate fills the whole canvas **edge to edge**; the margin lives *inside* it, around the
-  mark. Never ask for margin *around* the plate — that bakes in a surround the store cannot
-  crop past the rounded corners.
-- **No lettering anywhere** — and that includes motifs whose skeleton *constructs* a letter or
-  digit. Before locking a shape, ask what character it resembles.
-- Never name a direction with a noun that already implies one. Say the geometry.
-
-## App-specific note
-
-Exactly one cell is ever lifted. Two winners is not a ranking.
-
-## If you regenerate these
-
-These were drawn as vector rather than generated, after three measured rounds established that
-the constraints above and diffusion are structurally mismatched: across 42 generated images,
-flat solid fills held 0/20, exact palette 1/10, and the alpha channel 0/20. Generation is
-useful for *finding* a composition and poor at *meeting* a spec. If you use it, treat the
-output as a sketch and redraw the winner in vector — and judge a candidate by what a stranger
-would say it depicts, not by whether it matches the prompt.
+The suite's seven hues are spaced at least **42°** apart, all at a common lightness, so a
+row of them in the store reads as one family while each stays individually identifiable.
+The full wheel and the method live in the cross-app brand book.
