@@ -1,66 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" role="img" aria-label="Model Benchmarking cover">
-  <!-- Model Benchmarking cover — "Settle it with a grid."
-       A heatmap grid spans the right two thirds at varying teal intensities, with exactly one
-       cell near the right lifted clear of the grid plane and filled magenta. Ascending teal
-       bars run along the bottom. The left third holds only the grid fading out into ink.
-       Order emerges from the matrix rather than being asserted over it.
-       Palette: ink #0B0E14 ground · teal #00BFA6 (3 intensities) · magenta #FF5C8A winner. -->
-  <rect width="1600" height="900" fill="#0B0E14"/>
-  <!-- left third: the grid fading out -->
-  <g fill="#00BFA6">
-    <rect x="344" y="170" width="110" height="110" rx="14" fill-opacity="0.10"/>
-    <rect x="344" y="426" width="110" height="110" rx="14" fill-opacity="0.08"/>
-    <rect x="472" y="298" width="110" height="110" rx="14" fill-opacity="0.22"/>
-    <rect x="472" y="554" width="110" height="110" rx="14" fill-opacity="0.18"/>
-    <rect x="344" y="298" width="110" height="110" rx="14" fill-opacity="0.05"/>
-  </g>
-  <!-- the grid: 7 columns x 4 rows, heatmap intensities -->
-  <g>
-    <g fill="#00806F">
-      <rect x="600"  y="170" width="110" height="110" rx="14"/>
-      <rect x="856"  y="426" width="110" height="110" rx="14"/>
-      <rect x="600"  y="554" width="110" height="110" rx="14"/>
-      <rect x="1368" y="554" width="110" height="110" rx="14"/>
-      <rect x="728"  y="298" width="110" height="110" rx="14"/>
-      <rect x="1112" y="170" width="110" height="110" rx="14"/>
-    </g>
-    <g fill="#00BFA6">
-      <rect x="728"  y="170" width="110" height="110" rx="14"/>
-      <rect x="856"  y="170" width="110" height="110" rx="14"/>
-      <rect x="984"  y="298" width="110" height="110" rx="14"/>
-      <rect x="600"  y="298" width="110" height="110" rx="14"/>
-      <rect x="1240" y="426" width="110" height="110" rx="14"/>
-      <rect x="984"  y="554" width="110" height="110" rx="14"/>
-      <rect x="1112" y="554" width="110" height="110" rx="14"/>
-      <rect x="600"  y="426" width="110" height="110" rx="14"/>
-      <rect x="1368" y="170" width="110" height="110" rx="14"/>
-    </g>
-    <g fill="#66D9CB">
-      <rect x="984"  y="170" width="110" height="110" rx="14"/>
-      <rect x="1240" y="170" width="110" height="110" rx="14"/>
-      <rect x="856"  y="298" width="110" height="110" rx="14"/>
-      <rect x="1112" y="298" width="110" height="110" rx="14"/>
-      <rect x="1368" y="298" width="110" height="110" rx="14"/>
-      <rect x="728"  y="426" width="110" height="110" rx="14"/>
-      <rect x="984"  y="426" width="110" height="110" rx="14"/>
-      <rect x="1112" y="426" width="110" height="110" rx="14"/>
-      <rect x="728"  y="554" width="110" height="110" rx="14"/>
-      <rect x="856"  y="554" width="110" height="110" rx="14"/>
-      <rect x="1240" y="554" width="110" height="110" rx="14"/>
-    </g>
-  </g>
-  <!-- exactly one winner, lifted clear of its row -->
-  <rect x="1240" y="258" width="110" height="110" rx="14" fill="#FF5C8A"/>
-  <!-- Ascending bars along the bottom, rising left to right.
-       v2: heights capped so the tallest starts at y=700 — the grid's bottom row ends at 664,
-       and the first draft's 180px bar began at 650, colliding with it. -->
-  <g fill="#00BFA6">
-    <rect x="600"  y="806" width="110" height="24"  rx="8"/>
-    <rect x="728"  y="790" width="110" height="40"  rx="8"/>
-    <rect x="856"  y="774" width="110" height="56"  rx="8"/>
-    <rect x="984"  y="756" width="110" height="74"  rx="8"/>
-    <rect x="1112" y="736" width="110" height="94"  rx="8"/>
-    <rect x="1240" y="718" width="110" height="112" rx="8"/>
-    <rect x="1368" y="700" width="110" height="130" rx="8"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#00AB89"/>
+  <rect x="72.66" y="216.88" width="37.60" height="56.40" rx="3.76" fill="#00735C"/>
+  <rect x="149.74" y="226.28" width="37.60" height="47.00" rx="3.76" fill="#00735C"/>
+  <rect x="111.20" y="188.68" width="37.60" height="84.60" rx="3.76" fill="#00BF99"/>
+  <rect x="72.66" y="451.88" width="37.60" height="56.40" rx="3.76" fill="#00735C"/>
+  <rect x="149.74" y="461.28" width="37.60" height="47.00" rx="3.76" fill="#00735C"/>
+  <rect x="111.20" y="423.68" width="37.60" height="84.60" rx="3.76" fill="#00BF99"/>
+  <rect x="72.66" y="686.88" width="37.60" height="56.40" rx="3.76" fill="#00735C"/>
+  <rect x="149.74" y="696.28" width="37.60" height="47.00" rx="3.76" fill="#00735C"/>
+  <rect x="111.20" y="658.68" width="37.60" height="84.60" rx="3.76" fill="#00BF99"/>
+  <rect x="282.66" y="216.88" width="37.60" height="56.40" rx="3.76" fill="#008268"/>
+  <rect x="359.74" y="226.28" width="37.60" height="47.00" rx="3.76" fill="#008268"/>
+  <rect x="321.20" y="188.68" width="37.60" height="84.60" rx="3.76" fill="#00CFA6"/>
+  <rect x="282.66" y="451.88" width="37.60" height="56.40" rx="3.76" fill="#008268"/>
+  <rect x="359.74" y="461.28" width="37.60" height="47.00" rx="3.76" fill="#008268"/>
+  <rect x="321.20" y="423.68" width="37.60" height="84.60" rx="3.76" fill="#00CFA6"/>
+  <rect x="282.66" y="686.88" width="37.60" height="56.40" rx="3.76" fill="#008268"/>
+  <rect x="359.74" y="696.28" width="37.60" height="47.00" rx="3.76" fill="#008268"/>
+  <rect x="321.20" y="658.68" width="37.60" height="84.60" rx="3.76" fill="#00CFA6"/>
+  <rect x="492.66" y="216.88" width="37.60" height="56.40" rx="3.76" fill="#009275"/>
+  <rect x="569.74" y="226.28" width="37.60" height="47.00" rx="3.76" fill="#009275"/>
+  <rect x="531.20" y="188.68" width="37.60" height="84.60" rx="3.76" fill="#00DEB2"/>
+  <rect x="492.66" y="451.88" width="37.60" height="56.40" rx="3.76" fill="#009275"/>
+  <rect x="569.74" y="461.28" width="37.60" height="47.00" rx="3.76" fill="#009275"/>
+  <rect x="531.20" y="423.68" width="37.60" height="84.60" rx="3.76" fill="#00DEB2"/>
+  <rect x="492.66" y="686.88" width="37.60" height="56.40" rx="3.76" fill="#009275"/>
+  <rect x="569.74" y="696.28" width="37.60" height="47.00" rx="3.76" fill="#009275"/>
+  <rect x="531.20" y="658.68" width="37.60" height="84.60" rx="3.76" fill="#00DEB2"/>
+  <rect x="702.66" y="216.88" width="37.60" height="56.40" rx="3.76" fill="#00A181"/>
+  <rect x="779.74" y="226.28" width="37.60" height="47.00" rx="3.76" fill="#00A181"/>
+  <rect x="741.20" y="188.68" width="37.60" height="84.60" rx="3.76" fill="#00EDBE"/>
+  <rect x="702.66" y="451.88" width="37.60" height="56.40" rx="3.76" fill="#00A181"/>
+  <rect x="779.74" y="461.28" width="37.60" height="47.00" rx="3.76" fill="#00A181"/>
+  <rect x="741.20" y="423.68" width="37.60" height="84.60" rx="3.76" fill="#00EDBE"/>
+  <rect x="702.66" y="686.88" width="37.60" height="56.40" rx="3.76" fill="#00A181"/>
+  <rect x="779.74" y="696.28" width="37.60" height="47.00" rx="3.76" fill="#00A181"/>
+  <rect x="741.20" y="658.68" width="37.60" height="84.60" rx="3.76" fill="#00EDBE"/>
+  <rect x="1118.72" y="454.96" width="99.20" height="148.80" rx="9.92" fill="#006954"/>
+  <rect x="1322.08" y="479.76" width="99.20" height="124.00" rx="9.92" fill="#006954"/>
+  <rect x="1220.40" y="380.56" width="99.20" height="223.20" rx="9.92" fill="#45FFDA"/>
 </svg>
