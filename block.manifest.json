@@ -3,6 +3,7 @@
   "blockId": "model-benchmarking",
   "version": "0.1.3",
   "name": "Model Benchmarking",
+  "tagline": "Settle it with a grid.",
   "type": "block",
   "category": "generation",
   "scopes": [
