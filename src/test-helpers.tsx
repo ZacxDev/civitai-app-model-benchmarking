@@ -5,7 +5,12 @@
 // file, so it isn't collected as a suite.
 
 import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
-import type { SharedAppendValue, SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
+import type {
+  SharedAppendValue,
+  SharedListItem,
+  UseAppStorage,
+  UseSharedStorage,
+} from '@civitai/blocks-react';
 
 import type { GatedCellComponent } from './components/GatedCell.js';
 
@@ -74,6 +79,40 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
     },
   };
   return { shared, appends };
+}
+
+/**
+ * An in-memory fake {@link UseAppStorage} (per-viewer KV) seeded from a plain
+ * object. Records every `set` so a test can assert what the app persisted (used
+ * for the durable voted-set). Mirrors the host contract: `get` resolves the
+ * stored value or `null`; `set`/`delete` resolve ok.
+ */
+export function fakeAppStorage(seed: Record<string, unknown> = {}) {
+  const store = new Map<string, unknown>(Object.entries(seed));
+  const sets: Array<{ key: string; value: unknown }> = [];
+  const appStorage: UseAppStorage = {
+    async get<T = unknown>(key: string) {
+      return (store.has(key) ? (store.get(key) as T) : null) as T | null;
+    },
+    async set<T = unknown>(key: string, value: T) {
+      store.set(key, value);
+      sets.push({ key, value });
+      return { ok: true as const };
+    },
+    async delete(key: string) {
+      const deleted = store.delete(key);
+      return { ok: true as const, deleted };
+    },
+    async list(opts?: { prefix?: string; limit?: number; cursor?: string }) {
+      const prefix = opts?.prefix;
+      const keys = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
+      return { keys: keys.map((key) => ({ key, updatedAt: new Date() })) };
+    },
+    async getQuota() {
+      return { usedBytes: 0, rowCount: store.size, limitBytes: 50_000_000, limitRows: 1_000_000 };
+    },
+  };
+  return { appStorage, sets, store };
 }
 
 /**

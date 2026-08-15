@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { Harness } from '@civitai/blocks-react/testing';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeShared, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 
 function renderApp(deps: Partial<AppDeps>) {
   render(
@@ -50,5 +50,42 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
     // …and it PERSISTS after the reconcile reload settles (not wiped by the empty list()).
     await new Promise((r) => setTimeout(r, 0));
     await waitFor(() => expect(screen.getByTestId('combo-card')).toHaveTextContent('Lagging Combo'));
+  });
+});
+
+describe('item 4: the Top-N control reads as personal, not global', () => {
+  it('labels it "(your view)" with a hint that it does not change the shared grid', async () => {
+    renderApp({ appStorage: fakeAppStorage().appStorage });
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await screen.findByTestId('top-n');
+    expect(screen.getByText(/Show top N \(your view\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/doesn't change the shared grid/i)).toBeInTheDocument();
+  });
+});
+
+describe('item 6: one-time "How this works" panel', () => {
+  it('shows the submit → vote → grid → run(public) → compare explainer for a first-time viewer', async () => {
+    renderApp({ appStorage: fakeAppStorage().appStorage });
+    const panel = await screen.findByTestId('how-this-works');
+    expect(panel).toHaveTextContent(/submit/i);
+    expect(panel).toHaveTextContent(/vote/i);
+    expect(panel).toHaveTextContent(/public/i);
+    expect(panel).toHaveTextContent(/compare/i);
+  });
+
+  it('dismisses it and PERSISTS the dismissal to per-viewer KV when "Got it" is clicked', async () => {
+    const { appStorage, store } = fakeAppStorage();
+    renderApp({ appStorage });
+    await userEvent.click(await screen.findByTestId('howto-dismiss'));
+    await waitFor(() => expect(screen.queryByTestId('how-this-works')).toBeNull());
+    expect(store.get('howto-dismissed:v1')).toBe(true);
+  });
+
+  it('stays hidden for a viewer who already dismissed it', async () => {
+    renderApp({ appStorage: fakeAppStorage({ 'howto-dismissed:v1': true }).appStorage });
+    // The app is ready (tabs rendered) but the one-time panel never appears.
+    await screen.findByTestId('view-switch');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('how-this-works')).toBeNull();
   });
 });

@@ -345,6 +345,30 @@ describe('parse / migrate (defensive)', () => {
     expect(r!.data.v).toBe(2);
     expect(r!.data.configId).toBe(V1_CONFIG_ID);
   });
+
+  it('records the PROMPT-submitter attribution on the result payload and round-trips it', () => {
+    const v = buildResultPayload({
+      comboKey: 'c1',
+      configId: 'cfg1',
+      promptKey: 'p1',
+      ecosystem: 'SDXL',
+      imageIds: [7],
+      promptAuthorUserId: 42,
+    });
+    const parsed = parseResult({ key: 'r1', count: 0, authorUserId: 9, value: v });
+    expect(parsed).not.toBeNull();
+    // The row's authorUserId is the RUNNER (9); the prompt-submitter attribution
+    // (42) is recorded separately in the payload data.
+    expect(parsed!.authorUserId).toBe(9);
+    expect(parsed!.data.promptAuthorUserId).toBe(42);
+  });
+
+  it('omits prompt attribution when absent and drops a non-numeric one defensively', () => {
+    const noAttr = parseResult(raw({ v: 2, kind: 'result', comboKey: 'c1', configId: 'cfg1', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [1] }));
+    expect(noAttr!.data.promptAuthorUserId).toBeUndefined();
+    const badAttr = parseResult(raw({ v: 2, kind: 'result', comboKey: 'c1', configId: 'cfg1', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [1], promptAuthorUserId: 'nope' }));
+    expect(badAttr!.data.promptAuthorUserId).toBeUndefined();
+  });
 });
 
 describe('splitRows', () => {
