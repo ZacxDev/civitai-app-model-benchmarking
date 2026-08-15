@@ -1,7 +1,7 @@
 {
   "name": "model-benchmarking",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.2.2",
   "type": "module",
   "description": "Model Benchmarking \u2014 a Civitai App Block (full-page). A crowdsourced model-comparison grid: users submit + vote on checkpoint+LoRA COMBINATIONS and multi-ecosystem PROMPTS; the top-voted set forms a combinations\u00d7prompts matrix; anyone can run an included cell (matched to the combo's ecosystem) and the outputs publish to a SHARED grid so every model compares side-by-side on identical prompts. Phase 1 = crowdsourced submit/vote/run/browse.",
   "license": "Apache-2.0",
@@ -14,8 +14,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@civitai/app-sdk": "^0.26.0",
-    "@civitai/blocks-react": "^0.35.2",
+    "@civitai/app-sdk": "^0.28.0",
+    "@civitai/blocks-react": "^0.37.0",
+    "@civitai/components-react": "^0.3.0",
     "@civitai/theme": "^0.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
