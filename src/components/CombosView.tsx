@@ -7,6 +7,7 @@ import { Tooltip } from '@civitai/components-react';
 import { Fragment } from 'react';
 
 import type { CombinationRow } from '../types.js';
+import { includedSummary } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
@@ -43,9 +44,8 @@ export function CombosView({
   return (
     <Stack gap={14} data-testid="combos-view">
       <Group justify="space-between" align="center" gap={12}>
-        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
-          Submit and vote on checkpoint + LoRA combinations. The top {includedKeys.size || 'N'} are included as
-          the grid's rows.
+        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="combos-included-summary">
+          Submit and vote on checkpoint + LoRA combinations. {includedSummary(includedKeys.size, 'row')}
         </span>
         <Button size="sm" onClick={onSubmitNew} data-testid="submit-combination">
           Submit combination
@@ -94,7 +94,7 @@ export function CombosView({
                   <Group gap={8}>
                     <strong>{combo.name || `#${combo.key}`}</strong>
                     {includedKeys.has(combo.key) && (
-                      <Tooltip label="Included: a top-voted combination — its model configs are the grid's rows.">
+                      <Tooltip label="Included: currently in your top-N by votes, so its model configs are rows of the grid you see. Change how many in the Grid tab.">
                         <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
                           <Badge color="success" variant="light" data-testid="combo-included">
                             Included

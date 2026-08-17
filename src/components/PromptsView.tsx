@@ -6,6 +6,7 @@ import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/block
 import { Tooltip } from '@civitai/components-react';
 
 import type { PromptRow } from '../types.js';
+import { includedSummary } from '../lib/benchmark.js';
 import { ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
@@ -42,9 +43,9 @@ export function PromptsView({
   return (
     <Stack gap={14} data-testid="prompts-view">
       <Group justify="space-between" align="center" gap={12}>
-        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
+        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="prompts-included-summary">
           Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
-          overrides; the top {includedKeys.size || 'N'} are the grid's columns.
+          overrides. {includedSummary(includedKeys.size, 'column')}
         </span>
         <Button size="sm" onClick={onSubmitNew} data-testid="submit-prompt">
           Submit prompt
@@ -88,7 +89,7 @@ export function PromptsView({
                   <Group gap={8}>
                     <strong>{prompt.name || `#${prompt.key}`}</strong>
                     {includedKeys.has(prompt.key) && (
-                      <Tooltip label="Included: a top-voted prompt — it forms one of the grid's columns.">
+                      <Tooltip label="Included: currently in your top-N by votes, so it forms a column of the grid you see. Change how many in the Grid tab.">
                         <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
                           <Badge color="success" variant="light" data-testid="prompt-included">
                             Included
