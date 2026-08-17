@@ -811,6 +811,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               onConfirmRun={confirmRun}
               onResumeRun={resumeRun}
               onCancelRun={cancelRun}
+              onAddCombination={() => setView('combos')}
+              onAddPrompt={() => setView('prompts')}
             />
           </Stack>
         )}
