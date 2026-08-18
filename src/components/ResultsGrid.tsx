@@ -20,6 +20,7 @@ import {
   type BenchConfig,
 } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
+import { EmptyState } from './EmptyState.js';
 import type { GatedCellComponent } from './GatedCell.js';
 
 export interface ResultsGridProps {
@@ -39,6 +40,10 @@ export interface ResultsGridProps {
   /** Resume-poll a stalled cell's existing workflow (no re-submit, no re-charge). */
   onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
+  /** Jump to the Combinations tab — the next step when the grid has no rows. */
+  onAddCombination?: () => void;
+  /** Jump to the Prompts tab — the next step when the grid has no columns. */
+  onAddPrompt?: () => void;
 }
 
 const CELL_W = 200;
@@ -57,25 +62,36 @@ export function ResultsGrid({
   onConfirmRun,
   onResumeRun,
   onCancelRun,
+  onAddCombination,
+  onAddPrompt,
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
 
+  // The grid is the app's PRIMARY state, so its empty case gets the same
+  // treatment as every other list: the shared EmptyState template, which the
+  // house rule says must always carry a next step rather than a lonely
+  // "nothing here" string. It also names WHICH side is missing — rows and
+  // columns come from two different tabs, and the old single sentence made the
+  // reader work out which one to go and fix.
   if (configs.length === 0 || prompts.length === 0) {
+    const needsCombination = configs.length === 0;
+    const needsPrompt = prompts.length === 0;
+    const body = needsCombination && needsPrompt
+      ? 'The grid needs at least one included combination (with a model config) and one included prompt. Submit and vote to fill the top slots.'
+      : needsCombination
+        ? 'The grid has columns but no rows yet: it needs at least one included combination with a model config.'
+        : 'The grid has rows but no columns yet: it needs at least one included prompt.';
+    const action = needsCombination && onAddCombination ? (
+      <Button size="sm" onClick={onAddCombination} data-testid="grid-empty-add-combination">
+        Go to Combinations
+      </Button>
+    ) : !needsCombination && needsPrompt && onAddPrompt ? (
+      <Button size="sm" onClick={onAddPrompt} data-testid="grid-empty-add-prompt">
+        Go to Prompts
+      </Button>
+    ) : undefined;
     return (
-      <div
-        data-testid="grid-empty"
-        style={{
-          ...metaText,
-          padding: '32px 24px',
-          textAlign: 'center',
-          borderRadius: radius.md,
-          border: `1px dashed ${c.border}`,
-          background: c.card,
-        }}
-      >
-        The benchmark grid appears once there is at least one included combination (with a model config)
-        AND one included prompt. Submit and vote to fill the top slots.
-      </div>
+      <EmptyState data-testid="grid-empty" title="No benchmark grid yet" body={body} action={action} />
     );
   }
 

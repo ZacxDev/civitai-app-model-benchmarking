@@ -344,4 +344,65 @@ describe('ResultsGrid render (config rows)', () => {
     );
     expect(screen.getByTestId('grid-empty')).toBeInTheDocument();
   });
+
+  // The grid is the PRIMARY state, so its empty case must carry a next step and
+  // must name WHICH side is missing — rows and columns are filled from two
+  // different tabs. Before this change it rendered one sentence and no action.
+  describe('empty state carries an actionable next step', () => {
+    const emptyProps = {
+      results: [],
+      runs: {},
+      c,
+      canRun: true,
+      buzzTotal: 5000,
+      GatedCell: fakeGatedCell(),
+      onRunCell: vi.fn(),
+      onConfirmRun: vi.fn(),
+      onResumeRun: vi.fn(),
+      onCancelRun: vi.fn(),
+    };
+
+    it('no ROWS: says so and offers the Combinations tab', () => {
+      const onAddCombination = vi.fn();
+      render(
+        <ResultsGrid
+          {...emptyProps}
+          configs={[]}
+          prompts={[p1]}
+          onAddCombination={onAddCombination}
+          onAddPrompt={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('grid-empty').textContent).toContain('no rows yet');
+      const btn = screen.getByTestId('grid-empty-add-combination');
+      btn.click();
+      expect(onAddCombination).toHaveBeenCalledTimes(1);
+      // The wrong tab's action must NOT be offered.
+      expect(screen.queryByTestId('grid-empty-add-prompt')).not.toBeInTheDocument();
+    });
+
+    it('no COLUMNS: says so and offers the Prompts tab', () => {
+      const onAddPrompt = vi.fn();
+      render(
+        <ResultsGrid
+          {...emptyProps}
+          configs={flattenConfigs([comboOne])}
+          prompts={[]}
+          onAddCombination={vi.fn()}
+          onAddPrompt={onAddPrompt}
+        />,
+      );
+      expect(screen.getByTestId('grid-empty').textContent).toContain('no columns yet');
+      screen.getByTestId('grid-empty-add-prompt').click();
+      expect(onAddPrompt).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('grid-empty-add-combination')).not.toBeInTheDocument();
+    });
+
+    it('renders without an action when no callbacks are supplied (props stay optional)', () => {
+      render(<ResultsGrid {...emptyProps} configs={[]} prompts={[]} />);
+      expect(screen.getByTestId('grid-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('grid-empty-add-combination')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('grid-empty-add-prompt')).not.toBeInTheDocument();
+    });
+  });
 });

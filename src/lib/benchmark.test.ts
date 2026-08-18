@@ -15,6 +15,7 @@ import {
   comboVersionIds,
   configLabel,
   flattenConfigs,
+  includedSummary,
   indexResultsByCell,
   loraFromPick,
   newConfig,
@@ -399,6 +400,49 @@ describe('topByVotes (included set)', () => {
   it('N<=0 is empty; default N applies', () => {
     expect(topByVotes([{ key: 'a', count: 1 }], 0)).toEqual([]);
     expect(topByVotes([{ key: 'a', count: 1 }]).map((r) => r.key)).toEqual(['a']);
+  });
+});
+
+describe('includedSummary (header copy)', () => {
+  // Pinned literal strings, NOT re-derived from the implementation: these are a
+  // user-facing contract and the whole point of the helper is the exact wording.
+  it('agrees in number — "is" for one row, "are" for several', () => {
+    expect(includedSummary(1, 'row')).toBe(
+      "The top 1 by votes is showing as the grid's row in your view.",
+    );
+    expect(includedSummary(4, 'row')).toBe(
+      "The top 4 by votes are showing as the grid's rows in your view.",
+    );
+    // The defect this replaces rendered "The top 1 are included as the grid's
+    // rows." — observed live on 2026-08-17 with exactly one combination.
+    expect(includedSummary(1, 'row')).not.toContain('1 by votes are');
+  });
+
+  it('never leaks the literal placeholder "N" when nothing is included', () => {
+    for (const n of [0, -1]) {
+      const s = includedSummary(n, 'column');
+      expect(s).toBe("The top-voted ones become the grid's columns.");
+      // The old copy was `The top {size || 'N'} are …`, which printed a bare
+      // "N" at users. Assert on the whole normalised string AND on the token,
+      // so a reword cannot quietly reintroduce it.
+      expect(s).not.toMatch(/\btop N\b/);
+    }
+  });
+
+  it('never asserts a fact about the SHARED grid — inclusion is per-viewer', () => {
+    // topN is the Grid tab's personal "Show top N" slider, so a sentence
+    // claiming what "the grid's columns" ARE would be wrong for every viewer
+    // whose slider differs. Any non-empty summary must scope itself.
+    for (const n of [1, 2, 7]) {
+      for (const noun of ['row', 'column'] as const) {
+        expect(includedSummary(n, noun)).toContain('in your view');
+      }
+    }
+  });
+
+  it('uses the noun it is given', () => {
+    expect(includedSummary(3, 'column')).toContain("grid's columns");
+    expect(includedSummary(3, 'row')).toContain("grid's rows");
   });
 });
 

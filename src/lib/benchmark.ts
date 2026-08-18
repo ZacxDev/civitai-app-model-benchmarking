@@ -631,6 +631,28 @@ export function topByVotes<T extends { key: string; count: number }>(
     .slice(0, n);
 }
 
+/**
+ * The one-line description of what is currently included, for the Combinations
+ * and Prompts headers.
+ *
+ * 🔴 Inclusion is PER-VIEWER, not a property of the shared grid: the included
+ * set is `topByVotes(rows, topN)` and `topN` is the Grid tab's "Show top N"
+ * slider, which that tab itself describes as changing "how many rows/columns
+ * YOU see". Copy here must therefore never assert what "the grid" contains —
+ * two viewers with different slider values would both be told a different
+ * absolute fact about one shared object. Hence the explicit "in your view".
+ *
+ * Also fixes two defects in the string this replaces
+ * (`The top {includedKeys.size || 'N'} are …`): it read "The top 1 ARE …" for a
+ * single row, and it leaked the literal placeholder "N" to users whenever the
+ * list was empty.
+ */
+export function includedSummary(count: number, noun: 'row' | 'column'): string {
+  if (count <= 0) return `The top-voted ones become the grid's ${noun}s.`;
+  if (count === 1) return `The top 1 by votes is showing as the grid's ${noun} in your view.`;
+  return `The top ${count} by votes are showing as the grid's ${noun}s in your view.`;
+}
+
 // ---------------------------------------------------------------------------
 // Cell dedup — first-append-wins
 // ---------------------------------------------------------------------------
