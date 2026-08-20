@@ -17,6 +17,7 @@ import {
   flattenConfigs,
   includedSummary,
   indexResultsByCell,
+  isOwnRow,
   loraFromPick,
   newConfig,
   parseCombination,
@@ -614,6 +615,31 @@ describe('reconcileOptimistic (item 1 — list refresh survives read-after-write
     const r2 = reconcileOptimistic([item('k', 'Edited')], r1.pending);
     expect(r2.items[0].value.title).toBe('Edited');
     expect(r2.pending.size).toBe(0);
+  });
+
+  it('🔴 suppresses a WITHDRAWN row a lagging list() still returns, and drops once it is gone', () => {
+    const pending = new Map<string, PendingOptimistic>([['gone', { authorUserId: 5, kind: 'delete' }]]);
+    // list() has not caught up — it still serves the withdrawn row → suppressed.
+    const r1 = reconcileOptimistic([item('gone', 'Gone'), item('old', 'Old')], pending);
+    expect(r1.items.map((i) => i.key)).toEqual(['old']);
+    expect(r1.pending.has('gone')).toBe(true);
+    // once the host list no longer returns it → the suppression drops.
+    const r2 = reconcileOptimistic([item('old', 'Old')], r1.pending);
+    expect(r2.items.map((i) => i.key)).toEqual(['old']);
+    expect(r2.pending.size).toBe(0);
+  });
+});
+
+describe('isOwnRow (the single ownership predicate behind Edit + Remove)', () => {
+  it('is true only for the viewer’s own row', () => {
+    expect(isOwnRow({ authorUserId: 99 }, 99)).toBe(true);
+    expect(isOwnRow({ authorUserId: 7 }, 99)).toBe(false);
+  });
+
+  it('is false for an anonymous viewer — including against an anonymous-authored row', () => {
+    expect(isOwnRow({ authorUserId: 7 }, null)).toBe(false);
+    // A `0` author id must not be matched by a `null` viewer via coercion.
+    expect(isOwnRow({ authorUserId: 0 }, null)).toBe(false);
   });
 });
 

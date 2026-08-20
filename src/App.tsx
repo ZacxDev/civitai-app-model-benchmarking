@@ -406,6 +406,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [viewer],
   );
 
+  // Record an optimistic DELETE so a just-withdrawn row disappears immediately
+  // and does NOT come back on the next (read-after-write-lagged) list().
+  const optimisticDelete = useCallback(
+    (key: string) => {
+      if (!viewer) return;
+      pendingRef.current.set(key, { authorUserId: viewer.id, kind: 'delete' });
+      setItems((prev) => prev.filter((it) => it.key !== key));
+    },
+    [viewer],
+  );
+
+  // Withdraw one of the viewer's OWN rows from the shared grid (issue #10). The
+  // affordance is author-scoped in the views (isOwnRow) and the host re-derives
+  // the same author check, so this only carries the confirmed intent through.
+  // Mirrors the submit path: host mutation → optimistic reconcile → track →
+  // reload.
+  const withdrawRow = useCallback(
+    async (key: string) => {
+      await depsRef.current.shared.withdraw(key);
+      optimisticDelete(key);
+      depsRef.current.track('withdraw');
+      reload();
+    },
+    [optimisticDelete, reload],
+  );
+
   const submitCombination = useCallback(
     async (input: CombinationInput) => {
       const payload = buildCombinationPayload(input) as SharedAppendValue;
@@ -746,6 +772,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
+            onWithdraw={withdrawRow}
           />
         )}
 
@@ -762,6 +789,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
+            onWithdraw={withdrawRow}
           />
         )}
 
