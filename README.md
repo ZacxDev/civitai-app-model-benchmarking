@@ -75,7 +75,7 @@ straight to the file:
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`vote`/`unvote`/`withdraw`/`getCounts`), [`CombosView`](src/components/CombosView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) |
+| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`CombosView`](src/components/CombosView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
 | **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`CombinationForm.tsx`](src/components/CombinationForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
@@ -96,8 +96,11 @@ A few notes worth calling out:
 - **Shared storage is append-only, votable, and author-scoped.**
   `useSharedStorage()` exposes `list` / `append` / `vote` / `unvote` / `withdraw` /
   `getCount(s)`. **Submit** = `append({ title, body, data })`; **upvote** =
-  `vote(key)` (idempotent server-side); **delete your own** = `withdraw(key)`. The
-  included set (top-N by votes) is derived **client-side** from `list` + counts.
+  `vote(key)` (idempotent server-side); **delete your own** = `withdraw(key)` —
+  surfaced as the author-only **Remove** control on every combination / prompt
+  card, behind a confirm step, and reconciled optimistically so the row does not
+  reappear on a read-after-write-lagged `list()`. The included set (top-N by
+  votes) is derived **client-side** from `list` + counts.
 - **The Buzz bridge never sees credentials.** `estimate(body)` prices a cell run,
   `submit(body)` charges the viewer's Buzz, `poll(workflowId)` runs to a terminal
   snapshot. The host injects the token + viewer identity.
@@ -277,8 +280,10 @@ deploys to `<blockId>.civit.ai`.
   in memory (idempotent server-side).
 - **Strict run-once coordination** — cell dedup is best-effort first-append-wins; a
   host lock/claim would make generate-once strict.
-- **Result curation** — no owner controls to hide/replace a published cell yet
-  (`withdraw` exists on the shared row but isn't surfaced).
+- **Result curation** — no owner controls to hide/replace a published grid CELL
+  yet. `withdraw` *is* surfaced now, but only on the rows a contributor authors
+  directly (combinations and prompts, via the Remove control); a `result` row
+  published by a cell run has no in-app retraction path.
 
 ## Links
 

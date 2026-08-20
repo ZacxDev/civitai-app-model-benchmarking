@@ -171,6 +171,36 @@ describe('edit-in-place: the author edits their OWN prompt', () => {
   });
 });
 
+describe('withdraw: the author removes their OWN combination (real SHARED_WITHDRAW → mock host)', () => {
+  it('removes the row from the shared store and leaves everyone else’s alone', async () => {
+    renderApp({
+      seed: [
+        { value: { title: 'Mine', body: '', data: comboSeed }, authorUserId: 99, voters: [1, 2, 3] },
+        { value: { title: 'Theirs', body: '', data: comboSeed }, authorUserId: 7, voters: [1] },
+      ],
+    });
+
+    const cards = await screen.findAllByTestId('combo-card');
+    expect(cards).toHaveLength(2);
+    const mine = cards.find((el) => within(el).queryByText('Mine'))!;
+    const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
+    // Author-scoped affordance: Remove only on the viewer's own row.
+    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+
+    // Confirm-before-firing: arming the control alone removes nothing.
+    await userEvent.click(within(mine).getByTestId('combo-withdraw'));
+    expect(screen.getAllByTestId('combo-card')).toHaveLength(2);
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+
+    // The withdraw went through the REAL hook → SHARED_WITHDRAW → mock host, so
+    // the row is gone from the store's own list(), not just from local state.
+    await waitFor(() => expect(screen.getAllByTestId('combo-card')).toHaveLength(1));
+    expect(screen.getByTestId('combo-card')).toHaveTextContent('Theirs');
+    expect(screen.queryByText('Mine')).toBeNull();
+  });
+});
+
 describe('vote on a combination', () => {
   it('increments the vote count through the shared store', async () => {
     renderApp({ seed: [{ value: { title: 'Votable Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [] }] });

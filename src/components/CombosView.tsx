@@ -7,11 +7,12 @@ import { Tooltip } from '@civitai/components-react';
 import { Fragment } from 'react';
 
 import type { CombinationRow } from '../types.js';
-import { includedSummary } from '../lib/benchmark.js';
+import { includedSummary, isOwnRow } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
+import { WithdrawButton } from './WithdrawButton.js';
 
 export interface CombosViewProps {
   combinations: CombinationRow[];
@@ -26,6 +27,8 @@ export interface CombosViewProps {
   onRequireAuth: () => void;
   /** Edit one of the viewer's OWN combinations (in-place). */
   onEdit: (combo: CombinationRow) => void;
+  /** Withdraw one of the viewer's OWN combinations from the shared grid. */
+  onWithdraw: (key: string) => Promise<void> | void;
 }
 
 export function CombosView({
@@ -40,6 +43,7 @@ export function CombosView({
   onUnvote,
   onRequireAuth,
   onEdit,
+  onWithdraw,
 }: CombosViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="combos-view">
@@ -80,7 +84,7 @@ export function CombosView({
 
       <Stack gap={10} data-testid="combos-list">
         {combinations.map((combo) => {
-          const isOwn = viewerId != null && combo.authorUserId === viewerId;
+          const isOwn = isOwnRow(combo, viewerId);
           // Distinct ecosystems across the combo's configs (in first-seen order).
           const ecos: string[] = [];
           for (const cfg of combo.data.configs) {
@@ -125,10 +129,18 @@ export function CombosView({
                   </span>
                 </Stack>
                 <Group gap={6} align="center">
+                  {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
                   {isOwn && (
                     <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="combo-edit">
                       Edit
                     </Button>
+                  )}
+                  {isOwn && (
+                    <WithdrawButton
+                      noun="combination"
+                      onWithdraw={() => onWithdraw(combo.key)}
+                      data-testid="combo-withdraw"
+                    />
                   )}
                   <VoteButton
                     count={combo.count}
