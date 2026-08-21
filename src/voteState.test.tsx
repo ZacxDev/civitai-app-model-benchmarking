@@ -33,6 +33,7 @@ function seedCombo(key = 'combo-1'): SharedListItem {
     key,
     authorUserId: 7,
     count: 3,
+    viewerVoted: false,
     value: { title: 'Seed Combo', body: '', data: comboData },
     createdAt: new Date(0),
     updatedAt: new Date(0),

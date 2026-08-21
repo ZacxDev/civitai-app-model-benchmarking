@@ -50,6 +50,7 @@ function row(
     key,
     authorUserId,
     count: 1,
+    viewerVoted: false,
     value: { title, body: '', data },
     createdAt: new Date(0),
     updatedAt: new Date(0),
