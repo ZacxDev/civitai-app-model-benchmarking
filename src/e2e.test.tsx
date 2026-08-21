@@ -268,11 +268,13 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // render immediately; without it the cell falls back to "not generated yet"
     // until a later refetch/manual reload catches up (the reported bug).
     const seedItems: SharedListItem[] = [
-      { key: 'c1', authorUserId: 7, count: 2, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
-      { key: 'p1', authorUserId: 8, count: 3, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'c1', authorUserId: 7, count: 2, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
     ];
     const laggingShared: UseSharedStorage = {
       list: async () => ({ items: seedItems }), // never includes the appended result
+      get: async (key) => seedItems.find((it) => it.key === key) ?? null,
+      report: async () => {},
       append: async () => ({ key: 'result-lagged' }),
       update: async () => {},
       getCount: async () => 0,

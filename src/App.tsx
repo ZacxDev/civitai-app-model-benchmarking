@@ -30,6 +30,7 @@ import {
   useResourcePicker,
   useSharedStorage,
   usePublishGenerationOutputs,
+  WorkflowEstimateError,
 } from '@civitai/blocks-react';
 import type { SharedAppendValue, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
 import {
@@ -115,6 +116,21 @@ type ModalState =
   | { kind: 'none' }
   | { kind: 'combo'; edit?: CombinationRow }
   | { kind: 'prompt'; edit?: PromptRow };
+
+/**
+ * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
+ * 0.43.0, civitai/civitai#4159). Two constants rather than one because the two
+ * `code`s are genuinely different situations for the viewer, and because the
+ * server's own explanation (`err.snapshot.error`) is deliberately NOT shown:
+ * it is server-authored and unsanitised — raw upstream text, database
+ * constraint names among it — so it goes to the developer console instead.
+ * `err.message` is not shown either; it is the library's developer string and
+ * names a JS property.
+ */
+export const ESTIMATE_FAILED_MESSAGE =
+  "Couldn't price this run — the server declined to estimate it. Try a different combination, or try again later.";
+export const ESTIMATE_NO_COST_MESSAGE =
+  "Couldn't price this run — no price came back. Please try again.";
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
@@ -587,7 +603,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const snap = await depsRef.current.estimate(body);
         setRun(ck, { status: 'confirming', estimatedCost: snap.cost?.total });
       } catch (e) {
-        setRun(ck, { status: 'failed', error: errMsg(e) });
+        setRun(ck, { status: 'failed', error: estimateErrMsg(e) });
       }
     },
     [results, viewer, token.scopes, setRun],
@@ -906,6 +922,30 @@ async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : 'Something went wrong.';
+}
+
+/**
+ * Viewer-facing text for a failure out of `estimate()`.
+ *
+ * 🔴 `@civitai/blocks-react` 0.43.0 made `estimate()` REJECT where it used to
+ * resolve a price-less snapshot (civitai/civitai#4159). Three things follow, and
+ * this function is where all three are handled:
+ *
+ *  - Branch on `err.code`, never on `err.message` — `code` is the stable target;
+ *    `message` is a generic constant the library may reword.
+ *  - `err.snapshot.error` carries the server's own explanation and is documented
+ *    as server-authored and UNSANITISED (raw upstream text, database constraint
+ *    names among it). It is the diagnostic worth keeping, so it goes to the
+ *    developer console — never into viewer copy.
+ *  - Moderator-review preview answers EVERY workflow request with
+ *    'not available in review preview', so a reviewer's first click lands here.
+ *    That is the `'failed'` arm, and it is why this path must never throw.
+ */
+function estimateErrMsg(e: unknown): string {
+  if (!(e instanceof WorkflowEstimateError)) return errMsg(e);
+  // Developer-only surface. Kept off the rendered cell on purpose (see above).
+  console.debug('[model-benchmarking] estimate rejected:', e.code, e.snapshot.error ?? '(no server reason)');
+  return e.code === 'no-cost' ? ESTIMATE_NO_COST_MESSAGE : ESTIMATE_FAILED_MESSAGE;
 }
 
 /** A tinted rounded tile that holds the brand mark (matches the manifest's

@@ -60,6 +60,13 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
       listCalls.push(listOpts);
       return { items: [...rows] };
     },
+    async get(key) {
+      return rows.find((x) => x.key === key) ?? null;
+    },
+    async report() {
+      // The app does not call report() yet; present so the fake satisfies the
+      // full UseSharedStorage contract (added in @civitai/app-sdk 0.29.0).
+    },
     async getCount() {
       return 0;
     },
@@ -69,7 +76,8 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
     async append(value) {
       appends.push(value);
       const key = `fk_${(n += 1)}`;
-      if (reflect) rows.unshift({ key, authorUserId: 0, value, count: 0, createdAt: new Date(), updatedAt: new Date() });
+      if (reflect)
+        rows.unshift({ key, authorUserId: 0, value, count: 0, viewerVoted: false, createdAt: new Date(), updatedAt: new Date() });
       return { key };
     },
     async update(key, value) {
