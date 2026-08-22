@@ -1,7 +1,7 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "model-benchmarking",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "name": "Model Benchmarking",
   "tagline": "Settle it with a grid.",
   "type": "block",
