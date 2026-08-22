@@ -6,11 +6,12 @@ import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/block
 import { Tooltip } from '@civitai/components-react';
 
 import type { PromptRow } from '../types.js';
-import { includedSummary } from '../lib/benchmark.js';
+import { includedSummary, isOwnRow } from '../lib/benchmark.js';
 import { ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
+import { WithdrawButton } from './WithdrawButton.js';
 
 export interface PromptsViewProps {
   prompts: PromptRow[];
@@ -25,6 +26,8 @@ export interface PromptsViewProps {
   onRequireAuth: () => void;
   /** Edit one of the viewer's OWN prompts (in-place). */
   onEdit: (prompt: PromptRow) => void;
+  /** Withdraw one of the viewer's OWN prompts from the shared grid. */
+  onWithdraw: (key: string) => Promise<void> | void;
 }
 
 export function PromptsView({
@@ -39,6 +42,7 @@ export function PromptsView({
   onUnvote,
   onRequireAuth,
   onEdit,
+  onWithdraw,
 }: PromptsViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="prompts-view">
@@ -81,7 +85,7 @@ export function PromptsView({
       <Stack gap={10} data-testid="prompts-list">
         {prompts.map((prompt) => {
           const overrideEcos = Object.keys(prompt.data.overrides ?? {});
-          const isOwn = viewerId != null && prompt.authorUserId === viewerId;
+          const isOwn = isOwnRow(prompt, viewerId);
           return (
             <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
               <Group justify="space-between" align="flex-start">
@@ -111,10 +115,18 @@ export function PromptsView({
                   </Group>
                 </Stack>
                 <Group gap={6} align="center">
+                  {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
                   {isOwn && (
                     <Button size="sm" variant="subtle" onClick={() => onEdit(prompt)} data-testid="prompt-edit">
                       Edit
                     </Button>
+                  )}
+                  {isOwn && (
+                    <WithdrawButton
+                      noun="prompt"
+                      onWithdraw={() => onWithdraw(prompt.key)}
+                      data-testid="prompt-withdraw"
+                    />
                   )}
                   <VoteButton
                     count={prompt.count}

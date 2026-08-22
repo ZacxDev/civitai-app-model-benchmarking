@@ -171,6 +171,36 @@ describe('edit-in-place: the author edits their OWN prompt', () => {
   });
 });
 
+describe('withdraw: the author removes their OWN combination (real SHARED_WITHDRAW → mock host)', () => {
+  it('removes the row from the shared store and leaves everyone else’s alone', async () => {
+    renderApp({
+      seed: [
+        { value: { title: 'Mine', body: '', data: comboSeed }, authorUserId: 99, voters: [1, 2, 3] },
+        { value: { title: 'Theirs', body: '', data: comboSeed }, authorUserId: 7, voters: [1] },
+      ],
+    });
+
+    const cards = await screen.findAllByTestId('combo-card');
+    expect(cards).toHaveLength(2);
+    const mine = cards.find((el) => within(el).queryByText('Mine'))!;
+    const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
+    // Author-scoped affordance: Remove only on the viewer's own row.
+    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+
+    // Confirm-before-firing: arming the control alone removes nothing.
+    await userEvent.click(within(mine).getByTestId('combo-withdraw'));
+    expect(screen.getAllByTestId('combo-card')).toHaveLength(2);
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+
+    // The withdraw went through the REAL hook → SHARED_WITHDRAW → mock host, so
+    // the row is gone from the store's own list(), not just from local state.
+    await waitFor(() => expect(screen.getAllByTestId('combo-card')).toHaveLength(1));
+    expect(screen.getByTestId('combo-card')).toHaveTextContent('Theirs');
+    expect(screen.queryByText('Mine')).toBeNull();
+  });
+});
+
 describe('vote on a combination', () => {
   it('increments the vote count through the shared store', async () => {
     renderApp({ seed: [{ value: { title: 'Votable Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [] }] });
@@ -238,11 +268,13 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // render immediately; without it the cell falls back to "not generated yet"
     // until a later refetch/manual reload catches up (the reported bug).
     const seedItems: SharedListItem[] = [
-      { key: 'c1', authorUserId: 7, count: 2, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
-      { key: 'p1', authorUserId: 8, count: 3, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'c1', authorUserId: 7, count: 2, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
     ];
     const laggingShared: UseSharedStorage = {
       list: async () => ({ items: seedItems }), // never includes the appended result
+      get: async (key) => seedItems.find((it) => it.key === key) ?? null,
+      report: async () => {},
       append: async () => ({ key: 'result-lagged' }),
       update: async () => {},
       getCount: async () => 0,

@@ -9,15 +9,15 @@
 // Driven through the real App with the money-path hooks injected via `deps` so
 // submit/poll/publish are fully controllable and countable.
 
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from '@civitai/blocks-react/testing';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { WorkflowEstimateError, type SharedListItem } from '@civitai/blocks-react';
 
-import { App, type AppDeps } from './App.js';
+import { App, ESTIMATE_FAILED_MESSAGE, ESTIMATE_NO_COST_MESSAGE, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
 
@@ -44,8 +44,8 @@ const INFLIGHT_KEY = `inflight:v1:${CK}`;
 
 function seedRows(): SharedListItem[] {
   return [
-    { key: 'c1', authorUserId: 7, count: 3, value: { title: 'Grid Combo', body: '', data: comboData }, createdAt: new Date(0), updatedAt: new Date(0) },
-    { key: 'p1', authorUserId: 8, count: 3, value: { title: 'Grid Prompt', body: '', data: promptData }, createdAt: new Date(0), updatedAt: new Date(0) },
+    { key: 'c1', authorUserId: 7, count: 3, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboData }, createdAt: new Date(0), updatedAt: new Date(0) },
+    { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '', data: promptData }, createdAt: new Date(0), updatedAt: new Date(0) },
   ];
 }
 
@@ -182,5 +182,101 @@ describe('#2 stalled persistence: an in-flight workflow survives a reload', () =
     expect(poll).toHaveBeenCalledWith('wf-prior');
     // Terminal → the persisted in-flight row is cleared.
     await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #3 estimate REJECTION — civitai/civitai#4159, @civitai/blocks-react 0.43.0.
+//
+// Before 0.43.0 `estimate()` RESOLVED a host failure-snapshot that carries no
+// `cost`. This app gates Confirm on `typeof cost === 'number'`, so that resolved
+// into a confirm dialog reading "Cost unavailable" with Confirm permanently
+// disabled — a dead control, and the server's explanation (already on
+// `snapshot.error`) was thrown away.
+//
+// From 0.43.0 it REJECTS with a `WorkflowEstimateError` carrying `.code`
+// ('failed' | 'no-cost') and `.snapshot`. The app must turn that into a real
+// failure the viewer can read, WITHOUT printing the library's developer-facing
+// `err.message` or the server-authored, unsanitised `err.snapshot.error`.
+// ---------------------------------------------------------------------------
+describe('#3 estimate rejection: a workflow that cannot be priced fails honestly', () => {
+  /** Build the real exported error so these pin the SHIPPED contract, not a fake. */
+  const estimateError = (code: 'failed' | 'no-cost', serverReason?: string) =>
+    new WorkflowEstimateError(
+      { workflowId: '', status: code === 'failed' ? 'failed' : 'pending', ...(serverReason ? { error: serverReason } : {}) },
+      code,
+    );
+
+  /** Run one cell whose estimate rejects; resolve the rendered failure text. */
+  async function runWithRejectingEstimate(err: WorkflowEstimateError) {
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage } = fakeAppStorage();
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => {
+        throw err;
+      },
+      submit,
+      poll: async () => succeededSnap(),
+      publish: async () => [],
+    });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+    await userEvent.click(within(grid).getByTestId('run-cell'));
+
+    const failed = await screen.findByTestId('cell-failed');
+    return { text: failed.textContent ?? '', submit };
+  }
+
+  it('does NOT render the dead "Cost unavailable" confirm dialog, and never submits', async () => {
+    // The #4159 symptom itself: an unpriceable estimate used to reach `confirming`.
+    const { submit } = await runWithRejectingEstimate(estimateError('no-cost'));
+
+    expect(screen.queryByTestId('cell-confirm')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cell-insufficient')).not.toBeInTheDocument();
+    // Nothing was ever spent — the run stopped before submit.
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('shows a DIFFERENT viewer-facing message per `code`, so the branch is real', async () => {
+    const { text: failedText } = await runWithRejectingEstimate(estimateError('failed'));
+    cleanup();
+    const { text: noCostText } = await runWithRejectingEstimate(estimateError('no-cost'));
+
+    // A single catch-all string would make these equal — the assertion that the
+    // app actually branches on `err.code` rather than printing one constant.
+    expect(failedText).not.toBe(noCostText);
+    expect(failedText).toBe(`Failed: ${ESTIMATE_FAILED_MESSAGE}Dismiss`);
+    expect(noCostText).toBe(`Failed: ${ESTIMATE_NO_COST_MESSAGE}Dismiss`);
+  });
+
+  it('never leaks the library developer message or the raw server text into the UI', async () => {
+    const serverReason = 'PrismaClientKnownRequestError: Unique constraint failed on the fields: (`email`)';
+    const { text } = await runWithRejectingEstimate(estimateError('failed', serverReason));
+
+    // `err.snapshot.error` is server-authored and unsanitised — never viewer copy.
+    expect(text).not.toContain(serverReason);
+    expect(text).not.toContain('Prisma');
+    // `err.message` is the library's developer string; it names a JS property and
+    // is meaningless to a viewer.
+    expect(text).not.toContain('.snapshot.error');
+    expect(text).not.toContain('usable price');
+  });
+
+  it('routes the server reason to the DEVELOPER console instead of discarding it', async () => {
+    // Recovering the server's explanation is the whole point of #4159 — dropping
+    // it from the UI must not mean dropping it entirely.
+    const serverReason = 'not available in review preview';
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      await runWithRejectingEstimate(estimateError('failed', serverReason));
+      const logged = debug.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+      expect(logged).toContain(serverReason);
+    } finally {
+      debug.mockRestore();
+    }
   });
 });

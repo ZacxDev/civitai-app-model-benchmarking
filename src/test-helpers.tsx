@@ -48,9 +48,24 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
   const rows: SharedListItem[] = [...(opts.seed ?? [])];
   let n = 0;
   const appends: SharedAppendValue[] = [];
+  /** Every key passed to `withdraw()`, in call order (a test asserts what the app
+   * told the shared store — and, just as importantly, that it told it NOTHING
+   * before the viewer confirmed). */
+  const withdraws: string[] = [];
+  /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
+   * to actually LAND before asserting the optimistic state survived it. */
+  const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
   const shared: UseSharedStorage = {
-    async list() {
+    async list(listOpts) {
+      listCalls.push(listOpts);
       return { items: [...rows] };
+    },
+    async get(key) {
+      return rows.find((x) => x.key === key) ?? null;
+    },
+    async report() {
+      // The app does not call report() yet; present so the fake satisfies the
+      // full UseSharedStorage contract (added in @civitai/app-sdk 0.29.0).
     },
     async getCount() {
       return 0;
@@ -61,7 +76,8 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
     async append(value) {
       appends.push(value);
       const key = `fk_${(n += 1)}`;
-      if (reflect) rows.unshift({ key, authorUserId: 0, value, count: 0, createdAt: new Date(), updatedAt: new Date() });
+      if (reflect)
+        rows.unshift({ key, authorUserId: 0, value, count: 0, viewerVoted: false, createdAt: new Date(), updatedAt: new Date() });
       return { key };
     },
     async update(key, value) {
@@ -74,11 +90,17 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
     async unvote() {
       return 0;
     },
-    async withdraw() {
-      return { ok: true, deleted: true };
+    async withdraw(key) {
+      withdraws.push(key);
+      const i = rows.findIndex((x) => x.key === key);
+      // The HOST always removes the row; `reflect: false` models a list() that
+      // hasn't caught up yet (read-after-write lag), so the row keeps coming back
+      // from list() and only the optimistic delete can keep it off screen.
+      if (reflect && i >= 0) rows.splice(i, 1);
+      return { ok: true, deleted: i >= 0 };
     },
   };
-  return { shared, appends };
+  return { shared, appends, withdraws, listCalls };
 }
 
 /**

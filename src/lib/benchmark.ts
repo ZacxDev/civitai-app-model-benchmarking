@@ -534,14 +534,17 @@ export function parseResult(item: RawSharedItem): ResultRow | null {
 // surviving a read-after-write-lagged list() re-fetch (item 1).
 // ---------------------------------------------------------------------------
 
-export type PendingKind = 'insert' | 'update';
+export type PendingKind = 'insert' | 'update' | 'delete';
 
-/** A locally-applied optimistic mutation awaiting host confirmation. */
-export interface PendingOptimistic {
-  value: SharedStorageValue;
-  authorUserId: number;
-  kind: PendingKind;
-}
+/**
+ * A locally-applied optimistic mutation awaiting host confirmation. An
+ * insert/update carries the value it applied; a `delete` (a withdraw) carries no
+ * value — there is nothing left to show, only a row to keep suppressed until the
+ * host list stops serving it.
+ */
+export type PendingOptimistic =
+  | { kind: 'insert' | 'update'; value: SharedStorageValue; authorUserId: number }
+  | { kind: 'delete'; authorUserId: number };
 
 function valuesEqual(a: SharedStorageValue, b: SharedStorageValue): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -554,8 +557,12 @@ function valuesEqual(a: SharedStorageValue, b: SharedStorageValue): boolean {
  *  - `insert` pending: prepended while ABSENT from the fetch; dropped once present.
  *  - `update` pending: overrides the fetched row's value while they DIFFER;
  *    dropped once the fetch reflects the new value (or the row is gone).
+ *  - `delete` pending (a withdraw): SUPPRESSES the row while the fetch still
+ *    returns it; dropped once the fetch no longer does. Without it a withdrawn
+ *    row reappears on the very next list() until the host's read catches up.
  * Returns the merged items (newest-first: surviving inserts, then the fetched
- * list with update-overrides applied) AND the still-pending map to carry forward.
+ * list with update-overrides applied and withdrawn rows removed) AND the
+ * still-pending map to carry forward.
  */
 export function reconcileOptimistic(
   fetched: RawSharedItem[],
@@ -565,11 +572,16 @@ export function reconcileOptimistic(
   const nextPending = new Map<string, PendingOptimistic>();
   const inserts: RawSharedItem[] = [];
   const overrides = new Map<string, SharedStorageValue>();
+  const deletes = new Set<string>();
   for (const [key, p] of pending) {
     const hit = byKey.get(key);
     if (p.kind === 'insert') {
       if (hit) continue; // host confirmed the append — drop the optimistic row
       inserts.push({ key, count: 0, authorUserId: p.authorUserId, value: p.value });
+      nextPending.set(key, p);
+    } else if (p.kind === 'delete') {
+      if (!hit) continue; // host confirmed the withdraw — drop the suppression
+      deletes.add(key);
       nextPending.set(key, p);
     } else {
       if (!hit) continue; // the row is gone — drop
@@ -580,9 +592,24 @@ export function reconcileOptimistic(
   }
   const items = [
     ...inserts,
-    ...fetched.map((i) => (overrides.has(i.key) ? { ...i, value: overrides.get(i.key)! } : i)),
+    ...fetched
+      .filter((i) => !deletes.has(i.key))
+      .map((i) => (overrides.has(i.key) ? { ...i, value: overrides.get(i.key)! } : i)),
   ];
   return { items, pending: nextPending };
+}
+
+/**
+ * 🔴 THE OWNERSHIP GUARD, in ONE place: is this shared row authored by the
+ * current viewer? Author-scoped affordances (Edit in place, Remove/withdraw) are
+ * offered on a row ONLY when this is true — a second copy of the predicate is a
+ * second chance to get it wrong on one surface and not the other. An anonymous
+ * viewer (`viewerId === null`) owns nothing, including a row whose author id is
+ * `0`; the host re-derives the same check server-side, so this governs the
+ * AFFORDANCE, and the host governs the write.
+ */
+export function isOwnRow(row: { authorUserId: number }, viewerId: number | null): boolean {
+  return viewerId != null && row.authorUserId === viewerId;
 }
 
 /** Split a flat list of shared rows into typed combos / prompts / results. */
