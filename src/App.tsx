@@ -35,7 +35,6 @@ import {
 import type { SharedAppendValue, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
 import {
   Alert,
-  Badge,
   Button,
   Group,
   Loader,
@@ -719,11 +718,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <span style={metaText}>Crowdsourced model-comparison grid</span>
             </Stack>
           </Group>
-          {buzzTotal != null && (
-            <Badge variant="light" size="lg" data-testid="buzz-balance">
-              {buzzTotal.toLocaleString()} Buzz
-            </Badge>
-          )}
+          {/* The viewer's Buzz balance is deliberately NOT displayed here (task
+              419). `buzzTotal` is still read from `useBuzzBalance()` and passed
+              to ResultsGrid, where it gates a run against the cost
+              (`cell-insufficient`) — removing the hook along with this badge
+              would disarm that gate, which `chrome-and-width.test.tsx` pins. */}
         </Group>
 
         {howtoDismissed === false && (
