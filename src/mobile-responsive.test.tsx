@@ -52,7 +52,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App } from './App.js';
-import { COMPACT_ATTR, MIN_TAP_TARGET_PX } from './compact.js';
+import { COMPACT_ATTR, MIN_TAP_TARGET_PX, compactTapTargetCss } from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
@@ -294,9 +294,55 @@ describe('420 — the overflow-containment style contract', () => {
   });
 
   it('pageStyle clips horizontal overflow with `clip`, never `hidden`', () => {
-    // `hidden` would make the root a scroll container — swallowing the matrix's
-    // sticky headers and allowing a programmatic scroll to content the viewer
-    // cannot reach. `clip` only clips, and leaves overflow-y visible.
+    // 🔴 CORRECTED after the round-1 audit MEASURED the old rationale false.
+    // This used to say `hidden` "would swallow the matrix's sticky headers".
+    // It would not: sticky resolves against the `results-grid` scroller, not
+    // the root, and the row header pins identically under clip / hidden /
+    // visible (measured live, rowHeaderX 15 vs gridX 14 in all three).
+    // The REAL reason, also measured, is the other half: `hidden` coerces the
+    // root's computed overflow-y from `visible` to `auto`, making the root a
+    // scroll container and letting a programmatic scroll reach content the
+    // viewer cannot see. `clip` only clips and leaves overflow-y visible.
     expect(pageStyle(palette()).overflowX).toBe('clip');
+  });
+
+  it('the scroller and its parent opt out of the content-based minimum too', () => {
+    // 🔴 Added after the round-1 audit MEASURED these two declarations to have
+    // ZERO coverage: deleting `minWidth`/`maxWidth` from the results-grid
+    // scroller AND `minWidth` from the grid-view Stack left the whole suite
+    // green (185/185), plus typecheck and build. Three levels have to opt out —
+    // contentStyle (above), the Stack, and the scroller — and only the first
+    // was pinned.
+    setViewport('mobile');
+    renderApp();
+    return openGrid().then(() => {
+      const scroller = document.querySelector('[data-testid="results-grid"]') as HTMLElement;
+      expect(scroller).not.toBeNull();
+      expect(scroller.style.minWidth).toBe('0');
+      expect(scroller.style.maxWidth).toBe('100%');
+      const stack = document.querySelector('[data-testid="grid-view"]') as HTMLElement;
+      expect(stack).not.toBeNull();
+      expect(stack.style.minWidth).toBe('0');
+    });
+  });
+});
+
+describe('420 — the 44px figure itself', () => {
+  // 🔴 Added after the round-1 audit MEASURED the tap-target cases blind to a
+  // wrong threshold: the CSS input and the assertion bound were the SAME
+  // symbol, so mutating MIN_TAP_TARGET_PX 44 -> 24 left all 12 cases green.
+  // A constant that defines its own passing bar cannot be checked by the cases
+  // that consume it — so pin the literal here, once.
+  it('is 44 — the WCAG 2.5.5 / iOS HIG figure, not whatever the constant says', () => {
+    expect(MIN_TAP_TARGET_PX).toBe(44);
+  });
+
+  it('the emitted stylesheet carries the literal 44px, and covers the slider', () => {
+    // The slider (`data-civitai-ui-range`) is 6px tall from the pack and is the
+    // only control that changes what a narrow-viewport reader SEES; the audit
+    // found it outside the sweep. Pinned as text because jsdom does no layout.
+    const css = compactTapTargetCss();
+    expect(css).toContain('min-height: 44px');
+    expect(css).toContain('[data-civitai-ui-range]');
   });
 });

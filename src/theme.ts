@@ -90,9 +90,14 @@ export function pageStyle(c: Palette): CSSProperties {
     // nothing to do with the results matrix.
     //
     // `clip`, NOT `hidden`: `hidden` would make this element a scroll
-    // container, which would swallow the sticky positioning the results matrix
-    // relies on and let the page be scrolled programmatically to content the
-    // user cannot see. `clip` only clips, and — unlike `hidden` — permits
+    // container, letting the page be scrolled programmatically to content the
+    // user cannot see. 🔴 The STICKY half of this sentence used to be here too
+    // ("would swallow the sticky positioning the matrix relies on") and was
+    // MEASURED FALSE in the round-1 audit: sticky resolves against the
+    // `results-grid` scroller, not this root, and the row header pins
+    // identically under clip / hidden / visible. The conclusion is unchanged
+    // and the remaining reason is real — but do not re-derive the sticky one.
+    // `clip` only clips, and — unlike `hidden` — permits
     // `overflow-y: visible`, so vertical page scrolling is untouched. The
     // matrix keeps its OWN `overflow-x: auto` container, so no cell is made
     // unreachable by this; only an out-of-flow overlay gets trimmed at the
