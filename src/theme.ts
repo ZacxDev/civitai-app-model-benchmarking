@@ -80,12 +80,56 @@ export function pageStyle(c: Palette): CSSProperties {
     minHeight: '100dvh',
     display: 'flex',
     boxSizing: 'border-box',
+    // Document-level backstop against a horizontal page scroll. Everything the
+    // app lays out is already contained (see `contentStyle`), but an
+    // ABSOLUTELY-positioned descendant escapes that containment and still
+    // extends the document's scrollable area: measured at the base commit, the
+    // "Included" tooltip bubble (`position: absolute`, `max-width: 260px`,
+    // centred on its badge) pushed the Combinations view to a 395px
+    // scrollWidth against a 380px viewport — a pre-existing overflow with
+    // nothing to do with the results matrix.
+    //
+    // `clip`, NOT `hidden`: `hidden` would make this element a scroll
+    // container, which would swallow the sticky positioning the results matrix
+    // relies on and let the page be scrolled programmatically to content the
+    // user cannot see. `clip` only clips, and — unlike `hidden` — permits
+    // `overflow-y: visible`, so vertical page scrolling is untouched. The
+    // matrix keeps its OWN `overflow-x: auto` container, so no cell is made
+    // unreachable by this; only an out-of-flow overlay gets trimmed at the
+    // frame edge. Fixed-position descendants (the modal overlay) are not
+    // clipped — their containing block is the viewport, not this box.
+    overflowX: 'clip',
   };
 }
 
+/**
+ * The content column inside {@link pageStyle}.
+ *
+ * 🔴 `minWidth` and `gridTemplateColumns` are OVERFLOW CONTAINMENT, not
+ * cosmetics — they are what makes the wide results matrix scroll inside its own
+ * `overflow-x: auto` container (ResultsGrid) instead of widening the whole
+ * document on a phone. Two separate blowout points, both defaulting to
+ * content-based minimums:
+ *
+ *   1. This box is a flex ITEM of `pageStyle` (`display: flex`, row). A flex
+ *      item's `min-width: auto` resolves to its content's min-content width on
+ *      the main axis, which overrides `width: 100%` — so a 580px-wide grid drags
+ *      this box (and the document) out to 580px. `minWidth: 0` opts out.
+ *   2. This box is itself a GRID, and its implicit column is `auto`, whose
+ *      minimum is likewise min-content — so the same blowout re-enters one level
+ *      down. `minmax(0, 1fr)` pins that track's minimum to 0. (At desktop widths
+ *      a `1fr` track fills exactly like the `auto` track it replaces, so the
+ *      uncapped full-width behaviour from #16 is unchanged.)
+ *
+ * Measured in headless Chromium against the dev harness at a 380px viewport,
+ * Grid view: document scrollWidth 596 → 380 (viewport 380). See
+ * `mobile-responsive.test.tsx` for what jsdom can and cannot pin here.
+ */
 export const contentStyle: CSSProperties = {
   margin: '0 auto',
   width: '100%',
+  minWidth: 0,
+  gridTemplateColumns: 'minmax(0, 1fr)',
   padding: 'clamp(14px, 3vw, 24px)',
   display: 'grid',
   gap: 18,

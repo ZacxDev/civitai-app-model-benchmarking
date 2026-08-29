@@ -45,6 +45,8 @@ import {
 } from '@civitai/blocks-react/ui';
 
 import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
+import { COMPACT_ATTR, compactTapTargetCss } from './compact.js';
+import { useIsMobile } from './useMediaQuery.js';
 import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
 import type { CellRun, CombinationRow, InflightRun, PromptRow } from './types.js';
 import {
@@ -161,6 +163,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const rootRef = useRef<HTMLDivElement>(null);
   useBlockResize(rootRef);
+
+  // Narrow-viewport layout switch. This is the ONLY consumer of `useIsMobile()`
+  // — it stamps `data-mb-compact` on the root and mounts the compact
+  // stylesheet, so the hook is load-bearing rather than the dead seam it was.
+  const isMobile = useIsMobile();
 
   const c = palette();
 
@@ -699,7 +706,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   }
 
   return (
-    <div ref={rootRef} data-theme={theme} style={pageStyle(c)}>
+    <div
+      ref={rootRef}
+      data-theme={theme}
+      {...{ [COMPACT_ATTR]: isMobile ? 'true' : undefined }}
+      style={pageStyle(c)}
+    >
+      {/* Compact-layout stylesheet — mounted only on a narrow viewport, so the
+          desktop rendering is byte-for-byte what it was. Scoped to this root by
+          the COMPACT_ATTR selector, so it can never leak into the host page. */}
+      {isMobile && <style data-testid="compact-styles">{compactTapTargetCss()}</style>}
       <div style={contentStyle}>
         <Group
           justify="space-between"
@@ -809,7 +825,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         )}
 
         {view === 'grid' && (
-          <Stack gap={14} data-testid="grid-view">
+          // `minWidth: 0` for the same reason `contentStyle` carries it: this
+          // Stack is a grid item holding the wide results matrix, and its
+          // default content-based minimum would re-introduce the blowout one
+          // level below the containment in `contentStyle`.
+          <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
             <Group justify="space-between" align="flex-end" gap={12}>
               <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
                 Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
