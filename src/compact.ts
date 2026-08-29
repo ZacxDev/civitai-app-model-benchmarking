@@ -48,8 +48,13 @@ export const MIN_TAP_TARGET_PX = 44;
  *     the pack's button CSS lives in `@layer civitai.components` and this sheet is
  *     UNLAYERED, so an unlayered declaration beats any layered one and neither
  *     specificity nor source order is consulted. Proven by loading this sheet
- *     BEFORE the pack's: the button still resolves to the pack's 15px height,
- *     which the "wins on order" story cannot explain.
+ *     BEFORE the pack's: the button still resolves to THIS sheet's `height: auto`
+ *     (15px — a 13px line box plus 2x1px border, `box-sizing: border-box`), which
+ *     the "wins on order" story cannot explain, since on that story the pack's
+ *     later 30px would have won. 🔴 This sentence previously credited the 15px to
+ *     "the pack's height" — no pack rule produces 15px at any size (sm/md/lg are
+ *     30/36/44), so as written it argued FOR the source-order model it exists to
+ *     retire. Third correction to this paragraph; measure, do not reason.
  *   - The SEGMENT rule is the genuinely fragile one: the pack's
  *     `[data-civitai-ui='segmented-control'][data-size='md'] [data-civitai-ui-segment]`
  *     is (0,3,0) and BOTH sides are unlayered, so it outranks this (0,2,0) rule

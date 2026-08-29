@@ -32,12 +32,20 @@
 // `src/compact.ts` (a constants-only module with no behaviour of its own)
 // restored onto base 180901a, and App.tsx / theme.ts / ResultsGrid.tsx at base:
 //
-//     Tests  7 failed | 5 passed (12)   at 180901a
-//     Tests  12 passed (12)             at HEAD
+//     Tests  9 failed | 7 passed (16)   at 180901a
+//     Tests  16 passed (16)             at HEAD
 //
-// The 7 that go red are the regression coverage: the two seam/cascade cases,
-// the three >=44px tap-target cases, and the two style-contract cases. The 5
-// that were already green at base are NOT regression coverage and are labelled
+// 🔴 RE-MEASURED at each round, and that is the point of writing it down. The
+// audit rounds added cases (12 -> 15 -> 16), and a matrix left at its round-1
+// numbers (`7 failed | 5 passed (12)`) silently stopped describing this file:
+// anyone re-running the stated experiment gets a different denominator and
+// cannot tell whether the file drifted or the original measurement was wrong.
+// If you add a case here, re-run the base arm and update these two lines.
+//
+// The 9 that go red are the regression coverage: the two seam/cascade cases,
+// the four >=44px tap-target cases (tabs, vote, run-cell, slider), the two
+// style-contract cases and the 44px literal pin. The 7 that were already green
+// at base are NOT regression coverage and are labelled
 // where they sit — the two INVARIANT GUARDs on the grid's structure, the #16
 // no-maxWidth guard, and the two DESKTOP cases, which are green at base for the
 // good reason that they assert the compact layout is ABSENT. Their job is to be
