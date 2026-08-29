@@ -86,7 +86,6 @@ export function pageStyle(c: Palette): CSSProperties {
 export const contentStyle: CSSProperties = {
   margin: '0 auto',
   width: '100%',
-  maxWidth: 1100,
   padding: 'clamp(14px, 3vw, 24px)',
   display: 'grid',
   gap: 18,
