@@ -337,12 +337,30 @@ describe('420 — the 44px figure itself', () => {
     expect(MIN_TAP_TARGET_PX).toBe(44);
   });
 
-  it('the emitted stylesheet carries the literal 44px, and covers the slider', () => {
-    // The slider (`data-civitai-ui-range`) is 6px tall from the pack and is the
-    // only control that changes what a narrow-viewport reader SEES; the audit
-    // found it outside the sweep. Pinned as text because jsdom does no layout.
-    const css = compactTapTargetCss();
-    expect(css).toContain('min-height: 44px');
-    expect(css).toContain('[data-civitai-ui-range]');
+  it('the emitted stylesheet carries the literal 44px', () => {
+    // A TEXT pin is right for the FIGURE — it is what the rule emits, and the
+    // point is that it cannot drift with the constant.
+    expect(compactTapTargetCss()).toContain('min-height: 44px');
+  });
+
+  it('SELECTOR REACHABILITY: the slider rule matches the live range control', async () => {
+    // 🔴 CORRECTED after the round-2 audit: this used to pin
+    // `[data-civitai-ui-range]` as a SUBSTRING, justified as "text because jsdom
+    // does no layout". That is a non-reason — the reachability case above proves
+    // selectors against the live DOM with querySelectorAll, which needs no
+    // layout — and it left the exact hole that case exists to close: a pack
+    // rename orphans the rule while the substring stays green.
+    // The slider is 6px tall from the pack and only renders in the Grid view.
+    setViewport('mobile');
+    renderApp();
+    await openGrid();
+
+    const ranges = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,
+    );
+    expect(ranges.length).toBeGreaterThan(0);
+    for (const r of ranges) {
+      expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
   });
 });

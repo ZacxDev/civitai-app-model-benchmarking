@@ -37,16 +37,26 @@ export const MIN_TAP_TARGET_PX = 44;
  *     confirm/cancel, withdraw, the modal form actions).
  *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
  *
- * 🔴 `height: auto` reaches the BUTTONS ONLY, and the earlier claim here that it
- * was "paired with the min-height on the segments only" was BACKWARDS — measured
- * out of Chromium with `CSS.getMatchedStylesForNode`. The pack's segment rule
- * `[data-civitai-ui='segmented-control'][data-size='md'] [data-civitai-ui-segment]`
- * is specificity (0,3,0) and OUTRANKS this rule's (0,2,0), so `height` stays
- * `30px` on a segment; on a button the pack's `&[data-size="sm"]` ties at (0,2,0)
- * and this rule wins on order. The rendered result is correct either way, because
- * used height is `max(min-height, height)` = 44 — which is exactly why the wrong
- * explanation survived a round: nothing on the page looks different.
+ * 🔴 THIS PARAGRAPH HAS BEEN WRONG TWICE. Both corrections came from MEASURING
+ * the cascade, not from reading it, and the current text is the third attempt:
  *
+ *   - `height: auto` reaches the BUTTONS **and the RANGE** (measured: range
+ *     `height` 6px -> 16px with the pack sheet linked), NOT the segments. Round 1
+ *     said "segments only" (backwards); round 2 said "buttons only" — also wrong,
+ *     because the same commit had just added the range selector to this rule.
+ *   - The BUTTON override wins by **CASCADE LAYER**, not by order or specificity:
+ *     the pack's button CSS lives in `@layer civitai.components` and this sheet is
+ *     UNLAYERED, so an unlayered declaration beats any layered one and neither
+ *     specificity nor source order is consulted. Proven by loading this sheet
+ *     BEFORE the pack's: the button still resolves to the pack's 15px height,
+ *     which the "wins on order" story cannot explain.
+ *   - The SEGMENT rule is the genuinely fragile one: the pack's
+ *     `[data-civitai-ui='segmented-control'][data-size='md'] [data-civitai-ui-segment]`
+ *     is (0,3,0) and BOTH sides are unlayered, so it outranks this (0,2,0) rule
+ *     and `height` stays 30px there.
+ *
+ * None of that changes what renders — used height is `max(min-height, height)`
+ * = 44 in every case — which is exactly why two false explanations survived.
  * The `min-height` is what does the work, and it is deliberate: it beats the
  * pack's `height: 30px` without out-specifying or `!important`-ing it.
  *
@@ -62,14 +72,4 @@ export const compactTapTargetCss = (): string => `
   height: auto;
 }
 
-/* The "Included" tooltip is position:absolute and 260px wide, so under the
-   root's overflow-x clip backstop its tail is CLIPPED rather than scrolled to
-   — measured at 320px, 56px (~22%) of the bubble was unreachable, taking the
-   whole trailing sentence with it. Bounding it to the viewport keeps the text
-   readable without weakening the backstop.
-   NOTE: no backticks in this block — it lives inside a template literal, and a
-   backtick here terminates the string and hands the CSS to the TS parser. */
-[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] {
-  max-width: calc(100vw - 32px);
-}
 `;
