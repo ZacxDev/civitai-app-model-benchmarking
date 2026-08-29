@@ -97,12 +97,28 @@ export function ResultsGrid({
 
   const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, ${CELL_W}px)`;
 
+  // 🔴 The <div> below is the app's horizontal-scroll BOUNDARY: the matrix is
+  // wider than a phone by construction (a 200px cell per prompt plus a
+  // 180–220px row header), so on a narrow viewport it degrades by SCROLLING
+  // there — no column is dropped and no cell changes identity. `overflowX:
+  // 'auto'` alone was NOT enough: the box still SIZED itself to its content,
+  // because its ancestors' min-width defaulted to min-content (see
+  // `contentStyle`), so the document widened anyway. `minWidth: 0` +
+  // `maxWidth: '100%'` cap this box at the space its parent actually offers,
+  // which is what turns the overflow into a scroll instead of a page-wide
+  // blowout.
   return (
     <div
       data-testid="results-grid"
       role="group"
       aria-label="Benchmark results: configurations by prompts"
-      style={{ overflowX: 'auto', border: `1px solid ${c.border}`, borderRadius: radius.md }}
+      style={{
+        overflowX: 'auto',
+        minWidth: 0,
+        maxWidth: '100%',
+        border: `1px solid ${c.border}`,
+        borderRadius: radius.md,
+      }}
     >
       <div style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}>
         {/* Header row: corner + one column header per prompt */}
