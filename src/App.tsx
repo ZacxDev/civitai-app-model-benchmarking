@@ -32,7 +32,12 @@ import {
   usePublishGenerationOutputs,
   WorkflowEstimateError,
 } from '@civitai/blocks-react';
-import type { SharedAppendValue, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
+import type {
+  AppStorageQuota,
+  SharedAppendValue,
+  UseAppStorage,
+  UseSharedStorage,
+} from '@civitai/blocks-react';
 import {
   Alert,
   Button,
@@ -48,7 +53,14 @@ import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
 import { COMPACT_ATTR, compactTapTargetCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
-import type { CellRun, CombinationRow, InflightRun, PromptRow } from './types.js';
+import type {
+  CellRun,
+  CombinationRow,
+  DraftRecord,
+  DraftUnsubmitted,
+  InflightRun,
+  PromptRow,
+} from './types.js';
 import {
   buildCellWorkflowBody,
   buildCombinationPayload,
@@ -70,8 +82,20 @@ import {
   type PromptInput,
   type RawSharedItem,
 } from './lib/benchmark.js';
+import {
+  buildDraft,
+  draftKey,
+  draftToInput,
+  DRAFT_PREFIX,
+  formatQuota,
+  newDraftLocalId,
+  parseDraft,
+  sortDrafts,
+  submittedPointer,
+} from './lib/drafts.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
 import { CombosView } from './components/CombosView.js';
+import { DraftsPanel } from './components/DraftsPanel.js';
 import { PromptsView } from './components/PromptsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
 import { CombinationForm } from './components/CombinationForm.js';
@@ -112,11 +136,18 @@ export interface AppProps {
 
 type View = 'combos' | 'prompts' | 'grid';
 
-/** The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode. */
+/**
+ * The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode, or
+ * the DRAFT form — the same combination form saving to the PER-VIEWER store
+ * instead of the public board. `draft` is a distinct kind rather than a flag on
+ * `combo` because the two write to different stores, and a single branch deciding
+ * which store a save lands in is exactly the branch that gets got wrong later.
+ */
 type ModalState =
   | { kind: 'none' }
   | { kind: 'combo'; edit?: CombinationRow }
-  | { kind: 'prompt'; edit?: PromptRow };
+  | { kind: 'prompt'; edit?: PromptRow }
+  | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -146,6 +177,8 @@ const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
  * running cells so a reload never re-charges them (see {@link InflightRun}). */
 const INFLIGHT_PREFIX = 'inflight:v1:';
 const inflightKey = (ck: string): string => `${INFLIGHT_PREFIX}${ck}`;
+/** Safety cap when paging this viewer's own draft keys (`draft:v1:` prefix). */
+const DRAFT_MAX_PAGES = 20;
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -338,6 +371,65 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, viewer?.id]);
 
+  // ---- drafts (the PRIVATE half of the create → submit boundary) ----
+  //
+  // 🔴 Everything in this block reads and writes `appStorage` ONLY. A draft is
+  // private because it lives in the per-viewer store, not because of any field
+  // on it — a `visibility` flag inside a shared row's `data` would be cosmetic
+  // (the row is world-readable the instant it is appended, and `data` is not
+  // moderated). Submit — and only submit — copies a draft onto the public board.
+  const [drafts, setDrafts] = useState<DraftRecord[]>([]);
+  const [quota, setQuota] = useState<AppStorageQuota | null>(null);
+  const [draftsVersion, setDraftsVersion] = useState(0);
+  const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!viewer) {
+      // Anonymous: the host rejects every per-viewer write and reads back null,
+      // so there is nothing to show and nothing to guess at.
+      setDrafts([]);
+      setQuota(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const store = depsRef.current.appStorage;
+      try {
+        const found: DraftRecord[] = [];
+        let cursor: string | undefined;
+        for (let page = 0; page < DRAFT_MAX_PAGES; page += 1) {
+          const res = await store.list({ prefix: DRAFT_PREFIX, cursor });
+          if (cancelled) return;
+          for (const { key } of res.keys) {
+            // Defensive: only trust keys under our prefix (a fake/host may over-return).
+            if (!key.startsWith(DRAFT_PREFIX)) continue;
+            const parsed = parseDraft(await store.get(key));
+            if (cancelled) return;
+            if (parsed) found.push(parsed);
+          }
+          if (!res.nextCursor) break;
+          cursor = res.nextCursor;
+        }
+        setDrafts(sortDrafts(found));
+      } catch {
+        /* best-effort — a KV failure must not take the public board down with it */
+      }
+      try {
+        // 🔴 The storage ceilings are HOST-reported. Read them; never hard-code
+        // "50 MB" (acceptance criterion 6) — that is the host's number to move.
+        const q = await store.getQuota();
+        if (!cancelled) setQuota(q);
+      } catch {
+        if (!cancelled) setQuota(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, viewer?.id, draftsVersion]);
+
   // Fire a single `block_loaded` analytics event once the host handshake settles.
   const loadedRef = useRef(false);
   useEffect(() => {
@@ -452,6 +544,77 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       reload();
     },
     [optimisticDelete, reload],
+  );
+
+  // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
+
+  /**
+   * Save a draft. 🔴 PRIVATE PATH — `appStorage.set` and nothing else. This is
+   * the path acceptance criterion 7 pins: it must never reach `shared.append`,
+   * because that call is the moment the record becomes public and there is no
+   * other boundary in the platform that makes it not so.
+   */
+  const saveDraft = useCallback(
+    async (localId: string, input: CombinationInput) => {
+      await depsRef.current.appStorage.set(draftKey(localId), buildDraft(localId, input));
+      depsRef.current.track('save_draft');
+      closeModal();
+      refreshDrafts();
+    },
+    [closeModal, refreshDrafts],
+  );
+
+  /** Discard a draft. 🔴 PRIVATE PATH — per-viewer delete only. */
+  const deleteDraft = useCallback(
+    async (localId: string) => {
+      await depsRef.current.appStorage.delete(draftKey(localId));
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
+  // Synchronous claim set, mirroring the runner's: a second submit for the same
+  // draft returns here, so a double-tap can never mint two public rows (and
+  // `append` has no idempotency key — a duplicate is permanent and unmergeable).
+  const submittingRef = useRef<Set<string>>(new Set());
+
+  /**
+   * SUBMIT — the one place a draft crosses into the public board, and the only
+   * moment the record becomes visible to anyone else. `buildCombinationPayload`
+   * is reused verbatim so a submitted draft is byte-identical to a row submitted
+   * directly, including `data.kind: 'combination'` (a persisted wire value that
+   * discriminates every row already on the board — never renamed) and including
+   * the moderation split: every user-authored string is in `title`/`body`, and
+   * `data` carries structure only.
+   *
+   * The draft is then KEPT, rewritten to `{localId, sharedKey, submittedAt}`: it
+   * is the only per-viewer handle on the row, since shared keys are host-minted
+   * and the shared list has no "mine" index.
+   */
+  const submitDraft = useCallback(
+    async (draft: DraftUnsubmitted) => {
+      if (submittingRef.current.has(draft.localId)) return;
+      submittingRef.current.add(draft.localId);
+      try {
+        const input = draftToInput(draft);
+        const payload = buildCombinationPayload(input) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        await depsRef.current.appStorage.set(
+          draftKey(draft.localId),
+          submittedPointer(draft.localId, key),
+        );
+        optimisticInsert(key, payload);
+        depsRef.current.track('submit_combo', {
+          configCount: input.configs.filter((cfg) => cfg?.checkpoint).length,
+          fromDraft: true,
+        });
+        refreshDrafts();
+        reload();
+      } finally {
+        submittingRef.current.delete(draft.localId);
+      }
+    },
+    [optimisticInsert, refreshDrafts, reload],
   );
 
   const submitCombination = useCallback(
@@ -693,6 +856,48 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const buzzTotal =
     buzz.balance != null ? buzz.balance.blue + buzz.balance.green + buzz.balance.yellow : null;
 
+  // ---- drafts render wiring ----
+  // The shared keys currently loaded, so a submitted POINTER only offers "Edit
+  // the live one" when its row is actually in hand to edit.
+  const loadedSharedKeys = useMemo(() => new Set(combinations.map((r) => r.key)), [combinations]);
+
+  /**
+   * Edit the PUBLIC row a submitted draft points at. 🔴 This routes into the
+   * existing `shared.update` path — which is author-scoped and preserves BOTH
+   * the host-minted key and the row's vote total. It is the only post-submit
+   * mutation the app offers: there is deliberately no un-submit (spec §9 Q2,
+   * decided 2026-08-30), because `withdraw` destroys the vote total and orphans
+   * every `result` row other viewers spent Buzz on, and nobody can clean those up.
+   */
+  const editSubmittedDraft = useCallback(
+    (sharedKey: string) => {
+      const row = combinations.find((r) => r.key === sharedKey);
+      if (row) setModal({ kind: 'combo', edit: row });
+    },
+    [combinations],
+  );
+
+  const draftsSlot = (
+    <DraftsPanel
+      drafts={drafts}
+      quotaLine={formatQuota(quota)}
+      loadedSharedKeys={loadedSharedKeys}
+      canDraft={!!viewer}
+      onNewDraft={() => setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })}
+      onEditDraft={(draft) =>
+        setModal({
+          kind: 'draft',
+          localId: draft.localId,
+          initial: draftToInput(draft),
+          existing: true,
+        })
+      }
+      onSubmitDraft={submitDraft}
+      onDeleteDraft={deleteDraft}
+      onEditSubmitted={editSubmittedDraft}
+    />
+  );
+
   // ---- render ----
   if (!ready) {
     return (
@@ -833,6 +1038,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
             onWithdraw={withdrawRow}
+            draftsSlot={draftsSlot}
           />
         )}
 
@@ -926,6 +1132,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   ? (input) => updateCombination(modal.edit!.key, input)
                   : submitCombination
               }
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* The DRAFT form — the same combination form, saving to the PER-VIEWER
+            store. Its submit button says "Save draft" precisely because saving
+            is not submitting: nothing here reaches the public board. */}
+        <Modal
+          opened={modal.kind === 'draft'}
+          onClose={closeModal}
+          title={modal.kind === 'draft' && modal.existing ? 'Edit draft' : 'New draft'}
+          size="lg"
+        >
+          {modal.kind === 'draft' && (
+            <CombinationForm
+              key={modal.localId}
+              pickResource={deps.pickResource}
+              initial={modal.initial}
+              submitLabel="Save draft"
+              onSubmit={(input) => saveDraft(modal.localId, input)}
               onCancel={closeModal}
             />
           )}
