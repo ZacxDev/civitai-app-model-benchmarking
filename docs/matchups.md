@@ -118,6 +118,12 @@ is mostly about them.
 | 5 | **Rename** combinations → **Matchups** | n/a — presentation + testids | n/a | n/a | **No** (but reaches two other repos — §6) |
 | 6 | **Watch** a matchup → a "watched" tab, individual and composite | `appStorage` only | `appStorage.get('watch:v1')` → `string[]` of matchup keys | `appStorage.set('watch:v1', keys)` | **No** |
 
+**Decisions that narrow this table (§9, 2026-08-30):** row **1**'s *public* half —
+appending a `kind:'collection'` row to the shared board — is **deferred**; v1 ships
+the private half only. Row **4** is built as create → explicit submit → *edit only*:
+there is no unsubmit, so the only arrow out of `shared` is `update`, never
+`withdraw`.
+
 **Why 1 and 4 both start in `appStorage`:** it is the only store in the platform
 with a real per-viewer boundary. A `visibility:"private"` field inside `data` is
 **cosmetic** — the row is world-readable the instant it is appended, and `data` is
@@ -142,17 +148,25 @@ smuggled into `data` to dodge the content belt; `data` carries structure only.
 
 **What happens to the private copy.** The draft is **kept**, rewritten to
 `{ localId, sharedKey, submittedAt }`. Deleting it would throw away the only
-per-viewer handle on the row, and it is what makes the unsubmit in the next
-paragraph able to restore a working draft. Cost is one small `appStorage` row
-against a 50 MB / ~1M-row budget.
+per-viewer handle on the row — shared keys are host-minted (**C1**) and the shared
+list carries no "mine" index, so a viewer who loses the pointer has no way to ask
+for their own rows. Cost is one small `appStorage` row against the host-reported
+budget (read it from `getQuota()`; the "50 MB / ~1M rows" figures in this document
+are the documented v0 ceilings, not something an app may hard-code).
+
+> ⚠️ This paragraph previously also justified retention by an unsubmit being able
+> to restore a working draft. **Unsubmit was declined (§9 Q2, 2026-08-30)**, so that
+> half no longer applies; the per-viewer handle is the whole reason.
 
 **What a user can undo.**
 
 - **Edit after submit: yes.** `shared.update(key, value)` is author-scoped and
   preserves the key and the vote total. Editing a live matchup is safe and cheap.
-- **Unsubmit: yes, mechanically — `shared.withdraw(key)` is author-scoped and
-  available. But it is NOT a clean inverse, and the UI must say so.** Three
-  consequences, all measured:
+- 🔴 **Unsubmit: NOT OFFERED. Decided 2026-08-30 (§9 Q2) — edit-only.** It is
+  mechanically possible (`shared.withdraw(key)` is author-scoped and available) and
+  it is deliberately not built, because it is not a clean inverse. The three
+  measured consequences below are the *evidence for that decision*, and they are
+  retained here rather than deleted: they are what makes the answer stick.
   1. **The vote total is destroyed.** `count` lives on the row; the row is gone.
      Re-submitting mints a *new* host key and starts at zero.
   2. 🔴 **Every `result` row that other viewers paid Buzz for is orphaned, and the
@@ -166,9 +180,11 @@ against a 50 MB / ~1M-row budget.
      warned action rather than a toggle.
   3. **Anyone else's contributions are unaffected**, which is the point of 422.
 
-**Recommended UI consequence:** "Unsubmit" is a destructive-confirm, worded in terms
-of what is lost (votes, and the public grid cells others generated), not "make
-private". There is no make-private for a submitted row.
+**UI consequence, as decided:** there is **no unsubmit control and no
+destructive-confirm for one** — that was the recommendation and it was declined.
+There is no make-private for a submitted row either. Submit is therefore the
+irreversible step in this app, and the only thing an author can do to a live row is
+**edit it** via `shared.update`, which keeps its key and its votes.
 
 ---
 
@@ -409,7 +425,7 @@ recommendation, not a dependency chain, except where stated.
 |---|---|---|---|
 | **A** | **Give every view-switch tab its own `data-testid`**, and update the capture recipe in `datapacket-talos` in the same pass | — | No |
 | **B** | **Watch list** — `appStorage` `watch:v1`, a "Watched" tab, individual + composite view | A (adds a tab) | No |
-| **C** | **Draft matchups** — `appStorage` `draft:v1:`, create-without-submit, submit as an explicit second step, warned unsubmit (§4) | — | No |
+| **C** | **Draft matchups** — `appStorage` `draft:v1:`, create-without-submit, submit as an explicit second step, edit-a-live-row via `shared.update` (§4). **No unsubmit** — §9 Q2, decided 2026-08-30 | — | No |
 | **D** | **Discovery + grid-as-default** — client-side ranking, visible truncation notice, `get()`-based deep links | A (reorders tabs) | No — but carries the §7.2 ceiling |
 | **E** | **Details page** — `shared.get(key)`, the grid with each prompt against its item, `report()` as the abuse path | A, D | No |
 | **F** | **Prompt-in-matchup voting** — the `pairvote` row kind, ad-hoc vs registered prompts (§5) | E | No |
@@ -435,19 +451,49 @@ is the ceiling and it is a known one.
 
 ---
 
-## 9. Open questions for the operator
+## 9. Questions for the operator — three DECIDED, one still open
 
-These are decisions this spec cannot make for you. Each has a recommendation.
+Each question is kept with its original recommendation so the decision can be read
+against what was proposed. **Questions 1–3 were answered by the operator on
+2026-08-30**; do not re-open them without a new decision recorded here.
 
-1. **Owner self-voting** (§5) — recommend allow; say if you want non-owners-only.
-2. **Is "unsubmit" offered at all?** Given §4.2 (orphaned paid-for results), a
-   defensible alternative is *no unsubmit, edit only*. Recommend offering it with a
+1. **Owner self-voting** (§5) — *recommended:* allow.
+   ✅ **DECIDED 2026-08-30 — ALLOW, including the owner.** As recommended: the
+   platform already enforces the only boundary that matters (`vote` rejects
+   anonymous viewers and is idempotent at one vote per viewer), and excluding
+   owners would cost an `authorUserId === viewer.id` special case in every vote
+   surface to prevent a +1 in a public tally. Gates card **F**, not card **C**.
+
+2. **Is "unsubmit" offered at all?** — *recommended:* offer it with a
    destructive-confirm.
-3. **Does "collection" (bullet 1) ship public at all in v1?** The private half is
-   free; the public half adds a fourth row kind to a board already carrying the §7.2
-   ceiling. Recommend private-only in v1.
+   ✅ **DECIDED 2026-08-30 — NO UNSUBMIT. EDIT-ONLY.** The recommendation was
+   **declined**, with §4.2's consequences in front of the decision: withdrawing a
+   matchup destroys its vote total *and* orphans every `result` row other viewers
+   spent Buzz on, and those rows are structurally unremovable by anyone but each
+   original runner (`withdraw` returns `FORBIDDEN` for the matchup owner). Declining
+   unsubmit means the app never mints such an orphan in the first place.
+   **Consequences, now binding:**
+   - `shared.update` — author-scoped, and it preserves both the host-minted key and
+     the vote total — is the **only** post-submit mutation path the app offers.
+   - There is **no make-private for a submitted row**, and there is no un-submit
+     either. Submitting is the irreversible step, and the UI must read that way.
+   - The draft is still **retained** after submit as `{localId, sharedKey,
+     submittedAt}`. §4 justified retention partly by an unsubmit restoring a working
+     draft; that half no longer applies. The surviving reason is the load-bearing
+     one: the draft is the **only per-viewer handle on the row**, since shared keys
+     are host-minted and the shared list has no "mine" index.
+   - Card **C**'s acceptance criterion 5 (a warned unsubmit) is **struck**. That card
+     is six criteria — 1, 2, 3, 4, 6, 7 — not seven.
+
+3. **Does "collection" (bullet 1) ship public at all in v1?** — *recommended:*
+   private-only.
+   ✅ **DECIDED 2026-08-30 — PRIVATE-ONLY in v1.** As recommended. The private half
+   of bullet 1 (`appStorage`, `coll:v1:`) is in scope; the public half — a fourth
+   row kind on a board already carrying the §7.2 ceiling — is **deferred**, not
+   cancelled, and would need this question re-answered.
+
 4. **Card J** — worth filing as a platform ask now, or leave the ceiling documented
-   and revisit when the board approaches it?
+   and revisit when the board approaches it? **Still open.**
 
 ---
 
