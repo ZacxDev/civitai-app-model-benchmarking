@@ -778,15 +778,44 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           </div>
         )}
 
+        {/*
+          🔴 EACH TAB CARRIES ITS OWN `data-testid`, NAMED FOR ITS VIEW — NEVER FOR
+          ITS POSITION. Downstream consumers (the app-capture recipe in
+          `talos-infra`) used to select these tabs as
+          `[data-testid='view-switch'] > button:nth-of-type(N)`, which silently
+          re-points at the wrong panel the moment a tab is reordered or added — and
+          a capture of the wrong view still succeeds. The name is the view key, so
+          it survives both.
+
+          🔴 WHY THE ATTRIBUTE IS ON THE LABEL AND NOT ON THE BUTTON: it cannot be
+          on the button. `SegmentedControl` renders each `role="tab"` button
+          itself, from a fixed attribute set, and `SegmentedControlItem` is
+          `{ value, label, disabled }` — extra item properties are NOT spread onto
+          the button (checked in @civitai/blocks-react 0.43.0, the pinned version,
+          and 0.44.2, the newest published; `dist/ui/SegmentedControl.js` is
+          byte-identical between them). So the only attribute hook the pack gives
+          an app author is inside `label`. A CSS selector resolves the span, and a
+          click at the span's centre lands inside its parent button, which is what
+          both the capture bridge (centre-coordinate CDP click) and
+          `userEvent.click` do.
+        */}
         <SegmentedControl
           fullWidth
           value={view}
           onChange={(v) => setView(v as View)}
           data-testid="view-switch"
           data={[
-            { value: 'combos', label: `Combinations (${combinations.length})` },
-            { value: 'prompts', label: `Prompts (${prompts.length})` },
-            { value: 'grid', label: 'Grid' },
+            {
+              value: 'combos',
+              label: (
+                <span data-testid="view-switch-combos">Combinations ({combinations.length})</span>
+              ),
+            },
+            {
+              value: 'prompts',
+              label: <span data-testid="view-switch-prompts">Prompts ({prompts.length})</span>,
+            },
+            { value: 'grid', label: <span data-testid="view-switch-grid">Grid</span> },
           ]}
         />
 
