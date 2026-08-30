@@ -52,6 +52,10 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
    * told the shared store — and, just as importantly, that it told it NOTHING
    * before the viewer confirmed). */
   const withdraws: string[] = [];
+  /** Every `(key, value)` passed to `update()`, in call order. Lets a test assert
+   * that an EDIT of a submitted row went through `update` on the SAME key — i.e.
+   * that it did not mint a new row (which would reset the vote total to zero). */
+  const updates: Array<{ key: string; value: SharedAppendValue }> = [];
   /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
    * to actually LAND before asserting the optimistic state survived it. */
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
@@ -81,7 +85,10 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
       return { key };
     },
     async update(key, value) {
+      updates.push({ key, value });
       const r = rows.find((x) => x.key === key);
+      // The HOST preserves the row identity on update — same key, same `count`.
+      // Modelling that faithfully is what lets a test prove an edit kept its votes.
       if (reflect && r) r.value = value;
     },
     async vote() {
@@ -100,7 +107,7 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
       return { ok: true, deleted: i >= 0 };
     },
   };
-  return { shared, appends, withdraws, listCalls };
+  return { shared, appends, updates, withdraws, listCalls };
 }
 
 /**
@@ -109,9 +116,20 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
  * for the durable voted-set). Mirrors the host contract: `get` resolves the
  * stored value or `null`; `set`/`delete` resolve ok.
  */
-export function fakeAppStorage(seed: Record<string, unknown> = {}) {
+export function fakeAppStorage(
+  seed: Record<string, unknown> = {},
+  /**
+   * Host-reported ceilings. 🔴 Deliberately OVERRIDABLE, and deliberately NOT
+   * 50 MB / 1,000,000 by default in the tests that use it: a fixture whose
+   * values equal the constant a bug would hard-code cannot tell the two apart,
+   * so the quota assertions feed numbers the hard-coded version could never
+   * produce.
+   */
+  quota: { usedBytes?: number; limitBytes?: number; limitRows?: number } = {},
+) {
   const store = new Map<string, unknown>(Object.entries(seed));
   const sets: Array<{ key: string; value: unknown }> = [];
+  const deletes: string[] = [];
   const appStorage: UseAppStorage = {
     async get<T = unknown>(key: string) {
       return (store.has(key) ? (store.get(key) as T) : null) as T | null;
@@ -122,6 +140,7 @@ export function fakeAppStorage(seed: Record<string, unknown> = {}) {
       return { ok: true as const };
     },
     async delete(key: string) {
+      deletes.push(key);
       const deleted = store.delete(key);
       return { ok: true as const, deleted };
     },
@@ -131,10 +150,15 @@ export function fakeAppStorage(seed: Record<string, unknown> = {}) {
       return { keys: keys.map((key) => ({ key, updatedAt: new Date() })) };
     },
     async getQuota() {
-      return { usedBytes: 0, rowCount: store.size, limitBytes: 50_000_000, limitRows: 1_000_000 };
+      return {
+        usedBytes: quota.usedBytes ?? 0,
+        rowCount: store.size,
+        limitBytes: quota.limitBytes ?? 50_000_000,
+        limitRows: quota.limitRows ?? 1_000_000,
+      };
     },
   };
-  return { appStorage, sets, store };
+  return { appStorage, sets, deletes, store };
 }
 
 /**

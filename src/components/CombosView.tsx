@@ -4,7 +4,7 @@
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 import { Tooltip } from '@civitai/components-react';
 
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 
 import type { CombinationRow } from '../types.js';
 import { includedSummary, isOwnRow } from '../lib/benchmark.js';
@@ -29,6 +29,14 @@ export interface CombosViewProps {
   onEdit: (combo: CombinationRow) => void;
   /** Withdraw one of the viewer's OWN combinations from the shared grid. */
   onWithdraw: (key: string) => Promise<void> | void;
+  /**
+   * The PRIVATE drafts panel, rendered above the public list. A slot rather than
+   * a prop bundle so this view keeps knowing nothing about per-viewer storage —
+   * the whole point of the draft/submit split is that the two halves are
+   * separate stores, and mixing their props here would be the first place that
+   * stops being obvious.
+   */
+  draftsSlot?: ReactNode;
 }
 
 export function CombosView({
@@ -44,9 +52,11 @@ export function CombosView({
   onRequireAuth,
   onEdit,
   onWithdraw,
+  draftsSlot,
 }: CombosViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="combos-view">
+      {draftsSlot}
       <Group justify="space-between" align="center" gap={12}>
         <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="combos-included-summary">
           Submit and vote on checkpoint + LoRA combinations. {includedSummary(includedKeys.size, 'row')}

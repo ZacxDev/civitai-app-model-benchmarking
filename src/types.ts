@@ -197,6 +197,46 @@ export interface ResultRow {
 }
 
 // ---------------------------------------------------------------------------
+// Draft — a matchup being built PRIVATELY, before (and after) it is submitted.
+//
+// 🔴 A draft lives in the PER-VIEWER KV (`useAppStorage`, prefix `draft:v1:`),
+// which is the only store in the platform with a real per-viewer boundary. It is
+// NOT a shared row with a flag on it: a `visibility` field inside a shared row's
+// `data` would be cosmetic — the row is world-readable the instant it is
+// appended and `data` is not moderated. Privacy here is *which store the record
+// is in*, and submit is the copy from one into the other (spec §4).
+// ---------------------------------------------------------------------------
+
+/** A draft that has NOT been submitted — the whole editable matchup, private. */
+export interface DraftUnsubmitted {
+  v: 1;
+  /** App-chosen, per-viewer id. NOT a shared key (those are host-minted). */
+  localId: string;
+  name: string;
+  description: string;
+  configs: ModelConfig[];
+  /** ISO timestamp of the last local edit (ordering only). */
+  updatedAt: string;
+}
+
+/**
+ * A draft that HAS been submitted, rewritten to a pointer at its shared row.
+ * Kept rather than deleted: it is the only per-viewer handle on that row (the
+ * shared list has no "mine" index and its keys are host-minted, so they can
+ * neither be predicted nor prefix-filtered). The editable body is dropped —
+ * once public, `shared.update` owns the record.
+ */
+export interface DraftPointer {
+  v: 1;
+  localId: string;
+  /** The host-minted shared key `append()` resolved. */
+  sharedKey: string;
+  submittedAt: string;
+}
+
+export type DraftRecord = DraftUnsubmitted | DraftPointer;
+
+// ---------------------------------------------------------------------------
 // Runner queue (the estimate → confirm → submit → poll → publish lifecycle).
 // ---------------------------------------------------------------------------
 
