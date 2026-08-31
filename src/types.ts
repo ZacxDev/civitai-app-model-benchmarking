@@ -249,6 +249,22 @@ export type CellRunStatus =
   /** The poll window elapsed while still generating — keep the workflowId, offer
    * a re-poll rather than dropping to a blank/failed state. */
   | 'stalled'
+  /**
+   * 🔴 MONEY SAFETY: "we were about to spend, and we do not know whether we did."
+   *
+   * Reached from a persisted CLAIM that carries no `workflowId` (see
+   * {@link InflightRun}): the app wrote the claim, then either the page went away
+   * before `submit` returned, or `submit` threw with the request already in
+   * flight. The submit may well have SUCCEEDED with only the response lost, so
+   * this is genuinely ambiguous — it is NOT "nothing happened".
+   *
+   * Consequences, and they are the point of the state existing: such a cell is
+   * NOT auto-adopted (there is no workflowId to resume-poll) and NOT
+   * auto-runnable (that is the double charge). It renders as an explicit unknown
+   * with a deliberate escape hatch, so a stuck claim can never permanently brick
+   * a cell — but leaving it takes a viewer's decision, never a default.
+   */
+  | 'unknown'
   | 'publishing'
   | 'succeeded'
   | 'failed'
@@ -267,17 +283,40 @@ export interface CellRun {
 }
 
 /**
- * A single IN-FLIGHT cell run, persisted to per-viewer app storage the moment a
- * generation is submitted and removed on terminal. 🔴 MONEY SAFETY: `runs` is
- * in-memory component state, so a reload would otherwise reset a still-running
- * cell to empty+runnable → a re-run = a SECOND real Buzz charge, and the first
- * generation's outputs never reach the grid. Persisting `{ cellKey → workflowId
- * + cell coords }` lets the app rehydrate the cell as in-flight on load (never
- * empty+runnable) and offer a resume-poll instead. Keyed per cell under the
- * `inflight:v1:` storage prefix so concurrent runs never RMW-clobber each other.
+ * A single IN-FLIGHT cell run, persisted to per-viewer app storage and removed on
+ * terminal. 🔴 MONEY SAFETY: `runs` is in-memory component state, so a reload
+ * would otherwise reset a still-running cell to empty+runnable → a re-run = a
+ * SECOND real Buzz charge, and the first generation's outputs never reach the
+ * grid. Persisting `{ cellKey → workflowId + cell coords }` lets the app
+ * rehydrate the cell as in-flight on load (never empty+runnable) and offer a
+ * resume-poll instead. Keyed per cell under the `inflight:v1:` storage prefix so
+ * concurrent runs never RMW-clobber each other.
+ *
+ * 🔴 WRITTEN IN TWO PHASES, WHICH IS WHY `workflowId` IS OPTIONAL. It used to be
+ * required, and the record was written only AFTER `submit` resolved — i.e. after
+ * the money was spent. `useAppStorage.set` rejects when the value exceeds 64 KB,
+ * when the per-app quota would be crossed, or for an anonymous viewer, and that
+ * rejection was swallowed: nothing was written, so neither the rehydrate scan nor
+ * the pre-spend read could find anything, and the next load rendered the cell
+ * empty and runnable → DOUBLE CHARGE, with no signal anywhere. The quota is
+ * per-APP while the data is per-(block instance, viewer), so one viewer filling
+ * the ceiling made that write reject for EVERY viewer at once.
+ *
+ *  - PHASE 1 — the CLAIM, written and AWAITED *before* `submit`: cell coords, no
+ *    `workflowId`. A rejection here refuses the spend outright, so the failure now
+ *    lands before the money instead of after it.
+ *  - PHASE 2 — the UPGRADE, written after `submit` resolves: the same key with the
+ *    `workflowId` added. Best-effort is now safe; a lost phase-2 write degrades to
+ *    a claim-only record, which is a safe (unknown) state, not a runnable one.
+ *
+ * A record with NO `workflowId` therefore means "we were about to spend and we do
+ * not know whether we did" — see the `'unknown'` {@link CellRunStatus}. It must
+ * never be auto-adopted (nothing to resume-poll) nor treated as absent (that is
+ * the double charge).
  */
 export interface InflightRun {
-  workflowId: string;
+  /** Present only from PHASE 2 on. Absent = an unresolved claim — see above. */
+  workflowId?: string;
   comboKey: string;
   configId: string;
   promptKey: string;
