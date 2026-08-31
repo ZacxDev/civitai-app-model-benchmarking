@@ -186,6 +186,213 @@ describe('#2 stalled persistence: an in-flight workflow survives a reload', () =
 });
 
 // ---------------------------------------------------------------------------
+// The in-flight rehydrate must PAGE, and a rehydrate that cannot see everything
+// must still fail safe.
+// ---------------------------------------------------------------------------
+//
+// 🔴 THE DEFECT. The rehydrate called `appStorage.list({prefix})` with NO cursor
+// and NO loop, while both draft listings paged correctly — two sites right, one
+// never written. A viewer whose `inflight:v1:` keys crossed a host page boundary
+// had every run beyond page 1 silently NOT rehydrated, so those cells rendered
+// EMPTY AND RUNNABLE. Nothing downstream caught it: `inFlightRef` is in-memory
+// and empty after a reload, and `confirmRun` did not consult the store before
+// spending. That is the re-run double-charge the code's own 🔴 MONEY SAFETY
+// comment says must never happen.
+//
+// ⚠️ REACHABILITY IS UNCONFIRMED AND DELIBERATELY NOT ASSERTED ANYWHERE. Whether
+// a real viewer's keys cross a page depends on the host's default
+// `APP_STORAGE_LIST` limit, which is not readable from this repo. The code shape
+// is confirmed; the frequency is not. Do not let these tests be cited as
+// evidence of how often it happened.
+describe('in-flight rehydrate: paging, and failing safe when it cannot see everything', () => {
+  const OTHER_CK = 'c1::cfgSeed::pOther';
+
+  it('rehydrates a run whose key is NOT on the first host page', async () => {
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    // 🔴 THE REPRO: a decoy `inflight:v1:` key ahead of the real one, and a host
+    // that serves ONE key per page. Insertion order is the fake's key order, so
+    // the run this grid actually has a cell for lands on page 2.
+    const { appStorage, listCalls } = fakeAppStorage(
+      {
+        [`inflight:v1:${OTHER_CK}`]: {
+          workflowId: 'wf-decoy',
+          comboKey: 'c1',
+          configId: 'cfgSeed',
+          promptKey: 'pOther',
+          ecosystem: 'SDXL',
+        },
+        [INFLIGHT_KEY]: {
+          workflowId: 'wf-prior',
+          comboKey: 'c1',
+          configId: 'cfgSeed',
+          promptKey: 'p1',
+          ecosystem: 'SDXL',
+        },
+      },
+      {},
+      { pageSize: 1 },
+    );
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => estimateSnap,
+      submit,
+      poll: async () => succeededSnap(),
+      publish: async () => [],
+    });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+
+    // Same assertions as the single-key case: stalled, never empty+runnable.
+    await waitFor(() =>
+      expect(within(grid).getByTestId('grid-cell')).toHaveAttribute('data-state', 'running'),
+    );
+    expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument();
+    expect(within(grid).queryByTestId('run-cell')).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+
+    // POSITIVE CONTROL ON THE PREMISE: the listing really did page. Without this
+    // the case passes just as well against a one-page fixture and proves nothing
+    // about the cursor.
+    const inflightCalls = listCalls.filter((c) => c?.prefix === 'inflight:v1:');
+    expect(inflightCalls.length).toBeGreaterThan(1);
+    expect(
+      inflightCalls.some((c) => typeof c?.cursor === 'string' && c.cursor.length > 0),
+      'no in-flight listing ever carried a cursor — the fixture never paged',
+    ).toBe(true);
+  });
+
+  it('🔴 refuses to SPEND when the rehydrate hit its PAGE CAP with keys still unread', async () => {
+    // 🔴 THE TRUNCATED BRANCH, WHICH THE THROWING CASE BELOW DOES NOT COVER.
+    // Both arm the same backstop, but by different routes: a throwing listing
+    // arms it from the `catch`, a capped one from `scan.truncated`. A mutant
+    // that never sets the flag on truncation survived the whole suite until this
+    // case existed (239/239 green) — the throw case cannot see it.
+    //
+    // KV_MAX_PAGES is 20, so 21 decoys ahead of the real key at pageSize 1 means
+    // the scan reads 20 keys, still has a cursor, and stops: the run this grid
+    // has a cell for is never reached.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const decoys: Record<string, unknown> = {};
+    for (let i = 0; i < 21; i += 1) {
+      decoys[`inflight:v1:c1::cfgSeed::decoy${i}`] = {
+        workflowId: `wf-decoy-${i}`,
+        comboKey: 'c1',
+        configId: 'cfgSeed',
+        promptKey: `decoy${i}`,
+        ecosystem: 'SDXL',
+      };
+    }
+    const { appStorage } = fakeAppStorage(
+      {
+        ...decoys,
+        [INFLIGHT_KEY]: {
+          workflowId: 'wf-prior',
+          comboKey: 'c1',
+          configId: 'cfgSeed',
+          promptKey: 'p1',
+          ecosystem: 'SDXL',
+        },
+      },
+      {},
+      { pageSize: 1 },
+    );
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => estimateSnap,
+      submit,
+      poll: async () => succeededSnap(),
+      publish: async () => [],
+    });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+
+    // POSITIVE CONTROL: the cap really did bite — this cell was NOT rehydrated,
+    // so it is empty and runnable. If the scan had reached it this reads
+    // `cell-stalled` and the case proves nothing about the backstop.
+    const runCell = await within(grid).findByTestId('run-cell');
+    expect(within(grid).queryByTestId('cell-stalled')).toBeNull();
+
+    await userEvent.click(runCell);
+    await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
+    await waitFor(() => expect(within(grid).queryByTestId('cell-confirm-run')).toBeNull());
+
+    expect(
+      submit,
+      'a live generation was re-submitted after a TRUNCATED rehydrate — double charge',
+    ).not.toHaveBeenCalled();
+    expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument();
+  });
+
+  it('🔴 refuses to SPEND on a cell whose run is persisted, when the rehydrate could not see it', async () => {
+    // The fail-safe for the one case paging cannot remove: the page BOUND exists
+    // so a misbehaving host cannot spin the loop forever, so a truncated scan is
+    // always possible in principle. Here the listing THROWS — the same
+    // known-incomplete state, reached without needing 20 pages of fixture — and
+    // the viewer then clicks run on a cell whose generation is already live.
+    //
+    // 🔴 Safe outcome = no spend. `submit` must never be called; the cell adopts
+    // the persisted workflow as stalled (resume-poll, no re-submit) instead.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage } = fakeAppStorage(
+      {
+        [INFLIGHT_KEY]: {
+          workflowId: 'wf-prior',
+          comboKey: 'c1',
+          configId: 'cfgSeed',
+          promptKey: 'p1',
+          ecosystem: 'SDXL',
+        },
+      },
+      {},
+      { failListTimes: 1, failListPrefix: 'inflight:v1:' },
+    );
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => estimateSnap,
+      submit,
+      poll: async () => succeededSnap(),
+      publish: async () => [],
+    });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+
+    // POSITIVE CONTROL ON THE PREMISE: the rehydrate really did fail, so the
+    // cell really is empty and runnable. Without this the test could pass
+    // against a healthy rehydrate and prove nothing about the backstop.
+    const runCell = await within(grid).findByTestId('run-cell');
+    expect(within(grid).queryByTestId('cell-stalled')).toBeNull();
+
+    await userEvent.click(runCell);
+    const confirm = await within(grid).findByTestId('cell-confirm-run');
+    await userEvent.click(confirm);
+
+    // Settle on something BOTH arms reach — the confirm control unmounts whether
+    // the app spent (-> submitting) or refused (-> stalled). Waiting on
+    // `cell-stalled` instead would make the failing assertion "element not
+    // found", which names the symptom rather than the charge.
+    await waitFor(() => expect(within(grid).queryByTestId('cell-confirm-run')).toBeNull());
+
+    // 🔴 NOTHING WAS SPENT…
+    expect(
+      submit,
+      'a live generation was re-submitted — that is the double charge',
+    ).not.toHaveBeenCalled();
+    // …and the cell is back to in-flight, resumable rather than runnable.
+    expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument();
+    expect(within(grid).queryByTestId('run-cell')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #3 estimate REJECTION — civitai/civitai#4159, @civitai/blocks-react 0.43.0.
 //
 // Before 0.43.0 `estimate()` RESOLVED a host failure-snapshot that carries no

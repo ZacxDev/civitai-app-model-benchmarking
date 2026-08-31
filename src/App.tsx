@@ -94,6 +94,7 @@ import {
   sortDrafts,
   submittedPointer,
 } from './lib/drafts.js';
+import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
 import { CombosView } from './components/CombosView.js';
 import { DraftsPanel } from './components/DraftsPanel.js';
@@ -178,8 +179,6 @@ const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
  * running cells so a reload never re-charges them (see {@link InflightRun}). */
 const INFLIGHT_PREFIX = 'inflight:v1:';
 const inflightKey = (ck: string): string => `${INFLIGHT_PREFIX}${ck}`;
-/** Safety cap when paging this viewer's own draft keys (`draft:v1:` prefix). */
-const DRAFT_MAX_PAGES = 20;
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -257,6 +256,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // fire (ghost tap, batched re-render before the confirm button unmounts) can
   // NEVER spend Buzz twice. Deterministic, not render-timing-dependent.
   const inFlightRef = useRef<Set<string>>(new Set());
+  // 🔴 MONEY SAFETY: set when the in-flight rehydrate below saw an INCOMPLETE
+  // view of the per-viewer store (hit its page bound, or the listing threw). The
+  // rehydrate is the only thing that turns a persisted run back into a stalled
+  // cell, so an incomplete one can leave a cell empty and runnable while its
+  // generation is still live. `confirmRun` reads this and pays for a direct
+  // key lookup before spending — see there.
+  const inflightScanTruncatedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -343,15 +349,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     if (!ready || !viewer) return;
     let cancelled = false;
     (async () => {
+      const store = depsRef.current.appStorage;
       try {
-        const { keys } = await depsRef.current.appStorage.list({ prefix: INFLIGHT_PREFIX });
-        for (const { key } of keys) {
-          if (cancelled) return;
-          // Defensive: only trust keys under our prefix (a fake/host may over-return).
-          if (!key.startsWith(INFLIGHT_PREFIX)) continue;
-          const entry = await depsRef.current.appStorage.get<InflightRun>(key);
-          if (cancelled) return;
-          if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) continue;
+        // 🔴 THIS LISTING USED TO READ ONLY THE FIRST PAGE. It called
+        // `list({prefix})` with no cursor and no loop, while both draft listings
+        // paged correctly — so a viewer whose `inflight:v1:` keys crossed a host
+        // page boundary had the runs beyond that page silently NOT rehydrated,
+        // and their cells rendered empty and runnable. That is the re-run
+        // double-charge the comment above says must never happen, and there is
+        // no backstop below it: `inFlightRef` is in-memory and empty after a
+        // reload, and `confirmRun` did not consult the store before spending.
+        const scan = await forEachStoredKey(store, INFLIGHT_PREFIX, async (key) => {
+          if (cancelled) return 'stop';
+          const entry = await store.get<InflightRun>(key);
+          if (cancelled) return 'stop';
+          if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) return;
           const ck = cellKey(entry.comboKey, entry.configId, entry.promptKey);
           setRun(ck, {
             comboKey: entry.comboKey,
@@ -361,9 +373,18 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             status: 'stalled',
             workflowId: entry.workflowId,
           });
-        }
+        });
+        // 🔴 A TRUNCATED REHYDRATE IS A MONEY HAZARD, so it is recorded rather
+        // than ignored. Paging makes truncation far less likely; it cannot make
+        // it impossible, because the page bound is what stops a misbehaving host
+        // spinning this loop forever. What makes the truncated case SAFE is the
+        // pre-spend check in `confirmRun` — see there.
+        if (!cancelled && scan.truncated) inflightScanTruncatedRef.current = true;
       } catch {
         /* best-effort — leave `runs` empty */
+        // …but a listing that THREW saw even less than a truncated one, so it
+        // arms the same backstop.
+        if (!cancelled) inflightScanTruncatedRef.current = true;
       }
     })();
     return () => {
@@ -398,21 +419,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const store = depsRef.current.appStorage;
       try {
         const found: DraftRecord[] = [];
-        let cursor: string | undefined;
-        for (let page = 0; page < DRAFT_MAX_PAGES; page += 1) {
-          const res = await store.list({ prefix: DRAFT_PREFIX, cursor });
-          if (cancelled) return;
-          for (const { key } of res.keys) {
-            // Defensive: only trust keys under our prefix (a fake/host may over-return).
-            if (!key.startsWith(DRAFT_PREFIX)) continue;
-            const parsed = parseDraft(await store.get(key));
-            if (cancelled) return;
-            if (parsed) found.push(parsed);
-          }
-          if (!res.nextCursor) break;
-          cursor = res.nextCursor;
-        }
-        setDrafts(sortDrafts(found));
+        await forEachStoredKey(store, DRAFT_PREFIX, async (key) => {
+          if (cancelled) return 'stop';
+          const parsed = parseDraft(await store.get(key));
+          if (cancelled) return 'stop';
+          if (parsed) found.push(parsed);
+        });
+        // Guarded explicitly rather than relying on the early returns above to
+        // prevent it — same shape as the `setQuota` call below, and it is what
+        // lets the scan's single `'stop'` channel carry the cancellation.
+        if (!cancelled) setDrafts(sortDrafts(found));
       } catch {
         /* best-effort — a KV failure must not take the public board down with it */
       }
@@ -569,7 +585,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * NOTHING TO DO WITH THE POINTER — and there are three such reasons, all
    * reachable: the KV list effect has not resolved yet (withdraw first and the
    * list is still `[]`), `list()` threw and was swallowed so the board could
-   * stay up, or the viewer has more drafts than `DRAFT_MAX_PAGES` pages. In
+   * stay up, or the viewer has more drafts than `KV_MAX_PAGES` pages. In
    * every one of those the pointer is real, the scan against render state
    * misses it, and nothing ever re-checks — the exact orphan this function
    * exists to remove, persisting with no error anywhere. Measured before the
@@ -580,23 +596,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     async (sharedKey: string) => {
       const store = depsRef.current.appStorage;
       try {
-        let cursor: string | undefined;
-        for (let page = 0; page < DRAFT_MAX_PAGES; page += 1) {
-          const res = await store.list({ prefix: DRAFT_PREFIX, cursor });
-          for (const { key } of res.keys) {
-            // Defensive: only trust keys under our prefix (a fake/host may over-return).
-            if (!key.startsWith(DRAFT_PREFIX)) continue;
-            const parsed = parseDraft(await store.get(key));
-            if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) continue;
-            // Idempotent per the SDK: deleting a key that isn't set resolves
-            // `{deleted: false}` rather than throwing.
-            await store.delete(draftKey(parsed.localId));
-            refreshDrafts();
-            return;
-          }
-          if (!res.nextCursor) break;
-          cursor = res.nextCursor;
-        }
+        await forEachStoredKey(store, DRAFT_PREFIX, async (key) => {
+          const parsed = parseDraft(await store.get(key));
+          if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) return;
+          // Idempotent per the SDK: deleting a key that isn't set resolves
+          // `{deleted: false}` rather than throwing.
+          await store.delete(draftKey(parsed.localId));
+          refreshDrafts();
+          return 'stop';
+        });
       } catch {
         /* best-effort — a KV failure must not report the (successful) withdraw as failed */
       }
@@ -904,6 +912,42 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // this cell (double-tap / batched re-render) returns here → submit once.
       if (inFlightRef.current.has(ck)) return;
       inFlightRef.current.add(ck);
+      // 🔴 MONEY SAFETY, SECOND LAYER: what makes a TRUNCATED rehydrate fail
+      // safe. `inFlightRef` is in-memory and empty after a reload, so before
+      // this the rehydrate listing was the ONLY thing between a reload and a
+      // double-charge — and a listing that truncated or threw silently left the
+      // cell empty and runnable. The inflight key is DETERMINISTIC
+      // (`inflightKey(cellKey(...))`), so when the scan is known-incomplete this
+      // costs one O(1) read to ask the store directly rather than trusting a
+      // view we know is partial. A persisted entry means the generation is
+      // already live: adopt it as stalled (resume-poll, no re-submit) and spend
+      // NOTHING.
+      //
+      // Deliberately gated on the flag rather than run unconditionally: on the
+      // normal path the rehydrate is complete and such a cell never renders a
+      // confirm button at all, so an unconditional read would add a round-trip
+      // to every spend to re-answer a question already answered.
+      if (inflightScanTruncatedRef.current) {
+        try {
+          const persisted = await depsRef.current.appStorage.get<InflightRun>(inflightKey(ck));
+          if (persisted?.workflowId) {
+            setRun(ck, {
+              comboKey: persisted.comboKey,
+              configId: persisted.configId,
+              promptKey: persisted.promptKey,
+              ecosystem: persisted.ecosystem,
+              status: 'stalled',
+              workflowId: persisted.workflowId,
+            });
+            inFlightRef.current.delete(ck);
+            return;
+          }
+        } catch {
+          /* the store is unreadable; fall through and spend — refusing to run at
+             all on a KV error would wedge the feature on a host blip, and this
+             is a backstop, not the primary guard */
+        }
+      }
       setRun(ck, { status: 'submitting' });
       try {
         const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
