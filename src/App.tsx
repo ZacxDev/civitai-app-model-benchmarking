@@ -256,13 +256,24 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // fire (ghost tap, batched re-render before the confirm button unmounts) can
   // NEVER spend Buzz twice. Deterministic, not render-timing-dependent.
   const inFlightRef = useRef<Set<string>>(new Set());
-  // 🔴 MONEY SAFETY: set when the in-flight rehydrate below saw an INCOMPLETE
-  // view of the per-viewer store (hit its page bound, or the listing threw). The
-  // rehydrate is the only thing that turns a persisted run back into a stalled
-  // cell, so an incomplete one can leave a cell empty and runnable while its
-  // generation is still live. `confirmRun` reads this and pays for a direct
-  // key lookup before spending — see there.
-  const inflightScanTruncatedRef = useRef(false);
+  // 🔴 MONEY SAFETY: true whenever the in-flight rehydrate's view of the
+  // per-viewer store is not known to be COMPLETE — it hit its page bound, the
+  // listing threw, or it simply has not finished yet. The rehydrate is the only
+  // thing that turns a persisted run back into a stalled cell, so while this is
+  // true a cell can be empty and runnable with its generation still live.
+  // `confirmRun` reads it and pays for a direct key lookup before spending.
+  //
+  // 🔴 IT INITIALISES `true`, AND THAT IS THE WHOLE GUARD — "assume incomplete
+  // until a finished scan proves otherwise". It initialised `false` for one
+  // review round and the backstop was UNREACHABLE IN PRODUCTION: the flag was
+  // only written when the scan FINISHED, so a Confirm landing during the scan
+  // read `false` and spent. The truncated case is the slowest one — up to
+  // KV_MAX_PAGES serial `list` calls plus a `get` per key — and every one of
+  // those is a macrotask over the real host's cross-origin `postMessage` bridge,
+  // so that window is wide. It passed every test because the jsdom fake resolves
+  // in microtasks; `latencyMs` in `fakeAppStorage` is what makes it visible, and
+  // there is a permanent LATENCY ARM case pinning it.
+  const inflightScanTruncatedRef = useRef(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -348,6 +359,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   useEffect(() => {
     if (!ready || !viewer) return;
     let cancelled = false;
+    // 🔴 RE-ARM AT THE START OF EVERY SCAN, not just at mount. This effect
+    // re-runs on `ready` and on `viewer?.id`, so a completed scan for viewer A
+    // must not leave the flag `false` while a fresh scan for viewer B is still
+    // walking — the same "Confirm lands mid-scan" hole, reached by a different
+    // route. The success arm below is the ONLY writer that clears it, and it
+    // clears it strictly after a scan that finished.
+    //
+    // ⚠️ THIS LINE AND THE `useRef(true)` ABOVE ARE REDUNDANT AT MOUNT, and
+    // neither is individually killable by the suite — measured: removing either
+    // alone leaves 249/249 green, removing BOTH kills three money cases. Kept
+    // anyway, and the redundancy is deliberate rather than accidental: the init
+    // covers the first scan, this line covers a RE-RUN (the effect re-runs on
+    // `ready` and `viewer?.id`, and a completed scan for viewer A must not leave
+    // the flag down while viewer B's scan is still walking). The re-run route
+    // could not be pinned — the mock host does not propagate a viewer change, so
+    // the effect never re-fires under test (probed: 1 in-flight listing before
+    // and after a viewer prop change). Do not delete this as "dead" on the
+    // strength of a green suite.
+    inflightScanTruncatedRef.current = true;
     (async () => {
       const store = depsRef.current.appStorage;
       try {
@@ -359,32 +389,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // double-charge the comment above says must never happen, and there is
         // no backstop below it: `inFlightRef` is in-memory and empty after a
         // reload, and `confirmRun` did not consult the store before spending.
-        const scan = await forEachStoredKey(store, INFLIGHT_PREFIX, async (key) => {
-          if (cancelled) return 'stop';
-          const entry = await store.get<InflightRun>(key);
-          if (cancelled) return 'stop';
-          if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) return;
-          const ck = cellKey(entry.comboKey, entry.configId, entry.promptKey);
-          setRun(ck, {
-            comboKey: entry.comboKey,
-            configId: entry.configId,
-            promptKey: entry.promptKey,
-            ecosystem: entry.ecosystem,
-            status: 'stalled',
-            workflowId: entry.workflowId,
-          });
-        });
-        // 🔴 A TRUNCATED REHYDRATE IS A MONEY HAZARD, so it is recorded rather
-        // than ignored. Paging makes truncation far less likely; it cannot make
-        // it impossible, because the page bound is what stops a misbehaving host
-        // spinning this loop forever. What makes the truncated case SAFE is the
-        // pre-spend check in `confirmRun` — see there.
-        if (!cancelled && scan.truncated) inflightScanTruncatedRef.current = true;
+        const scan = await forEachStoredKey(
+          store,
+          INFLIGHT_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const entry = await store.get<InflightRun>(key);
+            if (cancelled) return 'stop';
+            if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) return;
+            const ck = cellKey(entry.comboKey, entry.configId, entry.promptKey);
+            setRun(ck, {
+              comboKey: entry.comboKey,
+              configId: entry.configId,
+              promptKey: entry.promptKey,
+              ecosystem: entry.ecosystem,
+              status: 'stalled',
+              workflowId: entry.workflowId,
+            });
+          },
+          { shouldStop: () => cancelled },
+        );
+        // 🔴 THE ONLY PLACE THE BACKSTOP IS EVER STOOD DOWN, and only after a
+        // scan that ran to completion. A truncated one leaves it armed: paging
+        // makes truncation far less likely but cannot make it impossible,
+        // because the page bound is what stops a misbehaving host spinning this
+        // loop forever. What makes the truncated case SAFE is the pre-spend
+        // check in `confirmRun` — see there.
+        //
+        // `!cancelled` matters: a superseded scan must not stand down a backstop
+        // that the scan replacing it just re-armed.
+        if (!cancelled) inflightScanTruncatedRef.current = scan.truncated;
       } catch {
-        /* best-effort — leave `runs` empty */
-        // …but a listing that THREW saw even less than a truncated one, so it
-        // arms the same backstop.
-        if (!cancelled) inflightScanTruncatedRef.current = true;
+        /* best-effort — leave `runs` empty, and leave the backstop ARMED: a
+           listing that threw saw even less than a truncated one. */
       }
     })();
     return () => {
@@ -419,12 +456,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const store = depsRef.current.appStorage;
       try {
         const found: DraftRecord[] = [];
-        await forEachStoredKey(store, DRAFT_PREFIX, async (key) => {
-          if (cancelled) return 'stop';
-          const parsed = parseDraft(await store.get(key));
-          if (cancelled) return 'stop';
-          if (parsed) found.push(parsed);
-        });
+        await forEachStoredKey(
+          store,
+          DRAFT_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const parsed = parseDraft(await store.get(key));
+            if (cancelled) return 'stop';
+            if (parsed) found.push(parsed);
+          },
+          // Restores the per-PAGE check the open-coded loop had right after its
+          // `await store.list(...)` — without it a cancelled effect kept paging.
+          { shouldStop: () => cancelled },
+        );
         // Guarded explicitly rather than relying on the early returns above to
         // prevent it — same shape as the `setQuota` call below, and it is what
         // lets the scan's single `'stop'` channel carry the cancellation.
@@ -811,6 +855,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // and-forget — a KV failure must never block or fail a real generation; the
   // double-charge guard just degrades gracefully). One row per cell so concurrent
   // runs can't read-modify-write-clobber a shared map.
+  //
+  // 🔴 KNOWN, UNFIXED, AND THE PRECONDITION EVERYTHING ABOVE RESTS ON — read this
+  // before trusting the double-charge guards. `set` is fire-and-forget with a
+  // SWALLOWED rejection. `useAppStorage.set` rejects when the value exceeds
+  // 64 KB, when the per-app quota would be crossed, or for an anonymous viewer.
+  // If it rejects, NOTHING IS WRITTEN — and then neither the rehydrate scan nor
+  // `confirmRun`'s pre-spend read can find anything, because there is nothing to
+  // find. Reload, re-run, DOUBLE CHARGE, with no signal anywhere: no toast, no
+  // console line, no metric.
+  //
+  // Deliberately not fixed here. The fix is a PRODUCT decision, not a code one —
+  // block the spend when the persist fails (safe, but wedges generation on a KV
+  // blip) or surface it to the viewer (visible, but says nothing actionable) —
+  // and it is pre-existing rather than introduced by the paging work. Raised
+  // separately. Every guard above narrows the window; none of them closes this.
   const persistInflight = useCallback(
     (ck: string, entry: InflightRun) => {
       if (!viewer) return;
@@ -923,10 +982,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // already live: adopt it as stalled (resume-poll, no re-submit) and spend
       // NOTHING.
       //
-      // Deliberately gated on the flag rather than run unconditionally: on the
-      // normal path the rehydrate is complete and such a cell never renders a
-      // confirm button at all, so an unconditional read would add a round-trip
-      // to every spend to re-answer a question already answered.
+      // Deliberately gated on the flag rather than run unconditionally: once a
+      // scan has FINISHED completely, such a cell never renders a confirm button
+      // at all, so an unconditional read would add a round-trip to every spend
+      // to re-answer a question already answered. The flag is armed by default
+      // and stood down only by a completed scan, so the gate costs a read only
+      // while the answer is genuinely unknown. (Pinned both ways: a complete
+      // scan must report `truncated: false`, and the non-truncated path must
+      // perform NO store read.)
       if (inflightScanTruncatedRef.current) {
         try {
           const persisted = await depsRef.current.appStorage.get<InflightRun>(inflightKey(ck));
@@ -939,6 +1002,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               status: 'stalled',
               workflowId: persisted.workflowId,
             });
+            // 🔴 RELEASE THE SYNCHRONOUS CLAIM taken above. This function
+            // returns early, so the usual `finally` never runs — and
+            // `inFlightRef` is what `resumeRun` checks first. Leave the claim
+            // set and the cell just adopted is permanently UN-RESUMABLE for the
+            // life of the page: charged once, shown nothing. A mutant deleting
+            // this line survived the whole suite until the "adopted cell can
+            // still be RESUMED" case existed.
             inFlightRef.current.delete(ck);
             return;
           }

@@ -37,7 +37,11 @@ export interface ScanResult {
    * has found what it wanted and is NOT truncated.
    */
   truncated: boolean;
-  /** Pages actually fetched (a positive control for tests: proves paging ran). */
+  /**
+   * Pages actually fetched. A positive control on the walk itself — `kv.test.ts`
+   * asserts it to prove a scan really paged, and to pin the boundary where a
+   * scan spends its whole budget without leaving anything behind.
+   */
   pages: number;
 }
 
@@ -55,9 +59,19 @@ export async function forEachStoredKey(
   store: UseAppStorage,
   prefix: string,
   onKey: (key: string) => Promise<'stop' | void> | 'stop' | void,
+  opts: {
+    /**
+     * Checked BEFORE each page is fetched. Lets a cancelled effect stop without
+     * issuing another `list` — the callers' old open-coded loops each had this
+     * check right after their `await list(...)`, and consolidating without it
+     * would have left an unmounted effect paging on over the host bridge.
+     */
+    shouldStop?: () => boolean;
+  } = {},
 ): Promise<ScanResult> {
   let cursor: string | undefined;
   for (let page = 0; page < KV_MAX_PAGES; page += 1) {
+    if (opts.shouldStop?.()) return { truncated: false, pages: page };
     const res = await store.list({ prefix, cursor });
     for (const { key } of res.keys) {
       // Defensive: only trust keys under our prefix (a host or fake may
