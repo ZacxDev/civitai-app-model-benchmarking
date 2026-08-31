@@ -155,18 +155,36 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * The private-storage line shown above the drafts list.
+ * The storage line shown above the drafts list.
  *
  * 🔴 EVERY NUMBER IN IT COMES FROM `getQuota()` — the ceilings are host-enforced
  * and host-reported, so a hard-coded "50 MB" is a claim this block is not
  * entitled to make and would go silently stale the day the host moves it
  * (acceptance criterion 6). `null` means the quota has not been read yet (or the
  * viewer is anonymous), and the caller renders nothing rather than a guess.
+ *
+ * 🔴 THE PRIVACY CLAIM AND THE NUMBERS ARE DELIBERATELY IN SEPARATE CLAUSES,
+ * and that separation is the whole point of this string. The two halves have
+ * DIFFERENT SCOPES and the SDK contract says so explicitly
+ * (`@civitai/blocks-react` `useAppStorage`):
+ *
+ *   - the DATA is per-viewer  — `get()` reads "the current (block instance,
+ *     viewer) tuple", so a draft really is invisible to everyone else;
+ *   - the QUOTA is PER-APP    — `set()` rejects "when the per-app 50MB quota
+ *     would be crossed", and the hook doc reads "50 MB + ~1M rows per app".
+ *
+ * So `usedBytes`/`rowCount` are APP-WIDE totals summed over every viewer. This
+ * line used to open `Private to you — ${usedBytes} of ${limitBytes} used…`,
+ * which fused the two and told the viewer those were their own figures. It was
+ * measured false on 2026-08-31: two different viewers (ids 8753561 and
+ * 11025902) saw byte-identical quota lines, including a row count that had just
+ * moved 27 -> 28 because of the FIRST viewer's draft. Never re-fuse them.
  */
 export function formatQuota(quota: AppStorageQuota | null): string | null {
   if (!quota) return null;
   return (
-    `Private to you — ${formatBytes(quota.usedBytes)} of ${formatBytes(quota.limitBytes)} used, ` +
+    'Drafts are private to you. Storage is app-wide, shared with every other viewer: ' +
+    `${formatBytes(quota.usedBytes)} of ${formatBytes(quota.limitBytes)} used, ` +
     `${quota.rowCount.toLocaleString('en-US')} of ${quota.limitRows.toLocaleString('en-US')} rows.`
   );
 }

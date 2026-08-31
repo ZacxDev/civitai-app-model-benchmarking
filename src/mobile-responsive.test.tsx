@@ -35,6 +35,52 @@
 //     Tests  9 failed | 7 passed (16)   at 180901a
 //     Tests  16 passed (16)             at HEAD
 //
+// UPDATE (the compact-tooltip rule, 4 cases added — 16 -> 20). Measured the
+// same way, with `src/compact.ts` restored to 55f9825 and this file at HEAD:
+//
+//     Tests  3 failed | 17 passed (20)  at 55f9825
+//     Tests  20 passed (20)             at HEAD
+//
+// The 3 that go red are the tooltip rule's regression coverage (the verbatim
+// rule, the @supports guard, the gutter/gap literals). The 4th tooltip case is
+// GREEN AT BASE and labelled INVARIANT GUARD where it sits — the pack renders
+// those attributes regardless of our rule, so it guards a pack rename, not this
+// fix.
+//
+// UPDATE 2 (audit round 1: the mounted-stylesheet case, 20 -> 21). Red under the
+// mutant it exists for — mounting `compactTapTargetCss().split('@supports')[0]`,
+// which had SURVIVED a full green suite:
+//
+//     Tests  1 failed | 233 passed (234)  under that mutant, suite-wide
+//     Tests  21 passed (21)               at HEAD
+//
+// UPDATE 3 (audit round 2: no cases added — 21). Two EXISTING cases changed:
+// the verbatim pin took `position-anchor` into the @supports condition, and the
+// used-feature guard stopped iterating a hardcoded list. Red arm with
+// `src/compact.ts` restored to 7899a97 (which lacks `position-anchor` in the
+// condition), this file at HEAD:
+//
+//     Tests  2 failed | 19 passed (21)    at 7899a97
+//     Tests  21 passed (21)               at HEAD
+//
+// UPDATE 4 (audit round 3: no cases added — still 21). The used-feature guard
+// was rewritten again; its RED arm is not a code revert but four mutants, each
+// measured against BOTH guards. 🔴 The old guard was BLIND to the first three
+// and WRONG about the fourth:
+//
+//                                        old guard        new guard
+//   (anchor-name: 12px), pin updated     21/21 GREEN      RED
+//   max-width: anchor-size(width)        21/21 GREEN      RED
+//   position-area, no trailing `;`       21/21 GREEN      RED
+//   `and` -> `or`, pin updated           21/21 GREEN      RED
+//   --mb-gap: 6px  (must NOT be flagged) 1 failed | 20    21/21 GREEN
+//
+// The first is the worst of them: an invalid VALUE anywhere in the condition
+// makes @supports false on every engine, so the tooltip rule silently never
+// applies and the clipping this PR exists to fix returns everywhere — with
+// nothing red. The old guard asserted the property NAME appeared in the
+// condition, never the clause, so it could not see it.
+//
 // 🔴 RE-MEASURED at each round, and that is the point of writing it down. The
 // audit rounds added cases (12 -> 15 -> 16), and a matrix left at its round-1
 // numbers (`7 failed | 5 passed (12)`) silently stopped describing this file:
@@ -60,7 +106,13 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App } from './App.js';
-import { COMPACT_ATTR, MIN_TAP_TARGET_PX, compactTapTargetCss } from './compact.js';
+import {
+  COMPACT_ATTR,
+  MIN_TAP_TARGET_PX,
+  TOOLTIP_GAP_PX,
+  TOOLTIP_GUTTER_PX,
+  compactTapTargetCss,
+} from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
@@ -370,5 +422,333 @@ describe('420 — the 44px figure itself', () => {
     for (const r of ranges) {
       expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The compact tooltip rule.
+// ---------------------------------------------------------------------------
+//
+// 🔴 THESE CASES DELIBERATELY ASSERT THE CSS RULE, NOT THE LAYOUT, and that is
+// the honest ceiling here for the reason stated at the top of this file: jsdom
+// performs NO layout, so `getBoundingClientRect()` is 0x0 and NO case in this
+// file can observe the horizontal overflow the rule exists to remove. A vitest
+// case that appeared to measure it would be measuring zeroes. The geometry is a
+// LIVE BROWSER MEASUREMENT (headless Chromium 144 driving `npm run dev:harness`)
+// and its numbers live on the PR. For the record, over EVERY "Included" badge on
+// both the Combinations and Prompts views, worst excursion per width:
+//
+//                  BEFORE                          AFTER
+//     320px  minLeft -58.7  maxRight 376.0    minLeft 8  maxRight 312
+//     380px  minLeft  71.1  maxRight 395.2    minLeft 8  maxRight 372
+//     720px  minLeft  78.7  maxRight 402.8    minLeft 8  maxRight 712
+//
+// (clientWidth is 320 / 380 / 720; the bubble-to-trigger gap is 6px before AND
+// after, at every width, which is what "stays in its trigger's row" means.)
+// Two further live results the rule's shape depends on, both in the src/compact.ts
+// comment: plain `position: fixed` drifts on scroll (gap 6 -> -394 at scrollY
+// 400) and `anchor-scope` is load-bearing (its removal sends 2 of 3 bubbles
+// 190-358px away from their own badge).
+describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)', () => {
+  /** The `@supports` block, normalised to single spaces. */
+  const tooltipBlock = (): string => {
+    const css = compactTapTargetCss();
+    const start = css.indexOf('@supports');
+    if (start < 0) return '';
+    // Walk braces so the assertion covers the WHOLE block, nested rules and all.
+    let depth = 0;
+    for (let i = css.indexOf('{', start); i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return css.slice(start, i + 1).replace(/\s+/g, ' ').trim();
+      }
+    }
+    return '';
+  };
+
+  it('emits the whole rule, verbatim', () => {
+    // 🔴 The WHOLE normalised block is pinned rather than keywords. Every
+    // declaration in it is load-bearing and several are load-bearing in a way a
+    // keyword check cannot see:
+    //   - `left`/`right` BOTH set (with `width: auto`, `max-width: none`) is
+    //     what bounds the box by construction; keeping either one alone
+    //     re-opens the defect on that edge.
+    //   - `top: auto` is what lets `bottom` decide the vertical at all.
+    //   - `transform: none` retires the pack's `translateX(-50%)`, which is the
+    //     centring that caused the clipping.
+    //   - `anchor-scope` stops every bubble resolving to the LAST shared
+    //     `anchor-name` in tree order (measured: 2 of 3 bubbles fly 190-358px
+    //     away without it).
+    // A reword or a dropped declaration therefore fails here rather than
+    // shipping a tooltip nobody can read.
+    expect(tooltipBlock()).toBe(
+      '@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) ' +
+        'and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) { ' +
+        `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] { ` +
+        'anchor-name: --mb-tooltip; anchor-scope: --mb-tooltip; } ' +
+        `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] { ` +
+        'position: fixed; position-anchor: --mb-tooltip; top: auto; ' +
+        'bottom: calc(anchor(top) + 6px); left: 8px; right: 8px; ' +
+        'width: auto; max-width: none; transform: none; } }',
+    );
+  });
+
+  it('is behind an @supports guard — an unsupporting browser must get NOTHING', () => {
+    // 🔴 NOT cosmetic. `anchor()` is invalid without anchor positioning, so that
+    // ONE declaration would be dropped while `position: fixed` still applied —
+    // and the pack's own `bottom: calc(100% + 6px)` would then resolve against
+    // the VIEWPORT and throw the bubble off the top of the screen. Ungated, this
+    // fix breaks the tooltip outright on every browser it cannot help.
+    const block = tooltipBlock();
+    expect(block.startsWith('@supports ')).toBe(true);
+
+    // 🔴 EVERY MODERN FEATURE THE BLOCK USES MUST BE IN ITS OWN CONDITION —
+    // that is the invariant, not any list of literals. CSS drops an unsupported
+    // declaration INDIVIDUALLY, so an engine that has some of these and not
+    // others ENTERS the block, applies the rest, and silently loses the one it
+    // lacks. Measured twice over: without `anchor-scope` the bubbles land
+    // 190-358px from their badge, and without `position-anchor` `anchor(top)`
+    // has no default anchor so `bottom` goes `auto` — the plain-`position:fixed`
+    // dead end that drifts to -394px on scroll. Both are STRICTLY WORSE than the
+    // clipping this rule replaces.
+    // 🔴 DERIVED FROM THE BLOCK'S OWN DECLARATIONS, and every round has caught
+    // this guard being narrower than its own description. What it does NOT do is
+    // as important as what it does, so both are stated at the end.
+    //
+    //   round 1: it iterated a hardcoded 4-element array while claiming to be
+    //     derived, and EXEMPTED `position-anchor` by remapping it to
+    //     `anchor-name` — which is how `position-anchor` ended up
+    //     used-but-untested. Adding a real `position-area` declaration and
+    //     updating the verbatim pin above (the natural maintainer edit, since
+    //     that pin forces it) left this file green at 21/21.
+    //   round 2: it asserted the property NAME appeared in the condition, never
+    //     the CLAUSE — so `(anchor-name: 12px)`, an invalid value that makes
+    //     `@supports` false on EVERY engine and silently disables the whole
+    //     rule, passed 236/236. It also said nothing about how clauses are
+    //     JOINED, so flipping `and` -> `or` — which destroys the all-or-nothing
+    //     argument the block is built on — passed 21/21.
+    //   round 2 also: two ways a feature slipped past the scan entirely — a
+    //     modern FUNCTION riding a baseline property (`max-width:
+    //     anchor-size(width)`, and `anchor-size()` shipped alongside `anchor()`
+    //     in Chrome 125, so it is the likeliest next addition here), and a final
+    //     declaration written without its optional trailing semicolon.
+    const condition = block.slice(0, block.indexOf('{'));
+    const body = block.slice(block.indexOf('{'));
+
+    // ---- 1. STRUCTURE: every clause joined by `and`, never `or` ------------
+    // 🔴 `or` would mean "apply if ANY of these is supported", i.e. exactly the
+    // partial application this block exists to prevent. Walked rather than
+    // regexed because `anchor(top)` nests parentheses inside a clause.
+    const clauses: string[] = [];
+    const joiners: string[] = [];
+    {
+      const c = condition.replace(/^@supports\s*/, '');
+      let depth = 0;
+      let start = -1;
+      let lastEnd = -1;
+      for (let i = 0; i < c.length; i += 1) {
+        if (c[i] === '(') {
+          if (depth === 0) {
+            start = i;
+            if (lastEnd >= 0) joiners.push(c.slice(lastEnd + 1, i).trim());
+          }
+          depth += 1;
+        } else if (c[i] === ')') {
+          depth -= 1;
+          if (depth === 0) {
+            clauses.push(c.slice(start, i + 1));
+            lastEnd = i;
+          }
+        }
+      }
+    }
+    // Positive control on the WALK: a broken parse derives no clauses and every
+    // assertion below passes vacuously.
+    expect(clauses.length, 'parsed NO clauses out of the condition — the walk is broken').
+      toBeGreaterThan(1);
+    expect(joiners.length).toBe(clauses.length - 1);
+    for (const joiner of joiners) {
+      expect(joiner, `clauses joined by \`${joiner}\`, not \`and\` — that is not all-or-nothing`).
+        toBe('and');
+    }
+
+    // ---- 2. DECLARATIONS: property AND value, both derived ------------------
+    /**
+     * Properties predating anchor positioning by decades. Everything else pays.
+     *
+     * 🔴 ONE OF THE TWO HAND-WRITTEN LISTS LEFT — `BASELINE_FUNCS` below is the
+     * other, and this comment used to say "THE ONE HAND-WRITTEN LIST LEFT" while
+     * that second list sat eleven lines under it, added by the same commit.
+     * (`compact.ts` had it right; this file contradicted it.) Both are
+     * deliberately lists of BASELINE things rather than modern ones: forgetting
+     * to add a new modern feature is impossible, because absence means
+     * "guarded". The failure mode that remains is someone ADDING a modern name
+     * to either set.
+     */
+    const BASELINE_PROPS = new Set([
+      'position',
+      'top',
+      'right',
+      'bottom',
+      'left',
+      'width',
+      'max-width',
+      'transform',
+    ]);
+    /** Same idea for value functions. */
+    const BASELINE_FUNCS = new Set([
+      'calc',
+      'var',
+      'min',
+      'max',
+      'clamp',
+      'rgb',
+      'rgba',
+      'hsl',
+      'hsla',
+      'url',
+      'translate',
+      'translatex',
+      'translatey',
+    ]);
+
+    // A declaration ends at `;` OR at its rule's closing `}` — the last one in a
+    // block may legally omit the semicolon, and requiring it let exactly that
+    // shape slip past.
+    const decls = [...body.matchAll(/(--)?([a-z][a-z0-9-]*)\s*:\s*([^;{}]+?)\s*(?=[;}])/g)].map(
+      (m) => ({ custom: !!m[1], prop: (m[1] ?? '') + m[2], value: m[3] }),
+    );
+    // Positive control on the SCAN: a broken regex derives nothing and every
+    // loop below asserts nothing at all, silently.
+    expect(decls.length, 'the declaration scan matched nothing — the regex is broken').
+      toBeGreaterThan(5);
+
+    // Custom properties are universally supported and need no clause — and
+    // demanding one made this guard reject `--mb-gap: 6px;`, which is legal and
+    // harmless.
+    const guardedDecls = decls.filter((d) => !d.custom && !BASELINE_PROPS.has(d.prop));
+    expect(
+      guardedDecls.length,
+      'derived NO guarded declarations — the scan or BASELINE_PROPS is wrong',
+    ).toBeGreaterThan(0);
+    for (const { prop, value } of guardedDecls) {
+      // 🔴 THE WHOLE CLAUSE, NOT THE NAME. A clause naming the right property
+      // with a nonsense VALUE is false on every engine, which disables the whole
+      // block silently — the single worst outcome available here.
+      expect(
+        clauses,
+        `the block declares \`${prop}: ${value}\` but @supports has no matching clause`,
+      ).toContain(`(${prop}: ${value})`);
+    }
+
+    // ---- 2b. EVERY CLAUSE'S VALUE MUST EXIST IN THE BLOCK -------------------
+    // 🔴 THE MIRROR OF SECTION 2, AND WITHOUT IT ONE CLAUSE WAS NEVER CHECKED AT
+    // ALL. Section 2 walks the block's declarations and demands a clause for
+    // each — but it skips `BASELINE_PROPS`, and `bottom` is in that set. So
+    // `(bottom: anchor(top))`, the clause carrying the block's most modern
+    // feature, was covered by nothing: section 3 only asks whether the substring
+    // `anchor(` appears somewhere in the condition, never what value it tests.
+    // Measured, both surviving a full green suite at 237/237 with the verbatim
+    // pin updated:
+    //
+    //     (bottom: anchor(top)) -> (bottom: anchor(topp))     237/237 SURVIVED
+    //     (bottom: anchor(top)) -> (bottom: anchor(12px))     237/237 SURVIVED
+    //
+    // Either is a one-character typo while editing the condition, and either
+    // makes the clause invalid — so `@supports` is false on EVERY engine, the
+    // rule never applies, and the mobile clipping this whole PR exists to fix
+    // returns for 100% of users with typecheck, tests and build all green.
+    //
+    // Walking clause -> block (rather than block -> clause) is what reaches a
+    // clause whose property is baseline-exempt, so the two directions together
+    // cover all four clauses.
+    for (const clause of clauses) {
+      const v = clause.slice(clause.indexOf(':') + 1, clause.length - 1).trim();
+      expect(body, `clause \`${clause}\` tests a value that appears nowhere in the block`).toContain(
+        v,
+      );
+    }
+
+    // ---- 3. VALUE FUNCTIONS: features that ride a baseline property ---------
+    // 🔴 `bottom: calc(anchor(top) + 6px)` is the block's most modern
+    // declaration and `bottom` is baseline, so nothing above sees it. Derived
+    // the same way as properties, so `anchor-size()` — which shipped with
+    // `anchor()` in Chrome 125 — cannot slip in the way a hardcoded
+    // `includes('anchor(')` let it.
+    const usedFuncs = new Set(
+      [...body.matchAll(/([a-z][a-z0-9-]*)\s*\(/g)]
+        .map((m) => m[1].toLowerCase())
+        .filter((f) => !BASELINE_FUNCS.has(f)),
+    );
+    expect(usedFuncs.size, 'derived NO guarded functions — the block should use anchor()').
+      toBeGreaterThan(0);
+    for (const fn of usedFuncs) {
+      expect(condition, `the block uses \`${fn}()\` but @supports never tests for it`).toContain(
+        `${fn}(`,
+      );
+    }
+
+    // 🔴 Nothing from the block may leak OUTSIDE the guard — an anchor
+    // declaration that escaped it is exactly the failure mode described above.
+    // Compare like with like: normalise the whole sheet, then cut the (already
+    // normalised) block out of it. Not vacuous — if `tooltipBlock()` returned
+    // nothing the cut is a no-op and both assertions below go red.
+    const whole = compactTapTargetCss().replace(/\s+/g, ' ').trim();
+    expect(whole).toContain(block);
+    const outside = whole.replace(block, '');
+    expect(outside).not.toContain('anchor-name');
+    expect(outside).not.toContain('position-anchor');
+  });
+
+  it('🔴 the block actually REACHES THE DOCUMENT, not just the return string', async () => {
+    // 🔴 The three cases above assert what `compactTapTargetCss()` RETURNS. That
+    // is not the same claim as "the rule ships", and the gap is real rather than
+    // theoretical: an altering mutant that mounts
+    // `{compactTapTargetCss().split('@supports')[0]}` keeps the tap-target half
+    // shipping — so every other case in this file stays green — while the
+    // tooltip block never reaches the document at all. Measured: that mutant
+    // SURVIVED a full green suite (23 files / 231 tests).
+    //
+    // Note this was an ASYMMETRY, not a jsdom limit: the tap-target half of the
+    // same sheet is already covered end-to-end by the SELECTOR REACHABILITY
+    // cases, which read computed styles off live nodes. Only the tooltip half
+    // stopped at the string.
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('view-switch');
+
+    const mounted = screen.getByTestId('compact-styles').textContent ?? '';
+    expect(mounted.replace(/\s+/g, ' ')).toContain(tooltipBlock());
+  });
+
+  it('the gutter and gap figures are the literals, not whatever the constants say', () => {
+    // Same trap the 44px case exists for: the CSS input and an assertion bound
+    // that share a symbol cannot check each other.
+    expect(TOOLTIP_GUTTER_PX).toBe(8);
+    expect(TOOLTIP_GAP_PX).toBe(6);
+  });
+
+  it('INVARIANT GUARD (passes at base too): both compact tooltip selectors match live nodes', async () => {
+    // 🔴 Labelled honestly: this is GREEN AT BASE and is therefore NOT
+    // regression coverage for the tooltip fix — the pack renders these
+    // attributes whether or not our rule exists. Its job is the one the three
+    // cases above cannot do: the rule text is worthless if the pack renames its
+    // attributes, so prove each selector reaches the real rendered tooltip.
+    // Needs no layout, only the DOM. The Combinations view badges its top-N
+    // "Included".
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('combos-list');
+
+    const triggers = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip']`,
+    );
+    expect(triggers.length).toBeGreaterThan(0);
+
+    const bubbles = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble]`,
+    );
+    expect(bubbles.length).toBeGreaterThan(0);
   });
 });

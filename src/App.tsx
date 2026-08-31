@@ -88,6 +88,7 @@ import {
   draftToInput,
   DRAFT_PREFIX,
   formatQuota,
+  isSubmitted,
   newDraftLocalId,
   parseDraft,
   sortDrafts,
@@ -536,15 +537,133 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // the same author check, so this only carries the confirmed intent through.
   // Mirrors the submit path: host mutation → optimistic reconcile → track →
   // reload.
+  /**
+   * Drop the per-viewer draft POINTER at a shared row that no longer exists.
+   *
+   * 🔴 A submitted draft is rewritten to `{localId, sharedKey, submittedAt}` and
+   * its `configs` are DROPPED (see `submittedPointer`). So once the row it
+   * points at is withdrawn there is nothing left to restore and nothing left to
+   * act on: the drafts panel rendered a card claiming "Live on the board" for a
+   * row that is gone, with NO buttons at all (its only action, "Edit the live
+   * one", is gated on the row being loaded), and it still consumed a quota row.
+   * An unremovable card asserting a live board entry that does not exist is
+   * worse than no card, so the pointer goes.
+   *
+   * Scope, deliberately narrow, and narrow in TWO independent ways:
+   *
+   *   1. Only the COMBINATIONS surface reaches this function at all. ⚠️ This
+   *      paragraph used to say prompts reached it and harmlessly found nothing;
+   *      that stopped being true when `withdrawPrompt` was split out below, and
+   *      the sentence survived because it sits outside that diff. A reader who
+   *      believes the old text concludes the prompt path still scans — which is
+   *      exactly what the "NEVER EVEN STARTS the pointer scan" case asserts
+   *      against. Prompts are never created from a draft, so the scan there
+   *      could only ever run to completion and find nothing; it is skipped.
+   *   2. Even on the combinations surface the ONLY pointer touched is one whose
+   *      `sharedKey` equals the withdrawn key — another of the viewer's own
+   *      combinations keeps its pointer, which is a separate guard.
+   *
+   * 🔴 THE LOOKUP GOES TO THE STORE, NOT TO RENDER STATE, and that is not a
+   * style choice. Reading the `drafts` state (or a ref mirroring it) makes the
+   * fix silently inert whenever that list is EMPTY FOR A REASON THAT HAS
+   * NOTHING TO DO WITH THE POINTER — and there are three such reasons, all
+   * reachable: the KV list effect has not resolved yet (withdraw first and the
+   * list is still `[]`), `list()` threw and was swallowed so the board could
+   * stay up, or the viewer has more drafts than `DRAFT_MAX_PAGES` pages. In
+   * every one of those the pointer is real, the scan against render state
+   * misses it, and nothing ever re-checks — the exact orphan this function
+   * exists to remove, persisting with no error anywhere. Measured before the
+   * fix: withdrawing before the list resolved left `deletes: []` and the
+   * buttonless card on screen.
+   */
+  const clearDraftPointerFor = useCallback(
+    async (sharedKey: string) => {
+      const store = depsRef.current.appStorage;
+      try {
+        let cursor: string | undefined;
+        for (let page = 0; page < DRAFT_MAX_PAGES; page += 1) {
+          const res = await store.list({ prefix: DRAFT_PREFIX, cursor });
+          for (const { key } of res.keys) {
+            // Defensive: only trust keys under our prefix (a fake/host may over-return).
+            if (!key.startsWith(DRAFT_PREFIX)) continue;
+            const parsed = parseDraft(await store.get(key));
+            if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) continue;
+            // Idempotent per the SDK: deleting a key that isn't set resolves
+            // `{deleted: false}` rather than throwing.
+            await store.delete(draftKey(parsed.localId));
+            refreshDrafts();
+            return;
+          }
+          if (!res.nextCursor) break;
+          cursor = res.nextCursor;
+        }
+      } catch {
+        /* best-effort — a KV failure must not report the (successful) withdraw as failed */
+      }
+    },
+    [refreshDrafts],
+  );
+
   const withdrawRow = useCallback(
-    async (key: string) => {
-      await depsRef.current.shared.withdraw(key);
+    /**
+     * @param clearPointer whether to look for (and drop) a draft pointer at this
+     *   key afterwards. TRUE only on the combinations surface — see the call
+     *   sites and `clearDraftPointerFor`'s cost note.
+     */
+    async (key: string, clearPointer: boolean) => {
+      // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
+      // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
+      //
+      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure at the
+      //     pinned @civitai/blocks-react 0.43.0, so a throw here is the real
+      //     path and it skips every line below.
+      //   - THE `ok` BRANCH is defensive. `withdraw` is the only SDK write typed
+      //     `ok: boolean` rather than the literal `ok: true` (`appStorage.set`
+      //     and `.delete` are both `ok: true`), so the CONTRACT permits a
+      //     refusal that resolves. ⚠️ The 0.43.0 RUNTIME does not use it:
+      //     `useSharedStorage.js:115-121` does `if (!result.ok || result.error)
+      //     throw` and returns a hardcoded `{ok: true}`, and both hosts only
+      //     emit `ok:false` alongside an `error`. So this branch is UNREACHABLE
+      //     IN PRODUCTION TODAY. It is kept because the declared type is what a
+      //     future SDK could start honouring, and the cost of being wrong the
+      //     other way is unrecoverable (below). Do not describe it as an
+      //     observed channel — an earlier version of this comment did, and it
+      //     was false.
+      //
+      // Either way the viewer keeps the only per-viewer handle on a row that is
+      // still live. Shared keys are host-minted and the shared list has no
+      // "mine" index (docs/matchups.md §4), so deleting that pointer against a
+      // surviving row is UNRECOVERABLE. Dropping the `ok` check, or clearing the
+      // pointer before this line, each turn this fix into a data-loss bug.
+      const res = await depsRef.current.shared.withdraw(key);
+      if (!res.ok) return;
       optimisticDelete(key);
+      if (clearPointer) await clearDraftPointerFor(key);
       depsRef.current.track('withdraw');
       reload();
     },
-    [optimisticDelete, reload],
+    [optimisticDelete, reload, clearDraftPointerFor],
   );
+
+  /**
+   * Withdraw a COMBINATION. This is the only surface where a draft pointer can
+   * exist, so it is the only one that pays for the lookup.
+   */
+  const withdrawCombination = useCallback(
+    (key: string) => withdrawRow(key, true),
+    [withdrawRow],
+  );
+
+  /**
+   * Withdraw a PROMPT. 🔴 No pointer scan: prompts are never created from a
+   * draft, so a prompt's host-minted key CANNOT match a pointer — the scan could
+   * only ever run to completion and find nothing. Skipping it is not an
+   * optimisation of a rare path, it is declining a guaranteed-fruitless one:
+   * `clearDraftPointerFor` is a paged KV walk (one `list` per page plus one
+   * `get` per key, serially over the postMessage bridge) with the withdraw
+   * button held in `loading` for its whole duration.
+   */
+  const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
 
   // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
 
@@ -1037,7 +1156,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
-            onWithdraw={withdrawRow}
+            onWithdraw={withdrawCombination}
             draftsSlot={draftsSlot}
           />
         )}
@@ -1055,7 +1174,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
-            onWithdraw={withdrawRow}
+            onWithdraw={withdrawPrompt}
           />
         )}
 
