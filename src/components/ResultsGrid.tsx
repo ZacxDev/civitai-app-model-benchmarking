@@ -49,6 +49,23 @@ export interface ResultsGridProps {
 const CELL_W = 200;
 const ROW_H_HEADER = 56;
 
+/**
+ * Viewer-facing copy for the `'unknown'` cell state — a persisted in-flight claim
+ * that carries no workflowId (see `InflightRun`).
+ *
+ * 🔴 IT MUST NOT SAY "nothing was spent", which is the opposite of what the
+ * claim-refused copy says and deliberately so. A claim that failed to write means
+ * the run never started; a claim that WROTE and then went quiet means the submit
+ * may well have succeeded with only the response lost. Telling a viewer that
+ * definitely failed is precisely what sends them back to Run and into a real
+ * second charge. So this names the one action that actually resolves it.
+ *
+ * Lives here rather than in `App.tsx` only to keep the import acyclic — App
+ * imports this component.
+ */
+export const RUN_UNKNOWN_MESSAGE =
+  'Unknown — this run may already have started. Check your generations before re-running.';
+
 export function ResultsGrid({
   configs,
   prompts,
@@ -427,6 +444,27 @@ function CellRunState({
           </Button>
           <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
             Dismiss
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  // 🔴 THE UNRESOLVED CLAIM. The app wrote "about to spend" and never got to
+  // write the workflowId, so whether the generation started is genuinely unknown.
+  // There is nothing to resume-poll (no workflowId), and the one thing this must
+  // never do is fall through to an empty, runnable cell — that is the double
+  // charge. So it renders as its own state, and the ONLY way out is the explicit
+  // control below: a deliberate act, never a default, but always available so a
+  // stuck claim cannot permanently brick the cell.
+  if (run.status === 'unknown') {
+    return (
+      <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-unknown">
+        <span style={{ color: token.text }} data-testid="cell-unknown-message">
+          {RUN_UNKNOWN_MESSAGE}
+        </span>
+        <div>
+          <Button size="sm" variant="subtle" data-testid="cell-unknown-dismiss" onClick={onCancel}>
+            Dismiss and allow a re-run
           </Button>
         </div>
       </div>

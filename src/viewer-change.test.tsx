@@ -39,8 +39,11 @@ import type { SharedListItem } from '@civitai/blocks-react';
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
-/** The live viewer, swapped between renders without remounting the block. */
-const viewerBox = { current: { id: 99, username: 'a' } as { id: number; username: string } };
+/** The live viewer, swapped between renders without remounting the block. `null`
+ * models the host signing the viewer OUT mid-flow — see the sign-out case below. */
+const viewerBox = {
+  current: { id: 99, username: 'a' } as { id: number; username: string } | null,
+};
 
 vi.mock('@civitai/blocks-react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@civitai/blocks-react')>();
@@ -53,7 +56,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
   };
 });
 
-const { App } = await import('./App.js');
+const { App, CLAIM_NO_VIEWER_MESSAGE } = await import('./App.js');
 
 // `viewerBox` is module state that each case mutates — reset it so the cases are
 // order-independent rather than quietly depending on running first.
@@ -240,5 +243,67 @@ describe('viewer change without a remount — the re-run route', () => {
       submit,
       'a superseded scan stood the backstop down mid-scan',
     ).not.toHaveBeenCalled();
+  });
+
+  it('🔴 a NON-WRITE is not a successful claim: signed out mid-flow, Confirm refuses to spend', async () => {
+    // 🔴 THE WAY THE FIX RE-ENTERS ITS OWN BUG THROUGH ITS OWN GUARD. The
+    // pre-spend claim write is `claimInflight`, and the natural shape for it —
+    // the shape the fire-and-forget `persistInflight` it grew out of already had
+    // — opens with `if (!viewer) return;`. As a `void`/boolean function that is a
+    // NON-WRITE that RESOLVES: the caller awaits it, reads "claim succeeded", and
+    // spends with nothing persisted. That is exactly the defect being fixed,
+    // arrived at through the guard meant to prevent it. So the claim reports
+    // THREE outcomes — wrote / rejected / did not write — and only the first
+    // licenses a spend.
+    //
+    // 🔴 AND IT IS REACHABLE, which is why it is not merely defensive. `beginRun`
+    // does gate on `viewer`, so it is tempting to reason `confirmRun` can never
+    // run without one. But the viewer can change WITHOUT a remount — the whole
+    // premise of this file — and `runs` is component state that does not care.
+    // The cell reaches `confirming` with a viewer, and loses it before Confirm.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, setAttempts } = fakeAppStorage({}, {}, { latencyMs: 2 });
+
+    const node = block({ shared, appStorage, submit });
+    const view = render(node);
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+    // Reach the confirm dialog WITH a viewer (the estimate needs one).
+    await userEvent.click(await within(grid).findByTestId('run-cell'));
+    await within(grid).findByTestId('cell-confirm-run');
+
+    // …and now the host signs the viewer out, without remounting the block.
+    //
+    // 🔴 A FRESH ELEMENT, not the same `node` the two cases above re-pass. React
+    // bails out of a subtree whose element is REFERENTIALLY IDENTICAL, so
+    // `rerender(node)` re-runs `App` only when something else already scheduled
+    // an update — which the cases above happen to have (their scan effects are
+    // mid-flight). This case has none: its store is empty and its scan is long
+    // finished, so passing `node` back silently re-rendered nothing, the click
+    // ran against the PREVIOUS closure with its viewer still set, and the app
+    // spent. That failure looked exactly like a missing guard.
+    viewerBox.current = null;
+    view.rerender(block({ shared, appStorage, submit }));
+
+    const g2 = await screen.findByTestId('results-grid');
+    await userEvent.click(await within(g2).findByTestId('cell-confirm-run'));
+    await waitFor(() => expect(within(g2).queryByTestId('cell-confirm-run')).toBeNull());
+
+    expect(
+      submit,
+      'spent with no viewer — the claim could not have been written, so nothing would have been recorded',
+    ).not.toHaveBeenCalled();
+    expect(await within(g2).findByTestId('cell-failed')).toHaveTextContent(CLAIM_NO_VIEWER_MESSAGE);
+
+    // 🔴 POSITIVE CONTROL ON THE MECHANISM, not just the outcome. The refusal has
+    // to come from the claim declining to write — NOT from some upstream guard
+    // that happened to fire first, which would leave this case green with the
+    // no-viewer branch reporting success. Nothing was written for this cell.
+    expect(
+      setAttempts.filter((s) => s.key === INFLIGHT_KEY),
+      'a write was attempted for an anonymous viewer — the host rejects those, so the claim must not even try',
+    ).toHaveLength(0);
   });
 });

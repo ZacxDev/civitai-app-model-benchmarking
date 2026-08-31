@@ -139,6 +139,16 @@ export interface AppProps {
 type View = 'combos' | 'prompts' | 'grid';
 
 /**
+ * The outcome of a PHASE-1 in-flight claim write. 🔴 Deliberately a THREE-way
+ * result rather than a boolean or `void`: "did not write" (no viewer) is not
+ * "wrote", and collapsing the two is how a guard comes to pass while the hazard
+ * it guards is live. Only `{ ok: true }` licenses a spend.
+ */
+type ClaimOutcome =
+  | { ok: true }
+  | { ok: false; reason: 'rejected' | 'no-viewer' };
+
+/**
  * The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode, or
  * the DRAFT form — the same combination form saving to the PER-VIEWER store
  * instead of the public board. `draft` is a distinct kind rather than a flag on
@@ -166,6 +176,32 @@ export const ESTIMATE_FAILED_MESSAGE =
 export const ESTIMATE_NO_COST_MESSAGE =
   "Couldn't price this run — no price came back. Please try again.";
 
+/**
+ * Viewer-facing copy for a PHASE-1 CLAIM that could not be written, i.e. the run
+ * that was refused BEFORE any Buzz was spent (see {@link InflightRun}).
+ *
+ * Two constants because the two refusals are genuinely different situations with
+ * different next steps for the viewer — one is "come back later", the other is
+ * "sign in". A single catch-all string would make the branch untestable and the
+ * advice wrong half the time.
+ *
+ * 🔴 BOTH SAY, IN WORDS, THAT NOTHING WAS SPENT. That is the whole point of
+ * moving the failure before the money: a viewer who reads this must not go
+ * hunting through their generations, and must not feel they need to re-run to
+ * "make sure". Contrast the `'unknown'` copy below, which says the opposite
+ * because the opposite is true there.
+ *
+ * 🔴 The host's own error string is deliberately NOT shown. `useAppStorage.set`
+ * rejects with the host's `error` — server-authored, unsanitised, and a storage
+ * engine's vocabulary ("PAYLOAD_TOO_LARGE", "QUOTA_EXCEEDED") is not viewer copy.
+ * It goes to the developer console instead, the same split the estimate errors
+ * above use.
+ */
+export const CLAIM_FAILED_MESSAGE =
+  "Couldn't start this run: the app's storage is full or unavailable, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Please try again later.";
+export const CLAIM_NO_VIEWER_MESSAGE =
+  "Couldn't start this run: you're signed out, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Sign in and try again.";
+
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
 /** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
@@ -179,6 +215,43 @@ const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
  * running cells so a reload never re-charges them (see {@link InflightRun}). */
 const INFLIGHT_PREFIX = 'inflight:v1:';
 const inflightKey = (ck: string): string => `${INFLIGHT_PREFIX}${ck}`;
+
+const nonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/**
+ * Is this stored blob a usable in-flight record? 🔴 The CELL COORDS are what make
+ * it usable — they are what `cellKey` needs to place it — and `workflowId` is
+ * deliberately NOT among them: a PHASE-1 claim has none, and rejecting it here is
+ * the same double-charge hole one layer down (see {@link InflightRun}).
+ */
+function validInflight(entry: unknown): entry is InflightRun {
+  const e = entry as InflightRun | null;
+  return (
+    !!e && nonEmptyString(e.comboKey) && nonEmptyString(e.configId) && nonEmptyString(e.promptKey)
+  );
+}
+
+/**
+ * Turn a persisted in-flight record into the cell-run state it rehydrates as.
+ * 🔴 ONE function, used by BOTH readers of the store (the mount-time rehydrate
+ * scan and `confirmRun`'s pre-spend read), because the two disagreeing is a
+ * money bug: they were open-coded separately and BOTH gated on `workflowId`, so
+ * one fix would have left the other spending.
+ *
+ *  - workflowId present → `stalled`: a live generation to resume-poll.
+ *  - workflowId absent  → `unknown`: a claim we cannot resolve automatically.
+ * Neither is empty+runnable, which is the only outcome that costs money twice.
+ */
+function inflightToRun(entry: InflightRun): CellRun {
+  const wf = nonEmptyString(entry.workflowId) ? entry.workflowId : undefined;
+  return {
+    comboKey: entry.comboKey,
+    configId: entry.configId,
+    promptKey: entry.promptKey,
+    ecosystem: entry.ecosystem,
+    ...(wf ? { status: 'stalled' as const, workflowId: wf } : { status: 'unknown' as const }),
+  };
+}
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -406,16 +479,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             if (cancelled) return 'stop';
             const entry = await store.get<InflightRun>(key);
             if (cancelled) return 'stop';
-            if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) return;
+            // 🔴 THIS USED TO SKIP EVERY ENTRY WITHOUT A `workflowId`, which is
+            // exactly the record the PHASE-1 CLAIM writes. A claim-only entry was
+            // therefore silently ignored and its cell rendered empty and
+            // RUNNABLE — reintroducing the double charge the claim exists to
+            // prevent, at the one moment we know least about what happened. The
+            // coords are what identify the cell; the workflowId only decides
+            // WHICH in-flight state it rehydrates into.
+            if (!validInflight(entry)) return;
             const ck = cellKey(entry.comboKey, entry.configId, entry.promptKey);
-            setRun(ck, {
-              comboKey: entry.comboKey,
-              configId: entry.configId,
-              promptKey: entry.promptKey,
-              ecosystem: entry.ecosystem,
-              status: 'stalled',
-              workflowId: entry.workflowId,
-            });
+            setRun(ck, inflightToRun(entry));
           },
           { shouldStop: () => cancelled },
         );
@@ -861,25 +934,56 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     });
   }, []);
 
-  // Persist / clear ONE in-flight cell run in per-viewer KV (best-effort, fire-
-  // and-forget — a KV failure must never block or fail a real generation; the
-  // double-charge guard just degrades gracefully). One row per cell so concurrent
-  // runs can't read-modify-write-clobber a shared map.
+  // ---- the two-phase in-flight claim (see {@link InflightRun}) ----
   //
-  // 🔴 KNOWN, UNFIXED, AND THE PRECONDITION EVERYTHING ABOVE RESTS ON — read this
-  // before trusting the double-charge guards. `set` is fire-and-forget with a
-  // SWALLOWED rejection. `useAppStorage.set` rejects when the value exceeds
-  // 64 KB, when the per-app quota would be crossed, or for an anonymous viewer.
-  // If it rejects, NOTHING IS WRITTEN — and then neither the rehydrate scan nor
-  // `confirmRun`'s pre-spend read can find anything, because there is nothing to
-  // find. Reload, re-run, DOUBLE CHARGE, with no signal anywhere: no toast, no
-  // console line, no metric.
+  // 🔴 THE HAZARD THIS REPLACES, because the shape it had was the bug. Persisting
+  // the run used to be ONE fire-and-forget write with a SWALLOWED rejection,
+  // issued AFTER `submit` — i.e. after the money. `useAppStorage.set` rejects
+  // when the value exceeds 64 KB, when the per-app quota would be crossed, or for
+  // an anonymous viewer; on a rejection NOTHING was written, so neither the
+  // rehydrate scan nor the pre-spend read could find anything, and the next load
+  // rendered the cell empty and runnable → a second real charge with no signal
+  // anywhere. Not an edge case either: the quota is per-APP while the data is
+  // per-(block instance, viewer), so ONE viewer at the ceiling makes the write
+  // reject for EVERY viewer at once.
   //
-  // Deliberately not fixed here. The fix is a PRODUCT decision, not a code one —
-  // block the spend when the persist fails (safe, but wedges generation on a KV
-  // blip) or surface it to the viewer (visible, but says nothing actionable) —
-  // and it is pre-existing rather than introduced by the paging work. Raised
-  // separately. Every guard above narrows the window; none of them closes this.
+  // No amount of error handling on the old write fixes it — it is downstream of
+  // the money BY CONSTRUCTION (you cannot record a workflowId before you have
+  // one), and retrying does nothing about quota or size. So the write is split:
+  // an AWAITED claim before the spend, and a best-effort upgrade after it.
+
+  /**
+   * PHASE 1 — write the claim and REPORT WHAT HAPPENED. 🔴 Three outcomes, not
+   * two: the no-viewer branch RETURNS WITHOUT WRITING, and if that were folded
+   * into "ok" (as an early `return;` from a `void` function would be) the caller
+   * would read a successful claim and spend with nothing persisted — the very
+   * bug being fixed, re-entered through its own guard. `beginRun` does gate on
+   * `viewer`, but a viewer can change mid-flow without a remount (there is a
+   * suite pinning exactly that route), so this is a real branch and not a
+   * defensive one.
+   */
+  const claimInflight = useCallback(
+    async (ck: string, entry: InflightRun): Promise<ClaimOutcome> => {
+      if (!viewer) return { ok: false, reason: 'no-viewer' };
+      try {
+        await depsRef.current.appStorage.set(inflightKey(ck), entry);
+        return { ok: true };
+      } catch (e) {
+        // The host's own error string — developer-facing, never viewer copy.
+        console.debug('[model-benchmarking] in-flight claim write rejected:', e);
+        return { ok: false, reason: 'rejected' };
+      }
+    },
+    [viewer],
+  );
+
+  /**
+   * PHASE 2 — upgrade an EXISTING claim with the workflowId. Fire-and-forget is
+   * safe here, and only here: this key already holds the phase-1 claim, so a lost
+   * write degrades the cell to `unknown` (safe — never auto-runnable) rather than
+   * to absent (the double charge). One row per cell, so concurrent runs cannot
+   * read-modify-write-clobber each other.
+   */
   const persistInflight = useCallback(
     (ck: string, entry: InflightRun) => {
       if (!viewer) return;
@@ -1003,15 +1107,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       if (inflightScanTruncatedRef.current) {
         try {
           const persisted = await depsRef.current.appStorage.get<InflightRun>(inflightKey(ck));
-          if (persisted?.workflowId) {
-            setRun(ck, {
-              comboKey: persisted.comboKey,
-              configId: persisted.configId,
-              promptKey: persisted.promptKey,
-              ecosystem: persisted.ecosystem,
-              status: 'stalled',
-              workflowId: persisted.workflowId,
-            });
+          // 🔴 THIS USED TO GATE ON `persisted?.workflowId`, so a CLAIM-ONLY
+          // entry — the record written before a spend whose outcome we never
+          // learned — fell straight through and SPENT AGAIN, on the one cell we
+          // have positive evidence may already have been charged. It adopts the
+          // record's own state now (`stalled` with a workflowId, `unknown`
+          // without), which is the same mapping the rehydrate scan uses.
+          if (validInflight(persisted)) {
+            setRun(ck, inflightToRun(persisted));
             // 🔴 RELEASE THE SYNCHRONOUS CLAIM taken above. This function
             // returns early, so the usual `finally` never runs — and
             // `inFlightRef` is what `resumeRun` checks first. Leave the claim
@@ -1029,24 +1132,67 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         }
       }
       setRun(ck, { status: 'submitting' });
+      const matched = resolveCell(row.config, prompt);
+      const coords = {
+        comboKey: row.comboKey,
+        configId: row.config.id,
+        promptKey: prompt.key,
+        ecosystem: matched.ecosystem,
+      };
+
+      // 🔴 PHASE 1 — CLAIM BEFORE SPEND, AND AWAIT IT. Everything above this line
+      // is a guard that only works if a claim was actually WRITTEN, and the write
+      // used to happen after `submit`: a rejection meant nothing was recorded, so
+      // the next load offered the cell as runnable and the viewer paid twice with
+      // nothing anywhere to say so. Writing first inverts that — the failure now
+      // lands BEFORE the money, where it is a refused run instead of a silent
+      // second charge. It also closes the crash window (submit succeeds, browser
+      // closes before the record is written), which the old order could not.
+      //
+      // The claim carries the cell coords and NO workflowId, because there is no
+      // workflow yet. That record means "we were about to spend and we do not
+      // know whether we did" — see {@link InflightRun}.
+      const claim = await claimInflight(ck, coords);
+      if (!claim.ok) {
+        setRun(ck, {
+          ...coords,
+          status: 'failed',
+          error: claim.reason === 'no-viewer' ? CLAIM_NO_VIEWER_MESSAGE : CLAIM_FAILED_MESSAGE,
+        });
+        inFlightRef.current.delete(ck);
+        return;
+      }
+
+      let first: BlockWorkflowSnapshot;
       try {
         const body = buildCellWorkflowBody(row.config, row.comboKey, prompt);
-        const first = await depsRef.current.submit(body);
+        first = await depsRef.current.submit(body);
+      } catch (e) {
+        // 🔴 THE SPEND'S OWN OUTCOME IS UNKNOWN — not failed. The request may
+        // have reached the host and succeeded with only the response lost, so
+        // this must NOT render as "failed" (which invites a re-run) and the
+        // claim must NOT be cleared. It stays, and the cell says so.
+        console.debug('[model-benchmarking] submit did not return a result:', e);
+        setRun(ck, { ...coords, status: 'unknown' });
+        inFlightRef.current.delete(ck);
+        return;
+      }
+
+      try {
         if (first.status === 'failed') {
+          // A DEFINITE answer from the host, unlike the throw above: the workflow
+          // exists and failed, so there is nothing to resolve later — drop the
+          // claim rather than leave a cell that rehydrates as unknown forever.
+          clearInflight(ck);
           setRun(ck, { status: 'failed', error: first.error ?? 'Generation failed.' });
           return;
         }
         setRun(ck, { status: 'processing', workflowId: first.workflowId });
-        // Persist the in-flight workflow the instant it exists, so a reload before
-        // it terminates rehydrates the cell as in-flight (never empty+runnable).
-        const matched = resolveCell(row.config, prompt);
-        persistInflight(ck, {
-          workflowId: first.workflowId,
-          comboKey: row.comboKey,
-          configId: row.config.id,
-          promptKey: prompt.key,
-          ecosystem: matched.ecosystem,
-        });
+        // 🔴 PHASE 2 — upgrade the SAME key with the workflowId now that one
+        // exists, turning the unresolved claim into a resumable run. Best-effort
+        // by design: if this write is lost the claim survives and the cell
+        // rehydrates as `unknown`, which is safe. It is never empty+runnable.
+        persistInflight(ck, { workflowId: first.workflowId, ...coords });
         await driveToResult(ck, row, prompt, first);
       } catch (e) {
         setRun(ck, { status: 'failed', error: errMsg(e) });
@@ -1054,7 +1200,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         inFlightRef.current.delete(ck);
       }
     },
-    [setRun, persistInflight, driveToResult],
+    [setRun, claimInflight, persistInflight, clearInflight, driveToResult],
   );
 
   // Resume-poll a STALLED cell (poll-cap elapsed, or rehydrated in-flight from a

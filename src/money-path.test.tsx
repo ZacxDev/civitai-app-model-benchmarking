@@ -17,7 +17,15 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
 import { WorkflowEstimateError, type SharedListItem } from '@civitai/blocks-react';
 
-import { App, ESTIMATE_FAILED_MESSAGE, ESTIMATE_NO_COST_MESSAGE, type AppDeps } from './App.js';
+import {
+  App,
+  CLAIM_FAILED_MESSAGE,
+  CLAIM_NO_VIEWER_MESSAGE,
+  ESTIMATE_FAILED_MESSAGE,
+  ESTIMATE_NO_COST_MESSAGE,
+  type AppDeps,
+} from './App.js';
+import { RUN_UNKNOWN_MESSAGE } from './components/ResultsGrid.js';
 import type { CombinationData, PromptData } from './types.js';
 import { KV_MAX_PAGES } from './lib/kv.js';
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
@@ -614,6 +622,456 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
     expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument();
     expect(within(grid).queryByTestId('run-cell')).toBeNull();
   });
+});
+
+// ---------------------------------------------------------------------------
+// #4 CLAIM BEFORE SPEND — the persist that used to FOLLOW the money now GATES it.
+// ---------------------------------------------------------------------------
+//
+// 🔴 THE DEFECT. `confirmRun` spent and only then recorded that it had:
+//
+//     const first = await submit(body);        // ← the spend
+//     persistInflight(ck, { workflowId, … });  // ← after it, fire-and-forget
+//
+// `persistInflight` swallowed its rejection. Per the SDK, `useAppStorage.set`
+// "Rejects with the host's `error` string when the value exceeds 64KB, when the
+// per-app 50MB quota would be crossed, or when the viewer is anonymous". On a
+// rejection NOTHING is written — so the rehydrate scan found nothing, the
+// pre-spend read found nothing, and the cell came back EMPTY AND RUNNABLE. The
+// viewer re-ran and was charged a second time, with no signal anywhere: no toast,
+// no console line, no metric.
+//
+// 🔴 IT IS NOT A RARE EDGE CASE. The storage quota is per-APP; the data is
+// per-(block instance, viewer). One viewer filling the ceiling makes that write
+// reject for EVERY viewer at once — a correlated, silent, fleet-wide exposure.
+//
+// It cannot be fixed by handling the error where it was: that write is
+// downstream of the money BY CONSTRUCTION (there is no workflowId to record
+// before `submit` returns), and retrying does nothing about quota or size. So the
+// record is written in two phases — an AWAITED claim carrying only the cell
+// coords BEFORE the spend, upgraded with the workflowId after — and a claim that
+// cannot be written refuses the run outright. The failure now lands BEFORE the
+// money instead of after it. The same change closes a second, independent hole:
+// submit succeeds, the browser closes before the persist runs.
+//
+// 🔴 AND THE AMBIGUITY THAT FALLS OUT OF IT, which is real and not a code
+// artifact: a claim with no workflowId means "we were about to spend and we do
+// not know whether we did" — the submit may have succeeded with only the response
+// lost. Such an entry is therefore NOT auto-adopted (nothing to resume-poll) and
+// NOT auto-runnable (that is the double charge). It renders as an explicit
+// unknown, with a deliberate escape hatch.
+describe('#4 claim before spend: a claim that cannot be written refuses the run', () => {
+  /** The host's own rejection string — a storage engine's vocabulary, never viewer copy. */
+  const HOST_SET_ERROR = 'QUOTA_EXCEEDED: app storage limit reached';
+
+  /**
+   * 🔴 EVERY CASE HERE RUNS AT TWO LATENCIES, AND THAT IS NOT REDUNDANCY. This
+   * fix is ORDERING-sensitive by its nature — its entire content is "the write
+   * completes before the spend starts" — and `fakeAppStorage` resolves in a
+   * MICROTASK by default while the real `useAppStorage` is a cross-origin
+   * `postMessage` bridge, i.e. at minimum a MACROTASK per call. A fake faster
+   * than the real transport is structurally unable to observe an ordering bug;
+   * this repo has already shipped one money-path backstop that was correct but
+   * armed too late to ever fire, green the whole way, for exactly that reason.
+   * `latencyMs` puts every KV call on a real macrotask.
+   */
+  const LATENCIES = [[0], [5]] as const;
+
+  it.each(LATENCIES)(
+    '🔴 HEADLINE: a claim write the host REJECTS means `submit` is NEVER called (latencyMs %i)',
+    async (latencyMs) => {
+      const submit = vi.fn(async () => processingSnap);
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage, store, sets, setAttempts } = fakeAppStorage(
+        {},
+        {},
+        {
+          latencyMs,
+          failSetTimes: 1,
+          failSetPrefix: 'inflight:v1:',
+          failSetError: HOST_SET_ERROR,
+        },
+      );
+      renderApp({
+        shared,
+        appStorage,
+        estimate: async () => estimateSnap,
+        submit,
+        poll: async () => succeededSnap(),
+        publish: async () => [],
+      });
+
+      await toConfirming();
+      await userEvent.click(screen.getByTestId('cell-confirm-run'));
+
+      // 🔴 THE ASSERTION THIS WHOLE CHANGE EXISTS TO PRODUCE. Before the fix the
+      // rejection happened AFTER this call and was swallowed; the spend went
+      // through, nothing was recorded, and the next load re-offered the cell.
+      expect(
+        submit,
+        'the claim write was rejected and the app SPENT ANYWAY — nothing is recorded, so the next load re-offers this cell and charges a second time',
+      ).not.toHaveBeenCalled();
+
+      // …and the viewer is told, in words they can act on, that the run did not
+      // start. A refusal nobody can see is the same silence as the bug.
+      const failed = await screen.findByTestId('cell-failed');
+      expect(failed).toHaveTextContent(CLAIM_FAILED_MESSAGE);
+
+      // 🔴 POSITIVE CONTROL ON THE PREMISE. "submit was not called" is a ZERO,
+      // and a zero is indistinguishable from a run that never got started at
+      // all — a mis-seeded fixture, a click that missed. `setAttempts` proves
+      // the app really did reach the claim write and really was refused there.
+      expect(
+        setAttempts.filter((s) => s.key === INFLIGHT_KEY),
+        'the app never even attempted the claim — this case is not exercising the refusal path',
+      ).toHaveLength(1);
+
+      // Nothing was persisted, which is what the host does on a rejection.
+      expect(store.has(INFLIGHT_KEY)).toBe(false);
+      expect(sets.filter((s) => s.key === INFLIGHT_KEY)).toHaveLength(0);
+    },
+  );
+
+  it.each(LATENCIES)(
+    'the claim is ALREADY DURABLE at the instant of the spend, and is upgraded with the workflowId after it (latencyMs %i)',
+    async (latencyMs) => {
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage, store, sets } = fakeAppStorage({}, {}, { latencyMs });
+
+      // 🔴 THE ORDERING PROOF, READ AT THE ONE INSTANT IT MATTERS. Asserting the
+      // store's contents after the run finishes cannot tell "claimed, then
+      // spent" from "spent, then recorded" — both end in the same state, and the
+      // second is the bug. So the spend itself reports what was durable when it
+      // was called.
+      let claimAtSpend: unknown = '<never read>';
+      let storedWritesAtSpend = -1;
+      const submit = vi.fn(async () => {
+        claimAtSpend = store.get(INFLIGHT_KEY) ?? null;
+        storedWritesAtSpend = sets.filter((s) => s.key === INFLIGHT_KEY).length;
+        return processingSnap;
+      });
+
+      renderApp({
+        shared,
+        appStorage,
+        estimate: async () => estimateSnap,
+        submit,
+        poll: () => new Promise<BlockWorkflowSnapshot>(() => {}), // never terminal
+        publish: async () => [],
+      });
+
+      await toConfirming();
+      await userEvent.click(screen.getByTestId('cell-confirm-run'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+
+      // The claim was WRITTEN — not merely started — before the money moved.
+      expect(
+        storedWritesAtSpend,
+        'the claim had not completed when submit was called — it was not awaited, so a rejection would still land after the spend',
+      ).toBe(1);
+      // …carrying the cell identity, and NO workflowId (there was none yet).
+      expect(claimAtSpend).toMatchObject({
+        comboKey: 'c1',
+        configId: 'cfgSeed',
+        promptKey: 'p1',
+        ecosystem: 'SDXL',
+      });
+      expect(claimAtSpend).not.toHaveProperty('workflowId');
+
+      // PHASE 2: the SAME key gains the workflowId once one exists.
+      await waitFor(() => expect(store.get(INFLIGHT_KEY)).toHaveProperty('workflowId', 'wf1'));
+      expect(store.get(INFLIGHT_KEY)).toMatchObject({ comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1' });
+      // Exactly one spend, as before the change.
+      expect(submit).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('never leaks the host storage error into the UI, and routes it to the developer console', async () => {
+    // Same split the estimate errors use: `set` rejects with the host's own
+    // error string, which is server-authored and speaks a storage engine's
+    // vocabulary. Useful to a developer, meaningless (and alarming) to a viewer.
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    try {
+      const submit = vi.fn(async () => processingSnap);
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage } = fakeAppStorage(
+        {},
+        {},
+        { failSetTimes: 1, failSetPrefix: 'inflight:v1:', failSetError: HOST_SET_ERROR },
+      );
+      renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+      await toConfirming();
+      await userEvent.click(screen.getByTestId('cell-confirm-run'));
+      const failed = await screen.findByTestId('cell-failed');
+
+      expect(failed.textContent ?? '').not.toContain('QUOTA_EXCEEDED');
+      const logged = debug.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+      expect(logged, 'the host reason was discarded entirely — a developer has nothing to diagnose with').toContain(
+        HOST_SET_ERROR,
+      );
+      expect(submit).not.toHaveBeenCalled();
+    } finally {
+      debug.mockRestore();
+    }
+  });
+
+  it('the two refusal messages are DIFFERENT strings, and both say nothing was spent', () => {
+    // 🔴 A guard that reports one constant for two different situations sends
+    // half its readers the wrong way — "try again later" is useless advice to
+    // someone who is merely signed out. Pinning them as distinct is what makes
+    // the branch in `confirmRun` real rather than prose.
+    expect(CLAIM_FAILED_MESSAGE).not.toBe(CLAIM_NO_VIEWER_MESSAGE);
+    for (const msg of [CLAIM_FAILED_MESSAGE, CLAIM_NO_VIEWER_MESSAGE]) {
+      expect(msg).toContain('no Buzz was spent');
+    }
+    // 🔴 …and the unknown copy must say the OPPOSITE, because it is the opposite
+    // situation. A claim that failed to write means the run never started; a
+    // claim that WROTE and then went quiet may well have started. Telling a
+    // viewer "nothing was spent" there is what sends them back to Run.
+    expect(RUN_UNKNOWN_MESSAGE).not.toContain('no Buzz was spent');
+    expect(RUN_UNKNOWN_MESSAGE.toLowerCase()).toContain('check your generations');
+  });
+
+  it.each(LATENCIES)(
+    '🔴 a CLAIM-ONLY entry found by the PRE-SPEND read does NOT spend — it renders unknown (latencyMs %i)',
+    async (latencyMs) => {
+      // 🔴 THE HOLE THE FIX WOULD OTHERWISE HAVE LEFT OPEN. The pre-spend read
+      // gated on `persisted?.workflowId`, so a claim-only entry — the record
+      // that means "we may already have charged you" — fell straight through
+      // and spent. The rehydrate is armed here (its listing throws), so this is
+      // the backstop's own path.
+      const submit = vi.fn(async () => processingSnap);
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage } = fakeAppStorage(
+        {
+          // No workflowId: an unresolved claim from a prior session.
+          [INFLIGHT_KEY]: { comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+        },
+        {},
+        { latencyMs, failListTimes: 1, failListPrefix: 'inflight:v1:' },
+      );
+      renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      const grid = await screen.findByTestId('results-grid');
+
+      // POSITIVE CONTROL ON THE PREMISE: the rehydrate really did fail, so the
+      // cell really is empty and runnable and the backstop is what is under test.
+      const runCell = await within(grid).findByTestId('run-cell');
+      expect(within(grid).queryByTestId('cell-unknown')).toBeNull();
+
+      await userEvent.click(runCell);
+      await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
+      // Settle on something BOTH arms reach — the confirm control unmounts
+      // whether the app spent or refused.
+      await waitFor(() => expect(within(grid).queryByTestId('cell-confirm-run')).toBeNull());
+
+      expect(
+        submit,
+        'spent on a cell carrying an unresolved claim — the one cell we have positive evidence may already have been charged',
+      ).not.toHaveBeenCalled();
+      expect(
+        within(grid).queryByTestId('cell-unknown'),
+        'the pre-spend read did not adopt the claim-only record as unknown',
+      ).toBeInTheDocument();
+      expect(within(grid).getByTestId('cell-unknown')).toHaveTextContent(RUN_UNKNOWN_MESSAGE);
+      expect(within(grid).queryByTestId('run-cell')).toBeNull();
+      // No workflowId ⇒ nothing to resume-poll, so no resume control is offered.
+      expect(
+        within(grid).queryByTestId('cell-resume-run'),
+        'a claim with no workflowId was adopted as a RESUMABLE run — there is no workflow to poll, so that control is a dead end',
+      ).toBeNull();
+    },
+  );
+
+  it.each(LATENCIES)(
+    '🔴 a CLAIM-ONLY entry found by the REHYDRATE SCAN renders unknown, not empty+runnable (latencyMs %i)',
+    async (latencyMs) => {
+      // 🔴 THE OTHER READER OF THE SAME STORE, and it had the same gate:
+      // `if (!entry || typeof entry.workflowId !== 'string' || !entry.workflowId) return;`
+      // Left alone, a claim-only entry was silently SKIPPED and the cell
+      // rendered empty and runnable — the fix would have shipped with the bug it
+      // exists to fix still reachable one layer up.
+      const submit = vi.fn(async () => processingSnap);
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage } = fakeAppStorage(
+        { [INFLIGHT_KEY]: { comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' } },
+        {},
+        { latencyMs },
+      );
+      renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      const grid = await screen.findByTestId('results-grid');
+
+      await waitFor(() =>
+        expect(
+          within(grid).queryByTestId('cell-unknown'),
+          'the rehydrate scan SKIPPED a claim-only record — the cell renders empty and runnable, which is exactly the double charge',
+        ).toBeInTheDocument(),
+      );
+      expect(within(grid).getByTestId('cell-unknown')).toHaveTextContent(RUN_UNKNOWN_MESSAGE);
+      expect(within(grid).getByTestId('grid-cell')).toHaveAttribute('data-state', 'running');
+      // The cell is NOT re-offered — this is the whole point.
+      expect(within(grid).queryByTestId('run-cell')).toBeNull();
+      // …and rehydration never auto-adopts or auto-runs it.
+      expect(submit).not.toHaveBeenCalled();
+      expect(
+        within(grid).queryByTestId('cell-stalled'),
+        'a claim with no workflowId was rehydrated as a RESUMABLE run — there is no workflow to poll',
+      ).toBeNull();
+    },
+  );
+
+  it('a submit that THROWS leaves the claim in place and renders unknown — not failed', async () => {
+    // 🔴 THE SECOND HOLE THE TWO-PHASE WRITE CLOSES, and the one that decides
+    // which state the viewer lands in. A thrown `submit` is NOT evidence the
+    // spend did not happen: the request may have reached the host and succeeded
+    // with only the response lost. Rendering that as `failed` invites the re-run
+    // — and clearing the claim would let the NEXT load offer the cell as empty
+    // and runnable, which is the same double charge by a slower route.
+    const submit = vi.fn(async () => {
+      throw new Error('network went away');
+    });
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, store } = fakeAppStorage({}, {}, { latencyMs: 2 });
+    renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+    await toConfirming();
+    await userEvent.click(screen.getByTestId('cell-confirm-run'));
+
+    // The message-carrying assertion goes FIRST, deliberately: a bare
+    // `findByTestId` here would kill a mutant with "Unable to find an element",
+    // which names the symptom rather than the hazard.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId('cell-unknown'),
+        'a lost response was reported as a definite failure — that is what sends a viewer back to Run, into a real second charge',
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('cell-unknown')).toHaveTextContent(RUN_UNKNOWN_MESSAGE);
+    expect(screen.queryByTestId('cell-failed')).toBeNull();
+
+    // 🔴 THE CLAIM SURVIVES. Without it the next load finds nothing and re-offers
+    // the cell; with it the cell rehydrates as unknown, which is the safe state.
+    expect(
+      store.has(INFLIGHT_KEY),
+      'the claim was cleared after a submit whose outcome is unknown — the next load will re-offer this cell',
+    ).toBe(true);
+    expect(store.get(INFLIGHT_KEY)).not.toHaveProperty('workflowId');
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('a DEFINITE host failure clears the claim — an unresolvable cell is not left behind', async () => {
+    // 🔴 THE MIRROR OF THE CASE ABOVE, and the reason the two are separate
+    // branches rather than one catch-all. Here the host ANSWERED: the workflow
+    // exists and failed. There is nothing left to resolve, so leaving the claim
+    // would strand the cell in `unknown` on every future load, forever — a safe
+    // state applied where it is simply wrong, which is how a money guard turns
+    // into a bricked feature.
+    const submit = vi.fn(async () => ({ workflowId: 'wf1', status: 'failed', error: 'no capacity' }) as BlockWorkflowSnapshot);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, store } = fakeAppStorage({}, {}, { latencyMs: 2 });
+    renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+    await toConfirming();
+    await userEvent.click(screen.getByTestId('cell-confirm-run'));
+
+    await screen.findByTestId('cell-failed');
+    expect(
+      screen.queryByTestId('cell-unknown'),
+      'a definite host failure was rendered as unknown — there is nothing ambiguous about it',
+    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        store.has(INFLIGHT_KEY),
+        'the claim outlived a run the host definitively failed — this cell rehydrates as unknown forever',
+      ).toBe(false),
+    );
+  });
+
+  it('a MALFORMED stored record does not abort the scan and orphan the records after it', async () => {
+    // 🔴 A CORRUPT ROW MUST NOT SILENTLY DISABLE THE WHOLE GUARD. The rehydrate
+    // reads untrusted JSON out of the store, and its outer `catch` is a
+    // best-effort swallow — so a single record that throws while being inspected
+    // takes down the ENTIRE scan, and every cell after it renders empty and
+    // runnable with no error anywhere. That is a fleet-wide double-charge
+    // exposure created by one bad row, which is why the shape check is a real
+    // guard and not decoration.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage } = fakeAppStorage(
+      {
+        // Sorts ahead of the real key, so an abort here never reaches it.
+        'inflight:v1:aaa-corrupt': null,
+        [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+      },
+      {},
+      { latencyMs: 2 },
+    );
+    renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+
+    await waitFor(() =>
+      expect(
+        within(grid).queryByTestId('cell-stalled'),
+        'the live run after the corrupt record was never rehydrated — the scan aborted on it, and this cell is now empty and runnable',
+      ).toBeInTheDocument(),
+    );
+    expect(within(grid).queryByTestId('run-cell')).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each(LATENCIES)(
+    'the ESCAPE HATCH is deliberate and it WORKS: dismiss clears the claim, and only then can the cell run again (latencyMs %i)',
+    async (latencyMs) => {
+      // 🔴 A safe state with no way out is its own defect: a claim that can never
+      // be resolved would brick the cell for the life of the app. The exit must
+      // exist — and it must be an act, never a default. So: no auto-clear, and
+      // after the explicit dismiss the cell is genuinely runnable again (a spend
+      // really happens), which is what proves the hatch is not cosmetic.
+      const submit = vi.fn(async () => processingSnap);
+      const { shared } = fakeShared({ seed: seedRows() });
+      const { appStorage, store } = fakeAppStorage(
+        { [INFLIGHT_KEY]: { comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' } },
+        {},
+        { latencyMs },
+      );
+      renderApp({
+        shared,
+        appStorage,
+        estimate: async () => estimateSnap,
+        submit,
+        poll: () => new Promise<BlockWorkflowSnapshot>(() => {}),
+        publish: async () => [],
+      });
+
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      const grid = await screen.findByTestId('results-grid');
+      await waitFor(() => expect(within(grid).getByTestId('cell-unknown')).toBeInTheDocument());
+      expect(submit, 'the unknown state ran on its own — the exit must be deliberate').not.toHaveBeenCalled();
+
+      await userEvent.click(within(grid).getByTestId('cell-unknown-dismiss'));
+
+      // The stale claim is GONE from the store — otherwise the next load walks
+      // straight back into the unknown state and the hatch achieved nothing.
+      await waitFor(() =>
+        expect(
+          store.has(INFLIGHT_KEY),
+          'dismiss cleared the SCREEN but not the STORE — the next load walks straight back into the unknown state and the hatch achieved nothing',
+        ).toBe(false),
+      );
+
+      // …and the cell is runnable again, for real.
+      const runCell = await within(grid).findByTestId('run-cell');
+      await userEvent.click(runCell);
+      await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
