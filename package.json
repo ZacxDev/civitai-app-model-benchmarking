@@ -1,7 +1,7 @@
 {
   "name": "model-benchmarking",
   "private": true,
-  "version": "0.3.8",
+  "version": "0.3.9",
   "type": "module",
   "description": "Model Benchmarking \u2014 a Civitai App Block (full-page). A crowdsourced model-comparison grid: users submit + vote on checkpoint+LoRA COMBINATIONS and multi-ecosystem PROMPTS; the top-voted set forms a combinations\u00d7prompts matrix; anyone can run an included cell (matched to the combo's ecosystem) and the outputs publish to a SHARED grid so every model compares side-by-side on identical prompts. Phase 1 = crowdsourced submit/vote/run/browse.",
   "license": "Apache-2.0",

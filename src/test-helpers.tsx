@@ -190,15 +190,46 @@ export function fakeAppStorage(
     failListPrefix?: string;
     pageSize?: number;
     latencyMs?: number;
+    /**
+     * Make `set()` REJECT for keys under `failSetPrefix` (all keys when the
+     * prefix is omitted), `failSetTimes` times.
+     *
+     * 🔴 THE ONE SDK FAILURE THIS FAKE COULD NOT EXPRESS, and it is the money
+     * one. `UseAppStorage.set` "Rejects with the host's `error` string when the
+     * value exceeds 64KB, when the per-app 50MB quota would be crossed, or when
+     * the viewer is anonymous" — and the app persists its in-flight run through
+     * exactly that call. With `set` hardcoded to resolve, every test drove the
+     * happy path and the rejecting branch was unreachable from any test in the
+     * repo, in either direction. That is not a rare branch either: the quota is
+     * per-APP while the data is per-(block instance, viewer), so one viewer at
+     * the ceiling makes the write reject for EVERY viewer at once.
+     *
+     * On rejection NOTHING is written — no store mutation, no `sets` entry —
+     * which is what the host does and what makes the downstream reads find
+     * nothing. Use `setAttempts` (below) to assert the app nonetheless TRIED.
+     */
+    failSetTimes?: number;
+    failSetPrefix?: string;
+    /** The host's error string. Not viewer copy — a test asserts it never renders. */
+    failSetError?: string;
   } = {},
 ) {
   const store = new Map<string, unknown>(Object.entries(seed));
   const sets: Array<{ key: string; value: unknown }> = [];
+  /**
+   * Every `set()` ATTEMPT in call order, successful or not — the positive
+   * control for a rejecting write. `sets` records only what was actually
+   * STORED, so on the rejecting path it stays empty and cannot distinguish "the
+   * app tried and the host refused" from "the app never tried", which is the
+   * whole question when asserting a claim happened BEFORE a spend.
+   */
+  const setAttempts: Array<{ key: string; value: unknown }> = [];
   const deletes: string[] = [];
   /** Every `get()` key, in call order — lets a test assert a read did NOT happen. */
   const gets: string[] = [];
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
   let listFailuresLeft = opts.failListTimes ?? 0;
+  let setFailuresLeft = opts.failSetTimes ?? 0;
   /** One macrotask hop per call when `latencyMs` is set; a no-op otherwise. */
   const hop = (): Promise<void> =>
     opts.latencyMs === undefined
@@ -211,7 +242,17 @@ export function fakeAppStorage(
       return (store.has(key) ? (store.get(key) as T) : null) as T | null;
     },
     async set<T = unknown>(key: string, value: T) {
+      setAttempts.push({ key, value });
       await hop();
+      const targeted =
+        opts.failSetPrefix === undefined || key.startsWith(opts.failSetPrefix);
+      if (setFailuresLeft > 0 && targeted) {
+        setFailuresLeft -= 1;
+        // 🔴 REJECT BEFORE WRITING — the host stores nothing when it refuses, and
+        // a fake that stored anyway would leave the downstream reads finding a
+        // row that does not exist in production.
+        throw new Error(opts.failSetError ?? 'QUOTA_EXCEEDED');
+      }
       store.set(key, value);
       sets.push({ key, value });
       return { ok: true as const };
@@ -257,7 +298,7 @@ export function fakeAppStorage(
       };
     },
   };
-  return { appStorage, sets, deletes, gets, store, listCalls };
+  return { appStorage, sets, setAttempts, deletes, gets, store, listCalls };
 }
 
 /**
