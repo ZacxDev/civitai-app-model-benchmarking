@@ -493,7 +493,7 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // it — and a scan over that state finds no pointer, deletes nothing, and
     // never re-checks. Same empty list, same silence, from two more realistic
     // routes: withdrawing before the mount effect has resolved at all, and a
-    // viewer with more drafts than `DRAFT_MAX_PAGES` pages. The pointer is real
+    // viewer with more drafts than `KV_MAX_PAGES` pages. The pointer is real
     // in every one of them, which is why the lookup goes to the store.
     //
     // `failListTimes: 1` fails ONLY the mount effect's list; the withdraw-time

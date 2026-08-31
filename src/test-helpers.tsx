@@ -173,30 +173,58 @@ export function fakeAppStorage(
    * one host page is a real case (it is one of the three reasons the pointer
    * lookup reads the store at all), so set this in any test that cares about
    * page 2.
+   *
+   * 🔴 `latencyMs` PUTS EVERY KV CALL ON A MACROTASK, and without it this fake is
+   * STRUCTURALLY UNABLE to see an ordering bug. The real `useAppStorage` is a
+   * cross-origin `postMessage` bridge, so every call is at minimum a macrotask;
+   * this fake resolves in a MICROTASK, which makes a long serial scan look
+   * instantaneous. That difference hid a live 🔴 money bug: a backstop armed
+   * only when the in-flight scan FINISHED passed every test here, while in
+   * production a Confirm landing during the scan — the truncated case is the
+   * slowest, up to 20 `list` calls plus a `get` per key — read the un-armed flag
+   * and spent. Set this on any test of a guard whose correctness depends on
+   * WHEN state becomes true.
    */
-  opts: { failListTimes?: number; failListPrefix?: string; pageSize?: number } = {},
+  opts: {
+    failListTimes?: number;
+    failListPrefix?: string;
+    pageSize?: number;
+    latencyMs?: number;
+  } = {},
 ) {
   const store = new Map<string, unknown>(Object.entries(seed));
   const sets: Array<{ key: string; value: unknown }> = [];
   const deletes: string[] = [];
+  /** Every `get()` key, in call order — lets a test assert a read did NOT happen. */
+  const gets: string[] = [];
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
   let listFailuresLeft = opts.failListTimes ?? 0;
+  /** One macrotask hop per call when `latencyMs` is set; a no-op otherwise. */
+  const hop = (): Promise<void> =>
+    opts.latencyMs === undefined
+      ? Promise.resolve()
+      : new Promise((r) => setTimeout(r, opts.latencyMs));
   const appStorage: UseAppStorage = {
     async get<T = unknown>(key: string) {
+      gets.push(key);
+      await hop();
       return (store.has(key) ? (store.get(key) as T) : null) as T | null;
     },
     async set<T = unknown>(key: string, value: T) {
+      await hop();
       store.set(key, value);
       sets.push({ key, value });
       return { ok: true as const };
     },
     async delete(key: string) {
+      await hop();
       deletes.push(key);
       const deleted = store.delete(key);
       return { ok: true as const, deleted };
     },
     async list(listOpts?: { prefix?: string; limit?: number; cursor?: string }) {
       listCalls.push(listOpts);
+      await hop();
       const targeted =
         opts.failListPrefix === undefined || (listOpts?.prefix ?? '').startsWith(opts.failListPrefix);
       if (listFailuresLeft > 0 && targeted) {
@@ -229,7 +257,7 @@ export function fakeAppStorage(
       };
     },
   };
-  return { appStorage, sets, deletes, store, listCalls };
+  return { appStorage, sets, deletes, gets, store, listCalls };
 }
 
 /**
