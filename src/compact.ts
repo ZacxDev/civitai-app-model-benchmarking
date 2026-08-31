@@ -27,6 +27,22 @@ export const COMPACT_ATTR = 'data-mb-compact';
 export const MIN_TAP_TARGET_PX = 44;
 
 /**
+ * Side gutter, in px, left between a compact tooltip bubble and the viewport
+ * edge. The bubble is pinned to BOTH edges, so this is the whole horizontal
+ * inset and it is what makes the geometry viewport-bounded by construction
+ * rather than by luck.
+ */
+export const TOOLTIP_GUTTER_PX = 8;
+
+/**
+ * Vertical gap between a compact tooltip bubble's bottom and its trigger's top.
+ * 6 is the pack's own figure (`bottom: calc(100% + 6px)`); repeating it here
+ * keeps the bubble sitting exactly where it did, which is what "the bubble
+ * stays in its trigger's row" means once the horizontal box is re-anchored.
+ */
+export const TOOLTIP_GAP_PX = 6;
+
+/**
  * The compact-layout stylesheet, scoped to a root carrying {@link COMPACT_ATTR}.
  *
  * Selector notes — both halves are load-bearing and both are pinned by
@@ -68,6 +84,56 @@ export const MIN_TAP_TARGET_PX = 44;
  * `[data-civitai-ui-range]` is the "Show top N" slider — 6px tall from the pack,
  * the smallest target on the page and the only control that changes what a
  * narrow-viewport reader SEES. It gets the same floor.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TOOLTIP BLOCK (`@supports (anchor-name: …)`)
+ * ---------------------------------------------------------------------------
+ *
+ * The pack renders an "Included" tooltip bubble as `position: absolute;
+ * left: 50%; transform: translateX(-50%); max-width: 260px` inside its trigger.
+ * A 260px box centred on a badge that can sit anywhere across the row falls off
+ * one edge or the other on a phone, and `pageStyle`'s `overflow-x: clip` then
+ * trims it with no scroll that reaches it. MEASURED in headless Chromium 144
+ * against `npm run dev:harness`, over EVERY Included badge on the Combinations
+ * and Prompts views (worst excursion per width):
+ *
+ *     320px  minLeft -58.7  maxRight 376.0   (58.7 off the left, 56.0 off the right)
+ *     380px  minLeft  71.1  maxRight 395.2   (15.2 off the right)
+ *     720px  minLeft  78.7  maxRight 402.8   (inside)
+ *
+ * 🔴 IT CLIPS ON BOTH EDGES, so the fix has to be CONDITIONAL on where the
+ * trigger sits — and NO position-independent CSS can be. Two dead ends, both
+ * measured, do not re-try them:
+ *
+ *   - WIDENING the bubble (`max-width: calc(100vw - 32px)`) is the WRONG
+ *     DIRECTION. The box is centred, so wider is MORE clipped: 320px went
+ *     38.9 -> 52.9px clipped and 380/480/720 went from 0 clipped to
+ *     22.9 / 77.0 / 160.6. Shipped as 4418d29, reverted in faa5ed7.
+ *   - PLAIN `position: fixed` with `top/bottom: auto` (i.e. relying on the
+ *     static position for the vertical) is correct at rest and WRONG the moment
+ *     the page scrolls: the static position is resolved once at layout, so the
+ *     bubble detaches from its trigger. Measured at a 380px viewport, gap
+ *     (trigger.top − bubble.bottom): 6 at scrollY 0, then −54 / −194 / −394 at
+ *     scrollY 60 / 200 / 400. Anchor positioning is re-evaluated per frame and
+ *     holds the gap at 6 across all of those.
+ *
+ * So: `position: fixed` pinned to BOTH viewport edges (bounded by construction,
+ * whatever the trigger's x), with the VERTICAL taken from the anchor so the
+ * bubble stays in its trigger's row. After, at every badge on both views:
+ * left 8, right = clientWidth − 8, gap 6, at 320 / 380 / 720.
+ *
+ * 🔴 `anchor-scope` IS LOAD-BEARING, NOT DECORATION. Several triggers share one
+ * `anchor-name`, and without a scope every bubble resolves to the LAST such
+ * element in tree order. Measured control — the same run with only
+ * `anchor-scope` removed: gaps became [−357.8, −190.9, 6] instead of [6],
+ * i.e. two of three bubbles flew 190–358px away from their own badge.
+ *
+ * The whole block is behind `@supports` on purpose. `anchor()` is invalid in a
+ * browser without anchor positioning, so that one declaration would be dropped
+ * while `position: fixed` still applied — and the pack's own
+ * `bottom: calc(100% + 6px)` would then resolve against the VIEWPORT and throw
+ * the bubble off the top of the screen. Guarded, such a browser keeps today's
+ * behaviour: still clipped, but never worse.
  */
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
@@ -77,4 +143,22 @@ export const compactTapTargetCss = (): string => `
   height: auto;
 }
 
+@supports (anchor-name: --mb-tooltip) and (bottom: anchor(top)) {
+  [${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] {
+    anchor-name: --mb-tooltip;
+    anchor-scope: --mb-tooltip;
+  }
+
+  [${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] {
+    position: fixed;
+    position-anchor: --mb-tooltip;
+    top: auto;
+    bottom: calc(anchor(top) + ${TOOLTIP_GAP_PX}px);
+    left: ${TOOLTIP_GUTTER_PX}px;
+    right: ${TOOLTIP_GUTTER_PX}px;
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+}
 `;

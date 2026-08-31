@@ -13,9 +13,10 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
+import { draftKey } from './lib/drafts.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
@@ -168,6 +169,140 @@ describe('withdraw: the author removes their OWN prompt', () => {
 
     await waitFor(() => expect(screen.queryByTestId('prompt-card')).toBeNull());
     expect(withdraws).toEqual(['p1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Withdrawing a row the viewer SUBMITTED FROM A DRAFT: the pointer must go with
+// it, but ONLY on success.
+// ---------------------------------------------------------------------------
+//
+// 🔴 THE DEFECT. Submit rewrites a draft to a POINTER — `{localId, sharedKey,
+// submittedAt}` — and DROPS `configs` (see `submittedPointer`). Withdraw the
+// row it points at and the drafts panel kept rendering a card reading
+// "Submitted / Live on the board. Edits keep its votes." for a row that no
+// longer exists — and with ZERO buttons, because its only action ("Edit the
+// live one") is gated on the shared row being loaded. Unremovable, false, and
+// still consuming a quota row. Since `configs` were dropped there is nothing to
+// restore, so the pointer is deleted rather than tombstoned.
+//
+// 🔴 THE ORDER IS THE GUARD, and the second test below is the one that matters:
+// clear the pointer BEFORE the host confirms and this fix becomes a data-loss
+// bug — a transient network failure would destroy the viewer's only handle on a
+// row that is still live (shared keys are host-minted, and the shared list has
+// no "mine" index, so the handle is unrecoverable).
+//
+// RED/GREEN, MEASURED. With `src/App.tsx` restored to 55f9825 and this file at
+// HEAD: `Tests 1 failed | 8 passed (9)`. Only the FIRST case below is red at
+// base — at base nothing clears the pointer, so the two guards are green there
+// for the trivial reason that the code they guard does not exist. They are
+// therefore NOT regression coverage, and each was instead MUTATION-KILLED
+// against HEAD, one at a time, each dying with its OWN assertion:
+//
+//   - clear the pointer BEFORE `await shared.withdraw(key)`
+//       -> "SURVIVES a withdraw the host REJECTS" fails:
+//          expected [ 'draft:v1:l1' ] to not include 'draft:v1:l1'   (1 failed | 8 passed)
+//   - drop the `d.sharedKey === sharedKey` match from `clearDraftPointerFor`
+//       -> "touches NO draft when a PROMPT is withdrawn" fails:
+//          expected [ 'draft:v1:l1' ] to deeply equal []             (1 failed | 8 passed)
+//
+// Each mutant killed exactly ONE case, so neither is passing off another
+// guard's error as its own.
+const LIVE_KEY = 'mine';
+const POINTER_LOCAL_ID = 'l1';
+const pointer = { v: 1, localId: POINTER_LOCAL_ID, sharedKey: LIVE_KEY, submittedAt: '2026-08-30T00:00:00.000Z' };
+
+describe('withdraw: the draft pointer at the withdrawn row', () => {
+  it('is DELETED once the host confirms the withdraw', async () => {
+    const { shared, withdraws } = fakeShared({
+      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
+    });
+    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
+    renderApp({ shared, appStorage });
+
+    // The orphan-to-be is on screen first, so its absence below is the fix
+    // acting and not a card that never rendered.
+    await screen.findByTestId('draft-submitted');
+
+    const card = await screen.findByTestId('combo-card');
+    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+    // The per-viewer KV really was told to drop the pointer…
+    await waitFor(() => expect(deletes).toContain(draftKey(POINTER_LOCAL_ID)));
+    // …the key is gone from the store (so it stops costing a quota row)…
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(false);
+    // …and the buttonless "Live on the board" card is off the screen.
+    await waitFor(() => expect(screen.queryByTestId('draft-submitted')).toBeNull());
+  });
+
+  it('🔴 SURVIVES a withdraw the host REJECTS — the row is still live, so the handle stays', async () => {
+    // The whole point of doing the delete AFTER the await. If the pointer were
+    // cleared first (or unconditionally), this is the case that loses data: the
+    // shared row still exists and the viewer has just lost their only handle on
+    // it.
+    const { shared, withdraws } = fakeShared({
+      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
+    });
+    const rejecting: UseSharedStorage = {
+      ...shared,
+      async withdraw(key: string) {
+        withdraws.push(key);
+        throw new Error('host refused the withdraw');
+      },
+    };
+    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
+
+    // WithdrawButton awaits `onWithdraw` in a try/finally with no catch, so a
+    // rejecting host surfaces as an unhandled rejection out of React's click
+    // handler. That is pre-existing behaviour and not what this test is about —
+    // swallow it for the duration so the assertions below are what decides.
+    const swallow = (): void => {};
+    process.on('unhandledRejection', swallow);
+    try {
+      renderApp({ shared: rejecting, appStorage });
+      await screen.findByTestId('draft-submitted');
+
+      const card = await screen.findByTestId('combo-card');
+      await userEvent.click(within(card).getByTestId('combo-withdraw'));
+      await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+      // The app DID try — so the assertions below are about what happened after
+      // the failure, not about a click that never landed.
+      await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+
+      // 🔴 THE POINTER IS UNTOUCHED.
+      expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
+      expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+      expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
+      // …and the row it points at is still on the public board.
+      expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+    } finally {
+      process.off('unhandledRejection', swallow);
+    }
+  });
+
+  it('touches NO draft when a PROMPT is withdrawn (the same handler serves both views)', async () => {
+    // `withdrawRow` is wired to onWithdraw on BOTH CombosView and PromptsView.
+    // Prompts have no drafts at all, and a prompt's host-minted key matches no
+    // pointer — so the per-viewer store must not be written to at all.
+    const { shared, withdraws } = fakeShared({
+      seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)],
+    });
+    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
+    renderApp({ shared, appStorage });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    const card = await screen.findByTestId('prompt-card');
+    await userEvent.click(within(card).getByTestId('prompt-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual(['p1']));
+    await waitFor(() => expect(screen.queryByTestId('prompt-card')).toBeNull());
+    // An unrelated combination's pointer is not collateral damage.
+    expect(deletes).toEqual([]);
+    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
   });
 });
 

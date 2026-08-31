@@ -35,6 +35,18 @@
 //     Tests  9 failed | 7 passed (16)   at 180901a
 //     Tests  16 passed (16)             at HEAD
 //
+// UPDATE (the compact-tooltip rule, 4 cases added — 16 -> 20). Measured the
+// same way, with `src/compact.ts` restored to 55f9825 and this file at HEAD:
+//
+//     Tests  3 failed | 17 passed (20)  at 55f9825
+//     Tests  20 passed (20)             at HEAD
+//
+// The 3 that go red are the tooltip rule's regression coverage (the verbatim
+// rule, the @supports guard, the gutter/gap literals). The 4th tooltip case is
+// GREEN AT BASE and labelled INVARIANT GUARD where it sits — the pack renders
+// those attributes regardless of our rule, so it guards a pack rename, not this
+// fix.
+//
 // 🔴 RE-MEASURED at each round, and that is the point of writing it down. The
 // audit rounds added cases (12 -> 15 -> 16), and a matrix left at its round-1
 // numbers (`7 failed | 5 passed (12)`) silently stopped describing this file:
@@ -60,7 +72,13 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App } from './App.js';
-import { COMPACT_ATTR, MIN_TAP_TARGET_PX, compactTapTargetCss } from './compact.js';
+import {
+  COMPACT_ATTR,
+  MIN_TAP_TARGET_PX,
+  TOOLTIP_GAP_PX,
+  TOOLTIP_GUTTER_PX,
+  compactTapTargetCss,
+} from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
@@ -370,5 +388,127 @@ describe('420 — the 44px figure itself', () => {
     for (const r of ranges) {
       expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The compact tooltip rule.
+// ---------------------------------------------------------------------------
+//
+// 🔴 THESE CASES DELIBERATELY ASSERT THE CSS RULE, NOT THE LAYOUT, and that is
+// the honest ceiling here for the reason stated at the top of this file: jsdom
+// performs NO layout, so `getBoundingClientRect()` is 0x0 and NO case in this
+// file can observe the horizontal overflow the rule exists to remove. A vitest
+// case that appeared to measure it would be measuring zeroes. The geometry is a
+// LIVE BROWSER MEASUREMENT (headless Chromium 144 driving `npm run dev:harness`)
+// and its numbers live on the PR. For the record, over EVERY "Included" badge on
+// both the Combinations and Prompts views, worst excursion per width:
+//
+//                  BEFORE                          AFTER
+//     320px  minLeft -58.7  maxRight 376.0    minLeft 8  maxRight 312
+//     380px  minLeft  71.1  maxRight 395.2    minLeft 8  maxRight 372
+//     720px  minLeft  78.7  maxRight 402.8    minLeft 8  maxRight 712
+//
+// (clientWidth is 320 / 380 / 720; the bubble-to-trigger gap is 6px before AND
+// after, at every width, which is what "stays in its trigger's row" means.)
+// Two further live results the rule's shape depends on, both in the src/compact.ts
+// comment: plain `position: fixed` drifts on scroll (gap 6 -> -394 at scrollY
+// 400) and `anchor-scope` is load-bearing (its removal sends 2 of 3 bubbles
+// 190-358px away from their own badge).
+describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)', () => {
+  /** The `@supports` block, normalised to single spaces. */
+  const tooltipBlock = (): string => {
+    const css = compactTapTargetCss();
+    const start = css.indexOf('@supports');
+    if (start < 0) return '';
+    // Walk braces so the assertion covers the WHOLE block, nested rules and all.
+    let depth = 0;
+    for (let i = css.indexOf('{', start); i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return css.slice(start, i + 1).replace(/\s+/g, ' ').trim();
+      }
+    }
+    return '';
+  };
+
+  it('emits the whole rule, verbatim', () => {
+    // 🔴 The WHOLE normalised block is pinned rather than keywords. Every
+    // declaration in it is load-bearing and several are load-bearing in a way a
+    // keyword check cannot see:
+    //   - `left`/`right` BOTH set (with `width: auto`, `max-width: none`) is
+    //     what bounds the box by construction; keeping either one alone
+    //     re-opens the defect on that edge.
+    //   - `top: auto` is what lets `bottom` decide the vertical at all.
+    //   - `transform: none` retires the pack's `translateX(-50%)`, which is the
+    //     centring that caused the clipping.
+    //   - `anchor-scope` stops every bubble resolving to the LAST shared
+    //     `anchor-name` in tree order (measured: 2 of 3 bubbles fly 190-358px
+    //     away without it).
+    // A reword or a dropped declaration therefore fails here rather than
+    // shipping a tooltip nobody can read.
+    expect(tooltipBlock()).toBe(
+      "@supports (anchor-name: --mb-tooltip) and (bottom: anchor(top)) { " +
+        `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] { ` +
+        'anchor-name: --mb-tooltip; anchor-scope: --mb-tooltip; } ' +
+        `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] { ` +
+        'position: fixed; position-anchor: --mb-tooltip; top: auto; ' +
+        'bottom: calc(anchor(top) + 6px); left: 8px; right: 8px; ' +
+        'width: auto; max-width: none; transform: none; } }',
+    );
+  });
+
+  it('is behind an @supports guard — an unsupporting browser must get NOTHING', () => {
+    // 🔴 NOT cosmetic. `anchor()` is invalid without anchor positioning, so that
+    // ONE declaration would be dropped while `position: fixed` still applied —
+    // and the pack's own `bottom: calc(100% + 6px)` would then resolve against
+    // the VIEWPORT and throw the bubble off the top of the screen. Ungated, this
+    // fix breaks the tooltip outright on every browser it cannot help.
+    const block = tooltipBlock();
+    expect(block.startsWith('@supports ')).toBe(true);
+    expect(block).toContain('(anchor-name: --mb-tooltip)');
+    expect(block).toContain('(bottom: anchor(top))');
+
+    // 🔴 Nothing from the block may leak OUTSIDE the guard — an anchor
+    // declaration that escaped it is exactly the failure mode described above.
+    // Compare like with like: normalise the whole sheet, then cut the (already
+    // normalised) block out of it. Not vacuous — if `tooltipBlock()` returned
+    // nothing the cut is a no-op and both assertions below go red.
+    const whole = compactTapTargetCss().replace(/\s+/g, ' ').trim();
+    expect(whole).toContain(block);
+    const outside = whole.replace(block, '');
+    expect(outside).not.toContain('anchor-name');
+    expect(outside).not.toContain('position-anchor');
+  });
+
+  it('the gutter and gap figures are the literals, not whatever the constants say', () => {
+    // Same trap the 44px case exists for: the CSS input and an assertion bound
+    // that share a symbol cannot check each other.
+    expect(TOOLTIP_GUTTER_PX).toBe(8);
+    expect(TOOLTIP_GAP_PX).toBe(6);
+  });
+
+  it('INVARIANT GUARD (passes at base too): both compact tooltip selectors match live nodes', async () => {
+    // 🔴 Labelled honestly: this is GREEN AT BASE and is therefore NOT
+    // regression coverage for the tooltip fix — the pack renders these
+    // attributes whether or not our rule exists. Its job is the one the three
+    // cases above cannot do: the rule text is worthless if the pack renames its
+    // attributes, so prove each selector reaches the real rendered tooltip.
+    // Needs no layout, only the DOM. The Combinations view badges its top-N
+    // "Included".
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('combos-list');
+
+    const triggers = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip']`,
+    );
+    expect(triggers.length).toBeGreaterThan(0);
+
+    const bubbles = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble]`,
+    );
+    expect(bubbles.length).toBeGreaterThan(0);
   });
 });

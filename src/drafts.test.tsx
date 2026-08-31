@@ -350,6 +350,33 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
     expect(line).not.toHaveTextContent('1,000,000');
   });
 
+  it('renders the WHOLE line, and does not call the app-wide figures the viewer’s own', async () => {
+    // 🔴 THE DEFECT: this line used to open "Private to you — 3.0 MB of 12 MB
+    // used, …", fusing a TRUE per-viewer privacy claim onto APP-WIDE totals.
+    // `useAppStorage`'s contract keeps those scopes apart — `get()` reads "the
+    // current (block instance, viewer) tuple", but `set()` rejects "when the
+    // per-app 50MB quota would be crossed" — and it was confirmed live on
+    // 2026-08-31: viewers 8753561 and 11025902 saw byte-identical quota lines,
+    // including a row count that had just moved 27 -> 28 because of the FIRST
+    // viewer's draft. The drafts are private; the numbers are not.
+    //
+    // 🔴 Pinned as the WHOLE NORMALISED STRING rather than keywords: a keyword
+    // assertion is walkable by a reword that re-fuses the two clauses. A
+    // cosmetic reword therefore fails this test, which is the intended price.
+    const { appStorage } = fakeAppStorage(
+      {},
+      { usedBytes: 1024 * 1024 * 3, limitBytes: 1024 * 1024 * 12, limitRows: 4321 },
+    );
+    renderApp({ shared: fakeShared().shared, appStorage });
+
+    const line = await screen.findByTestId('drafts-quota');
+    const normalised = (line.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(normalised).toBe(
+      'Drafts are private to you. Storage is app-wide, shared with every other viewer: ' +
+        '3.0 MB of 12 MB used, 0 of 4,321 rows.',
+    );
+  });
+
   it('shows no quota line at all when the host has not answered', async () => {
     // A refusing getQuota() must leave the number OFF, never fall back to a guess.
     const base = fakeAppStorage();

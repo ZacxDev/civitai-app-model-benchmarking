@@ -88,6 +88,7 @@ import {
   draftToInput,
   DRAFT_PREFIX,
   formatQuota,
+  isSubmitted,
   newDraftLocalId,
   parseDraft,
   sortDrafts,
@@ -379,6 +380,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // (the row is world-readable the instant it is appended, and `data` is not
   // moderated). Submit — and only submit — copies a draft onto the public board.
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
+  // Mirror of `drafts` for looking a pointer up OUTSIDE the render closure, so
+  // the withdraw path can find the pointer at a shared key without
+  // re-subscribing (and re-creating) `withdrawRow` on every drafts refresh.
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
   const [quota, setQuota] = useState<AppStorageQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
@@ -536,14 +542,54 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // the same author check, so this only carries the confirmed intent through.
   // Mirrors the submit path: host mutation → optimistic reconcile → track →
   // reload.
+  /**
+   * Drop the per-viewer draft POINTER at a shared row that no longer exists.
+   *
+   * 🔴 A submitted draft is rewritten to `{localId, sharedKey, submittedAt}` and
+   * its `configs` are DROPPED (see `submittedPointer`). So once the row it
+   * points at is withdrawn there is nothing left to restore and nothing left to
+   * act on: the drafts panel rendered a card claiming "Live on the board" for a
+   * row that is gone, with NO buttons at all (its only action, "Edit the live
+   * one", is gated on the row being loaded), and it still consumed a quota row.
+   * An unremovable card asserting a live board entry that does not exist is
+   * worse than no card, so the pointer goes.
+   *
+   * Scope, deliberately narrow: the ONLY pointer touched is one whose
+   * `sharedKey` equals the withdrawn key. `withdrawRow` serves both the
+   * combinations and the prompts surface, and prompts have no drafts at all —
+   * a prompt's host-minted key matches no pointer, so `find` returns undefined
+   * and `appStorage.delete` is never even called.
+   */
+  const clearDraftPointerFor = useCallback(
+    async (sharedKey: string) => {
+      const orphan = draftsRef.current.find((d) => isSubmitted(d) && d.sharedKey === sharedKey);
+      if (!orphan) return;
+      try {
+        // Idempotent per the SDK: deleting a key that isn't set resolves
+        // `{deleted: false}` rather than throwing.
+        await depsRef.current.appStorage.delete(draftKey(orphan.localId));
+      } catch {
+        /* best-effort — a KV failure must not report the (successful) withdraw as failed */
+      }
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
   const withdrawRow = useCallback(
     async (key: string) => {
+      // 🔴 ORDER IS THE GUARD: the pointer is cleared only AFTER the host has
+      // confirmed the withdraw. A rejecting `withdraw()` throws here and every
+      // line below — including the pointer delete — is skipped, so a failed
+      // withdraw leaves the viewer's only handle on their live row intact.
+      // Reversing these two lines turns this fix into a data-loss bug.
       await depsRef.current.shared.withdraw(key);
       optimisticDelete(key);
+      await clearDraftPointerFor(key);
       depsRef.current.track('withdraw');
       reload();
     },
-    [optimisticDelete, reload],
+    [optimisticDelete, reload, clearDraftPointerFor],
   );
 
   // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
