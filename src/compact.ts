@@ -149,10 +149,18 @@ export const TOOLTIP_GAP_PX = 6;
  * `position: fixed` dead end documented above (gap 6 -> −394 on scroll). No
  * shipping engine is known to be in that state — Chrome shipped `anchor-name`,
  * `position-anchor` and `anchor()` together in 125, `anchor-scope` in 131 — so
- * this closes a hole rather than a live bug. It costs one clause. The guard in
- * `mobile-responsive.test.tsx` now DERIVES the required set from this block's
- * own declarations instead of a hand-written list, so a fifth feature cannot be
- * added without being tested for.
+ * this closes a hole rather than a live bug. It costs one clause.
+ *
+ * The guard in `mobile-responsive.test.tsx` derives the required set from this
+ * block's own declarations — properties AND value functions — and asserts the
+ * whole CLAUSE, not the property name, plus that every clause is joined by
+ * `and`. 🔴 STATED HONESTLY, because an earlier version of this sentence
+ * ("there is no list left to forget to update") was WRONG twice over: two
+ * hand-written lists remain — `BASELINE_PROPS` and `BASELINE_FUNCS` — and they
+ * are inverted on purpose, so forgetting to add a MODERN feature is impossible
+ * while ADDING a modern name to either list would silently un-guard it. Those
+ * two sets are the only hand-maintained thing left, and they are what to review
+ * if this block ever grows.
  *
  * The block is behind `@supports` on purpose. `anchor()` is invalid in a
  * browser without anchor positioning, so that one declaration would be dropped

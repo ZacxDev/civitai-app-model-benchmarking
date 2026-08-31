@@ -8,7 +8,7 @@
 //   - the list RECONCILES: the row stays gone even when list() still returns it
 //     (read-after-write lag), exactly like the optimistic insert on submit.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -235,6 +235,21 @@ describe('withdraw: the author removes their OWN prompt', () => {
 //   M4 drop refreshDrafts()            -> "is DELETED once the host confirms"
 //   M7 cursor = undefined              -> "sits on the SECOND page"
 //   M8 prompts scan again              -> "NEVER EVEN STARTS the pointer scan"
+//
+// UPDATE (audit round 3). One case added — "THE PREMISE: submitting a PROMPT
+// writes no draft key" — and it is GREEN AT BASE, deliberately. It is a TIE, not
+// regression coverage: it pins the unstated assumption that makes
+// `clearPointer: false` safe on the prompt surface.
+//
+//   M13 make `submitPrompt` write a draft pointer
+//       -> "THE PREMISE" fails: the prompt submit path wrote a draft pointer —
+//          withdrawPrompt would now orphan it                  (1 failed | 13 passed)
+//
+// 🔴 READ M13's OTHER RESULT, WHICH IS THE POINT OF THE TIE: under M13 the
+// "NEVER EVEN STARTS the pointer scan" case STAYS GREEN. It would be happily
+// enforcing a bug — prompts with pointers, and a withdraw path that skips them.
+// A guard that asserts an optimisation is correct is only as good as the premise
+// that makes the optimisation safe, and that premise needs its own pin.
 const LIVE_KEY = 'mine';
 const POINTER_LOCAL_ID = 'l1';
 const pointer = { v: 1, localId: POINTER_LOCAL_ID, sharedKey: LIVE_KEY, submittedAt: '2026-08-30T00:00:00.000Z' };
@@ -395,6 +410,46 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     expect(deletes).toEqual([]);
     expect(store.get(draftKey('l2'))).toEqual(otherPointer);
     expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
+  });
+
+  it('🔴 THE PREMISE: submitting a PROMPT writes no draft key, so there is nothing to orphan', async () => {
+    // 🔴 THIS PINS THE ASSUMPTION THAT MAKES `clearPointer: false` SAFE, and
+    // nothing else in the suite does. `withdrawPrompt` skips the pointer scan
+    // because a prompt can never have a pointer — which is true only because
+    // `submittedPointer(...)` is written from exactly ONE place (`submitDraft`,
+    // always a combination payload) and the prompt submit path never touches a
+    // `draft:v1:` key.
+    //
+    // If prompt drafts are ever added, that stops holding: `withdrawPrompt`
+    // would silently orphan their pointers, AND the "NEVER EVEN STARTS the
+    // pointer scan" case one test up would keep passing — it would be
+    // ENFORCING the bug. This case is the tie that makes that combination go
+    // red instead of green.
+    const { shared, appends } = fakeShared({ seed: [] });
+    const { appStorage, sets } = fakeAppStorage();
+    renderApp({ shared, appStorage });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    await userEvent.click(await screen.findByTestId('submit-prompt'));
+    const form = await screen.findByTestId('prompt-form');
+    fireEvent.change(within(form).getByTestId('prompt-name'), {
+      target: { value: 'A public prompt' },
+    });
+    fireEvent.change(within(form).getByTestId('prompt-default-text'), {
+      target: { value: 'a landscape at dusk' },
+    });
+    await userEvent.click(within(form).getByTestId('prompt-submit'));
+
+    // POSITIVE CONTROL: the submit actually happened. Without this the
+    // assertion below is satisfied by a form that never submitted.
+    await waitFor(() => expect(appends).toHaveLength(1));
+    expect(appends[0].title).toBe('A public prompt');
+
+    // 🔴 …and it wrote NO per-viewer draft key.
+    expect(
+      sets.map((s) => s.key).filter((k) => k.startsWith(DRAFT_PREFIX)),
+      'the prompt submit path wrote a draft pointer — withdrawPrompt would now orphan it',
+    ).toEqual([]);
   });
 
   it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {

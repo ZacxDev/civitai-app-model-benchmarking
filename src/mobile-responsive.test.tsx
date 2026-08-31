@@ -63,6 +63,24 @@
 //     Tests  2 failed | 19 passed (21)    at 7899a97
 //     Tests  21 passed (21)               at HEAD
 //
+// UPDATE 4 (audit round 3: no cases added — still 21). The used-feature guard
+// was rewritten again; its RED arm is not a code revert but four mutants, each
+// measured against BOTH guards. 🔴 The old guard was BLIND to the first three
+// and WRONG about the fourth:
+//
+//                                        old guard        new guard
+//   (anchor-name: 12px), pin updated     21/21 GREEN      RED
+//   max-width: anchor-size(width)        21/21 GREEN      RED
+//   position-area, no trailing `;`       21/21 GREEN      RED
+//   `and` -> `or`, pin updated           21/21 GREEN      RED
+//   --mb-gap: 6px  (must NOT be flagged) 1 failed | 20    21/21 GREEN
+//
+// The first is the worst of them: an invalid VALUE anywhere in the condition
+// makes @supports false on every engine, so the tooltip rule silently never
+// applies and the clipping this PR exists to fix returns everywhere — with
+// nothing red. The old guard asserted the property NAME appeared in the
+// condition, never the clause, so it could not see it.
+//
 // 🔴 RE-MEASURED at each round, and that is the point of writing it down. The
 // audit rounds added cases (12 -> 15 -> 16), and a matrix left at its round-1
 // numbers (`7 failed | 5 passed (12)`) silently stopped describing this file:
@@ -494,25 +512,77 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // has no default anchor so `bottom` goes `auto` — the plain-`position:fixed`
     // dead end that drifts to -394px on scroll. Both are STRICTLY WORSE than the
     // clipping this rule replaces.
-    // 🔴 GENUINELY DERIVED, AND IT DID NOT USED TO BE. This iterated a hardcoded
-    // 4-element array while its comment claimed it "keeps holding if a fourth
-    // feature is added later" — a description wider than the implementation, and
-    // it also EXEMPTED `position-anchor` by remapping it to `anchor-name`, which
-    // is how `position-anchor` ended up used-but-untested. Measured: adding a
-    // real `position-area` declaration to the bubble rule and updating the
-    // verbatim pin above (the natural maintainer edit, since that pin forces it)
-    // left this file green at 21/21.
+    // 🔴 DERIVED FROM THE BLOCK'S OWN DECLARATIONS, and every round has caught
+    // this guard being narrower than its own description. What it does NOT do is
+    // as important as what it does, so both are stated at the end.
     //
-    // So it is INVERTED. Rather than enumerate the features that need guarding —
-    // a list that is wrong the moment someone adds the fifth — enumerate the
-    // properties old enough that NO engine reaching this block can lack them,
-    // and demand a condition clause for everything else. A new property is
-    // guarded by default; there is no list left to forget to update.
+    //   round 1: it iterated a hardcoded 4-element array while claiming to be
+    //     derived, and EXEMPTED `position-anchor` by remapping it to
+    //     `anchor-name` — which is how `position-anchor` ended up
+    //     used-but-untested. Adding a real `position-area` declaration and
+    //     updating the verbatim pin above (the natural maintainer edit, since
+    //     that pin forces it) left this file green at 21/21.
+    //   round 2: it asserted the property NAME appeared in the condition, never
+    //     the CLAUSE — so `(anchor-name: 12px)`, an invalid value that makes
+    //     `@supports` false on EVERY engine and silently disables the whole
+    //     rule, passed 236/236. It also said nothing about how clauses are
+    //     JOINED, so flipping `and` -> `or` — which destroys the all-or-nothing
+    //     argument the block is built on — passed 21/21.
+    //   round 2 also: two ways a feature slipped past the scan entirely — a
+    //     modern FUNCTION riding a baseline property (`max-width:
+    //     anchor-size(width)`, and `anchor-size()` shipped alongside `anchor()`
+    //     in Chrome 125, so it is the likeliest next addition here), and a final
+    //     declaration written without its optional trailing semicolon.
     const condition = block.slice(0, block.indexOf('{'));
     const body = block.slice(block.indexOf('{'));
 
-    /** Properties predating anchor positioning by decades. Everything else pays. */
-    const BASELINE = new Set([
+    // ---- 1. STRUCTURE: every clause joined by `and`, never `or` ------------
+    // 🔴 `or` would mean "apply if ANY of these is supported", i.e. exactly the
+    // partial application this block exists to prevent. Walked rather than
+    // regexed because `anchor(top)` nests parentheses inside a clause.
+    const clauses: string[] = [];
+    const joiners: string[] = [];
+    {
+      const c = condition.replace(/^@supports\s*/, '');
+      let depth = 0;
+      let start = -1;
+      let lastEnd = -1;
+      for (let i = 0; i < c.length; i += 1) {
+        if (c[i] === '(') {
+          if (depth === 0) {
+            start = i;
+            if (lastEnd >= 0) joiners.push(c.slice(lastEnd + 1, i).trim());
+          }
+          depth += 1;
+        } else if (c[i] === ')') {
+          depth -= 1;
+          if (depth === 0) {
+            clauses.push(c.slice(start, i + 1));
+            lastEnd = i;
+          }
+        }
+      }
+    }
+    // Positive control on the WALK: a broken parse derives no clauses and every
+    // assertion below passes vacuously.
+    expect(clauses.length, 'parsed NO clauses out of the condition — the walk is broken').
+      toBeGreaterThan(1);
+    expect(joiners.length).toBe(clauses.length - 1);
+    for (const joiner of joiners) {
+      expect(joiner, `clauses joined by \`${joiner}\`, not \`and\` — that is not all-or-nothing`).
+        toBe('and');
+    }
+
+    // ---- 2. DECLARATIONS: property AND value, both derived ------------------
+    /**
+     * Properties predating anchor positioning by decades. Everything else pays.
+     *
+     * 🔴 THE ONE HAND-WRITTEN LIST LEFT, and it is deliberately a list of
+     * BASELINE things rather than modern ones: forgetting to add a new modern
+     * feature here is impossible, because absence means "guarded". The failure
+     * mode that remains is someone ADDING a modern property to this set.
+     */
+    const BASELINE_PROPS = new Set([
       'position',
       'top',
       'right',
@@ -522,30 +592,70 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
       'max-width',
       'transform',
     ]);
-    // Only real declarations — `prop: value;` terminated by a semicolon. The
-    // nested selectors carry no colon-semicolon pair, so they cannot match.
-    const declared = [...body.matchAll(/([a-z-]+)\s*:\s*[^;{}]+;/g)].map((m) => m[1]);
-    // Positive control on the SCAN: a broken regex would derive nothing and the
-    // loop below would assert nothing at all, silently.
-    expect(
-      declared.length,
-      'the declaration scan matched nothing — the regex is broken',
-    ).toBeGreaterThan(5);
+    /** Same idea for value functions. */
+    const BASELINE_FUNCS = new Set([
+      'calc',
+      'var',
+      'min',
+      'max',
+      'clamp',
+      'rgb',
+      'rgba',
+      'hsl',
+      'hsla',
+      'url',
+      'translate',
+      'translatex',
+      'translatey',
+    ]);
 
-    const mustBeGuarded = [...new Set(declared)].filter((p) => !BASELINE.has(p));
-    // Positive control on the DERIVATION: likewise vacuous if this is empty.
+    // A declaration ends at `;` OR at its rule's closing `}` — the last one in a
+    // block may legally omit the semicolon, and requiring it let exactly that
+    // shape slip past.
+    const decls = [...body.matchAll(/(--)?([a-z][a-z0-9-]*)\s*:\s*([^;{}]+?)\s*(?=[;}])/g)].map(
+      (m) => ({ custom: !!m[1], prop: (m[1] ?? '') + m[2], value: m[3] }),
+    );
+    // Positive control on the SCAN: a broken regex derives nothing and every
+    // loop below asserts nothing at all, silently.
+    expect(decls.length, 'the declaration scan matched nothing — the regex is broken').
+      toBeGreaterThan(5);
+
+    // Custom properties are universally supported and need no clause — and
+    // demanding one made this guard reject `--mb-gap: 6px;`, which is legal and
+    // harmless.
+    const guardedDecls = decls.filter((d) => !d.custom && !BASELINE_PROPS.has(d.prop));
     expect(
-      mustBeGuarded.length,
-      'derived NO guarded properties — the scan or BASELINE is wrong',
+      guardedDecls.length,
+      'derived NO guarded declarations — the scan or BASELINE_PROPS is wrong',
     ).toBeGreaterThan(0);
-    for (const prop of mustBeGuarded) {
-      expect(condition, `the block uses \`${prop}\` but @supports never tests for it`).toContain(
-        prop,
+    for (const { prop, value } of guardedDecls) {
+      // 🔴 THE WHOLE CLAUSE, NOT THE NAME. A clause naming the right property
+      // with a nonsense VALUE is false on every engine, which disables the whole
+      // block silently — the single worst outcome available here.
+      expect(
+        clauses,
+        `the block declares \`${prop}: ${value}\` but @supports has no matching clause`,
+      ).toContain(`(${prop}: ${value})`);
+    }
+
+    // ---- 3. VALUE FUNCTIONS: features that ride a baseline property ---------
+    // 🔴 `bottom: calc(anchor(top) + 6px)` is the block's most modern
+    // declaration and `bottom` is baseline, so nothing above sees it. Derived
+    // the same way as properties, so `anchor-size()` — which shipped with
+    // `anchor()` in Chrome 125 — cannot slip in the way a hardcoded
+    // `includes('anchor(')` let it.
+    const usedFuncs = new Set(
+      [...body.matchAll(/([a-z][a-z0-9-]*)\s*\(/g)]
+        .map((m) => m[1].toLowerCase())
+        .filter((f) => !BASELINE_FUNCS.has(f)),
+    );
+    expect(usedFuncs.size, 'derived NO guarded functions — the block should use anchor()').
+      toBeGreaterThan(0);
+    for (const fn of usedFuncs) {
+      expect(condition, `the block uses \`${fn}()\` but @supports never tests for it`).toContain(
+        `${fn}(`,
       );
     }
-    // A function is a feature too, and it is not a property, so the scan above
-    // cannot see it.
-    if (body.includes('anchor(')) expect(condition).toContain('anchor(');
 
     // 🔴 Nothing from the block may leak OUTSIDE the guard — an anchor
     // declaration that escaped it is exactly the failure mode described above.

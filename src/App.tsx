@@ -549,11 +549,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * An unremovable card asserting a live board entry that does not exist is
    * worse than no card, so the pointer goes.
    *
-   * Scope, deliberately narrow: the ONLY pointer touched is one whose
-   * `sharedKey` equals the withdrawn key. `withdrawRow` serves both the
-   * combinations and the prompts surface, and prompts have no drafts at all —
-   * a prompt's host-minted key matches no pointer, so the scan finds nothing
-   * and `appStorage.delete` is never even called.
+   * Scope, deliberately narrow, and narrow in TWO independent ways:
+   *
+   *   1. Only the COMBINATIONS surface reaches this function at all. ⚠️ This
+   *      paragraph used to say prompts reached it and harmlessly found nothing;
+   *      that stopped being true when `withdrawPrompt` was split out below, and
+   *      the sentence survived because it sits outside that diff. A reader who
+   *      believes the old text concludes the prompt path still scans — which is
+   *      exactly what the "NEVER EVEN STARTS the pointer scan" case asserts
+   *      against. Prompts are never created from a draft, so the scan there
+   *      could only ever run to completion and find nothing; it is skipped.
+   *   2. Even on the combinations surface the ONLY pointer touched is one whose
+   *      `sharedKey` equals the withdrawn key — another of the viewer's own
+   *      combinations keeps its pointer, which is a separate guard.
    *
    * 🔴 THE LOOKUP GOES TO THE STORE, NOT TO RENDER STATE, and that is not a
    * style choice. Reading the `drafts` state (or a ref mirroring it) makes the
