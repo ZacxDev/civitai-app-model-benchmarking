@@ -19,6 +19,7 @@ import { WorkflowEstimateError, type SharedListItem } from '@civitai/blocks-reac
 
 import { App, ESTIMATE_FAILED_MESSAGE, ESTIMATE_NO_COST_MESSAGE, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
+import { KV_MAX_PAGES } from './lib/kv.js';
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
 
 const comboData: CombinationData = {
@@ -293,7 +294,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
         ecosystem: 'SDXL',
       };
     }
-    const { appStorage } = fakeAppStorage(
+    const { appStorage, listCalls } = fakeAppStorage(
       {
         ...decoys,
         [INFLIGHT_KEY]: {
@@ -324,6 +325,21 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
     const runCell = await within(grid).findByTestId('run-cell');
     await userEvent.click(runCell);
     await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
+
+    // 🔴 POSITIVE CONTROL ON THE INSTRUMENT, checked at Confirm time and not
+    // after. This case's entire discriminating power is that `latencyMs` puts
+    // each KV call on a macrotask, so the scan is genuinely UNFINISHED here.
+    // Nothing else pins that: making `hop()` return `Promise.resolve()` leaves
+    // the whole suite green on its own, AND leaves it green when combined with
+    // the money bug this case exists to catch. Without this line the arm can be
+    // silently disarmed by a tidy-up of the fake and the double charge ships
+    // clean. 22 keys at one per page means a finished scan has issued
+    // KV_MAX_PAGES listings.
+    expect(
+      listCalls.filter((c) => c?.prefix === 'inflight:v1:').length,
+      'the scan had already finished at Confirm time — `latencyMs` is inert, so this case tests nothing',
+    ).toBeLessThan(KV_MAX_PAGES);
+
     await waitFor(() => expect(within(grid).queryByTestId('cell-confirm-run')).toBeNull());
 
     expect(
@@ -431,6 +447,45 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       gets.filter((k) => k === INFLIGHT_KEY).length,
       'the backstop read the store on a path where the scan already answered the question',
     ).toBe(before);
+  });
+
+  it('POSITIVE CONTROL for the case above: `gets` DOES record the read on the armed path', async () => {
+    // 🔴 THE ASSERTION ABOVE IS A ZERO, and a zero is indistinguishable from an
+    // instrument wired to nothing. Measured: deleting `gets.push(key)` from the
+    // fake leaves the whole suite green, because `gets` is only ever asserted
+    // UNCHANGED. Its stated control there — `submit` called once — proves the
+    // spend happened, not that `gets` can ever be non-zero.
+    //
+    // Same shape as that case, one thing changed: the rehydrate THROWS, so the
+    // backstop is armed and the read must happen. If this ever goes to zero the
+    // instrument is dead and the gate assertion above is vacuous.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, gets } = fakeAppStorage(
+      { [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' } },
+      {},
+      { failListTimes: 1, failListPrefix: 'inflight:v1:' },
+    );
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => estimateSnap,
+      submit,
+      poll: async () => succeededSnap(),
+      publish: async () => [],
+    });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    const grid = await screen.findByTestId('results-grid');
+    await userEvent.click(await within(grid).findByTestId('run-cell'));
+    await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
+    await waitFor(() => expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument());
+
+    expect(
+      gets.filter((k) => k === INFLIGHT_KEY).length,
+      '`gets` recorded nothing on the ARMED path — the instrument is dead, so the gate assertion is vacuous',
+    ).toBeGreaterThan(0);
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('🔴 refuses to SPEND when the rehydrate hit its PAGE CAP with keys still unread', async () => {

@@ -61,10 +61,27 @@ export async function forEachStoredKey(
   onKey: (key: string) => Promise<'stop' | void> | 'stop' | void,
   opts: {
     /**
-     * Checked BEFORE each page is fetched. Lets a cancelled effect stop without
-     * issuing another `list` — the callers' old open-coded loops each had this
-     * check right after their `await list(...)`, and consolidating without it
-     * would have left an unmounted effect paging on over the host bridge.
+     * Checked BEFORE each page is fetched, so a cancelled effect can stop
+     * without issuing another `list`.
+     *
+     * 🔴 SCOPE, STATED NARROWLY, because an earlier version of this docstring
+     * was wrong on two axes and a reader believing it could have deleted the
+     * per-key `cancelled` checks in the callbacks. It claimed "the callers' old
+     * open-coded loops each had this check": of the two pre-consolidation loops,
+     * ONE did (the drafts load) and one did NOT (`clearDraftPointerFor`). And it
+     * implied the callbacks would otherwise page on, which they would not —
+     * both `onKey` callbacks already return `'stop'` on `cancelled` right after
+     * their awaited `get`, so a cancelled scan stops at the first key of the
+     * next page regardless.
+     *
+     * What this option actually buys: it saves ONE `list` call in the narrow
+     * case where a page yields no `onKey` call at all — an empty page that
+     * still carries a cursor, or one whose keys are all prefix-filtered. Real,
+     * cheap, and much smaller than "stops an unmounted effect paging on".
+     *
+     * A stop here is NOT truncation: the caller chose to stop, it did not run
+     * out of budget. Reporting it as truncated would arm the money backstop on
+     * every cancelled effect.
      */
     shouldStop?: () => boolean;
   } = {},

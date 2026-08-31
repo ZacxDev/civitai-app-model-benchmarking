@@ -71,6 +71,43 @@ describe('forEachStoredKey — what it visits', () => {
   });
 });
 
+describe('forEachStoredKey — `shouldStop` (new payload, so it is pinned both ways)', () => {
+  it('stops BEFORE fetching the next page', async () => {
+    // 🔴 Mutant "delete the check so the option is inert" survived the whole
+    // suite. The saving is narrow — one `list` in the case where a page yields
+    // no `onKey` call — but narrow is not the same as unobservable, and unpinned
+    // new payload is how the next defect gets in.
+    const s = store(kv(10), 2);
+    let pages = 0;
+    await forEachStoredKey(s, 'p:', () => {}, {
+      shouldStop: () => {
+        pages += 1;
+        return pages > 2; // allow two pages, then cancel
+      },
+    });
+    expect(s.listCalls).toBe(2);
+  });
+
+  it('a `shouldStop` exit is NOT truncation', async () => {
+    // 🔴 The caller CHOSE to stop; it did not run out of budget. Reporting this
+    // as truncated would arm the money backstop on every cancelled effect —
+    // the mutant that returns `truncated: true` here also survived.
+    const res = await forEachStoredKey(store(kv(50), 2), 'p:', () => {}, {
+      shouldStop: () => true,
+    });
+    expect(res.truncated).toBe(false);
+    expect(res.pages).toBe(0);
+  });
+
+  it('is inert when not supplied — the default must not stop anything', async () => {
+    const seen: string[] = [];
+    await forEachStoredKey(store(kv(5), 2), 'p:', (k) => {
+      seen.push(k);
+    });
+    expect(seen).toHaveLength(5);
+  });
+});
+
 describe('forEachStoredKey — `truncated` is a MONEY signal, so it is pinned both ways', () => {
   it('a scan that reached the end reports truncated: FALSE', async () => {
     // 🔴 Over-reporting is not free: `confirmRun` would then pay a store read

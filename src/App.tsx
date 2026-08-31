@@ -366,17 +366,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     // route. The success arm below is the ONLY writer that clears it, and it
     // clears it strictly after a scan that finished.
     //
-    // ⚠️ THIS LINE AND THE `useRef(true)` ABOVE ARE REDUNDANT AT MOUNT, and
-    // neither is individually killable by the suite — measured: removing either
-    // alone leaves 249/249 green, removing BOTH kills three money cases. Kept
-    // anyway, and the redundancy is deliberate rather than accidental: the init
-    // covers the first scan, this line covers a RE-RUN (the effect re-runs on
-    // `ready` and `viewer?.id`, and a completed scan for viewer A must not leave
-    // the flag down while viewer B's scan is still walking). The re-run route
-    // could not be pinned — the mock host does not propagate a viewer change, so
-    // the effect never re-fires under test (probed: 1 in-flight listing before
-    // and after a viewer prop change). Do not delete this as "dead" on the
-    // strength of a green suite.
+    // ⚠️ THIS LINE AND THE `useRef(true)` ABOVE OVERLAP, but they are not
+    // interchangeable and only ONE of them is redundant. This line has its own
+    // regression coverage: delete it and viewer A's completed scan leaves the
+    // backstop down while viewer B's scan is still walking, so a Confirm during
+    // it SPENDS on a cell whose run is persisted (the effect re-runs on `ready`
+    // and on `viewer?.id`). Measured: removing this line alone kills a case.
+    //
+    // The `useRef(true)` init is the genuinely redundant one — removing IT alone
+    // still leaves the suite green, because this line re-arms before any scan
+    // can stand the flag down. It is kept anyway: it covers the sliver between
+    // first render and the effect body running, which no test can click inside.
+    // Do not read its survival as "dead code".
+    //
+    // 🔴 THIS COMMENT PREVIOUSLY SAID THAT ROUTE "could not be pinned". The
+    // premise was right and the conclusion was wrong, which is the worse of the
+    // two failures — it told the next reader not to bother. The SDK `Harness`
+    // does freeze its options in a ref and install the mock host in a
+    // `useEffect(…, [])`, so the `viewer` PROP cannot express a change; but the
+    // viewer here comes from `useBlockContext()` (line 184), and a file-scoped
+    // partial mock of that hook reaches it in ~40 lines. It is pinned now, in
+    // `src/viewer-change.test.tsx`, along with the `!cancelled` guard below.
     inflightScanTruncatedRef.current = true;
     (async () => {
       const store = depsRef.current.appStorage;
