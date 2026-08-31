@@ -163,8 +163,18 @@ export function fakeAppStorage(
    * one and lets the drafts listing succeed. A test built that way loads the
    * drafts fine and then asserts nothing it claims to. Caught by a positive
    * control on the premise; keep that control.
+   *
+   * 🔴 `pageSize` turns on REAL CURSOR PAGING — `nextCursor` and all. Without it
+   * this fake returned every matching key in one page and NEVER a `nextCursor`,
+   * so every caller's paging loop broke out after page 1 and the whole loop was
+   * dead code as far as the suite was concerned: an altering mutant replacing
+   * `cursor = res.nextCursor` with `cursor = undefined` in App.tsx passed the
+   * FULL SUITE, 234/234 green. A viewer whose `draft:v1:` keys span more than
+   * one host page is a real case (it is one of the three reasons the pointer
+   * lookup reads the store at all), so set this in any test that cares about
+   * page 2.
    */
-  opts: { failListTimes?: number; failListPrefix?: string } = {},
+  opts: { failListTimes?: number; failListPrefix?: string; pageSize?: number } = {},
 ) {
   const store = new Map<string, unknown>(Object.entries(seed));
   const sets: Array<{ key: string; value: unknown }> = [];
@@ -194,8 +204,21 @@ export function fakeAppStorage(
         throw new Error('KV list unavailable');
       }
       const prefix = listOpts?.prefix;
-      const keys = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
-      return { keys: keys.map((key) => ({ key, updatedAt: new Date() })) };
+      const all = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
+      // Page size: the caller's own `limit` wins, else the fixture's, else one
+      // page for everything (the historical behaviour).
+      const size = listOpts?.limit ?? opts.pageSize ?? all.length;
+      // The cursor is "opaque, base64-encoded last key" per the SDK's own
+      // docstring — modelled faithfully, so a caller that tries to interpret it
+      // as an index breaks here rather than in production.
+      const from = listOpts?.cursor ? all.indexOf(atob(listOpts.cursor)) + 1 : 0;
+      const page = all.slice(from, from + Math.max(size, 1));
+      const last = page[page.length - 1];
+      const more = last !== undefined && all.indexOf(last) < all.length - 1;
+      return {
+        keys: page.map((key) => ({ key, updatedAt: new Date() })),
+        ...(more ? { nextCursor: btoa(last) } : {}),
+      };
     },
     async getQuota() {
       return {

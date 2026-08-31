@@ -597,32 +597,65 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
 
   const withdrawRow = useCallback(
-    async (key: string) => {
-      // 🔴 THE GUARD IS THE `ok` BRANCH PLUS THE ORDER, and the `ok` branch is
-      // the half that is easy to miss. `withdraw` is the ONLY SDK write typed
-      // `ok: boolean` rather than the literal `ok: true` (`appStorage.set` and
-      // `.delete` are both `ok: true`) — that asymmetry IS a non-rejecting
-      // failure channel, so a refused withdraw can resolve rather than throw.
-      // Awaiting it and discarding the result treats `{ok: false}` as success.
+    /**
+     * @param clearPointer whether to look for (and drop) a draft pointer at this
+     *   key afterwards. TRUE only on the combinations surface — see the call
+     *   sites and `clearDraftPointerFor`'s cost note.
+     */
+    async (key: string, clearPointer: boolean) => {
+      // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
+      // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
       //
-      // Both halves matter and they cover different failures:
-      //   - `!res.ok`  — the host answered NO. The row is still on the board.
-      //   - a THROW    — the call never landed. Same conclusion.
-      // Either way every line below is skipped, so the viewer keeps the only
-      // per-viewer handle on a row that is still live. Shared keys are
-      // host-minted and the shared list has no "mine" index (docs/matchups.md
-      // §4), so deleting that pointer against a surviving row is UNRECOVERABLE.
-      // Dropping the `ok` check, or clearing the pointer before this line, each
-      // turn this fix into a data-loss bug.
+      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure at the
+      //     pinned @civitai/blocks-react 0.43.0, so a throw here is the real
+      //     path and it skips every line below.
+      //   - THE `ok` BRANCH is defensive. `withdraw` is the only SDK write typed
+      //     `ok: boolean` rather than the literal `ok: true` (`appStorage.set`
+      //     and `.delete` are both `ok: true`), so the CONTRACT permits a
+      //     refusal that resolves. ⚠️ The 0.43.0 RUNTIME does not use it:
+      //     `useSharedStorage.js:115-121` does `if (!result.ok || result.error)
+      //     throw` and returns a hardcoded `{ok: true}`, and both hosts only
+      //     emit `ok:false` alongside an `error`. So this branch is UNREACHABLE
+      //     IN PRODUCTION TODAY. It is kept because the declared type is what a
+      //     future SDK could start honouring, and the cost of being wrong the
+      //     other way is unrecoverable (below). Do not describe it as an
+      //     observed channel — an earlier version of this comment did, and it
+      //     was false.
+      //
+      // Either way the viewer keeps the only per-viewer handle on a row that is
+      // still live. Shared keys are host-minted and the shared list has no
+      // "mine" index (docs/matchups.md §4), so deleting that pointer against a
+      // surviving row is UNRECOVERABLE. Dropping the `ok` check, or clearing the
+      // pointer before this line, each turn this fix into a data-loss bug.
       const res = await depsRef.current.shared.withdraw(key);
       if (!res.ok) return;
       optimisticDelete(key);
-      await clearDraftPointerFor(key);
+      if (clearPointer) await clearDraftPointerFor(key);
       depsRef.current.track('withdraw');
       reload();
     },
     [optimisticDelete, reload, clearDraftPointerFor],
   );
+
+  /**
+   * Withdraw a COMBINATION. This is the only surface where a draft pointer can
+   * exist, so it is the only one that pays for the lookup.
+   */
+  const withdrawCombination = useCallback(
+    (key: string) => withdrawRow(key, true),
+    [withdrawRow],
+  );
+
+  /**
+   * Withdraw a PROMPT. 🔴 No pointer scan: prompts are never created from a
+   * draft, so a prompt's host-minted key CANNOT match a pointer — the scan could
+   * only ever run to completion and find nothing. Skipping it is not an
+   * optimisation of a rare path, it is declining a guaranteed-fruitless one:
+   * `clearDraftPointerFor` is a paged KV walk (one `list` per page plus one
+   * `get` per key, serially over the postMessage bridge) with the withdraw
+   * button held in `loading` for its whole duration.
+   */
+  const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
 
   // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
 
@@ -1115,7 +1148,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
-            onWithdraw={withdrawRow}
+            onWithdraw={withdrawCombination}
             draftsSlot={draftsSlot}
           />
         )}
@@ -1133,7 +1166,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onUnvote={onUnvote}
             onRequireAuth={requireAuth}
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
-            onWithdraw={withdrawRow}
+            onWithdraw={withdrawPrompt}
           />
         )}
 

@@ -47,6 +47,22 @@
 // those attributes regardless of our rule, so it guards a pack rename, not this
 // fix.
 //
+// UPDATE 2 (audit round 1: the mounted-stylesheet case, 20 -> 21). Red under the
+// mutant it exists for — mounting `compactTapTargetCss().split('@supports')[0]`,
+// which had SURVIVED a full green suite:
+//
+//     Tests  1 failed | 233 passed (234)  under that mutant, suite-wide
+//     Tests  21 passed (21)               at HEAD
+//
+// UPDATE 3 (audit round 2: no cases added — 21). Two EXISTING cases changed:
+// the verbatim pin took `position-anchor` into the @supports condition, and the
+// used-feature guard stopped iterating a hardcoded list. Red arm with
+// `src/compact.ts` restored to 7899a97 (which lacks `position-anchor` in the
+// condition), this file at HEAD:
+//
+//     Tests  2 failed | 19 passed (21)    at 7899a97
+//     Tests  21 passed (21)               at HEAD
+//
 // 🔴 RE-MEASURED at each round, and that is the point of writing it down. The
 // audit rounds added cases (12 -> 15 -> 16), and a matrix left at its round-1
 // numbers (`7 failed | 5 passed (12)`) silently stopped describing this file:
@@ -450,7 +466,7 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // shipping a tooltip nobody can read.
     expect(tooltipBlock()).toBe(
       '@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) ' +
-        'and (bottom: anchor(top)) { ' +
+        'and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) { ' +
         `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] { ` +
         'anchor-name: --mb-tooltip; anchor-scope: --mb-tooltip; } ' +
         `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] { ` +
@@ -469,28 +485,67 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     const block = tooltipBlock();
     expect(block.startsWith('@supports ')).toBe(true);
 
-    // 🔴 EVERY anchor-positioning FEATURE THE BLOCK USES MUST BE IN ITS OWN
-    // CONDITION — this is the invariant, not the three literals. CSS drops an
-    // unsupported declaration INDIVIDUALLY, so an engine that has `anchor-name`
-    // and `anchor()` but not `anchor-scope` would ENTER the block, apply
-    // everything else, and drop the one declaration measured to be load-bearing
-    // — leaving bubbles 190-358px from their badge, i.e. STRICTLY WORSE than
-    // the clipping this rule replaces. Derived from the block's own text so it
-    // keeps holding if a fourth feature is added later.
+    // 🔴 EVERY MODERN FEATURE THE BLOCK USES MUST BE IN ITS OWN CONDITION —
+    // that is the invariant, not any list of literals. CSS drops an unsupported
+    // declaration INDIVIDUALLY, so an engine that has some of these and not
+    // others ENTERS the block, applies the rest, and silently loses the one it
+    // lacks. Measured twice over: without `anchor-scope` the bubbles land
+    // 190-358px from their badge, and without `position-anchor` `anchor(top)`
+    // has no default anchor so `bottom` goes `auto` — the plain-`position:fixed`
+    // dead end that drifts to -394px on scroll. Both are STRICTLY WORSE than the
+    // clipping this rule replaces.
+    // 🔴 GENUINELY DERIVED, AND IT DID NOT USED TO BE. This iterated a hardcoded
+    // 4-element array while its comment claimed it "keeps holding if a fourth
+    // feature is added later" — a description wider than the implementation, and
+    // it also EXEMPTED `position-anchor` by remapping it to `anchor-name`, which
+    // is how `position-anchor` ended up used-but-untested. Measured: adding a
+    // real `position-area` declaration to the bubble rule and updating the
+    // verbatim pin above (the natural maintainer edit, since that pin forces it)
+    // left this file green at 21/21.
+    //
+    // So it is INVERTED. Rather than enumerate the features that need guarding —
+    // a list that is wrong the moment someone adds the fifth — enumerate the
+    // properties old enough that NO engine reaching this block can lack them,
+    // and demand a condition clause for everything else. A new property is
+    // guarded by default; there is no list left to forget to update.
     const condition = block.slice(0, block.indexOf('{'));
     const body = block.slice(block.indexOf('{'));
-    for (const feature of ['anchor-name', 'anchor-scope', 'position-anchor', 'anchor(']) {
-      if (!body.includes(feature)) continue;
-      // `position-anchor` is the property form of the same `anchor-name` support;
-      // the condition tests the feature, not every spelling of it.
-      const tested = feature === 'position-anchor' ? 'anchor-name' : feature;
-      expect(condition, `the block uses ${feature} but @supports never tests for it`).toContain(
-        tested,
+
+    /** Properties predating anchor positioning by decades. Everything else pays. */
+    const BASELINE = new Set([
+      'position',
+      'top',
+      'right',
+      'bottom',
+      'left',
+      'width',
+      'max-width',
+      'transform',
+    ]);
+    // Only real declarations — `prop: value;` terminated by a semicolon. The
+    // nested selectors carry no colon-semicolon pair, so they cannot match.
+    const declared = [...body.matchAll(/([a-z-]+)\s*:\s*[^;{}]+;/g)].map((m) => m[1]);
+    // Positive control on the SCAN: a broken regex would derive nothing and the
+    // loop below would assert nothing at all, silently.
+    expect(
+      declared.length,
+      'the declaration scan matched nothing — the regex is broken',
+    ).toBeGreaterThan(5);
+
+    const mustBeGuarded = [...new Set(declared)].filter((p) => !BASELINE.has(p));
+    // Positive control on the DERIVATION: likewise vacuous if this is empty.
+    expect(
+      mustBeGuarded.length,
+      'derived NO guarded properties — the scan or BASELINE is wrong',
+    ).toBeGreaterThan(0);
+    for (const prop of mustBeGuarded) {
+      expect(condition, `the block uses \`${prop}\` but @supports never tests for it`).toContain(
+        prop,
       );
     }
-    expect(condition).toContain('(anchor-name: --mb-tooltip)');
-    expect(condition).toContain('(anchor-scope: --mb-tooltip)');
-    expect(condition).toContain('(bottom: anchor(top))');
+    // A function is a feature too, and it is not a property, so the scan above
+    // cannot see it.
+    if (body.includes('anchor(')) expect(condition).toContain('anchor(');
 
     // 🔴 Nothing from the block may leak OUTSIDE the guard — an anchor
     // declaration that escaped it is exactly the failure mode described above.

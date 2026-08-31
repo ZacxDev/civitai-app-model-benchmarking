@@ -208,6 +208,33 @@ describe('withdraw: the author removes their OWN prompt', () => {
 //
 // Each mutant killed exactly ONE case, so neither is passing off another
 // guard's error as its own.
+//
+// UPDATE (audit round 2 — `Tests 1 failed | 11 passed (12)` at 7899a97, the one
+// red case being the strengthened PROMPT guard; 13 at HEAD). Two things worth
+// carrying forward:
+//
+//   🔴 A FIX ELSEWHERE SILENTLY UNCOVERED A MUTANT. Splitting the withdraw call
+//   sites so the prompts surface no longer scans was a real latency fix — but
+//   the prompt case was ALSO the only thing killing the "drop the
+//   `sharedKey` match" mutant, because that mutant only bit when a surface with
+//   no pointers of its own ran the scan. With the scan gone, dropping the match
+//   went green at 12/12. Caught only by re-running the FULL mutant set rather
+//   than the tests near the diff. The match is now pinned by "leaves ANOTHER
+//   combination's pointer alone", on the surface that actually scans.
+//
+//   🔴 THE PAGING LOOP WAS DEAD CODE TO THE SUITE. `fakeAppStorage.list` never
+//   emitted `nextCursor`, so `cursor = res.nextCursor` -> `cursor = undefined`
+//   passed the FULL SUITE at 234/234. The fake pages for real now, and the
+//   page-2 case carries a positive control on its own premise (a drafts listing
+//   that actually carried a cursor) so it cannot quietly stop paging again.
+//
+// Full mutant ladder at HEAD, each killed, each by its own assertion:
+//   M1 clear pointer before withdraw   -> 2 cases (REJECTS + REFUSES)
+//   M2 drop the sharedKey match        -> "leaves ANOTHER combination's pointer alone"
+//   M3 drop the `!res.ok` branch       -> "REFUSES WITHOUT THROWING"
+//   M4 drop refreshDrafts()            -> "is DELETED once the host confirms"
+//   M7 cursor = undefined              -> "sits on the SECOND page"
+//   M8 prompts scan again              -> "NEVER EVEN STARTS the pointer scan"
 const LIVE_KEY = 'mine';
 const POINTER_LOCAL_ID = 'l1';
 const pointer = { v: 1, localId: POINTER_LOCAL_ID, sharedKey: LIVE_KEY, submittedAt: '2026-08-30T00:00:00.000Z' };
@@ -283,26 +310,91 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     }
   });
 
-  it('touches NO draft when a PROMPT is withdrawn (the same handler serves both views)', async () => {
-    // `withdrawRow` is wired to onWithdraw on BOTH CombosView and PromptsView.
-    // Prompts have no drafts at all, and a prompt's host-minted key matches no
-    // pointer — so the per-viewer store must not be written to at all.
+  it('NEVER EVEN STARTS the pointer scan when a PROMPT is withdrawn', async () => {
+    // 🔴 THIS ASSERTS THE SCAN IS NOT STARTED, NOT MERELY THAT NOTHING WAS
+    // DELETED. It used to assert only `deletes` — which stopped meaning
+    // anything the moment the prompt surface stopped scanning at all: no scan
+    // trivially implies no delete, so the guard would have gone vacuous exactly
+    // when the behaviour it describes was introduced. The claim that matters now
+    // is about COST, so it is measured in list calls.
+    //
+    // Why the cost is worth a guard: `clearDraftPointerFor` is a paged KV walk —
+    // one `list` per page plus one `get` PER KEY, serially over the postMessage
+    // bridge, with the withdraw button held in `loading` throughout. On the
+    // prompts surface a match is impossible by construction (prompts are never
+    // created from a draft), so that walk could only ever run to completion and
+    // find nothing. It is declining a guaranteed-fruitless scan, not shaving a
+    // rare path.
     const { shared, withdraws } = fakeShared({
       seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)],
     });
-    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
+    const { appStorage, deletes, store, listCalls } = fakeAppStorage({
+      [draftKey(POINTER_LOCAL_ID)]: pointer,
+    });
     renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    // Baseline AFTER mount: the drafts panel legitimately lists the store once on
+    // load, so the claim is that the WITHDRAW adds none — not that there are
+    // zero. Counting from zero here would pin the mount effect instead.
+    const draftLists = () => listCalls.filter((c) => c?.prefix === DRAFT_PREFIX).length;
+    await waitFor(() => expect(draftLists()).toBeGreaterThan(0));
+    const before = draftLists();
+
     const card = await screen.findByTestId('prompt-card');
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual(['p1']));
     await waitFor(() => expect(screen.queryByTestId('prompt-card')).toBeNull());
-    // An unrelated combination's pointer is not collateral damage.
+
+    // 🔴 NOT ONE extra listing of the drafts prefix.
+    expect(draftLists(), 'the prompt path started a pointer scan it can never win').toBe(before);
+    // …and, still, an unrelated combination's pointer is not collateral damage.
     expect(deletes).toEqual([]);
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+  });
+
+  it('🔴 leaves ANOTHER combination’s pointer alone when this one is withdrawn', async () => {
+    // 🔴 THIS GUARD EXISTS BECAUSE A FIX ELSEWHERE BLINDED THE OLD ONE. The
+    // `parsed.sharedKey !== sharedKey` match used to be pinned by the PROMPT
+    // case: prompts shared the scanning code path, so dropping the match made a
+    // prompt withdrawal eat a combination's pointer. Then the prompt surface
+    // stopped scanning at all (a real latency fix — the scan could never win
+    // there), and with it went the only thing killing that mutant: dropping the
+    // match became invisible, 12/12 green.
+    //
+    // The lesson generalises past this file: a mutant killed by a test on
+    // surface A is not covered once A stops exercising the code. RE-RUN THE
+    // WHOLE MUTANT SET after any change that removes a caller, not just the
+    // tests near your diff. So the match is now pinned where the scan actually
+    // runs — two of the viewer's own combinations, a pointer at the SECOND, and
+    // the FIRST withdrawn.
+    const OTHER_KEY = 'mine2';
+    const { shared, withdraws } = fakeShared({
+      seed: [
+        row(LIVE_KEY, 'Mine', VIEWER_ID, comboData),
+        row(OTHER_KEY, 'Also mine', VIEWER_ID, comboData),
+      ],
+    });
+    const otherPointer = { v: 1, localId: 'l2', sharedKey: OTHER_KEY, submittedAt: 'ts2' };
+    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey('l2')]: otherPointer });
+    renderApp({ shared, appStorage });
+
+    await screen.findByTestId('draft-submitted');
+    const cards = await screen.findAllByTestId('combo-card');
+    const target = cards.find((el) => el.getAttribute('data-key') === LIVE_KEY)!;
+    await userEvent.click(within(target).getByTestId('combo-withdraw'));
+    await userEvent.click(within(target).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+    await waitFor(() => expect(screen.queryByText('Mine')).toBeNull());
+
+    // 🔴 The scan RAN on this surface and still deleted nothing: the pointer it
+    // walked past belongs to a row that is still live.
+    expect(deletes).toEqual([]);
+    expect(store.get(draftKey('l2'))).toEqual(otherPointer);
+    expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
   });
 
   it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {
@@ -382,6 +474,65 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // 🔴 Deleted anyway — the pointer was found in the STORE.
     await waitFor(() => expect(deletes).toContain(draftKey(POINTER_LOCAL_ID)));
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(false);
+  });
+
+  it('is found when it sits on the SECOND page of the viewer’s draft keys', async () => {
+    // 🔴 THE PAGING LOOP WAS ENTIRELY UNCOVERED. `fakeAppStorage.list` used to
+    // return every matching key in one page and NEVER a `nextCursor`, so every
+    // caller broke out after page 1 and the `cursor = res.nextCursor` line was
+    // dead code as far as the suite was concerned — an altering mutant replacing
+    // it with `cursor = undefined` passed the FULL SUITE, 234/234 green. That is
+    // not a hypothetical gap: a viewer whose `draft:v1:` keys span more than one
+    // host page is one of the three reasons this lookup reads the store at all,
+    // and without paging they would get exactly the orphan it exists to remove.
+    //
+    // `pageSize: 2` with the pointer THIRD forces at least one `nextCursor`
+    // round-trip before the match.
+    const { shared, withdraws } = fakeShared({
+      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
+    });
+    const filler = (n: number) => ({
+      v: 1,
+      localId: `pad${n}`,
+      name: `Padding ${n}`,
+      description: '',
+      configs: comboData.configs,
+      updatedAt: '2026-08-30T00:00:00.000Z',
+    });
+    const { appStorage, deletes, store, listCalls } = fakeAppStorage(
+      {
+        // Insertion order is the fake's key order, so the pointer is on page 2.
+        [draftKey('pad1')]: filler(1),
+        [draftKey('pad2')]: filler(2),
+        [draftKey(POINTER_LOCAL_ID)]: pointer,
+        [draftKey('pad3')]: filler(3),
+      },
+      {},
+      { pageSize: 2 },
+    );
+    renderApp({ shared, appStorage });
+
+    await screen.findByTestId('draft-submitted');
+    const card = await screen.findByTestId('combo-card');
+    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+    await waitFor(() => expect(deletes).toContain(draftKey(POINTER_LOCAL_ID)));
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(false);
+
+    // 🔴 POSITIVE CONTROL ON THE PREMISE: paging actually happened. Without this
+    // the case passes just as well against a one-page fake and proves nothing
+    // about the cursor. A cursored drafts listing is a listing that could only
+    // have come from following `nextCursor`.
+    const draftCalls = listCalls.filter((c) => c?.prefix === DRAFT_PREFIX);
+    expect(draftCalls.length).toBeGreaterThan(1);
+    expect(
+      draftCalls.some((c) => typeof c?.cursor === 'string' && c.cursor.length > 0),
+      'no drafts listing ever carried a cursor — the fixture never paged',
+    ).toBe(true);
+    // …and the untouched padding is still there, so the scan stopped at its match.
+    expect(store.has(draftKey('pad3'))).toBe(true);
   });
 });
 

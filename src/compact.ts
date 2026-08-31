@@ -128,16 +128,31 @@ export const TOOLTIP_GAP_PX = 6;
  * `anchor-scope` removed: gaps became [−357.8, −190.9, 6] instead of [6],
  * i.e. two of three bubbles flew 190–358px away from their own badge.
  *
- * 🔴 WHICH IS WHY ALL THREE FEATURES ARE IN THE `@supports` CONDITION, NOT
- * JUST THE TWO THIS BLOCK OBVIOUSLY NEEDS. CSS drops an unsupported declaration
- * INDIVIDUALLY, not by rule and not by block — so a condition testing only
- * `anchor-name` and `anchor()` lets an engine that lacks `anchor-scope` ENTER
- * the block, apply every other declaration, and drop precisely the one the
- * control above shows is load-bearing. That engine gets bubbles 190–358px from
- * their badge: STRICTLY WORSE than the clipping this rule replaces, which is
- * the one outcome the guard exists to prevent. The condition is the only place
- * that can express "all or nothing"; listing a feature you use but do not test
- * for is the whole bug.
+ * 🔴 WHICH IS WHY EVERY ANCHOR FEATURE THE BLOCK USES IS IN THE `@supports`
+ * CONDITION, NOT JUST THE ONES IT OBVIOUSLY NEEDS. CSS drops an unsupported
+ * declaration INDIVIDUALLY, not by rule and not by block — so a condition
+ * testing only `anchor-name` and `anchor()` lets an engine that lacks
+ * `anchor-scope` ENTER the block, apply every other declaration, and drop
+ * precisely the one the control above shows is load-bearing. That engine gets
+ * bubbles 190–358px from their badge: STRICTLY WORSE than the clipping this
+ * rule replaces, which is the one outcome the guard exists to prevent. The
+ * condition is the only place that can express "all or nothing"; listing a
+ * feature you use but do not test for is the whole bug.
+ *
+ * That rule caught this block twice. `anchor-scope` was missing from the
+ * condition first; then `position-anchor` was, while the test meant to enforce
+ * the rule EXEMPTED it by treating it as a spelling of `anchor-name`. It is not
+ * — an engine with `anchor-name`, `anchor-scope` and `anchor()` but no
+ * `position-anchor` enters the block, drops it, and leaves `anchor(top)` with
+ * no default anchor: `bottom` becomes invalid-at-computed-value-time and
+ * resolves to `auto`, which together with `top: auto` is EXACTLY the plain
+ * `position: fixed` dead end documented above (gap 6 -> −394 on scroll). No
+ * shipping engine is known to be in that state — Chrome shipped `anchor-name`,
+ * `position-anchor` and `anchor()` together in 125, `anchor-scope` in 131 — so
+ * this closes a hole rather than a live bug. It costs one clause. The guard in
+ * `mobile-responsive.test.tsx` now DERIVES the required set from this block's
+ * own declarations instead of a hand-written list, so a fifth feature cannot be
+ * added without being tested for.
  *
  * The block is behind `@supports` on purpose. `anchor()` is invalid in a
  * browser without anchor positioning, so that one declaration would be dropped
@@ -186,7 +201,7 @@ export const compactTapTargetCss = (): string => `
   height: auto;
 }
 
-@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (bottom: anchor(top)) {
+@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) {
   [${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] {
     anchor-name: --mb-tooltip;
     anchor-scope: --mb-tooltip;
