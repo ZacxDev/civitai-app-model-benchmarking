@@ -43,7 +43,25 @@ export const immediateSleep = () => Promise.resolve();
  * to prove the App's optimistic reconcile makes a new row appear WITHOUT the
  * list() re-fetch returning it (item 1, read-after-write lag).
  */
-export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedListItem[] } = {}) {
+export function fakeShared(
+  opts: {
+    reflectMutations?: boolean;
+    seed?: SharedListItem[];
+    /**
+     * Make `withdraw()` RESOLVE `{ok: false}` instead of removing the row.
+     *
+     * 🔴 This models the SDK's non-rejecting failure channel, and it is the one
+     * behaviour this fake could not express before. `UseSharedStorage.withdraw`
+     * is typed `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write
+     * whose `ok` is `boolean` rather than the literal `true` (`appStorage.set`
+     * and `.delete` are both `ok: true`). That asymmetry is a refusal the host
+     * can signal WITHOUT throwing, so a caller that awaits and discards the
+     * result treats it as success. Hardcoding `ok: true` here made that branch
+     * unreachable from any test in the repo, in either direction.
+     */
+    withdrawRefuses?: boolean;
+  } = {},
+) {
   const reflect = opts.reflectMutations ?? true;
   const rows: SharedListItem[] = [...(opts.seed ?? [])];
   let n = 0;
@@ -99,6 +117,9 @@ export function fakeShared(opts: { reflectMutations?: boolean; seed?: SharedList
     },
     async withdraw(key) {
       withdraws.push(key);
+      // The host REFUSED, without throwing. The row is untouched and still on
+      // the public board — see `withdrawRefuses` above.
+      if (opts.withdrawRefuses) return { ok: false, deleted: false };
       const i = rows.findIndex((x) => x.key === key);
       // The HOST always removes the row; `reflect: false` models a list() that
       // hasn't caught up yet (read-after-write lag), so the row keeps coming back
@@ -126,10 +147,30 @@ export function fakeAppStorage(
    * produce.
    */
   quota: { usedBytes?: number; limitBytes?: number; limitRows?: number } = {},
+  /**
+   * Make the first N `list()` calls REJECT.
+   *
+   * 🔴 Models the route by which the App's `drafts` render-state is empty while
+   * the store is not: the mount effect's `list()` throws and the App swallows it
+   * on purpose, so a KV failure cannot take the public board down. `drafts`
+   * then stays `[]` with nothing to retry it. Any code that looks a draft up in
+   * that render state — rather than in the store — is silently inert here, which
+   * is exactly the defect this option exists to expose.
+   *
+   * 🔴 `failListPrefix` is NOT optional in practice — pass it. The App issues
+   * TWO independent prefixed listings on mount and the INFLIGHT-runs rehydrate
+   * (`inflight:v1:`) goes FIRST, so an untargeted `failListTimes: 1` eats that
+   * one and lets the drafts listing succeed. A test built that way loads the
+   * drafts fine and then asserts nothing it claims to. Caught by a positive
+   * control on the premise; keep that control.
+   */
+  opts: { failListTimes?: number; failListPrefix?: string } = {},
 ) {
   const store = new Map<string, unknown>(Object.entries(seed));
   const sets: Array<{ key: string; value: unknown }> = [];
   const deletes: string[] = [];
+  const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
+  let listFailuresLeft = opts.failListTimes ?? 0;
   const appStorage: UseAppStorage = {
     async get<T = unknown>(key: string) {
       return (store.has(key) ? (store.get(key) as T) : null) as T | null;
@@ -144,8 +185,15 @@ export function fakeAppStorage(
       const deleted = store.delete(key);
       return { ok: true as const, deleted };
     },
-    async list(opts?: { prefix?: string; limit?: number; cursor?: string }) {
-      const prefix = opts?.prefix;
+    async list(listOpts?: { prefix?: string; limit?: number; cursor?: string }) {
+      listCalls.push(listOpts);
+      const targeted =
+        opts.failListPrefix === undefined || (listOpts?.prefix ?? '').startsWith(opts.failListPrefix);
+      if (listFailuresLeft > 0 && targeted) {
+        listFailuresLeft -= 1;
+        throw new Error('KV list unavailable');
+      }
+      const prefix = listOpts?.prefix;
       const keys = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
       return { keys: keys.map((key) => ({ key, updatedAt: new Date() })) };
     },
@@ -158,7 +206,7 @@ export function fakeAppStorage(
       };
     },
   };
-  return { appStorage, sets, deletes, store };
+  return { appStorage, sets, deletes, store, listCalls };
 }
 
 /**

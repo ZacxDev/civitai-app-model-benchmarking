@@ -380,11 +380,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // (the row is world-readable the instant it is appended, and `data` is not
   // moderated). Submit — and only submit — copies a draft onto the public board.
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
-  // Mirror of `drafts` for looking a pointer up OUTSIDE the render closure, so
-  // the withdraw path can find the pointer at a shared key without
-  // re-subscribing (and re-creating) `withdrawRow` on every drafts refresh.
-  const draftsRef = useRef(drafts);
-  draftsRef.current = drafts;
   const [quota, setQuota] = useState<AppStorageQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
@@ -557,33 +552,70 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * Scope, deliberately narrow: the ONLY pointer touched is one whose
    * `sharedKey` equals the withdrawn key. `withdrawRow` serves both the
    * combinations and the prompts surface, and prompts have no drafts at all —
-   * a prompt's host-minted key matches no pointer, so `find` returns undefined
+   * a prompt's host-minted key matches no pointer, so the scan finds nothing
    * and `appStorage.delete` is never even called.
+   *
+   * 🔴 THE LOOKUP GOES TO THE STORE, NOT TO RENDER STATE, and that is not a
+   * style choice. Reading the `drafts` state (or a ref mirroring it) makes the
+   * fix silently inert whenever that list is EMPTY FOR A REASON THAT HAS
+   * NOTHING TO DO WITH THE POINTER — and there are three such reasons, all
+   * reachable: the KV list effect has not resolved yet (withdraw first and the
+   * list is still `[]`), `list()` threw and was swallowed so the board could
+   * stay up, or the viewer has more drafts than `DRAFT_MAX_PAGES` pages. In
+   * every one of those the pointer is real, the scan against render state
+   * misses it, and nothing ever re-checks — the exact orphan this function
+   * exists to remove, persisting with no error anywhere. Measured before the
+   * fix: withdrawing before the list resolved left `deletes: []` and the
+   * buttonless card on screen.
    */
   const clearDraftPointerFor = useCallback(
     async (sharedKey: string) => {
-      const orphan = draftsRef.current.find((d) => isSubmitted(d) && d.sharedKey === sharedKey);
-      if (!orphan) return;
+      const store = depsRef.current.appStorage;
       try {
-        // Idempotent per the SDK: deleting a key that isn't set resolves
-        // `{deleted: false}` rather than throwing.
-        await depsRef.current.appStorage.delete(draftKey(orphan.localId));
+        let cursor: string | undefined;
+        for (let page = 0; page < DRAFT_MAX_PAGES; page += 1) {
+          const res = await store.list({ prefix: DRAFT_PREFIX, cursor });
+          for (const { key } of res.keys) {
+            // Defensive: only trust keys under our prefix (a fake/host may over-return).
+            if (!key.startsWith(DRAFT_PREFIX)) continue;
+            const parsed = parseDraft(await store.get(key));
+            if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) continue;
+            // Idempotent per the SDK: deleting a key that isn't set resolves
+            // `{deleted: false}` rather than throwing.
+            await store.delete(draftKey(parsed.localId));
+            refreshDrafts();
+            return;
+          }
+          if (!res.nextCursor) break;
+          cursor = res.nextCursor;
+        }
       } catch {
         /* best-effort — a KV failure must not report the (successful) withdraw as failed */
       }
-      refreshDrafts();
     },
     [refreshDrafts],
   );
 
   const withdrawRow = useCallback(
     async (key: string) => {
-      // 🔴 ORDER IS THE GUARD: the pointer is cleared only AFTER the host has
-      // confirmed the withdraw. A rejecting `withdraw()` throws here and every
-      // line below — including the pointer delete — is skipped, so a failed
-      // withdraw leaves the viewer's only handle on their live row intact.
-      // Reversing these two lines turns this fix into a data-loss bug.
-      await depsRef.current.shared.withdraw(key);
+      // 🔴 THE GUARD IS THE `ok` BRANCH PLUS THE ORDER, and the `ok` branch is
+      // the half that is easy to miss. `withdraw` is the ONLY SDK write typed
+      // `ok: boolean` rather than the literal `ok: true` (`appStorage.set` and
+      // `.delete` are both `ok: true`) — that asymmetry IS a non-rejecting
+      // failure channel, so a refused withdraw can resolve rather than throw.
+      // Awaiting it and discarding the result treats `{ok: false}` as success.
+      //
+      // Both halves matter and they cover different failures:
+      //   - `!res.ok`  — the host answered NO. The row is still on the board.
+      //   - a THROW    — the call never landed. Same conclusion.
+      // Either way every line below is skipped, so the viewer keeps the only
+      // per-viewer handle on a row that is still live. Shared keys are
+      // host-minted and the shared list has no "mine" index (docs/matchups.md
+      // §4), so deleting that pointer against a surviving row is UNRECOVERABLE.
+      // Dropping the `ok` check, or clearing the pointer before this line, each
+      // turn this fix into a data-loss bug.
+      const res = await depsRef.current.shared.withdraw(key);
+      if (!res.ok) return;
       optimisticDelete(key);
       await clearDraftPointerFor(key);
       depsRef.current.track('withdraw');

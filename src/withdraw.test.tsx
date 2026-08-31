@@ -16,7 +16,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { draftKey } from './lib/drafts.js';
+import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
@@ -303,6 +303,85 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // An unrelated combination's pointer is not collateral damage.
     expect(deletes).toEqual([]);
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+  });
+
+  it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {
+    // 🔴 THE SECOND FAILURE CHANNEL, and the one a `try/catch` story misses
+    // entirely. `UseSharedStorage.withdraw` is typed
+    // `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write whose `ok`
+    // is `boolean` rather than the literal `true` (`appStorage.set` and
+    // `.delete` are both `ok: true`, and so is `useTip`). That asymmetry is a
+    // refusal the host can signal by RESOLVING, so awaiting the call and
+    // discarding its result scores `{ok: false}` as success: the row stays on
+    // the public board and the pointer — the viewer's only per-viewer handle on
+    // a host-minted key with no "mine" index (docs/matchups.md §4) — is deleted
+    // permanently. Unrecoverable, and silent.
+    const { shared, withdraws } = fakeShared({
+      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
+      withdrawRefuses: true,
+    });
+    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
+    renderApp({ shared, appStorage });
+
+    await screen.findByTestId('draft-submitted');
+    const card = await screen.findByTestId('combo-card');
+    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    // The call DID happen and DID resolve (no throw) — so what follows is about
+    // the refusal being honoured, not about a click that never landed.
+    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+
+    // 🔴 THE POINTER IS UNTOUCHED, and the row is still on the board.
+    expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
+    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+    expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
+    expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+  });
+
+  it('is found IN THE STORE even when the drafts list never resolved', async () => {
+    // 🔴 A LOOKUP AGAINST RENDER STATE IS SILENTLY INERT HERE. The mount effect's
+    // `list()` throws and the App swallows it deliberately (a KV failure must not
+    // take the public board down), so `drafts` stays `[]` with nothing to retry
+    // it — and a scan over that state finds no pointer, deletes nothing, and
+    // never re-checks. Same empty list, same silence, from two more realistic
+    // routes: withdrawing before the mount effect has resolved at all, and a
+    // viewer with more drafts than `DRAFT_MAX_PAGES` pages. The pointer is real
+    // in every one of them, which is why the lookup goes to the store.
+    //
+    // `failListTimes: 1` fails ONLY the mount effect's list; the withdraw-time
+    // scan gets a working store. That is the discriminator: render state is
+    // empty, the store is not.
+    const { shared, withdraws } = fakeShared({
+      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
+    });
+    const { appStorage, deletes, store, listCalls } = fakeAppStorage(
+      { [draftKey(POINTER_LOCAL_ID)]: pointer },
+      {},
+      { failListTimes: 1, failListPrefix: DRAFT_PREFIX },
+    );
+    renderApp({ shared, appStorage });
+
+    // POSITIVE CONTROL for the premise: the drafts panel is EMPTY, i.e. the
+    // render state really did miss the pointer. Without this the test could pass
+    // with a fully-loaded list and prove nothing about the store lookup.
+    await screen.findByTestId('drafts-empty');
+    expect(screen.queryByTestId('draft-submitted')).toBeNull();
+    // …and the drafts listing really was the one that failed. Without this the
+    // premise is unproven: the App issues TWO prefixed listings on mount and the
+    // INFLIGHT one goes first, so an untargeted failure eats the wrong call and
+    // the drafts load normally. That is not hypothetical — it is what the first
+    // version of this test did, and this control is what caught it.
+    expect(listCalls.map((c) => c?.prefix)).toContain(DRAFT_PREFIX);
+
+    const card = await screen.findByTestId('combo-card');
+    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
+    // 🔴 Deleted anyway — the pointer was found in the STORE.
+    await waitFor(() => expect(deletes).toContain(draftKey(POINTER_LOCAL_ID)));
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(false);
   });
 });
 

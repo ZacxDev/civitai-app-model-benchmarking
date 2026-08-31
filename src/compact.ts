@@ -128,12 +128,55 @@ export const TOOLTIP_GAP_PX = 6;
  * `anchor-scope` removed: gaps became [−357.8, −190.9, 6] instead of [6],
  * i.e. two of three bubbles flew 190–358px away from their own badge.
  *
- * The whole block is behind `@supports` on purpose. `anchor()` is invalid in a
+ * 🔴 WHICH IS WHY ALL THREE FEATURES ARE IN THE `@supports` CONDITION, NOT
+ * JUST THE TWO THIS BLOCK OBVIOUSLY NEEDS. CSS drops an unsupported declaration
+ * INDIVIDUALLY, not by rule and not by block — so a condition testing only
+ * `anchor-name` and `anchor()` lets an engine that lacks `anchor-scope` ENTER
+ * the block, apply every other declaration, and drop precisely the one the
+ * control above shows is load-bearing. That engine gets bubbles 190–358px from
+ * their badge: STRICTLY WORSE than the clipping this rule replaces, which is
+ * the one outcome the guard exists to prevent. The condition is the only place
+ * that can express "all or nothing"; listing a feature you use but do not test
+ * for is the whole bug.
+ *
+ * The block is behind `@supports` on purpose. `anchor()` is invalid in a
  * browser without anchor positioning, so that one declaration would be dropped
  * while `position: fixed` still applied — and the pack's own
  * `bottom: calc(100% + 6px)` would then resolve against the VIEWPORT and throw
  * the bubble off the top of the screen. Guarded, such a browser keeps today's
  * behaviour: still clipped, but never worse.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THIRD SURFACE: the grid's WITHHELD-IMAGE tooltip
+ * ---------------------------------------------------------------------------
+ *
+ * The selector is attribute-based, so it also captures `GatedCell`'s withheld
+ * tile tooltip — whose label (`WITHHELD_HINT`, ~110 chars) is far longer than
+ * the Included badge's. That surface was NOT in the original measurement, so it
+ * was measured separately before deciding to let the rule reach it. Same
+ * harness, same engine, a seeded `result` row so a real withheld tile renders,
+ * BEFORE arm produced by making this block's `@supports` condition
+ * unsatisfiable:
+ *
+ *              BEFORE                        AFTER
+ *     320px  left 212.3  right 472.3   |   left 8  right 312   (was 152.3 off the right)
+ *     380px  left 212.3  right 472.3   |   left 8  right 372   (was  92.3 off the right)
+ *     720px  left 259.8  right 519.8   |   left 8  right 712   (was inside)
+ *
+ * 🔴 So this surface was ALREADY BROKEN, and worse than the badge (152.3px off
+ * at 320 against the badge's 56). The rule FIXES a third surface rather than
+ * extending an unmeasured change to a healthy one — which is why it is left
+ * un-scoped. The trade is shape: the bubble goes from a 260px chip to a
+ * viewport-width bar (304 / 364 / 704) and from 3 lines to 1. At 720 — the
+ * widest compact viewport, and the one width where the old bubble was already
+ * inside — that is a cosmetic widening, not a fix. Accepted: 720 is the
+ * boundary case, and 320/380 are the real phones.
+ *
+ * The genuinely new risk here is the grid's OWN `overflow-x: auto` scroller,
+ * since the bubble is now `position: fixed` while its anchor lives inside a
+ * horizontally scrolling box. Measured at 320px with the tile scrolled under
+ * the frame edge — trigger left 297.5 -> 217.5 -> 97.5 at scrollLeft 0 / 80 /
+ * 200 — the bubble held left 8 / right 312 and gap 6 throughout. It tracks.
  */
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
@@ -143,7 +186,7 @@ export const compactTapTargetCss = (): string => `
   height: auto;
 }
 
-@supports (anchor-name: --mb-tooltip) and (bottom: anchor(top)) {
+@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (bottom: anchor(top)) {
   [${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] {
     anchor-name: --mb-tooltip;
     anchor-scope: --mb-tooltip;

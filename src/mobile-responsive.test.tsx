@@ -449,7 +449,8 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // A reword or a dropped declaration therefore fails here rather than
     // shipping a tooltip nobody can read.
     expect(tooltipBlock()).toBe(
-      "@supports (anchor-name: --mb-tooltip) and (bottom: anchor(top)) { " +
+      '@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) ' +
+        'and (bottom: anchor(top)) { ' +
         `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] { ` +
         'anchor-name: --mb-tooltip; anchor-scope: --mb-tooltip; } ' +
         `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] { ` +
@@ -467,8 +468,29 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // fix breaks the tooltip outright on every browser it cannot help.
     const block = tooltipBlock();
     expect(block.startsWith('@supports ')).toBe(true);
-    expect(block).toContain('(anchor-name: --mb-tooltip)');
-    expect(block).toContain('(bottom: anchor(top))');
+
+    // 🔴 EVERY anchor-positioning FEATURE THE BLOCK USES MUST BE IN ITS OWN
+    // CONDITION — this is the invariant, not the three literals. CSS drops an
+    // unsupported declaration INDIVIDUALLY, so an engine that has `anchor-name`
+    // and `anchor()` but not `anchor-scope` would ENTER the block, apply
+    // everything else, and drop the one declaration measured to be load-bearing
+    // — leaving bubbles 190-358px from their badge, i.e. STRICTLY WORSE than
+    // the clipping this rule replaces. Derived from the block's own text so it
+    // keeps holding if a fourth feature is added later.
+    const condition = block.slice(0, block.indexOf('{'));
+    const body = block.slice(block.indexOf('{'));
+    for (const feature of ['anchor-name', 'anchor-scope', 'position-anchor', 'anchor(']) {
+      if (!body.includes(feature)) continue;
+      // `position-anchor` is the property form of the same `anchor-name` support;
+      // the condition tests the feature, not every spelling of it.
+      const tested = feature === 'position-anchor' ? 'anchor-name' : feature;
+      expect(condition, `the block uses ${feature} but @supports never tests for it`).toContain(
+        tested,
+      );
+    }
+    expect(condition).toContain('(anchor-name: --mb-tooltip)');
+    expect(condition).toContain('(anchor-scope: --mb-tooltip)');
+    expect(condition).toContain('(bottom: anchor(top))');
 
     // 🔴 Nothing from the block may leak OUTSIDE the guard — an anchor
     // declaration that escaped it is exactly the failure mode described above.
@@ -480,6 +502,27 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     const outside = whole.replace(block, '');
     expect(outside).not.toContain('anchor-name');
     expect(outside).not.toContain('position-anchor');
+  });
+
+  it('🔴 the block actually REACHES THE DOCUMENT, not just the return string', async () => {
+    // 🔴 The three cases above assert what `compactTapTargetCss()` RETURNS. That
+    // is not the same claim as "the rule ships", and the gap is real rather than
+    // theoretical: an altering mutant that mounts
+    // `{compactTapTargetCss().split('@supports')[0]}` keeps the tap-target half
+    // shipping — so every other case in this file stays green — while the
+    // tooltip block never reaches the document at all. Measured: that mutant
+    // SURVIVED a full green suite (23 files / 231 tests).
+    //
+    // Note this was an ASYMMETRY, not a jsdom limit: the tap-target half of the
+    // same sheet is already covered end-to-end by the SELECTOR REACHABILITY
+    // cases, which read computed styles off live nodes. Only the tooltip half
+    // stopped at the string.
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('view-switch');
+
+    const mounted = screen.getByTestId('compact-styles').textContent ?? '';
+    expect(mounted.replace(/\s+/g, ' ')).toContain(tooltipBlock());
   });
 
   it('the gutter and gap figures are the literals, not whatever the constants say', () => {
