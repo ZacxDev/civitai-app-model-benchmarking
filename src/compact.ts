@@ -27,6 +27,22 @@ export const COMPACT_ATTR = 'data-mb-compact';
 export const MIN_TAP_TARGET_PX = 44;
 
 /**
+ * Side gutter, in px, left between a compact tooltip bubble and the viewport
+ * edge. The bubble is pinned to BOTH edges, so this is the whole horizontal
+ * inset and it is what makes the geometry viewport-bounded by construction
+ * rather than by luck.
+ */
+export const TOOLTIP_GUTTER_PX = 8;
+
+/**
+ * Vertical gap between a compact tooltip bubble's bottom and its trigger's top.
+ * 6 is the pack's own figure (`bottom: calc(100% + 6px)`); repeating it here
+ * keeps the bubble sitting exactly where it did, which is what "the bubble
+ * stays in its trigger's row" means once the horizontal box is re-anchored.
+ */
+export const TOOLTIP_GAP_PX = 6;
+
+/**
  * The compact-layout stylesheet, scoped to a root carrying {@link COMPACT_ATTR}.
  *
  * Selector notes — both halves are load-bearing and both are pinned by
@@ -68,6 +84,140 @@ export const MIN_TAP_TARGET_PX = 44;
  * `[data-civitai-ui-range]` is the "Show top N" slider — 6px tall from the pack,
  * the smallest target on the page and the only control that changes what a
  * narrow-viewport reader SEES. It gets the same floor.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TOOLTIP BLOCK (`@supports (anchor-name: …)`)
+ * ---------------------------------------------------------------------------
+ *
+ * The pack renders an "Included" tooltip bubble as `position: absolute;
+ * left: 50%; transform: translateX(-50%); max-width: 260px` inside its trigger.
+ * A 260px box centred on a badge that can sit anywhere across the row falls off
+ * one edge or the other on a phone, and `pageStyle`'s `overflow-x: clip` then
+ * trims it with no scroll that reaches it. MEASURED in headless Chromium 144
+ * against `npm run dev:harness`, over EVERY Included badge on the Combinations
+ * and Prompts views (worst excursion per width):
+ *
+ *     320px  minLeft -58.7  maxRight 376.0   (58.7 off the left, 56.0 off the right)
+ *     380px  minLeft  71.1  maxRight 395.2   (15.2 off the right)
+ *     720px  minLeft  78.7  maxRight 402.8   (inside)
+ *
+ * 🔴 IT CLIPS ON BOTH EDGES, so the fix has to be CONDITIONAL on where the
+ * trigger sits — and NO position-independent CSS can be. Two dead ends, both
+ * measured, do not re-try them:
+ *
+ *   - WIDENING the bubble (`max-width: calc(100vw - 32px)`) is the WRONG
+ *     DIRECTION. The box is centred, so wider is MORE clipped: 320px went
+ *     38.9 -> 52.9px clipped and 380/480/720 went from 0 clipped to
+ *     22.9 / 77.0 / 160.6. Shipped as 4418d29, reverted in faa5ed7.
+ *   - PLAIN `position: fixed` with `top/bottom: auto` (i.e. relying on the
+ *     static position for the vertical) is correct at rest and WRONG the moment
+ *     the page scrolls: the static position is resolved once at layout, so the
+ *     bubble detaches from its trigger. Measured at a 380px viewport, gap
+ *     (trigger.top − bubble.bottom): 6 at scrollY 0, then −54 / −194 / −394 at
+ *     scrollY 60 / 200 / 400. Anchor positioning is re-evaluated per frame and
+ *     holds the gap at 6 across all of those.
+ *
+ * So: `position: fixed` pinned to BOTH viewport edges (bounded by construction,
+ * whatever the trigger's x), with the VERTICAL taken from the anchor so the
+ * bubble stays in its trigger's row. After, at every badge on both views:
+ * left 8, right = clientWidth − 8, gap 6, at 320 / 380 / 720.
+ *
+ * 🔴 `anchor-scope` IS LOAD-BEARING, NOT DECORATION. Several triggers share one
+ * `anchor-name`, and without a scope every bubble resolves to the LAST such
+ * element in tree order. Measured control — the same run with only
+ * `anchor-scope` removed: gaps became [−357.8, −190.9, 6] instead of [6],
+ * i.e. two of three bubbles flew 190–358px away from their own badge.
+ *
+ * 🔴 WHICH IS WHY EVERY ANCHOR FEATURE THE BLOCK USES IS IN THE `@supports`
+ * CONDITION, NOT JUST THE ONES IT OBVIOUSLY NEEDS. CSS drops an unsupported
+ * declaration INDIVIDUALLY, not by rule and not by block — so a condition
+ * testing only `anchor-name` and `anchor()` lets an engine that lacks
+ * `anchor-scope` ENTER the block, apply every other declaration, and drop
+ * precisely the one the control above shows is load-bearing. That engine gets
+ * bubbles 190–358px from their badge: STRICTLY WORSE than the clipping this
+ * rule replaces, which is the one outcome the guard exists to prevent. The
+ * condition is the only place that can express "all or nothing"; listing a
+ * feature you use but do not test for is the whole bug.
+ *
+ * That rule caught this block twice. `anchor-scope` was missing from the
+ * condition first; then `position-anchor` was, while the test meant to enforce
+ * the rule EXEMPTED it by treating it as a spelling of `anchor-name`. It is not
+ * — an engine with `anchor-name`, `anchor-scope` and `anchor()` but no
+ * `position-anchor` enters the block, drops it, and leaves `anchor(top)` with
+ * no default anchor: `bottom` becomes invalid-at-computed-value-time and
+ * resolves to `auto`, which together with `top: auto` is EXACTLY the plain
+ * `position: fixed` dead end documented above (gap 6 -> −394 on scroll). No
+ * shipping engine is known to be in that state — Chrome shipped `anchor-name`,
+ * `position-anchor` and `anchor()` together in 125, `anchor-scope` in 131 — so
+ * this closes a hole rather than a live bug. It costs one clause.
+ *
+ * The guard in `mobile-responsive.test.tsx` derives what the condition must say
+ * from this block's own text, and it does so in FOUR passes that are not
+ * equally strong — stated precisely, because a looser summary of this exact
+ * sentence is what hid a hole for a whole round:
+ *
+ *   1. every clause is joined by `and` (walked, not regexed — `anchor(top)`
+ *      nests parentheses);
+ *   2. every non-baseline DECLARATION must have a clause matching it WHOLE,
+ *      `(prop: value)` — not just the property name;
+ *   2b. and the mirror: every CLAUSE's value must appear somewhere in the
+ *      block. Needed because pass 2 skips `BASELINE_PROPS`, and `bottom` is in
+ *      that set — so `(bottom: anchor(top))`, the clause carrying the most
+ *      modern feature here, was reachable by neither 2 nor 3. A typo'd
+ *      `anchor(topp)` survived a full green suite until this pass existed;
+ *   3. every non-baseline value FUNCTION must appear in the condition. 🔴 This
+ *      pass alone is a SUBSTRING check on the whole condition, not a clause
+ *      check — it proves the feature is tested for SOMEWHERE, not that any
+ *      particular clause is well-formed. Pass 2b is what covers the rest.
+ *
+ * 🔴 And the lists: TWO hand-written sets remain — `BASELINE_PROPS` and
+ * `BASELINE_FUNCS`. (An earlier version of this paragraph claimed "there is no
+ * list left to forget to update"; that was wrong twice over.) They are inverted
+ * on purpose, so forgetting to add a MODERN feature is impossible while ADDING
+ * a modern name to either list would silently un-guard it. Those two sets are
+ * the only hand-maintained thing left, and they are what to review if this
+ * block ever grows. Known parser limits, both LOUD false failures rather than
+ * let-throughs, and neither shape present here: a `:not(`/`:is(` selector reads
+ * as a value function, and a camelCase custom property mis-parses.
+ *
+ * The block is behind `@supports` on purpose. `anchor()` is invalid in a
+ * browser without anchor positioning, so that one declaration would be dropped
+ * while `position: fixed` still applied — and the pack's own
+ * `bottom: calc(100% + 6px)` would then resolve against the VIEWPORT and throw
+ * the bubble off the top of the screen. Guarded, such a browser keeps today's
+ * behaviour: still clipped, but never worse.
+ *
+ * ---------------------------------------------------------------------------
+ * THE THIRD SURFACE: the grid's WITHHELD-IMAGE tooltip
+ * ---------------------------------------------------------------------------
+ *
+ * The selector is attribute-based, so it also captures `GatedCell`'s withheld
+ * tile tooltip — whose label (`WITHHELD_HINT`, ~110 chars) is far longer than
+ * the Included badge's. That surface was NOT in the original measurement, so it
+ * was measured separately before deciding to let the rule reach it. Same
+ * harness, same engine, a seeded `result` row so a real withheld tile renders,
+ * BEFORE arm produced by making this block's `@supports` condition
+ * unsatisfiable:
+ *
+ *              BEFORE                        AFTER
+ *     320px  left 212.3  right 472.3   |   left 8  right 312   (was 152.3 off the right)
+ *     380px  left 212.3  right 472.3   |   left 8  right 372   (was  92.3 off the right)
+ *     720px  left 259.8  right 519.8   |   left 8  right 712   (was inside)
+ *
+ * 🔴 So this surface was ALREADY BROKEN, and worse than the badge (152.3px off
+ * at 320 against the badge's 56). The rule FIXES a third surface rather than
+ * extending an unmeasured change to a healthy one — which is why it is left
+ * un-scoped. The trade is shape: the bubble goes from a 260px chip to a
+ * viewport-width bar (304 / 364 / 704) and from 3 lines to 1. At 720 — the
+ * widest compact viewport, and the one width where the old bubble was already
+ * inside — that is a cosmetic widening, not a fix. Accepted: 720 is the
+ * boundary case, and 320/380 are the real phones.
+ *
+ * The genuinely new risk here is the grid's OWN `overflow-x: auto` scroller,
+ * since the bubble is now `position: fixed` while its anchor lives inside a
+ * horizontally scrolling box. Measured at 320px with the tile scrolled under
+ * the frame edge — trigger left 297.5 -> 217.5 -> 97.5 at scrollLeft 0 / 80 /
+ * 200 — the bubble held left 8 / right 312 and gap 6 throughout. It tracks.
  */
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
@@ -77,4 +227,22 @@ export const compactTapTargetCss = (): string => `
   height: auto;
 }
 
+@supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) {
+  [${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip'] {
+    anchor-name: --mb-tooltip;
+    anchor-scope: --mb-tooltip;
+  }
+
+  [${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble] {
+    position: fixed;
+    position-anchor: --mb-tooltip;
+    top: auto;
+    bottom: calc(anchor(top) + ${TOOLTIP_GAP_PX}px);
+    left: ${TOOLTIP_GUTTER_PX}px;
+    right: ${TOOLTIP_GUTTER_PX}px;
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+}
 `;

@@ -179,3 +179,44 @@ describe('formatQuota — acceptance criterion 6', () => {
     expect(formatQuota(null)).toBeNull();
   });
 });
+
+describe('formatQuota — the privacy claim is NOT fused to the app-wide figures', () => {
+  // 🔴 THE DEFECT THIS PINS. The line used to read
+  //   "Private to you — 3.0 MB of 12 MB used, 12 of 4,321 rows."
+  // which attaches "Private to you" to numbers that are NOT this viewer's.
+  // `useAppStorage`'s own contract splits the two scopes: `get()` reads "the
+  // current (block instance, viewer) tuple" (per-viewer DATA) while `set()`
+  // rejects "when the per-app 50MB quota would be crossed" and the hook doc
+  // reads "50 MB + ~1M rows per app" (per-app QUOTA). Confirmed live on
+  // 2026-08-31: viewers 8753561 and 11025902 saw byte-identical quota lines,
+  // including a row count that had just moved 27 -> 28 because of the FIRST
+  // viewer's draft.
+  //
+  // 🔴 THE WHOLE NORMALISED STRING IS PINNED, ON PURPOSE. A keyword assertion
+  // ("contains 'app-wide'") is walkable by a reword that re-fuses the clauses —
+  // e.g. "Private to you, app-wide: …" would pass it and be exactly the bug.
+  // The cost is that a cosmetic reword fails this test. Pay it.
+  const line = formatQuota({
+    usedBytes: 1024 * 1024 * 3,
+    rowCount: 12,
+    limitBytes: 1024 * 1024 * 12,
+    limitRows: 4321,
+  })!;
+
+  it('is exactly the agreed sentence, clause for clause', () => {
+    expect(line).toBe(
+      'Drafts are private to you. Storage is app-wide, shared with every other viewer: ' +
+        '3.0 MB of 12 MB used, 12 of 4,321 rows.',
+    );
+  });
+
+  it('never re-fuses "private to you" onto the figures', () => {
+    // The specific shape of the old bug: a privacy adjective immediately
+    // preceding the used/limit numbers, with no clause boundary between them.
+    expect(line).not.toMatch(/priv\w*[^.]*\d[\d.,]*\s?(B|KB|MB)\b/i);
+    // …and the privacy claim is still MADE. Dropping it silently would be the
+    // other way to pass the assertion above, and the drafts panel's own copy
+    // depends on drafts genuinely being per-viewer.
+    expect(line).toMatch(/private to you/i);
+  });
+});
