@@ -151,16 +151,34 @@ export const TOOLTIP_GAP_PX = 6;
  * `position-anchor` and `anchor()` together in 125, `anchor-scope` in 131 — so
  * this closes a hole rather than a live bug. It costs one clause.
  *
- * The guard in `mobile-responsive.test.tsx` derives the required set from this
- * block's own declarations — properties AND value functions — and asserts the
- * whole CLAUSE, not the property name, plus that every clause is joined by
- * `and`. 🔴 STATED HONESTLY, because an earlier version of this sentence
- * ("there is no list left to forget to update") was WRONG twice over: two
- * hand-written lists remain — `BASELINE_PROPS` and `BASELINE_FUNCS` — and they
- * are inverted on purpose, so forgetting to add a MODERN feature is impossible
- * while ADDING a modern name to either list would silently un-guard it. Those
- * two sets are the only hand-maintained thing left, and they are what to review
- * if this block ever grows.
+ * The guard in `mobile-responsive.test.tsx` derives what the condition must say
+ * from this block's own text, and it does so in FOUR passes that are not
+ * equally strong — stated precisely, because a looser summary of this exact
+ * sentence is what hid a hole for a whole round:
+ *
+ *   1. every clause is joined by `and` (walked, not regexed — `anchor(top)`
+ *      nests parentheses);
+ *   2. every non-baseline DECLARATION must have a clause matching it WHOLE,
+ *      `(prop: value)` — not just the property name;
+ *   2b. and the mirror: every CLAUSE's value must appear somewhere in the
+ *      block. Needed because pass 2 skips `BASELINE_PROPS`, and `bottom` is in
+ *      that set — so `(bottom: anchor(top))`, the clause carrying the most
+ *      modern feature here, was reachable by neither 2 nor 3. A typo'd
+ *      `anchor(topp)` survived a full green suite until this pass existed;
+ *   3. every non-baseline value FUNCTION must appear in the condition. 🔴 This
+ *      pass alone is a SUBSTRING check on the whole condition, not a clause
+ *      check — it proves the feature is tested for SOMEWHERE, not that any
+ *      particular clause is well-formed. Pass 2b is what covers the rest.
+ *
+ * 🔴 And the lists: TWO hand-written sets remain — `BASELINE_PROPS` and
+ * `BASELINE_FUNCS`. (An earlier version of this paragraph claimed "there is no
+ * list left to forget to update"; that was wrong twice over.) They are inverted
+ * on purpose, so forgetting to add a MODERN feature is impossible while ADDING
+ * a modern name to either list would silently un-guard it. Those two sets are
+ * the only hand-maintained thing left, and they are what to review if this
+ * block ever grows. Known parser limits, both LOUD false failures rather than
+ * let-throughs, and neither shape present here: a `:not(`/`:is(` selector reads
+ * as a value function, and a camelCase custom property mis-parses.
  *
  * The block is behind `@supports` on purpose. `anchor()` is invalid in a
  * browser without anchor positioning, so that one declaration would be dropped

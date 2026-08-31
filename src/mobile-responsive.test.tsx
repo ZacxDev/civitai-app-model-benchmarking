@@ -577,10 +577,14 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     /**
      * Properties predating anchor positioning by decades. Everything else pays.
      *
-     * 🔴 THE ONE HAND-WRITTEN LIST LEFT, and it is deliberately a list of
-     * BASELINE things rather than modern ones: forgetting to add a new modern
-     * feature here is impossible, because absence means "guarded". The failure
-     * mode that remains is someone ADDING a modern property to this set.
+     * 🔴 ONE OF THE TWO HAND-WRITTEN LISTS LEFT — `BASELINE_FUNCS` below is the
+     * other, and this comment used to say "THE ONE HAND-WRITTEN LIST LEFT" while
+     * that second list sat eleven lines under it, added by the same commit.
+     * (`compact.ts` had it right; this file contradicted it.) Both are
+     * deliberately lists of BASELINE things rather than modern ones: forgetting
+     * to add a new modern feature is impossible, because absence means
+     * "guarded". The failure mode that remains is someone ADDING a modern name
+     * to either set.
      */
     const BASELINE_PROPS = new Set([
       'position',
@@ -636,6 +640,34 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
         clauses,
         `the block declares \`${prop}: ${value}\` but @supports has no matching clause`,
       ).toContain(`(${prop}: ${value})`);
+    }
+
+    // ---- 2b. EVERY CLAUSE'S VALUE MUST EXIST IN THE BLOCK -------------------
+    // 🔴 THE MIRROR OF SECTION 2, AND WITHOUT IT ONE CLAUSE WAS NEVER CHECKED AT
+    // ALL. Section 2 walks the block's declarations and demands a clause for
+    // each — but it skips `BASELINE_PROPS`, and `bottom` is in that set. So
+    // `(bottom: anchor(top))`, the clause carrying the block's most modern
+    // feature, was covered by nothing: section 3 only asks whether the substring
+    // `anchor(` appears somewhere in the condition, never what value it tests.
+    // Measured, both surviving a full green suite at 237/237 with the verbatim
+    // pin updated:
+    //
+    //     (bottom: anchor(top)) -> (bottom: anchor(topp))     237/237 SURVIVED
+    //     (bottom: anchor(top)) -> (bottom: anchor(12px))     237/237 SURVIVED
+    //
+    // Either is a one-character typo while editing the condition, and either
+    // makes the clause invalid — so `@supports` is false on EVERY engine, the
+    // rule never applies, and the mobile clipping this whole PR exists to fix
+    // returns for 100% of users with typecheck, tests and build all green.
+    //
+    // Walking clause -> block (rather than block -> clause) is what reaches a
+    // clause whose property is baseline-exempt, so the two directions together
+    // cover all four clauses.
+    for (const clause of clauses) {
+      const v = clause.slice(clause.indexOf(':') + 1, clause.length - 1).trim();
+      expect(body, `clause \`${clause}\` tests a value that appears nowhere in the block`).toContain(
+        v,
+      );
     }
 
     // ---- 3. VALUE FUNCTIONS: features that ride a baseline property ---------
