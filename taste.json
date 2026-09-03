@@ -1,0 +1,95 @@
+{
+  "slug": "model-benchmarking",
+  "pass": "2026-09-03",
+  "versionAtPass": "0.4.0",
+  "baseAtPass": "2a696dec6db09278e97eec967fd11bdf8b7f4a47",
+  "brandDepth": "accent",
+  "hue": "#00AB89",
+  "heroPrompt": null,
+  "heroSeed": null,
+  "sdkVersionAtPass": {
+    "@civitai/blocks-react": "0.43.0",
+    "@civitai/app-sdk": "0.35.0",
+    "@civitai/components-react": "0.3.1",
+    "@civitai/theme": "0.2.1",
+    "_measured": "installed versions, read from node_modules — not the package.json ranges"
+  },
+  "decisions": [
+    {
+      "what": "brandDepth stays `accent`, not `skin`",
+      "chose": "leave every surface on the host's --civitai-* tokens",
+      "because": "src/theme.ts already resolves every colour to a host token with zero hardcoded values, so light/dark correctness is the platform's. Moving to `skin` would transfer that debt to this app for no gain the store assets do not already provide — the #00AB89 plate is the brand's expression in the STORE, not in a block whose job is to render other people's images side by side. Notably the theme module already avoids the --civitai-color-gray-* ramp on purpose because it is theme-INVARIANT."
+    },
+    {
+      "what": "no in-app hero image, despite hero generation being pre-authorised",
+      "chose": "spend nothing",
+      "because": "the app's primary object is a comparison grid inside a fixed-height iframe (minHeight 640). A hero band would push the grid down on every visit for an app people re-enter to check results. Same reasoning that kept sensei heroless. The store listing already carries generated cover art; a second hero inside the block is dead pixels on visit two."
+    },
+    {
+      "what": "vote state moved from a per-viewer KV mirror to the host's viewerVoted flag",
+      "chose": "derive it, store nothing",
+      "because": "the mirror was written only by the client that cast the vote, so it could not see another tab/session/device and nothing could reconcile a disagreement. Verified the host flag is DEPLOYED before relying on it (civitai#3474 is an ancestor of the running dp-prod build 5.1.68/bbbe837), rather than trusting the SDK type."
+    },
+    {
+      "what": "report() is escalation only — no owner-side hide was added",
+      "chose": "offer Report, and say plainly that it does not remove the row",
+      "because": "constraints §6: update/withdraw are author-scoped, so the app owner has no server-side power to hide another viewer's row, and report() explicitly does not hide it either. The alternative — a client-side soft-hide honoured by an owner-authored ledger — is real but is a much larger change and would need naming as suppression rather than deletion. Not warranted for a board this size today."
+    },
+    {
+      "what": "the board-scan page cap now discloses itself",
+      "chose": "surface a notice rather than raise the cap or add a 'load more'",
+      "because": "constraints §2 — there is no server-side sort, so any ranking is client-side over what was read. The cap (2000 rows) does not bind today (~22 live rows), so raising it would be tuning a constraint that is not binding; what was actually wrong was that crossing it was SILENT. An honest partial beats a confident wrong order."
+    },
+    {
+      "what": "no motion added",
+      "chose": "leave the app motionless, so prefers-reduced-motion is n/a rather than passed",
+      "because": "the app ships zero transitions/animations today. Adding motion purely so the rubric's reduced-motion item could be marked 'pass' would be inventing work to grade. If motion is added later, the reduced-motion test becomes mandatory."
+    }
+  ],
+  "deferred": [
+    {
+      "what": "requester/author identity on a row — cards show no handle for the submitter",
+      "blockedBy": "constraints §5 — the listed item carries authorUserId as a bare number and there is no user lookup; the only identity scope is user:read:self, which reads the VIEWER not the author.",
+      "closingCondition": "A host message type that resolves a userId to a public handle ships in @civitai/blocks-react and appears in the installed .d.ts. Checked mechanically by grepping the installed types for such a method during the next pass's phase 0; until then this is platform work, not app work."
+    },
+    {
+      "what": "an owner-side hide for abusive rows, so the app author can suppress without waiting for a platform moderator",
+      "blockedBy": "constraints §6 — update/withdraw reject FORBIDDEN for anyone but the row's author, and report() does not hide.",
+      "closingCondition": "Either the host gains an owner-scoped moderation capability (visible in the installed UseSharedStorage .d.ts), OR a moderation incident on this board makes the client-side soft-hide ledger worth its complexity. The second is a judgement over named evidence: the app owner reads the reported-row queue and decides."
+    }
+  ],
+  "rubric": {
+    "brand": {
+      "hueFromSystem": "pass",
+      "heroReproducible": "n-a — no hero, see decisions",
+      "dualTheme": "pass — accent depth, host owns both themes; zero hardcoded colours in src/theme.ts",
+      "noHardcodedThemeColour": "pass"
+    },
+    "informationArchitecture": {
+      "primaryObjectFirst": "pass — the view switch is the first control and the three views are the app's objects",
+      "creationSecondary": "pass — Submit is a secondary button beside the summary line, not the page's primary",
+      "noRedundantExplainer": "pass — the how-to is a one-time dismissible panel with a persisted per-viewer flag, not standing copy",
+      "partialRankingDisclosed": "FIXED this pass — the board scan's page cap was silent; now disclosed"
+    },
+    "interaction": {
+      "transitions": "n-a — no motion in the app",
+      "reducedMotion": "n-a — see above; becomes mandatory if motion is added",
+      "optimisticRollback": "pass — reconcileOptimistic carries pending insert/update/delete across a lagged list()",
+      "menus": "n-a — no overflow menus; navigation is a SegmentedControl of real tabs",
+      "heightNotifiesHost": "pass — useBlockResize(rootRef) at App.tsx"
+    },
+    "honesty": {
+      "noRejectedAffordance": "FIXED this pass — Report is withheld from signed-out viewers and from a viewer's own rows",
+      "suppressionNamedAsSuppression": "pass — Report settles as 'Reported for review'; the row demonstrably stays on the board"
+    },
+    "coverage": {
+      "unitComponentIntegration": "pass — 284 tests / 28 files",
+      "failureInjection": "pass — reportRejects, failSetTimes, failListTimes, withdrawRefuses",
+      "regressionWatchedRed": "pass — the viewerVoted pair watched failing on unmodified 2a696de",
+      "recipeUpdated": "n-a this PR — no testid renamed and the ready anchor (view-switch) is unmoved; the new controls are additive. Re-shoot still trails approval."
+    },
+    "evidence": {
+      "beforeAfterDiff": "NOT DONE — see the handoff. The re-shoot cannot run until 0.4.0 is live, and phase 7 is deliberately split for exactly this reason."
+    }
+  }
+}
