@@ -11,6 +11,7 @@ import { ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
+import { ReportButton } from './ReportButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface PromptsViewProps {
@@ -28,6 +29,8 @@ export interface PromptsViewProps {
   onEdit: (prompt: PromptRow) => void;
   /** Withdraw one of the viewer's OWN prompts from the shared grid. */
   onWithdraw: (key: string) => Promise<void> | void;
+  /** Report ANOTHER viewer's row to platform moderators (escalation, not removal). */
+  onReport: (key: string) => Promise<void>;
 }
 
 export function PromptsView({
@@ -43,6 +46,7 @@ export function PromptsView({
   onRequireAuth,
   onEdit,
   onWithdraw,
+  onReport,
 }: PromptsViewProps): React.JSX.Element {
   return (
     <Stack gap={14} data-testid="prompts-view">
@@ -126,6 +130,17 @@ export function PromptsView({
                       noun="prompt"
                       onWithdraw={() => onWithdraw(prompt.key)}
                       data-testid="prompt-withdraw"
+                    />
+                  )}
+                  {/* Escalation, and the mirror image of the two above: offered only
+                      on rows the viewer does NOT own, and only when signed in —
+                      the host rejects an anonymous report, and an owner has
+                      Remove. Filing does NOT hide the row; see ReportButton. */}
+                  {!isOwn && viewerId != null && (
+                    <ReportButton
+                      noun="prompt"
+                      onReport={() => onReport(prompt.key)}
+                      data-testid="prompt-report"
                     />
                   )}
                   <VoteButton

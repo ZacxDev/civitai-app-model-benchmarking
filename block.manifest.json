@@ -1,7 +1,7 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "model-benchmarking",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "name": "Model Benchmarking",
   "tagline": "Settle it with a grid.",
   "description": "Settle which setup actually wins: the top-voted model combinations become the grid's rows, the top-voted prompts become its columns, and every cell is the same prompt run on a different setup.\n\nSubmit a combination — a checkpoint plus its weighted LoRA stack, up to eight configs in one entry — or submit a prompt with its generation settings and optional per-ecosystem overrides for SDXL, Pony, Flux and the rest. Then vote. Votes decide what makes the grid, and a slider widens or narrows how many rows and columns you see without changing anyone else's view.\n\nRunning a cell spends your own Buzz. The app prices the run first and shows the exact cost, and Confirm stays disabled until that estimate comes back and fits your balance — nothing is charged until you press it. Reload mid-run and the cell comes back still generating, so you check on it rather than pay twice. The images it produces are added to the public benchmark grid, so every run you pay for fills a gap everyone else can read.\n\nCombinations and prompts you submitted stay yours: edit one in place as the grid evolves, or remove it from the shared grid for good.",

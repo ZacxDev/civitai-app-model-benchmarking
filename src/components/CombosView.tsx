@@ -12,6 +12,7 @@ import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
+import { ReportButton } from './ReportButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface CombosViewProps {
@@ -29,6 +30,8 @@ export interface CombosViewProps {
   onEdit: (combo: CombinationRow) => void;
   /** Withdraw one of the viewer's OWN combinations from the shared grid. */
   onWithdraw: (key: string) => Promise<void> | void;
+  /** Report ANOTHER viewer's row to platform moderators (escalation, not removal). */
+  onReport: (key: string) => Promise<void>;
   /**
    * The PRIVATE drafts panel, rendered above the public list. A slot rather than
    * a prop bundle so this view keeps knowing nothing about per-viewer storage —
@@ -52,6 +55,7 @@ export function CombosView({
   onRequireAuth,
   onEdit,
   onWithdraw,
+  onReport,
   draftsSlot,
 }: CombosViewProps): React.JSX.Element {
   return (
@@ -150,6 +154,17 @@ export function CombosView({
                       noun="combination"
                       onWithdraw={() => onWithdraw(combo.key)}
                       data-testid="combo-withdraw"
+                    />
+                  )}
+                  {/* Escalation, and the mirror image of the two above: offered only
+                      on rows the viewer does NOT own, and only when signed in —
+                      the host rejects an anonymous report, and an owner has
+                      Remove. Filing does NOT hide the row; see ReportButton. */}
+                  {!isOwn && viewerId != null && (
+                    <ReportButton
+                      noun="combination"
+                      onReport={() => onReport(combo.key)}
+                      data-testid="combo-report"
                     />
                   )}
                   <VoteButton

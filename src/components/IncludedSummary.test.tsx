@@ -68,6 +68,7 @@ function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
       onRequireAuth={noop}
       onEdit={noop}
       onWithdraw={noop}
+      onReport={async () => {}}
     />,
   );
 }
@@ -87,6 +88,7 @@ function renderPrompts(rows: PromptRow[], includedKeys: Set<string>) {
       onRequireAuth={noop}
       onEdit={noop}
       onWithdraw={noop}
+      onReport={async () => {}}
     />,
   );
 }

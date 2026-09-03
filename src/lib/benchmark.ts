@@ -318,6 +318,13 @@ export interface RawSharedItem {
   count: number;
   authorUserId: number;
   value: SharedStorageValue;
+  /**
+   * Whether the CURRENT viewer has an active up-vote on this row, as reported by
+   * the host on every `list()`. Host-authoritative and always false for an
+   * anonymous viewer — carry it through rather than reconstructing vote state
+   * client-side, which cannot see a vote cast anywhere else.
+   */
+  viewerVoted: boolean;
 }
 
 /** Defensive checkpoint parse — null when the required ids are missing/bad. */
@@ -577,7 +584,10 @@ export function reconcileOptimistic(
     const hit = byKey.get(key);
     if (p.kind === 'insert') {
       if (hit) continue; // host confirmed the append — drop the optimistic row
-      inserts.push({ key, count: 0, authorUserId: p.authorUserId, value: p.value });
+      // `viewerVoted: false` — an optimistic row the viewer just created carries
+      // no vote from them, and the host's own answer replaces this row entirely
+      // as soon as the append is confirmed.
+      inserts.push({ key, count: 0, authorUserId: p.authorUserId, value: p.value, viewerVoted: false });
       nextPending.set(key, p);
     } else if (p.kind === 'delete') {
       if (!hit) continue; // host confirmed the withdraw — drop the suppression

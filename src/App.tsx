@@ -121,9 +121,12 @@ export interface AppDeps {
   GatedCell: GatedCellComponent;
   requestConsent: (opts: { scopes: string[] }) => void;
   requestSignIn: () => void;
-  /** Per-(viewer, block) KV store — durably persists this viewer's voted-set so
-   * their up-votes survive a reload (the shared list carries only the aggregate
-   * `count`, no per-viewer voted flag). */
+  /** Per-(viewer, block) KV store — holds this viewer's drafts, in-flight run
+   * claims and the dismissed-explainer flag.
+   *
+   * 🔴 It does NOT hold vote state. It used to, because the shared list once
+   * carried only the aggregate `count`; the list now reports `viewerVoted` per
+   * row, which is host-derived and therefore correct across devices. */
   appStorage: UseAppStorage;
   /** Fire-and-forget analytics — the host forwards events to its pipeline. */
   track: (eventName: string, properties?: Record<string, unknown>) => void;
@@ -204,9 +207,13 @@ export const CLAIM_NO_VIEWER_MESSAGE =
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
-/** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
- * the up-vote highlight survives a reload. Versioned for a future shape change. */
-const VOTED_STORAGE_KEY = 'voted:v1';
+// 🔴 `voted:v1` (a per-viewer KV array of shared keys) IS DELIBERATELY GONE. It
+// mirrored the viewer's up-votes back when `list()` returned only the aggregate
+// `count`; the host now reports `viewerVoted` per row, so the mirror was a
+// second, weaker copy of a fact the row already carries. Do not reintroduce it:
+// the stored copy is written only by the client that cast the vote, so it is
+// blind to every other tab, session and device, and nothing can reconcile it.
+// Rows written under the old key are simply ignored and cost nothing.
 /** Per-viewer KV flag: set once the viewer dismisses the "How this works" panel,
  * so the one-time explainer stays dismissed across reloads. */
 const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
@@ -314,11 +321,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
-  const [votedKeys, setVotedKeys] = useState<Set<string>>(new Set());
-  // Mirror of votedKeys for computing the next set outside a state updater
-  // (so persistence gets the fresh set without a side-effect in the reducer).
-  const votedKeysRef = useRef(votedKeys);
-  votedKeysRef.current = votedKeys;
+  /** The board scan hit its page cap, so every ranking below is over a PREFIX of
+   * the board rather than all of it. Surfaced in the UI — see the disclosure by
+   * the view switch. */
+  const [boardTruncated, setBoardTruncated] = useState(false);
+  // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
+  // every `list()`, so the row IS the vote state — there is nothing to hold in
+  // parallel and nothing to persist. This used to be `useState` hydrated from a
+  // per-viewer KV array the app wrote itself, which could not see a vote cast in
+  // another tab/session/device and had no way to be corrected when it disagreed
+  // with the host. Keeping one source is what makes that whole class impossible
+  // rather than merely fixed.
+  const votedKeys = useMemo(
+    () => new Set(items.filter((it) => it.viewerVoted).map((it) => it.key)),
+    [items],
+  );
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   // Mirror of `runs` for reading the live workflowId outside a state updater
   // (resume-poll reads it without re-subscribing the callback to `runs`).
@@ -365,9 +382,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       try {
         const all = await listAll(depsRef.current.shared);
         if (cancelled) return;
-        const { items: merged, pending } = reconcileOptimistic(all, pendingRef.current);
+        const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
         setItems(merged);
+        setBoardTruncated(all.truncated);
       } catch (e) {
         if (!cancelled) setError(errMsg(e));
       } finally {
@@ -379,26 +397,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     };
   }, [ready, reloadKey]);
 
-  // Durable vote-state: hydrate this viewer's voted-set from per-viewer KV so
-  // their up-vote highlight survives a reload. Best-effort — a KV miss/anon
-  // viewer/host error just leaves the in-memory set empty (the aggregate `count`
-  // is always host-authoritative regardless).
-  useEffect(() => {
-    if (!ready || !viewer) return;
-    let cancelled = false;
-    depsRef.current.appStorage
-      .get<string[]>(VOTED_STORAGE_KEY)
-      .then((arr) => {
-        if (!cancelled && Array.isArray(arr)) setVotedKeys(new Set(arr.filter((k) => typeof k === 'string')));
-      })
-      .catch(() => {
-        /* best-effort — leave the set empty */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, viewer?.id]);
+  // (No vote-state hydration effect: `viewerVoted` arrives on each row of the
+  // list() above, so the highlight is already correct on first paint — including
+  // for votes this device never cast. See `votedKeys` where it is derived.)
 
   // Hydrate the one-time "How this works" dismissed flag from per-viewer KV.
   // Best-effort: a miss / anon viewer / host error just shows the explainer.
@@ -593,46 +594,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
 
   // ---- vote wiring ----
-  const applyCount = useCallback((key: string, count: number) => {
-    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, count } : it)));
+  // Apply the host's post-mutation answer to the row: the returned aggregate
+  // `count` AND this viewer's own flag, together, because they are two halves of
+  // one host fact. Writing only the count is what used to force a second,
+  // separately-stored copy of the vote state.
+  const applyVote = useCallback((key: string, count: number, voted: boolean) => {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, count, viewerVoted: voted } : it)));
   }, []);
-
-  // Persist the voted-set to per-viewer KV (best-effort, fire-and-forget). A
-  // persistence failure never blocks or fails the vote — the host vote itself is
-  // already durable; this only mirrors the per-viewer HIGHLIGHT.
-  const persistVoted = useCallback(
-    (next: Set<string>) => {
-      if (!viewer) return;
-      depsRef.current.appStorage.set(VOTED_STORAGE_KEY, [...next]).catch(() => {});
-    },
-    [viewer],
-  );
 
   const onVote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.vote(key);
-      applyCount(key, count);
-      const next = new Set(votedKeysRef.current).add(key);
-      setVotedKeys(next);
-      persistVoted(next);
+      applyVote(key, count, true);
       depsRef.current.track('vote');
       return count;
     },
-    [applyCount, persistVoted],
+    [applyVote],
   );
 
   const onUnvote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.unvote(key);
-      applyCount(key, count);
-      const next = new Set(votedKeysRef.current);
-      next.delete(key);
-      setVotedKeys(next);
-      persistVoted(next);
+      applyVote(key, count, false);
       depsRef.current.track('vote_removed');
       return count;
     },
-    [applyCount, persistVoted],
+    [applyVote],
   );
 
   const requireAuth = useCallback(() => {
@@ -647,7 +634,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       if (!viewer) return;
       pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'insert' });
       setItems((prev) =>
-        prev.some((it) => it.key === key) ? prev : [{ key, count: 0, authorUserId: viewer.id, value }, ...prev],
+        prev.some((it) => it.key === key)
+          ? prev
+          : [{ key, count: 0, authorUserId: viewer.id, value, viewerVoted: false }, ...prev],
       );
     },
     [viewer],
@@ -799,6 +788,24 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * button held in `loading` for its whole duration.
    */
   const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
+
+  /**
+   * Report ANOTHER viewer's row for platform moderator review — the board's only
+   * abuse seam, and the one power that is not author-scoped.
+   *
+   * 🔴 IT DOES NOT HIDE THE ROW, and nothing here should suggest otherwise. The
+   * host files the report and a moderator decides; `items` is deliberately NOT
+   * touched, so the row stays exactly where it is. There is no owner-side hide
+   * to fall back on either — `update`/`withdraw` both reject for anyone but the
+   * row's author, so escalation is the whole of what this app can offer.
+   *
+   * Rejections propagate to `ReportButton`, which stays armed for a retry: a
+   * failed report that closed quietly would read as a filed one.
+   */
+  const reportRow = useCallback(async (key: string) => {
+    await depsRef.current.shared.report(key);
+    depsRef.current.track('report');
+  }, []);
 
   // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
 
@@ -1413,6 +1420,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           ]}
         />
 
+        {/*
+          🔴 THE BOARD IS BIGGER THAN WHAT IS RANKED. `list()` is newest-first with
+          no server-side sort, so "most-voted" is computed client-side over the
+          rows the scan actually read — and the scan stops at a page cap. When it
+          stops early, the counts in the tabs above, the top-N that becomes the
+          grid, and every "Included" badge describe a PREFIX of the board.
+
+          Saying so is the whole point: an honest partial beats a confident wrong
+          order, and the alternative is a ranking that silently omits row 2001
+          while looking complete. Rendered next to the switch so it is visible in
+          all three views, since all three read the same truncated ranking.
+        */}
+        {boardTruncated && (
+          <Alert color="warning" data-testid="board-truncated-notice">
+            This board has more entries than the app can rank at once. Vote order — and
+            the rows and columns of the grid — cover only the entries loaded so far.
+          </Alert>
+        )}
+
         {view === 'combos' && (
           <CombosView
             combinations={combinations}
@@ -1427,6 +1453,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
             onWithdraw={withdrawCombination}
+            onReport={reportRow}
             draftsSlot={draftsSlot}
           />
         )}
@@ -1445,6 +1472,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onRequireAuth={requireAuth}
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
             onWithdraw={withdrawPrompt}
+            onReport={reportRow}
           />
         )}
 
@@ -1569,18 +1597,36 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 }
 
 /** Page the WHOLE shared list (newest-first) into a flat RawSharedItem[]. */
-async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
+async function listAll(
+  shared: UseSharedStorage,
+): Promise<{ items: RawSharedItem[]; truncated: boolean }> {
   const out: RawSharedItem[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const res = await shared.list({ limit: LIST_PAGE, cursor });
     for (const it of res.items) {
-      out.push({ key: it.key, count: it.count, authorUserId: it.authorUserId, value: it.value });
+      out.push({
+        key: it.key,
+        count: it.count,
+        authorUserId: it.authorUserId,
+        value: it.value,
+        viewerVoted: it.viewerVoted,
+      });
     }
-    if (!res.nextCursor) break;
+    if (!res.nextCursor) return { items: out, truncated: false };
     cursor = res.nextCursor;
   }
-  return out;
+  // 🔴 Fell out of the loop with a cursor still in hand: there are MORE rows on
+  // the board than this scan read. Everything downstream — the vote ranking, the
+  // "top N" that becomes the grid, the included counts — is therefore computed
+  // over a PREFIX of the board, and there is no server-side sort to fall back on
+  // (`list` is newest-first only). Reporting it is what lets the UI say so
+  // instead of presenting a partial order as the whole one.
+  //
+  // The same distinction is already drawn carefully for the per-viewer KV scan
+  // (`inflightScanTruncatedRef`); this is the public half, which used to return
+  // a silent prefix.
+  return { items: out, truncated: true };
 }
 
 function errMsg(e: unknown): string {
