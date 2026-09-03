@@ -60,6 +60,13 @@ export function fakeShared(
      * unreachable from any test in the repo, in either direction.
      */
     withdrawRefuses?: boolean;
+    /**
+     * Make `report()` REJECT. The host rejects a report for a missing key, a
+     * trust/scope refusal, or an anonymous viewer — and a failed report that the
+     * UI closes quietly reads to the viewer as a filed one, so this is the
+     * control that proves the failure actually surfaces.
+     */
+    reportRejects?: boolean;
   } = {},
 ) {
   const reflect = opts.reflectMutations ?? true;
@@ -74,6 +81,11 @@ export function fakeShared(
    * that an EDIT of a submitted row went through `update` on the SAME key — i.e.
    * that it did not mint a new row (which would reset the vote total to zero). */
   const updates: Array<{ key: string; value: SharedAppendValue }> = [];
+  /** Every `report()` ATTEMPT in call order, successful or not — the positive
+   * control for the rejecting path, where nothing is filed and only the attempt
+   * distinguishes "the app tried and the host refused" from "the app never
+   * tried". */
+  const reports: Array<{ key: string; reason?: string }> = [];
   /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
    * to actually LAND before asserting the optimistic state survived it. */
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
@@ -85,9 +97,13 @@ export function fakeShared(
     async get(key) {
       return rows.find((x) => x.key === key) ?? null;
     },
-    async report() {
-      // The app does not call report() yet; present so the fake satisfies the
-      // full UseSharedStorage contract (added in @civitai/app-sdk 0.29.0).
+    async report(key, reason) {
+      reports.push({ key, reason });
+      // 🔴 The host does NOT remove or hide the row on a report — a moderator
+      // decides later. Modelling that faithfully is what lets a test prove the
+      // app leaves the board untouched; a fake that spliced the row here would
+      // make the honest behaviour look like a bug and the dishonest one pass.
+      if (opts.reportRejects) throw new Error('REPORT_FAILED');
     },
     async getCount() {
       return 0;
@@ -128,7 +144,7 @@ export function fakeShared(
       return { ok: true, deleted: i >= 0 };
     },
   };
-  return { shared, appends, updates, withdraws, listCalls };
+  return { shared, appends, updates, withdraws, reports, listCalls };
 }
 
 /**

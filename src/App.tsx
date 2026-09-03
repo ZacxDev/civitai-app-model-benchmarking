@@ -784,6 +784,24 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    */
   const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
 
+  /**
+   * Report ANOTHER viewer's row for platform moderator review — the board's only
+   * abuse seam, and the one power that is not author-scoped.
+   *
+   * 🔴 IT DOES NOT HIDE THE ROW, and nothing here should suggest otherwise. The
+   * host files the report and a moderator decides; `items` is deliberately NOT
+   * touched, so the row stays exactly where it is. There is no owner-side hide
+   * to fall back on either — `update`/`withdraw` both reject for anyone but the
+   * row's author, so escalation is the whole of what this app can offer.
+   *
+   * Rejections propagate to `ReportButton`, which stays armed for a retry: a
+   * failed report that closed quietly would read as a filed one.
+   */
+  const reportRow = useCallback(async (key: string) => {
+    await depsRef.current.shared.report(key);
+    depsRef.current.track('report');
+  }, []);
+
   // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
 
   /**
@@ -1411,6 +1429,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onRequireAuth={requireAuth}
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
             onWithdraw={withdrawCombination}
+            onReport={reportRow}
             draftsSlot={draftsSlot}
           />
         )}
@@ -1429,6 +1448,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onRequireAuth={requireAuth}
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
             onWithdraw={withdrawPrompt}
+            onReport={reportRow}
           />
         )}
 
