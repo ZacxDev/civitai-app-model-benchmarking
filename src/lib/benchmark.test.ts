@@ -231,6 +231,7 @@ describe('parse / migrate (defensive)', () => {
     count: 3,
     authorUserId: 1,
     value: { title: 'T', body: 'B', data },
+    viewerVoted: false,
     ...over,
   });
 
@@ -240,7 +241,7 @@ describe('parse / migrate (defensive)', () => {
       description: 'd',
       configs: [{ id: 'cfg1', checkpoint: checkpointFromPick(CKPT), loras: [{ ...loraFromPick(LORA), weight: 99 }] }],
     });
-    const parsed = parseCombination({ key: 'k', count: 5, authorUserId: 2, value: v });
+    const parsed = parseCombination({ key: 'k', count: 5, authorUserId: 2, value: v, viewerVoted: false });
     expect(parsed).not.toBeNull();
     expect(parsed!.name).toBe('C');
     expect(parsed!.count).toBe(5);
@@ -357,7 +358,7 @@ describe('parse / migrate (defensive)', () => {
       imageIds: [7],
       promptAuthorUserId: 42,
     });
-    const parsed = parseResult({ key: 'r1', count: 0, authorUserId: 9, value: v });
+    const parsed = parseResult({ key: 'r1', count: 0, authorUserId: 9, value: v, viewerVoted: false });
     expect(parsed).not.toBeNull();
     // The row's authorUserId is the RUNNER (9); the prompt-submitter attribution
     // (42) is recorded separately in the payload data.
@@ -376,10 +377,10 @@ describe('parse / migrate (defensive)', () => {
 describe('splitRows', () => {
   it('splits a mixed list into typed combos / prompts / results', () => {
     const items: RawSharedItem[] = [
-      { key: 'c1', count: 1, authorUserId: 1, value: buildCombinationPayload({ name: 'C', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }) },
-      { key: 'p1', count: 2, authorUserId: 1, value: buildPromptPayload({ name: 'P', description: '', default: { prompt: 'x', params: {} }, overrides: {} }) },
-      { key: 'r1', count: 0, authorUserId: 1, value: buildResultPayload({ comboKey: 'c1', configId: 'a', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [7] }) },
-      { key: 'junk', count: 0, authorUserId: 1, value: { title: 'x', body: '', data: { hello: true } } },
+      { key: 'c1', count: 1, authorUserId: 1, value: buildCombinationPayload({ name: 'C', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }), viewerVoted: false },
+      { key: 'p1', count: 2, authorUserId: 1, value: buildPromptPayload({ name: 'P', description: '', default: { prompt: 'x', params: {} }, overrides: {} }), viewerVoted: false },
+      { key: 'r1', count: 0, authorUserId: 1, value: buildResultPayload({ comboKey: 'c1', configId: 'a', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [7] }), viewerVoted: false },
+      { key: 'junk', count: 0, authorUserId: 1, value: { title: 'x', body: '', data: { hello: true } }, viewerVoted: false },
     ];
     const { combinations, prompts, results } = splitRows(items);
     expect(combinations.map((c) => c.key)).toEqual(['c1']);
@@ -581,7 +582,7 @@ describe('comboVersionIds (across all configs)', () => {
 
 describe('reconcileOptimistic (item 1 — list refresh survives read-after-write lag)', () => {
   const val = (title: string): RawSharedItem['value'] => ({ title, body: '', data: { v: 2, kind: 'combination', configs: [] } });
-  const item = (key: string, title: string): RawSharedItem => ({ key, count: 0, authorUserId: 5, value: val(title) });
+  const item = (key: string, title: string): RawSharedItem => ({ key, count: 0, authorUserId: 5, value: val(title), viewerVoted: false });
 
   it('🔴 keeps an optimistic INSERT that a lagging list() has not yet returned', () => {
     const pending = new Map<string, PendingOptimistic>([
@@ -669,7 +670,7 @@ describe('round-trip to builder input (edit-in-place prefill)', () => {
   it('🔴 edit-in-place round-trip: promptToInput → buildPromptPayload → parsePrompt is stable', () => {
     const row = promptRow({ name: 'P', description: 'd' });
     const rebuilt = buildPromptPayload(promptToInput(row));
-    const reparsed = parsePrompt({ key: 'p1', count: 0, authorUserId: 1, value: rebuilt });
+    const reparsed = parsePrompt({ key: 'p1', count: 0, authorUserId: 1, value: rebuilt, viewerVoted: false });
     expect(reparsed).not.toBeNull();
     expect(reparsed!.data.default.prompt).toBe('cyberpunk portrait');
     expect(reparsed!.data.default.params.cfgScale).toBe(5);

@@ -121,9 +121,12 @@ export interface AppDeps {
   GatedCell: GatedCellComponent;
   requestConsent: (opts: { scopes: string[] }) => void;
   requestSignIn: () => void;
-  /** Per-(viewer, block) KV store — durably persists this viewer's voted-set so
-   * their up-votes survive a reload (the shared list carries only the aggregate
-   * `count`, no per-viewer voted flag). */
+  /** Per-(viewer, block) KV store — holds this viewer's drafts, in-flight run
+   * claims and the dismissed-explainer flag.
+   *
+   * 🔴 It does NOT hold vote state. It used to, because the shared list once
+   * carried only the aggregate `count`; the list now reports `viewerVoted` per
+   * row, which is host-derived and therefore correct across devices. */
   appStorage: UseAppStorage;
   /** Fire-and-forget analytics — the host forwards events to its pipeline. */
   track: (eventName: string, properties?: Record<string, unknown>) => void;
@@ -204,9 +207,13 @@ export const CLAIM_NO_VIEWER_MESSAGE =
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
-/** Per-viewer KV key holding this viewer's voted-set (array of shared keys), so
- * the up-vote highlight survives a reload. Versioned for a future shape change. */
-const VOTED_STORAGE_KEY = 'voted:v1';
+// 🔴 `voted:v1` (a per-viewer KV array of shared keys) IS DELIBERATELY GONE. It
+// mirrored the viewer's up-votes back when `list()` returned only the aggregate
+// `count`; the host now reports `viewerVoted` per row, so the mirror was a
+// second, weaker copy of a fact the row already carries. Do not reintroduce it:
+// the stored copy is written only by the client that cast the vote, so it is
+// blind to every other tab, session and device, and nothing can reconcile it.
+// Rows written under the old key are simply ignored and cost nothing.
 /** Per-viewer KV flag: set once the viewer dismisses the "How this works" panel,
  * so the one-time explainer stays dismissed across reloads. */
 const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
@@ -314,11 +321,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
-  const [votedKeys, setVotedKeys] = useState<Set<string>>(new Set());
-  // Mirror of votedKeys for computing the next set outside a state updater
-  // (so persistence gets the fresh set without a side-effect in the reducer).
-  const votedKeysRef = useRef(votedKeys);
-  votedKeysRef.current = votedKeys;
+  // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
+  // every `list()`, so the row IS the vote state — there is nothing to hold in
+  // parallel and nothing to persist. This used to be `useState` hydrated from a
+  // per-viewer KV array the app wrote itself, which could not see a vote cast in
+  // another tab/session/device and had no way to be corrected when it disagreed
+  // with the host. Keeping one source is what makes that whole class impossible
+  // rather than merely fixed.
+  const votedKeys = useMemo(
+    () => new Set(items.filter((it) => it.viewerVoted).map((it) => it.key)),
+    [items],
+  );
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   // Mirror of `runs` for reading the live workflowId outside a state updater
   // (resume-poll reads it without re-subscribing the callback to `runs`).
@@ -379,26 +392,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     };
   }, [ready, reloadKey]);
 
-  // Durable vote-state: hydrate this viewer's voted-set from per-viewer KV so
-  // their up-vote highlight survives a reload. Best-effort — a KV miss/anon
-  // viewer/host error just leaves the in-memory set empty (the aggregate `count`
-  // is always host-authoritative regardless).
-  useEffect(() => {
-    if (!ready || !viewer) return;
-    let cancelled = false;
-    depsRef.current.appStorage
-      .get<string[]>(VOTED_STORAGE_KEY)
-      .then((arr) => {
-        if (!cancelled && Array.isArray(arr)) setVotedKeys(new Set(arr.filter((k) => typeof k === 'string')));
-      })
-      .catch(() => {
-        /* best-effort — leave the set empty */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, viewer?.id]);
+  // (No vote-state hydration effect: `viewerVoted` arrives on each row of the
+  // list() above, so the highlight is already correct on first paint — including
+  // for votes this device never cast. See `votedKeys` where it is derived.)
 
   // Hydrate the one-time "How this works" dismissed flag from per-viewer KV.
   // Best-effort: a miss / anon viewer / host error just shows the explainer.
@@ -593,46 +589,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
 
   // ---- vote wiring ----
-  const applyCount = useCallback((key: string, count: number) => {
-    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, count } : it)));
+  // Apply the host's post-mutation answer to the row: the returned aggregate
+  // `count` AND this viewer's own flag, together, because they are two halves of
+  // one host fact. Writing only the count is what used to force a second,
+  // separately-stored copy of the vote state.
+  const applyVote = useCallback((key: string, count: number, voted: boolean) => {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, count, viewerVoted: voted } : it)));
   }, []);
-
-  // Persist the voted-set to per-viewer KV (best-effort, fire-and-forget). A
-  // persistence failure never blocks or fails the vote — the host vote itself is
-  // already durable; this only mirrors the per-viewer HIGHLIGHT.
-  const persistVoted = useCallback(
-    (next: Set<string>) => {
-      if (!viewer) return;
-      depsRef.current.appStorage.set(VOTED_STORAGE_KEY, [...next]).catch(() => {});
-    },
-    [viewer],
-  );
 
   const onVote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.vote(key);
-      applyCount(key, count);
-      const next = new Set(votedKeysRef.current).add(key);
-      setVotedKeys(next);
-      persistVoted(next);
+      applyVote(key, count, true);
       depsRef.current.track('vote');
       return count;
     },
-    [applyCount, persistVoted],
+    [applyVote],
   );
 
   const onUnvote = useCallback(
     async (key: string) => {
       const count = await depsRef.current.shared.unvote(key);
-      applyCount(key, count);
-      const next = new Set(votedKeysRef.current);
-      next.delete(key);
-      setVotedKeys(next);
-      persistVoted(next);
+      applyVote(key, count, false);
       depsRef.current.track('vote_removed');
       return count;
     },
-    [applyCount, persistVoted],
+    [applyVote],
   );
 
   const requireAuth = useCallback(() => {
@@ -647,7 +629,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       if (!viewer) return;
       pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'insert' });
       setItems((prev) =>
-        prev.some((it) => it.key === key) ? prev : [{ key, count: 0, authorUserId: viewer.id, value }, ...prev],
+        prev.some((it) => it.key === key)
+          ? prev
+          : [{ key, count: 0, authorUserId: viewer.id, value, viewerVoted: false }, ...prev],
       );
     },
     [viewer],
@@ -1575,7 +1559,13 @@ async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const res = await shared.list({ limit: LIST_PAGE, cursor });
     for (const it of res.items) {
-      out.push({ key: it.key, count: it.count, authorUserId: it.authorUserId, value: it.value });
+      out.push({
+        key: it.key,
+        count: it.count,
+        authorUserId: it.authorUserId,
+        value: it.value,
+        viewerVoted: it.viewerVoted,
+      });
     }
     if (!res.nextCursor) break;
     cursor = res.nextCursor;
