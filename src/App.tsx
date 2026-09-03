@@ -321,6 +321,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
+  /** The board scan hit its page cap, so every ranking below is over a PREFIX of
+   * the board rather than all of it. Surfaced in the UI — see the disclosure by
+   * the view switch. */
+  const [boardTruncated, setBoardTruncated] = useState(false);
   // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
   // every `list()`, so the row IS the vote state — there is nothing to hold in
   // parallel and nothing to persist. This used to be `useState` hydrated from a
@@ -378,9 +382,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       try {
         const all = await listAll(depsRef.current.shared);
         if (cancelled) return;
-        const { items: merged, pending } = reconcileOptimistic(all, pendingRef.current);
+        const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
         setItems(merged);
+        setBoardTruncated(all.truncated);
       } catch (e) {
         if (!cancelled) setError(errMsg(e));
       } finally {
@@ -1415,6 +1420,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           ]}
         />
 
+        {/*
+          🔴 THE BOARD IS BIGGER THAN WHAT IS RANKED. `list()` is newest-first with
+          no server-side sort, so "most-voted" is computed client-side over the
+          rows the scan actually read — and the scan stops at a page cap. When it
+          stops early, the counts in the tabs above, the top-N that becomes the
+          grid, and every "Included" badge describe a PREFIX of the board.
+
+          Saying so is the whole point: an honest partial beats a confident wrong
+          order, and the alternative is a ranking that silently omits row 2001
+          while looking complete. Rendered next to the switch so it is visible in
+          all three views, since all three read the same truncated ranking.
+        */}
+        {boardTruncated && (
+          <Alert color="warning" data-testid="board-truncated-notice">
+            This board has more entries than the app can rank at once. Vote order — and
+            the rows and columns of the grid — cover only the entries loaded so far.
+          </Alert>
+        )}
+
         {view === 'combos' && (
           <CombosView
             combinations={combinations}
@@ -1573,7 +1597,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 }
 
 /** Page the WHOLE shared list (newest-first) into a flat RawSharedItem[]. */
-async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
+async function listAll(
+  shared: UseSharedStorage,
+): Promise<{ items: RawSharedItem[]; truncated: boolean }> {
   const out: RawSharedItem[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page += 1) {
@@ -1587,10 +1613,20 @@ async function listAll(shared: UseSharedStorage): Promise<RawSharedItem[]> {
         viewerVoted: it.viewerVoted,
       });
     }
-    if (!res.nextCursor) break;
+    if (!res.nextCursor) return { items: out, truncated: false };
     cursor = res.nextCursor;
   }
-  return out;
+  // 🔴 Fell out of the loop with a cursor still in hand: there are MORE rows on
+  // the board than this scan read. Everything downstream — the vote ranking, the
+  // "top N" that becomes the grid, the included counts — is therefore computed
+  // over a PREFIX of the board, and there is no server-side sort to fall back on
+  // (`list` is newest-first only). Reporting it is what lets the UI say so
+  // instead of presenting a partial order as the whole one.
+  //
+  // The same distinction is already drawn carefully for the per-viewer KV scan
+  // (`inflightScanTruncatedRef`); this is the public half, which used to return
+  // a silent prefix.
+  return { items: out, truncated: true };
 }
 
 function errMsg(e: unknown): string {
