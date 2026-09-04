@@ -11,7 +11,7 @@ import { ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { VoteButton } from './VoteButton.js';
-import { ReportButton } from './ReportButton.js';
+import { ReportButton } from '@civitai/blocks-react/ui';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface PromptsViewProps {

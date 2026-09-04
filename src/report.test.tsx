@@ -127,9 +127,9 @@ describe('report — the board’s abuse seam', () => {
 
     const card = await screen.findByTestId('combo-card');
     await userEvent.click(within(card).getByTestId('combo-report'));
-    await userEvent.click(screen.getByTestId('report-confirm'));
+    await userEvent.click(screen.getByTestId('combo-report-confirm'));
 
-    await waitFor(() => expect(screen.getByTestId('report-done')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('combo-report-done')).toBeInTheDocument());
     expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
     expect(track).toHaveBeenCalledWith('report');
 
@@ -151,12 +151,12 @@ describe('report — the board’s abuse seam', () => {
 
     const card = await screen.findByTestId('combo-card');
     await userEvent.click(within(card).getByTestId('combo-report'));
-    await userEvent.click(screen.getByTestId('report-confirm'));
+    await userEvent.click(screen.getByTestId('combo-report-confirm'));
 
     await waitFor(() =>
-      expect(screen.getByTestId('report-confirm-prompt')).toHaveTextContent(/could not send/i),
+      expect(screen.getByTestId('combo-report-prompt')).toHaveTextContent(/could not send/i),
     );
-    expect(screen.queryByTestId('report-done')).toBeNull();
+    expect(screen.queryByTestId('combo-report-done')).toBeNull();
     // The app TRIED — this is what separates a refused report from one never
     // sent, and it is why the fake records attempts rather than successes.
     expect(reports).toHaveLength(1);
