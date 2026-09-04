@@ -53,6 +53,7 @@ import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
 import { COMPACT_ATTR, compactTapTargetCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
+import { paintTheme } from './bootTheme.js';
 import type {
   CellRun,
   CombinationRow,
@@ -1295,9 +1296,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
 
   // ---- render ----
+  // 🔴 `data-theme` goes through `paintTheme`, never bare `theme`: before `ready`
+  // the SDK's snapshot hardcodes `'light'`, so stamping it here would repaint the
+  // dark boot skeleton light and then dark again at BLOCK_INIT. See src/bootTheme.ts.
   if (!ready) {
     return (
-      <div ref={rootRef} data-theme={theme} style={pageStyle(c)}>
+      <div ref={rootRef} data-theme={paintTheme(ready, theme)} style={pageStyle(c)}>
         <Stack align="center" gap={12} style={{ margin: 'auto' }} data-testid="app-loading">
           <Loader />
           <span style={metaText}>Loading Model Benchmarking…</span>
@@ -1309,7 +1313,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   return (
     <div
       ref={rootRef}
-      data-theme={theme}
+      data-theme={paintTheme(ready, theme)}
       {...{ [COMPACT_ATTR]: isMobile ? 'true' : undefined }}
       style={pageStyle(c)}
     >

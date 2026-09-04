@@ -3,10 +3,305 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!--
+      🔴 DARK FIRST, and the order is the decision, not formatting. `color-scheme`
+      resolves left-to-right against the viewer's preference, so `light dark` paints
+      the UA canvas LIGHT for a viewer with NO preference. Everywhere in this app an
+      unknown theme now means DARK (src/bootTheme.ts, the boot styles below, and the
+      pre-`ready` commit in src/App.tsx). Keep the four in step.
+    -->
+    <meta name="color-scheme" content="dark light" />
     <title>Model Benchmarking</title>
+    <script>
+      /* ─────────────────────────────────────────────────────────────────────────
+         BOOT THEME, resolved BEFORE first paint.
+
+         Two consumers, one answer. This script records its result on
+         `<html data-civitai-boot-theme>`; the stylesheet below paints off that
+         attribute, and `bootThemeGuess()` in src/bootTheme.ts READS THE SAME
+         ATTRIBUTE BACK, so React's pre-`ready` commit paints the identical colour.
+         Reading it back rather than re-deriving it is what makes "they agree" a
+         fact instead of a hope.
+
+         🔴 WHY REACT CANNOT JUST USE `useBlockContext().theme` HERE. The SDK's
+         pre-init snapshot hardcodes `theme: 'light'`
+         (@civitai/blocks-react dist/internal/transport.js, EMPTY_SNAPSHOT) and
+         `useBlockContext` returns it unchanged — so before BLOCK_INIT that value is
+         a SENTINEL, not a signal, and is indistinguishable from a host that really
+         is light. Honouring it paints every viewer light until BLOCK_INIT lands.
+         With the skeleton below dark that is dark → light → dark: a NEW flash,
+         introduced at exactly the moment `bootSkeleton: true` removes the host veil
+         that used to hide it.
+
+         🔴 THIS DUPLICATES `parseBlockInitFragment` FROM @civitai/app-sdk ON
+         PURPOSE and must not import it: the SDK arrives with the bundle, which is
+         precisely what has not loaded yet. The duplication is a real drift risk, so
+         src/bootFragment.test.ts extracts THIS script out of THIS file, runs it,
+         and feeds the SDK's own `encodeBlockInitFragment` output through it.
+
+         🔴 KNOWN, DELIBERATE NARROWING vs the SDK: `URLSearchParams`
+         percent-decodes and these regexes do not, so `theme=%64ark` is read by the
+         SDK and ignored here. That direction is safe — it falls through to the OS
+         guess and then to dark. The encoder never emits that form.
+
+         Any malformed, absent, truncated or future-version fragment falls through
+         rather than throwing.
+         ───────────────────────────────────────────────────────────────────────── */
+      (function () {
+        var t = 'dark';
+        try {
+          var h = (location.hash || '').replace(/^#/, '');
+          var resolved = null;
+          /* Read the FIRST `civitai-block` key and require exactly `v1`. An unknown
+             version must degrade to "no fast path", never to a partially-trusted
+             read.
+
+             🔴 An unanchored `/civitai-block=v1/.test(h)` is WRONG, and is the one
+             way a copy like this diverges from the SDK in the DANGEROUS direction:
+             on `#civitai-block=v2&civitai-block=v1&theme=light` the SDK reads the
+             FIRST marker (`URLSearchParams.get`), sees `v2` and refuses — while an
+             unanchored test finds the SECOND and accepts. */
+          var mk = /(^|&)civitai-block=([^&]*)/.exec(h);
+          if (mk && mk[2] === 'v1') {
+            /* Same first-key rule, same reason: `URLSearchParams.get` returns the
+               FIRST `theme`, so `theme=blue&theme=dark` is `blue` to the SDK —
+               invalid, hence no fast path. A regex that skipped the invalid one and
+               matched the later valid one would accept what the SDK refuses. Fixing
+               only the marker key leaves this one with the identical defect. */
+            var mt = /(^|&)theme=([^&]*)/.exec(h);
+            if (mt && (mt[2] === 'dark' || mt[2] === 'light')) resolved = mt[2];
+          }
+          if (resolved) {
+            t = resolved;
+          } else {
+            /* The OS guess — and note which way round it is asked. LIGHT is the
+               positive case, dark is the default, so `no-preference` and any UA
+               without the query at all land on dark. The stylesheet below resolves
+               it the same way, because light lives only inside
+               `@media (prefers-color-scheme: light)` there too. */
+            t =
+              window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          }
+        } catch (e) {
+          t = 'dark';
+        }
+        try {
+          document.documentElement.setAttribute('data-civitai-boot-theme', t);
+        } catch (e) {
+          /* Nothing left to do. src/bootTheme.ts falls back to the OS query and
+             then to dark, so the app still agrees with the unattributed CSS. */
+        }
+      })();
+    </script>
+    <!--
+      ───────────────────────────────────────────────────────────────────────────
+      BOOT SKELETON — paints before any script, and is what `bootSkeleton: true` in
+      block.manifest.json entitles the host to rely on.
+      ───────────────────────────────────────────────────────────────────────────
+
+      With `bootSkeleton: true` the full-page run host stands down its own loading
+      treatment: no opaque branded veil, the iframe is `opacity: 1` from mount, no
+      reveal transition. The consequence is blunt — with that key set over an EMPTY
+      `#root` the viewer sees a blank iframe for the whole load, which is strictly
+      worse than not opting in. So the markup in `#root` below is load-bearing.
+
+      🔴 WHY THE COLOURS ARE LITERALS HERE AND VAR REFERENCES EVERYWHERE ELSE.
+      src/theme.ts is 100% `var(--civitai-*)` with zero hardcoded colour, and those
+      tokens arrive with `@civitai/theme/styles.css` — which Vite emits as a
+      render-blocking `<link>`, i.e. one round trip that has NOT completed during
+      the window this file exists to cover. An inline style cannot reference a token
+      that has not loaded, so the four values below are copied from
+      `@civitai/theme`'s own `[data-theme='dark']` / `:root` blocks and
+      src/bootTokens.test.ts asserts each one against the INSTALLED package. A theme
+      bump that moves a value goes red here rather than drifting into a colour jump
+      at handoff.
+
+      🔴 IN LIGHT, `body == surface == surface-2` (all #fefefe) in this design
+      system — a documented trap in src/theme.ts. So the placeholder cannot be a
+      surface fill or it is invisible white-on-white; it is a `color-mix()` of text
+      into surface, exactly as `elevate()` does in src/theme.ts, which reads in BOTH
+      themes.
+
+      🔴 THE SPINNER IS DELIBERATELY NOT REPRODUCED. `<Loader>` is owned by
+      @civitai/blocks-react, its dimensions are not declared in this repo, and a
+      pack bump would silently drift any value pinned here. What IS matched is the
+      container geometry the first React commit paints — `pageStyle()`'s full-bleed
+      100dvh flex box and the `margin: auto` centring of the loading stack — so the
+      handoff moves a placeholder, not the page.
+
+      Removal needs no code: `createRoot(container).render(...)` in src/main.tsx
+      clears the container's children before its first commit. That is MEASURED in
+      src/bootSkeleton.test.tsx against this very markup, not assumed — it is a
+      React behaviour and does not generalise to other frameworks.
+    -->
+    <style>
+      /* The app sets these in src/index.css, which arrives with the bundle — i.e.
+         after this paint. Without them the skeleton is inset by the UA's default
+         8px body margin and then jumps when the bundle lands. */
+      html {
+        /* The strong guarantee, independent of `color-scheme` support entirely.
+           --civitai-color-body under [data-theme='dark']. */
+        background: #1a1b1e;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      :root {
+        color-scheme: dark light;
+        font-family:
+          -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+
+        /* DARK — the base, unconditioned values, from @civitai/theme
+           [data-theme='dark']. */
+        --mb-boot-body: #1a1b1e;
+        --mb-boot-text: #c1c2c5;
+        --mb-boot-surface: #1a1b1e;
+      }
+
+      @media (prefers-color-scheme: light) {
+        html {
+          background: #fefefe;
+        }
+
+        :root {
+          /* LIGHT — @civitai/theme `:root`. */
+          --mb-boot-body: #fefefe;
+          --mb-boot-text: #222;
+          --mb-boot-surface: #fefefe;
+        }
+      }
+
+      /* ---- the HOST's answer, when there is one, outranks the OS guess ----
+
+         Driven by `data-civitai-boot-theme`, which the inline script above sets
+         from the init fragment. Both directions must exist, and both must sit
+         AFTER the media block:
+
+           host dark  + OS light → the media block would paint light
+           host light + OS dark  → the base rules would paint dark
+
+         …and each is a repaint at BLOCK_INIT, i.e. the exact flash this file
+         exists to remove. `:root[…]` is (0,2,0) against the media block's (0,1,0)
+         and the base `html` rule's (0,0,1), so it wins on specificity in both
+         directions rather than on source order alone.
+
+         🔴 These are NOT a third palette — every value is the same literal as the
+         base rules or the light media block above, and src/bootTokens.test.ts
+         asserts all of them against the installed @civitai/theme per region, so a
+         token change that misses one copy goes red.
+
+         🔴 The unconditioned base rules stay DARK-ONLY. A light value reachable
+         without either the media query or an explicit `='light'` attribute would
+         make dark stop being what "no information" means — the rule this whole
+         file is built on. Asserted structurally, not eyeballed. */
+      :root[data-civitai-boot-theme='dark'] {
+        color-scheme: dark;
+        background: #1a1b1e;
+
+        --mb-boot-body: #1a1b1e;
+        --mb-boot-text: #c1c2c5;
+        --mb-boot-surface: #1a1b1e;
+      }
+
+      :root[data-civitai-boot-theme='light'] {
+        color-scheme: light;
+        background: #fefefe;
+
+        --mb-boot-body: #fefefe;
+        --mb-boot-text: #222;
+        --mb-boot-surface: #fefefe;
+      }
+
+      /* ---- geometry ----
+
+         Copied from what the first React commit paints:
+           page root     -> `pageStyle()` (src/theme.ts): width 100%, min-height
+                            100dvh, display flex, border-box
+           loading stack -> `<Stack align="center" gap={12}>` with `margin: auto`
+                            in the `!ready` branch of src/App.tsx */
+      [data-boot-skeleton] {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 100dvh;
+        display: flex;
+        background: var(--mb-boot-body);
+      }
+
+      [data-boot-skeleton] [data-boot-stack] {
+        margin: auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      /* `color-mix` of text into surface — `elevate()` in src/theme.ts. A surface
+         fill would be invisible in light, where body == surface. */
+      [data-boot-skeleton] [data-boot-dot] {
+        box-sizing: border-box;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--mb-boot-text) 18%, var(--mb-boot-surface));
+      }
+
+      [data-boot-skeleton] [data-boot-label] {
+        box-sizing: border-box;
+        display: block;
+        width: 168px;
+        height: 12px;
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--mb-boot-text) 12%, var(--mb-boot-surface));
+      }
+
+      /* A slow, low-amplitude breath so the boot state reads as "loading" rather
+         than "this is the content". */
+      @keyframes mb-boot-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.62;
+        }
+      }
+
+      [data-boot-skeleton] [data-boot-dot],
+      [data-boot-skeleton] [data-boot-label] {
+        animation: mb-boot-pulse 1.6s ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        [data-boot-skeleton] [data-boot-dot],
+        [data-boot-skeleton] [data-boot-label] {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        `data-boot-skeleton` is an ATTRIBUTE, not a class: classes are mangled by
+        CSS-modules / purge, an attribute survives the bundler and is
+        deterministically greppable out of the built HTML. `aria-hidden` because the
+        host already publishes `aria-busy` on the iframe element while this is on
+        screen — an in-frame live region would announce a second time.
+
+        It MUST stay a descendant of #root: a skeleton painted as a sibling is never
+        replaced by React's render and stays on screen after mount.
+      -->
+      <div data-boot-skeleton aria-hidden="true">
+        <div data-boot-stack>
+          <div data-boot-dot></div>
+          <span data-boot-label></span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
