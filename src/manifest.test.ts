@@ -28,6 +28,22 @@ describe('block manifest', () => {
     expect(validated.version).toBe(pkg.version);
   });
 
+  // 🔴 THIS GUARD EXISTS BECAUSE ITS ABSENCE SHIPPED AN INERT CHANGE. PR #32 added
+  // the whole boot-skeleton mechanism — the pre-paint script, the dark-base inline
+  // stylesheet, the skeleton markup, `paintTheme()` — and 23 tests covering all of
+  // it, then merged WITHOUT this key. Every one of those tests passed, because they
+  // each verify the mechanism works; none asserted the one line that turns it on.
+  //
+  // The key is not decoration. `bootSkeleton: true` is what makes the full-page run
+  // host stand down its opaque veil; without it the host keeps covering the iframe
+  // and the entire mechanism is dead code that nobody can see working or failing.
+  // Its counterpart in index.html (the skeleton inside #root) is asserted by
+  // src/bootSkeleton.test.tsx — the two must ship together, because the key over an
+  // EMPTY #root is strictly worse than not opting in at all.
+  it('opts into the boot skeleton, and the markup that entitles it to', () => {
+    expect(manifest.bootSkeleton).toBe(true);
+  });
+
   it('declares exactly the scopes the code depends on (in lockstep with scopes.ts)', () => {
     const declared = (manifest.scopes as string[]) ?? [];
     expect([...declared].sort()).toEqual([...DECLARED_SCOPES].sort());
