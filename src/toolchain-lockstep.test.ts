@@ -88,6 +88,38 @@ function settingsIn(block: string[]): Array<[string, string]> {
     .map((m) => [m[1], m[2]] as [string, string]);
 }
 
+/**
+ * The package manager CI installs with, READ OUT OF the workflow.
+ *
+ * `pnpm/action-setup` is what puts a pnpm on the runner's PATH at all; without
+ * it the only package manager a job has is the npm that ships with node via
+ * `actions/setup-node`. So that step's presence IS the statement of which
+ * package manager CI uses, and deriving from it is what makes the assertion
+ * below a claim about CI rather than about a literal typed into this file.
+ *
+ * Deliberately not `stepBlock`: that helper throws when the step is absent,
+ * and absent is a legitimate answer here (npm), not a malformed workflow.
+ */
+function ciPackageManager(workflow: string): string {
+  const hasPnpmSetup = /^\s*-\s+uses:\s*pnpm\/action-setup@/m.test(workflow);
+
+  // A workflow that invokes no package manager at all has none to compare
+  // against, and answering "npm" for it would be an invention rather than a
+  // reading. Throw instead — same rule as every other extractor in this file.
+  //
+  // Matched anywhere in the workflow rather than as a `- run:` list item on
+  // purpose: the same step is written more than one way across these repos,
+  // and a guard that goes red on a reformat is a guard people learn to merge
+  // through.
+  if (!/\b(?:npm|pnpm|yarn|bun)\s+(?:install|ci|run|test|build|exec)\b/.test(workflow)) {
+    throw new Error(
+      'ci.yml invokes no npm/pnpm/yarn/bun command — there is no CI package manager to compare against',
+    );
+  }
+
+  return hasPnpmSetup ? 'pnpm' : 'npm';
+}
+
 describe('toolchain lockstep', () => {
   const workflow = repoFile('../.github/workflows/ci.yml');
   const flake = repoFile('../flake.nix');
@@ -142,5 +174,39 @@ describe('toolchain lockstep', () => {
     // would rot on a routine `nix flake update` and turn main red for nothing —
     // a permanently-red gate teaches everyone to merge through it.
     expect(ciPin).toBe(flakePin[1]);
+  });
+
+  it('keeps the platform builder on the same package manager as CI', () => {
+    // `block.manifest.json`'s `buildCommand` is what the PLATFORM's builder
+    // runs against the submitted bundle. CI being green says nothing about it:
+    // `.github/` is not IN that bundle, so the merge gate never executes the
+    // command this field names. A mismatch therefore hands the builder a tree
+    // its package manager cannot install — one lockfile, the wrong tool — and
+    // every signal this repo produces stays green while it happens.
+    //
+    // Not hypothetical: `generate-from-model` shipped exactly that state (a
+    // pnpm repo whose manifest named no build command at all, so the builder
+    // fell back to its legacy `npm run build` default against a tree with no
+    // `package-lock.json`) and the only thing that caught it was
+    // `civitai app validate` at submission time.
+    //
+    // BOTH sides are derived. An earlier draft of this guard hardcoded 'pnpm'
+    // for CI, which made its own name false — it would have gone on passing
+    // through a CI switch to npm, which is the precise drift it claims to
+    // catch. A guard that reads as coverage while providing none is worse than
+    // no guard at all.
+    const manifest = JSON.parse(repoFile('../block.manifest.json')) as {
+      buildCommand?: unknown;
+    };
+    if (typeof manifest.buildCommand !== 'string') {
+      throw new Error('block.manifest.json has no string "buildCommand" to compare against');
+    }
+
+    const builderPackageManager = manifest.buildCommand.trim().split(/\s+/)[0];
+    if (builderPackageManager === '') {
+      throw new Error('block.manifest.json "buildCommand" is empty — no package manager to compare');
+    }
+
+    expect(builderPackageManager).toBe(ciPackageManager(workflow));
   });
 });
