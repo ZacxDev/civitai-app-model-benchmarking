@@ -52,14 +52,44 @@ export const TOOLTIP_GAP_PX = 6;
  *   - `[data-civitai-ui='button']`   → every pack Button (vote, run-cell,
  *     confirm/cancel, withdraw, the modal form actions).
  *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
+ *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
+ *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
  *
- * 🔴 THIS PARAGRAPH HAS BEEN WRONG TWICE. Both corrections came from MEASURING
- * the cascade, not from reading it, and the current text is the third attempt:
+ * 🔴 THE OPTION ROWS ARE THE ONE TAP TARGET THIS APP BUILDS ITSELF, and they
+ * shipped below the floor. `GridPicker` is hand-built because the pack has no
+ * MultiSelect (see the header there), so its rows are plain `<div role="option">`
+ * carrying `padding: 10px 12px` around a 14px line — ~37px, under the 44 every
+ * other control in this rule is held to, and they are the primary hit target of
+ * the whole grid-builder flow on a phone. The three selectors above all reach
+ * PACK-rendered controls, which is exactly why this one was missed: nothing in
+ * the pack emits it.
+ *
+ * The selector is `[role='option']` — the ROLE, not a `data-testid` — so it pins
+ * the STATE (this element is an option in a listbox) rather than a word a future
+ * component could spell differently, and it covers any second listbox this app
+ * grows without a fourth selector.
+ *
+ * 🔴 THIS PARAGRAPH HAS BEEN WRONG THREE TIMES. Every correction came from
+ * MEASURING the DOM or the cascade, never from reading it:
  *
  *   - `height: auto` reaches the BUTTONS **and the RANGE** (measured: range
  *     `height` 6px -> 16px with the pack sheet linked), NOT the segments. Round 1
  *     said "segments only" (backwards); round 2 said "buttons only" — also wrong,
  *     because the same commit had just added the range selector to this rule.
+ *   - 🔴 **Round 3 DELETED `[data-civitai-ui-range]` from this rule** on the
+ *     stated ground that "527 deleted the app's only `Slider`, so there is no
+ *     range control left on any surface". **That was false.** 527 deleted the
+ *     per-viewer "Show top N" slider, but `MatchupForm` still renders one
+ *     `<Slider>` per LoRA (the weight control) and the pack's `Slider` still
+ *     emits `data-civitai-ui-range` — verified in
+ *     `node_modules/@civitai/blocks-react/dist/ui/Slider.js`. Dropping the
+ *     selector silently returned every LoRA weight slider to the pack's 6px
+ *     height on a phone, undoing part of the 44px tap-target work, and the
+ *     reachability case that would have caught it was deleted in the same commit
+ *     citing the same false premise. Both are restored.
+ *     **The recurring lesson: enumerate the controls that still RENDER before
+ *     retiring a selector — "nothing matches this any more" is a measurement,
+ *     not an inference.**
  *   - The BUTTON override wins by **CASCADE LAYER**, not by order or specificity:
  *     the pack's button CSS lives in `@layer civitai.components` and this sheet is
  *     UNLAYERED, so an unlayered declaration beats any layered one and neither
@@ -80,10 +110,6 @@ export const TOOLTIP_GAP_PX = 6;
  * = 44 in every case — which is exactly why two false explanations survived.
  * The `min-height` is what does the work, and it is deliberate: it beats the
  * pack's `height: 30px` without out-specifying or `!important`-ing it.
- *
- * `[data-civitai-ui-range]` is the "Show top N" slider — 6px tall from the pack,
- * the smallest target on the page and the only control that changes what a
- * narrow-viewport reader SEES. It gets the same floor.
  *
  * ---------------------------------------------------------------------------
  * THE TOOLTIP BLOCK (`@supports (anchor-name: …)`)
@@ -222,7 +248,8 @@ export const TOOLTIP_GAP_PX = 6;
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
-[${COMPACT_ATTR}='true'] [data-civitai-ui-range] {
+[${COMPACT_ATTR}='true'] [data-civitai-ui-range],
+[${COMPACT_ATTR}='true'] [role='option'] {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
 }

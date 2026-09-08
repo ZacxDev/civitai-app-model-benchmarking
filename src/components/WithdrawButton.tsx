@@ -1,5 +1,5 @@
 // A withdraw ("Remove") control for a row the viewer AUTHORED — a two-step,
-// confirm-before-firing composition of the pack's Button, shared by CombosView
+// confirm-before-firing composition of the pack's Button, shared by MatchupsView
 // and PromptsView (the sibling of VoteButton).
 //
 // 🔴 The removal is DESTRUCTIVE and PUBLIC (the row leaves the shared grid for
@@ -7,6 +7,10 @@
 // CONFIRM button, never from the trigger. Rendering this control at all is the
 // caller's ownership decision (`isOwnRow`); this component owns only the confirm
 // handshake.
+//
+// ⚠ Removing a GRID removes only the grid row. Its members are other rows, owned
+// by other authors, and they are untouched — which is why the confirm copy names
+// the noun rather than promising anything about what the row contains.
 
 import { useState } from 'react';
 import { Button, Group } from '@civitai/blocks-react/ui';
@@ -15,7 +19,7 @@ import { metaText } from '../theme.js';
 
 export interface WithdrawButtonProps {
   /** What the row is, for the accessible name + confirm copy. */
-  noun: 'combination' | 'prompt';
+  noun: 'matchup' | 'prompt' | 'grid';
   /** Fires ONLY after the viewer confirms. */
   onWithdraw: () => Promise<void> | void;
   'data-testid'?: string;

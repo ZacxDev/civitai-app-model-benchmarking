@@ -178,7 +178,7 @@ describe('viewer change without a remount — the re-run route', () => {
     const node = block({ shared, appStorage, submit });
     const view = render(node);
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await within(grid).findByTestId('run-cell');
     await new Promise((r) => setTimeout(r, 60));
@@ -219,7 +219,7 @@ describe('viewer change without a remount — the re-run route', () => {
 
     const node = block({ shared, appStorage, submit });
     const view = render(node);
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await within(grid).findByTestId('run-cell');
 
@@ -268,7 +268,7 @@ describe('viewer change without a remount — the re-run route', () => {
     const node = block({ shared, appStorage, submit });
     const view = render(node);
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     // Reach the confirm dialog WITH a viewer (the estimate needs one).
     await userEvent.click(await within(grid).findByTestId('run-cell'));
