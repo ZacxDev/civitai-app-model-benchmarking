@@ -38,7 +38,7 @@ function Root(): React.JSX.Element {
   );
 }
 
-// `npm run dev:harness` sets VITE_DEV_HARNESS=true to mount the local mock host
+// `pnpm run dev:harness` sets VITE_DEV_HARNESS=true to mount the local mock host
 // (the published `@civitai/blocks-react/testing` Harness / createMockHost) that
 // answers the FULL block protocol. Never set VITE_DEV_HARNESS in prod.
 const useHarness = import.meta.env.VITE_DEV_HARNESS === 'true';

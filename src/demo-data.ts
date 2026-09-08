@@ -1,4 +1,4 @@
-// Seed data for the local dev harness (`npm run dev:harness`) — a couple of
+// Seed data for the local dev harness (`pnpm run dev:harness`) — a couple of
 // combinations + prompts so the submit/vote/grid loop is explorable offline.
 // Shapes match the app's own `data.kind` records (see lib/benchmark.ts).
 
