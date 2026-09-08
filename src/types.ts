@@ -173,8 +173,10 @@ export interface ResultData {
 //
 // 🔴 THIS WIRE SHAPE IS EFFECTIVELY PERMANENT from the first published grid
 // onward: once another viewer appends a grid row, the app owner cannot delete or
-// rewrite it — `update`/`withdraw` are author-scoped (§2.3) and `report()` does
-// not hide. There is no migration path for another author's rows.
+// rewrite it — `update`/`withdraw` are author-scoped and `report()` does not hide
+// (spec §2.2 for the API surface, §9 Q2 for `update` being the only post-submit
+// mutation; §2.3, cited here before, is the four C1–C4 constraints and says none
+// of this). There is no migration path for another author's rows.
 // ---------------------------------------------------------------------------
 
 /** The opaque structured payload for a `grid` shared record. */

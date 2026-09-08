@@ -580,8 +580,10 @@ unpublish.
 **My vs Community.** Both are client-side partitions of one paged scan; §2.3 C1
 still holds, so no server-side filter is possible.
 
-- **My** = rows where `isOwnRow(row, viewerId)` (`src/lib/benchmark.ts:621`,
-  already shipped), plus that object's unpublished appStorage records.
+- **My** = rows where `isOwnRow(row, viewerId)` (the exported `isOwnRow` in
+  `src/lib/benchmark.ts` — cited by NAME, not by offset, per §11.6's lesson; the
+  offset that used to sit here was true at `ad546fb` (621) and is 668 at
+  `c23e726`), plus that object's unpublished appStorage records.
 - **Community** = every published row **including the viewer's own**, so an author
   sees their row ranked the way everyone else sees it.
 
@@ -600,7 +602,10 @@ exactly this; the deferral is now **reversed**.
 
 **This wire shape is effectively permanent from the first published grid onward.**
 Once other viewers append grid rows, the app owner cannot delete or rewrite them —
-`update`/`withdraw` are author-scoped (§2.3) and `report()` does not hide. There is
+`update`/`withdraw` are author-scoped and `report()` does not hide (**§2.2** for the
+API surface, **§9 Q2** for `update` being the only post-submit mutation path — this
+used to cite §2.3, whose four constraints are C1 host-minted keys, C2 one flat list,
+C3 the 2000-row cap and C4 result-row growth, none of which says this). There is
 no migration path for other authors' rows. Get it right here.
 
 ```ts
@@ -661,7 +666,7 @@ it. Nothing about it changes for another viewer.
 
 🔴 **The UI must say this in words.** `taste.json`'s `suppressionNamedAsSuppression`
 rubric item applies: an "Archive" that a viewer could reasonably read as "removed"
-is a claim the code does not back, and §2.3's constraint is that the app *has* no
+is a claim the code does not back, and §2.2 + §9 Q2 are why the app *has* no
 power to remove another viewer's view of a row. The existing author-only **Remove**
 (`withdraw`) is unchanged and remains the only true delete.
 
@@ -735,7 +740,9 @@ so their meaning is restated:
 - **Grid votes** use `shared.vote`/`unvote` on the grid row, hydrating button state
   from `viewerVoted` (§2.2). **Community Grids sorts by `count` descending** with
   §7.1's existing deterministic tie-break, which `topByVotes()` already implements
-  (`src/lib/benchmark.ts:661`).
+  (the exported `topByVotes` in `src/lib/benchmark.ts` — by NAME, not by offset;
+  the offset that used to sit here was true at `ad546fb` (661) and is 724 at
+  `c23e726`).
 - **The Top Grid** is a system-owned entry: `DEFAULT_TOP_N` (5) top-voted matchups ×
   `DEFAULT_TOP_N` top-voted prompts, computed client-side by `topByVotes()`.
   🔴 **It has no shared key, so it cannot be voted on and cannot be sorted by
@@ -769,16 +776,24 @@ meaning "superseded" and `complete` would be false).
   longer exists. 527 inherits only the live remainder.
 
   ⚠ **This bullet used to give line numbers, and every one of them had already
-  rotted** — found by the PR #38 round-2 sweep. It named `listAll` at
-  `src/App.tsx:1609-1623` with **no ref**: at `ad546fb` it is at **1604**, and at
-  this PR's head at **2137** — a claim falsified by this PR's own later commits,
-  sitting inside no round's diff. `board-truncated-notice` was true at `ad546fb`
-  (1440) and is 1876 at head. `boardTruncation.test.tsx:117-137` spanned that
-  file's whole `describe` at `ad546fb` — 2 cases; at head the same block runs to
-  173 and the file carries 6. Same class as §11.4's and §11.7(2)'s warnings,
-  third occurrence: **a line number without a ref is a claim with no truth
-  conditions.** Cite a testid, a function name or a test title — those move with
-  the code.
+  rotted** — found by the PR #38 round-2 sweep. **Every offset below now names
+  the ref it was measured at**, because the round-2 rewrite did not, and its own
+  "at head" numbers rotted within the same PR — the round-4 audit caught two of
+  them still wrong. Measured at `ad546fb` and at `c23e726` — the commit these
+  were re-derived against; the round-4 fix commit is its child and touches none
+  of the files below, so they hold at that head too:
+
+  | Thing | at `ad546fb` | at `c23e726` |
+  |---|---|---|
+  | `listAll` in `src/App.tsx` (452 cited `1609-1623`, **no ref**) | 1604 | 2197 |
+  | the `board-truncated-notice` Alert in `src/App.tsx` | 1440 | 1936 |
+  | the `describe('board scan truncation')` block in `src/boardTruncation.test.tsx` (452 cited `117-137`) | 117–139, 2 cases | 118–173, and the file carries 6 |
+
+  Same class as §11.4's and §11.7(2)'s warnings, third occurrence: **a line
+  number without a ref is a claim with no truth conditions** — and a ref-less
+  "at head" is the same defect wearing the word "head", since head moves. Prefer
+  a testid, a function name or a test title, which move with the code; when a
+  number is genuinely the point, pin it to a ref as above.
 - **455** (the rename) — its inventory is carried into 527 Phase 1 intact, with the
   count and offsets corrected by §11.4. Its "depends on cards A–F" chain is void.
 
@@ -865,8 +880,19 @@ branch merged, or it would have traded one broken wait for another.
 `zach/527-mb-rename-anchor` in `civitai/talos-infra`, commit **`90bd3c608`**,
 re-anchors the grid state's `waitForText` on **`"Top Grid"`** (rendered by
 `src/components/GridsView.tsx`, and unaffected by the rename). So the follow-up
-for row 3 is a **merge of that branch too**, not an edit — `zach/527-mb-rename`
-alone still carries the broken `"Included matchups"`.
+for row 3 is a **merge, not an edit** — `zach/527-mb-rename` alone still carries
+the broken `"Included matchups"`.
+
+🔴 **And it is ONE merge, not two.** `90bd3c608` is a direct child of
+`zach/527-mb-rename` (`e3bb6deac`) — that commit is its single parent, so
+`zach/527-mb-rename-anchor` already CONTAINS the rename branch. Merge the anchor
+branch alone and both changes land. Verified:
+`git -C <talos-infra> merge-base --is-ancestor origin/zach/527-mb-rename
+origin/zach/527-mb-rename-anchor` exits **0**, and `git log -1 --format='%H %P'
+origin/zach/527-mb-rename-anchor` prints `90bd3c608… e3bb6deac…`. An earlier
+draft of this bullet said "a merge of that branch **too**", which reads as a
+second merge on top of the rename — the redundant work this whole note exists to
+prevent.
 
 **(b) Deliberately NOT renamed, because their replacements are app copy that has
 not reached `main`.** These are still wrong on the paired branch too, on purpose:

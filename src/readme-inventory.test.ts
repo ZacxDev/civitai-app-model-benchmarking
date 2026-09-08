@@ -45,6 +45,13 @@ function libModulesOnDisk(): string[] {
 const START = '<!-- lib-inventory:start';
 const END = '<!-- lib-inventory:end -->';
 
+/** Non-overlapping occurrences of `needle` in `hay`. */
+function countOf(hay: string, needle: string): number {
+  let n = 0;
+  for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) n += 1;
+  return n;
+}
+
 /**
  * Just the inventory paragraph, between its two HTML-comment markers.
  *
@@ -60,18 +67,61 @@ const END = '<!-- lib-inventory:end -->';
  *
  * The marker is load-bearing, so a missing one THROWS rather than falling back to
  * the whole file — a silent widening is how this got weak in the first place.
+ *
+ * 🔴 TWO MORE SILENT WIDENINGS, BOTH MEASURED GREEN BEFORE THIS SHAPE. The
+ * delimiting alone was not enough:
+ *
+ *   - the slice used to start AT `from`, i.e. INSIDE the start marker, so the
+ *     marker's own comment BODY counted as inventory. Writing a bare
+ *     `src/lib/kv.ts` into that comment and deleting `kv.ts` from the prose left
+ *     the suite 526/526 green — the guard was reading its own documentation as
+ *     the thing it documents. The slice now begins after that comment's closing
+ *     `-->`, so nothing inside the marker can satisfy the inventory.
+ *   - `indexOf` returns the FIRST match and `START` is a prefix without its
+ *     `-->`, so ANY earlier occurrence of that string silently moved the slice's
+ *     top edge upward, over the hooks table (which links `src/lib/workflow.ts`).
+ *     One such mention — even inside backticks, in prose about this very guard —
+ *     plus deleting `workflow.ts` from the paragraph left the suite 526/526
+ *     green. Each marker must now occur EXACTLY ONCE, so a duplicate is a loud
+ *     failure rather than a wider slice.
+ *
+ * Both cases falsified the marker comment's own promise ("remove one and the
+ * guard fails loudly rather than silently widening") and the README's "compares
+ * *this paragraph*, and only it".
  */
 function inventoryParagraph(): string {
   const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8');
-  const from = readme.indexOf(START);
-  const to = readme.indexOf(END);
-  if (from < 0 || to < 0 || to <= from) {
+
+  // 🔴 EXACTLY ONE OF EACH. `< 1` is the original missing-marker case; `> 1` is
+  // the widening one — a second `START` anywhere above the real marker moves the
+  // slice's top edge up over unrelated `src/lib/…` links and re-hides exactly the
+  // dropped-module failure this guard exists for.
+  const starts = countOf(readme, START);
+  const ends = countOf(readme, END);
+  if (starts !== 1 || ends !== 1) {
     throw new Error(
-      `README.md is missing the "${START}…${END}" markers around the src/lib ` +
-        `inventory — the guard cannot tell which paragraph it is about. Restore them.`,
+      `README.md must contain EXACTLY ONE "${START}" and EXACTLY ONE "${END}" ` +
+        `around the src/lib inventory — found ${starts} and ${ends}. Zero means the ` +
+        `guard cannot tell which paragraph it is about; more than one means the slice ` +
+        `silently widens over src/lib links elsewhere in the file. Fix the markers.`,
     );
   }
-  return readme.slice(from, to);
+
+  const from = readme.indexOf(START);
+  const to = readme.indexOf(END);
+
+  // 🔴 START THE SLICE AFTER THE MARKER COMMENT ITSELF, never at `from` — the
+  // marker's body is prose ABOUT the inventory and must not count AS inventory.
+  const markerEnd = readme.indexOf('-->', from);
+  const sliceFrom = markerEnd + '-->'.length;
+  if (markerEnd < 0 || sliceFrom >= to) {
+    throw new Error(
+      `README.md's "${START}" marker is not closed with "-->" before "${END}" — ` +
+        `the guard cannot tell where the marker comment ends and the inventory begins.`,
+    );
+  }
+
+  return readme.slice(sliceFrom, to);
 }
 
 /** Every `src/lib/<name>.ts` path the INVENTORY PARAGRAPH references, deduped. */

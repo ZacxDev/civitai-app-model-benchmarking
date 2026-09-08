@@ -28,9 +28,17 @@
 // string against a LITERAL typed into this file (`NOTICE_PRIVATE_COPY_REMOVED` /
 // `NOTICE_PRIVATE_COPY_SURVIVED` below), so a reword of the copy fails here by
 // name. The call to the exported `publishPointerFailedNotice` is kept ALONGSIDE
-// each literal as a separate, weaker claim: it pins the WIRING — the App renders
-// THIS builder's output for the outcome it observed — and can say nothing about
-// the words, because an expectation obtained from the builder moves with it.
+// each literal as a separate, much weaker claim — and the description here used
+// to over-state what that claim is. It is NOT a wiring check.
+// `toHaveTextContent` compares a VALUE, so it cannot see WHICH code assembled
+// the sentence. Measured on this tree: making `App.tsx` assemble the identical
+// sentence inline and never call the builder at all left the suite 526/526
+// GREEN. What these calls actually pin is that THE RENDERED COPY AND THE
+// BUILDER'S COPY AGREE — which is violated only when the App hardcodes AND the
+// builder is reworded. Both mutations together turn exactly the two
+// `toHaveTextContent` lines red (6 failures, one per noun per branch) while the
+// literal `toBe` above stays green; everywhere else the literal fails first and
+// these are redundant with it.
 //
 // 🔴 THE ROUND-2 FINDING, AND WHY THERE ARE NOW TWO POINTER-FAILURE OUTCOMES.
 // The copy used to end "…cannot be published again", which was FALSE: the only
@@ -289,9 +297,12 @@ describe.each(OBJECTS)(
       // is walkable by ANY reword, because both sides move together.
       expect(noticeText(notice)).toBe(NOTICE_PRIVATE_COPY_REMOVED(noun));
 
-      // …and the WIRING, which the literal above cannot see: that what the App
-      // rendered is this builder's output for the outcome it observed, rather
-      // than a sentence assembled somewhere else that happens to match today.
+      // …and a much weaker, secondary claim: the rendered copy and the BUILDER'S
+      // copy AGREE. This is not a wiring check and never was —
+      // `toHaveTextContent` compares a value, so an App that assembled this
+      // exact sentence inline and never called the builder passes it (measured:
+      // 526/526 green). It can only fail when the App hardcodes AND the builder
+      // is reworded; in every other case the literal above fails first.
       expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, true));
     });
 
@@ -334,6 +345,9 @@ describe.each(OBJECTS)(
       // sentences still differ from each other.
       expect(noticeText(notice)).toBe(NOTICE_PRIVATE_COPY_SURVIVED(noun));
 
+      // The same secondary claim as the other branch, with the same limit: the
+      // rendered copy and the builder's copy AGREE. It says nothing about which
+      // code assembled the rendered sentence.
       expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, false));
 
       // …and the two branches are DIFFERENT sentences. Without this, a builder

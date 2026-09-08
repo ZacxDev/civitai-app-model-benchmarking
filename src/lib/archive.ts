@@ -8,7 +8,8 @@
 //
 // 🔴 AND WHY THE COPY BELOW IS PART OF THE FEATURE RATHER THAN DECORATION. The
 // app HAS no power to remove another viewer's view of a row — `update` and
-// `withdraw` are author-scoped and `report()` does not hide (spec §2.3) — so an
+// `withdraw` are author-scoped and `report()` does not hide (spec §2.2 + §9 Q2;
+// NOT §2.3, which is the four C1–C4 substrate constraints) — so an
 // "Archive" a viewer could reasonably read as "removed" is a claim the code
 // cannot back. `taste.json`'s `suppressionNamedAsSuppression` rubric item is the
 // standing rule; {@link ARCHIVE_NOTE} is this feature's discharge of it, and it

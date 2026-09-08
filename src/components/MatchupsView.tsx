@@ -275,7 +275,7 @@ export function MatchupsView({
             )}
             {/* 🔴 THE HONEST WORDING, rendered NEXT TO the control rather than
                 behind a tooltip. Archiving hides nothing from anyone else — the
-                app has no such power (§2.3) — and a viewer who reads "Archive"
+                app has no such power (§2.2 + §9 Q2) — and a viewer who reads "Archive"
                 as "removed" has been told something the code cannot back. */}
             {myPublished.length > 0 && (
               <span style={metaText} data-testid="archive-note">

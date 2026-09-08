@@ -151,10 +151,14 @@ submit flows are modals:
   🔴 A published grid names shared keys **another author can withdraw**, so a grid
   renders its surviving members plus an honest count of the missing ones.
 
-<!-- lib-inventory:start — src/readme-inventory.test.ts reads ONLY between these
-     two markers, so the guard is about THIS paragraph and not about `src/lib/…`
-     links elsewhere in the file. Move them and the guard moves with them;
-     remove one and the guard fails loudly rather than silently widening. -->
+<!-- lib-inventory:start — src/readme-inventory.test.ts reads ONLY what sits
+     between the END of this comment and the closing marker. So the guard is
+     about THIS paragraph: not about `src/lib/…` links elsewhere in the file,
+     and not about this comment either (it used to start the slice inside the
+     comment, which made this text count as inventory). Move the markers and the
+     guard moves with them. Remove one, duplicate either one ANYWHERE in this
+     file, or leave this comment unclosed, and the guard THROWS — each of those
+     used to widen the slice silently instead. -->
 
 The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
 is named here**, and that is checked rather than trusted —
