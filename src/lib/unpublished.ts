@@ -81,13 +81,54 @@ export function publishedPointer(
  * a second click on `append` mints a SECOND permanent public row — there is no
  * idempotency key to collapse them. This sentence says which half landed, that
  * the record is gone from this list, and where the published copy now lives.
+ *
+ * 🔴 WHY THERE ARE TWO SENTENCES AND NOT ONE, AND THE FALSE ONE THIS REPLACED.
+ * Until the round-2 audit this builder returned a single string ending "…so it
+ * is no longer listed here and cannot be published again." The first half was
+ * true and the second was FALSE, in exactly the scenario the sentence exists
+ * for: the only thing retiring the record was `publishedLocalIds`, which is
+ * React state, so a RELOAD re-read the store — the very store that could not be
+ * written — and the card offered **Publish** again. A viewer who trusted the
+ * sentence, reloaded, saw Publish and concluded the message was wrong would mint
+ * the second permanent unmergeable row this whole path exists to prevent.
+ *
+ * The caller now tries to close that for real by DELETING the private record
+ * (the record's only remaining purpose was to become the pointer, and the row is
+ * reachable without it — "Published by you" filters on `isOwnRow`, i.e. on
+ * `authorUserId`, never on pointer presence). But that delete can itself be
+ * refused, so replacing one absolute claim with another would just move the lie.
+ * `privateCopyRemoved` is the CALLER'S OBSERVED OUTCOME of that delete, and each
+ * branch states only what holds in it:
+ *
+ *   - `true`  — the delete RESOLVED, so the key is not in the store. A reload
+ *     cannot re-list it, and "will not be offered again" is a fact about the
+ *     store rather than about session state. (Resolution is the whole test: a
+ *     `{ ok: true, deleted: false }` means the key was already absent, which is
+ *     the same end state.)
+ *   - `false` — the delete was refused too. The record survives with its
+ *     editable body, so a reload WILL re-list it offering Publish, and the only
+ *     honest thing to do is say so and tell the viewer not to click it.
+ *
+ * Both branches are pinned as WHOLE NORMALISED STRINGS by
+ * `src/publishPointerFailure.test.tsx` — a keyword guard here is walkable by a
+ * reword that quietly re-implies the publish failed, which is the reading that
+ * gets a viewer to click again.
  */
-export function publishPointerFailedNotice(noun: string, hostError: string): string {
-  return (
+export function publishPointerFailedNotice(
+  noun: string,
+  hostError: string,
+  privateCopyRemoved: boolean,
+): string {
+  const head =
     `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
-    `updated, so it is no longer listed here and cannot be published again. ` +
-    `Find it under Published by you to edit or remove it. (${hostError})`
-  );
+    `updated with its key (${hostError}), `;
+  const tail = 'Find it under Published by you to edit or remove it.';
+  return privateCopyRemoved
+    ? `${head}so the private copy has been discarded and this list will not offer to ` +
+        `publish it again. ${tail}`
+    : `${head}and discarding that private copy was refused too — so after a reload it can ` +
+        `reappear here still offering Publish. Do NOT publish it again: that would put a ` +
+        `SECOND, unmergeable copy on the board. ${tail}`;
 }
 
 /**

@@ -251,6 +251,27 @@ export function fakeAppStorage(
     failSetPrefix?: string;
     /** The host's error string. Not viewer copy — a test asserts it never renders. */
     failSetError?: string;
+    /**
+     * Make `delete()` REJECT for keys under `failDeletePrefix` (all keys when the
+     * prefix is omitted), `failDeleteTimes` times.
+     *
+     * 🔴 THE SECOND HALF OF THE HALF-PUBLISHED RECORD. When the pointer `set` is
+     * refused, `publishRecord` falls back to DELETING the private record — the
+     * only step that makes the retirement survive a RELOAD rather than only a
+     * re-render. `delete` is a per-viewer KV write like `set` and the same host
+     * refuses it for its own reasons, so "the fallback was refused too" is a real
+     * state and the viewer copy branches on it. With `delete` hardcoded to
+     * resolve, the branch that says so was unreachable from any test in the repo
+     * — the exact shape `failSetTimes` above was added for.
+     *
+     * On rejection NOTHING is removed and NO `deletes` entry is recorded, which
+     * is what the host does. Use `deleteAttempts` to assert the app nonetheless
+     * TRIED.
+     */
+    failDeleteTimes?: number;
+    failDeletePrefix?: string;
+    /** The host's error string for a refused delete. Also not viewer copy. */
+    failDeleteError?: string;
   } = {},
 ) {
   const store = new Map<string, unknown>(Object.entries(seed));
@@ -263,12 +284,16 @@ export function fakeAppStorage(
    * whole question when asserting a claim happened BEFORE a spend.
    */
   const setAttempts: Array<{ key: string; value: unknown }> = [];
+  /** Keys actually REMOVED. Empty on the refused path — see `deleteAttempts`. */
   const deletes: string[] = [];
+  /** Every `delete()` ATTEMPT, refused or not: the positive control for the fallback. */
+  const deleteAttempts: string[] = [];
   /** Every `get()` key, in call order — lets a test assert a read did NOT happen. */
   const gets: string[] = [];
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
   let listFailuresLeft = opts.failListTimes ?? 0;
   let setFailuresLeft = opts.failSetTimes ?? 0;
+  let deleteFailuresLeft = opts.failDeleteTimes ?? 0;
   /** One macrotask hop per call when `latencyMs` is set; a no-op otherwise. */
   const hop = (): Promise<void> =>
     opts.latencyMs === undefined
@@ -297,7 +322,17 @@ export function fakeAppStorage(
       return { ok: true as const };
     },
     async delete(key: string) {
+      deleteAttempts.push(key);
       await hop();
+      const targeted =
+        opts.failDeletePrefix === undefined || key.startsWith(opts.failDeletePrefix);
+      if (deleteFailuresLeft > 0 && targeted) {
+        deleteFailuresLeft -= 1;
+        // 🔴 REJECT BEFORE REMOVING — a fake that removed anyway would leave the
+        // record gone from the store while the app believed it had failed, i.e.
+        // the exact disagreement the branching copy exists to state.
+        throw new Error(opts.failDeleteError ?? 'STORAGE_UNAVAILABLE');
+      }
       deletes.push(key);
       const deleted = store.delete(key);
       return { ok: true as const, deleted };
@@ -337,7 +372,7 @@ export function fakeAppStorage(
       };
     },
   };
-  return { appStorage, sets, setAttempts, deletes, gets, store, listCalls };
+  return { appStorage, sets, setAttempts, deletes, deleteAttempts, gets, store, listCalls };
 }
 
 /**

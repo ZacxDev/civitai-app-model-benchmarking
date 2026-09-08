@@ -1081,10 +1081,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *
    * ⚠ THE SCOPE, STATED SO NOBODY READS MORE INTO IT. It is SESSION-scoped —
    * neither durable nor viewer-scoped:
-   *   - a RELOAD re-reads the store, and the store is exactly what could not be
-   *     written, so the record comes back still offering Publish. Nothing here
-   *     can fix that: the only durable record of the append was the pointer whose
-   *     write failed.
+   *   - a RELOAD re-reads the store, and THIS SET is not in it. What survives a
+   *     reload is `publishRecord`'s step 4: on a failed pointer write it DELETES
+   *     the private record, so the reload has nothing to re-list. That delete is
+   *     best-effort — the same store refused the write a moment earlier and can
+   *     refuse this too — and when it is refused the record does come back still
+   *     offering Publish. The viewer copy branches on exactly that outcome
+   *     (`publishPointerFailedNotice`); this set never claims to cover it.
    *   - it is deliberately NOT cleared on a viewer switch. The clear would have
    *     to live in an effect, and the drafts effect below re-runs on
    *     `draftsVersion` — i.e. after every publish — so putting it there would
@@ -1106,21 +1109,40 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * its own payload (built by its own builder, so the wire shape and the
    * moderation split stay that builder's business) and its own analytics event.
    *
-   * THE ORDER BELOW IS THE GUARD, and every line of it is load-bearing:
+   * THE ORDER BELOW, AND WHAT IS ACTUALLY LOAD-BEARING IN IT:
    *
    *  1. `append` FIRST and alone. Everything after it is reasoning about a row
    *     that is already public and already permanent.
-   *  2. RETIRE THE LOCAL ID IMMEDIATELY — before the pointer write, not after.
-   *     This is the only step that cannot be skipped by a rejection, and it is
-   *     what makes "the UI never offers Publish for this record again" true
-   *     regardless of what the KV does next.
-   *  3. The pointer write is ATTEMPTED AND CAUGHT. It is a real loss when it
-   *     fails (the pointer is the only per-viewer handle on a host-minted key —
-   *     see `publishedPointer`), but it is a loss on top of a success, not a
-   *     reason to pretend the publish did not happen.
-   *  4. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
+   *  2. RETIRE THE LOCAL ID before the pointer write. What makes "the UI never
+   *     offers Publish for this record again IN THIS SESSION" true is that the
+   *     retirement runs on BOTH outcomes of the pointer write — which the inner
+   *     `try`/`catch` at step 3 already guarantees on its own.
+   *     ⚠ SO THE ORDERING IS DEFENCE-IN-DEPTH, NOT A MEASURED INVARIANT. An
+   *     earlier draft of this comment said "nothing between the `append` and
+   *     this line may await", read as a measured rule. It is not one: moving the
+   *     retirement to after the inner `try/catch` was measured behaviourally
+   *     identical (re-measured 2026-09-07 at this branch's HEAD: 524/524 green,
+   *     both vitest projects). It is kept ahead of the write because the
+   *     catch is what the invariant actually rests on, and a future edit that
+   *     removes or narrows that catch would silently take the retirement with
+   *     it — before the write, a rejection cannot reach it at all.
+   *  3. The pointer write is ATTEMPTED AND CAUGHT — this catch IS the guard. It
+   *     is a real loss when the write fails (the pointer is the only per-viewer
+   *     handle on a host-minted key — see `publishedPointer`), but it is a loss
+   *     on top of a success, not a reason to pretend the publish did not happen.
+   *  4. On that failure the private record is DELETED, best-effort. Its only
+   *     remaining purpose was to become the pointer, and the row is reachable
+   *     without it ("Published by you" filters on `isOwnRow`, i.e. on
+   *     `authorUserId`, never on pointer presence). This is what makes the
+   *     retirement survive a RELOAD instead of only a re-render: `publishedLocalIds`
+   *     is React state, so without the delete the next load re-reads the store —
+   *     the very store that could not be written — and offers Publish again.
+   *     The delete can itself be refused, so its outcome is OBSERVED and handed
+   *     to the copy rather than assumed.
+   *  5. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
    *     catches it and renders it; a quiet `finally` here is what made this
-   *     invisible in the first place.
+   *     invisible in the first place. The copy BRANCHES on step 4's outcome —
+   *     see `publishPointerFailedNotice`, which is true either way.
    */
   const publishRecord = useCallback(
     async (spec: {
@@ -1137,14 +1159,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       props: Record<string, unknown>;
     }) => {
       if (submittingRef.current.has(spec.localId)) return;
+      // ⚠ BELT-AND-BRACES, not a live gate: every caller resolves `spec.localId`
+      // out of a list this session's retirement has already filtered, so this
+      // line is unreachable in production and deleting it leaves the suite green
+      // (re-measured at this branch's HEAD: 524/524). It is kept because it is
+      // the cheap half of the pair — `submittingRef` covers only the in-flight
+      // window — and a future caller that hands a raw stored id straight in
+      // would otherwise reach `append`.
+      // Do not read it as coverage: the retirement at step 2 is what holds.
       if (publishedThisSession.has(spec.localId)) return;
       submittingRef.current.add(spec.localId);
       try {
         const { key } = await depsRef.current.shared.append(spec.payload);
-        // 🔴 STEP 2 — see the comment above. Nothing between the `append` and
-        // this line may await.
+        // STEP 2 — see the comment above. Ahead of the pointer write as
+        // defence-in-depth against a future edit to step 3's catch, NOT because
+        // an await in between was measured to break anything.
         setPublishedLocalIds((prev) => (prev.includes(spec.localId) ? prev : [...prev, spec.localId]));
         let pointerError: string | null = null;
+        // Only read when `pointerError` is set; `false` is the honest default
+        // there, because "we did not remove it" is the claim that invites the
+        // viewer to check rather than the one that invites a second click.
+        let privateCopyRemoved = false;
         try {
           await depsRef.current.appStorage.set(
             spec.storageKey,
@@ -1152,13 +1187,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           );
         } catch (e) {
           pointerError = errMsg(e);
+          // 🔴 STEP 4. Without this the retirement is session-only and a reload
+          // re-offers Publish for a row that is already public. RESOLUTION is
+          // the test, not `deleted`: `{ ok: true, deleted: false }` means the key
+          // was already absent, which is the same end state the copy claims.
+          try {
+            await depsRef.current.appStorage.delete(spec.storageKey);
+            privateCopyRemoved = true;
+          } catch {
+            // The host refused this too. Nothing left to try — the copy below
+            // says so instead of claiming a removal that did not happen.
+            privateCopyRemoved = false;
+          }
         }
         optimisticInsert(key, spec.payload);
         depsRef.current.track(spec.event, spec.props);
         refreshDrafts();
         reload();
         if (pointerError !== null) {
-          throw new Error(publishPointerFailedNotice(spec.noun, pointerError));
+          throw new Error(
+            publishPointerFailedNotice(spec.noun, pointerError, privateCopyRemoved),
+          );
         }
       } finally {
         submittingRef.current.delete(spec.localId);

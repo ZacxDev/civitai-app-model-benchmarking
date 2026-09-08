@@ -748,12 +748,25 @@ meaning "superseded" and `complete` would be false).
   publishable Grids, "watch a matchup" collapses into "view someone else's published
   Grid".
 - **452** (grid-as-default + ranking + truncation) — 🔴 **its criteria 3 and 4 were
-  already shipped** in `10a0b46` (#31). The `board-truncated-notice` Alert lives at
-  `src/App.tsx:1440` and its test — **with a negative control** — at
-  `src/boardTruncation.test.tsx:117-137`. 452's body still cites
-  `src/App.tsx:931-938` as discarding the condition; that line no longer exists,
-  and `listAll` now returns `{items, truncated}` at `src/App.tsx:1609-1623`.
-  527 inherits only the live remainder.
+  already shipped** in `10a0b46` (#31). Cited **by content, not by offset**: the
+  Alert carrying `data-testid="board-truncated-notice"` in `src/App.tsx`, and its
+  test — **with a negative control**, `it('does NOT cry truncation on a board that
+  fits (negative control)')` — in `src/boardTruncation.test.tsx`. The `listAll`
+  helper at the bottom of `src/App.tsx` now returns `{ items, truncated }`. 452's
+  body still cites `src/App.tsx:931-938` as discarding the condition; that line no
+  longer exists. 527 inherits only the live remainder.
+
+  ⚠ **This bullet used to give line numbers, and every one of them had already
+  rotted** — found by the PR #38 round-2 sweep. It named `listAll` at
+  `src/App.tsx:1609-1623` with **no ref**: at `ad546fb` it is at **1604**, and at
+  this PR's head at **2137** — a claim falsified by this PR's own later commits,
+  sitting inside no round's diff. `board-truncated-notice` was true at `ad546fb`
+  (1440) and is 1876 at head. `boardTruncation.test.tsx:117-137` spanned that
+  file's whole `describe` at `ad546fb` — 2 cases; at head the same block runs to
+  173 and the file carries 6. Same class as §11.4's and §11.7(2)'s warnings,
+  third occurrence: **a line number without a ref is a claim with no truth
+  conditions.** Cite a testid, a function name or a test title — those move with
+  the code.
 - **455** (the rename) — its inventory is carried into 527 Phase 1 intact, with the
   count and offsets corrected by §11.4. Its "depends on cards A–F" chain is void.
 
@@ -798,12 +811,52 @@ correct and was confirmed**.
 **Still open downstream (§6.3(e)):** the live store listing caption still says
 "combinations" and needs a listing revision, i.e. another moderator review.
 
-⚠ **Two literals in `datapacket-talos` are deliberately NOT renamed yet**, because
-their new values are app copy that has not reached `main`: the `_selectors`
-quotation of the tab label `'Combinations (1)'`, and `_contentCaveat`'s
-`"2 combinations"` (which `run-tests-app-capture.sh` pins as a needle, so changing
-it early reds the suite). **Both become a follow-up the moment the app rename
-merges.**
+#### The downstream ledger — what actually breaks, and which half is where
+
+The round-2 audit of PR #38 found the note that closed this section said **"two
+literals"** when the real coupling is wider, and that it conflated two different
+states. The distinction that matters is **fixed-but-unmerged** vs **deliberately
+deferred**: they need opposite follow-ups. Paths are relative to the
+`datapacket-talos` checkout; the recipe is
+`.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` (the audit
+report shortens it to `recipes/model-benchmarking.json`).
+
+**(a) Coupled to app strings and ALREADY FIXED on the paired branch
+`zach/527-mb-rename` (pushed, unmerged).** These are broken against
+`origin/trunk` *until that branch lands* — the follow-up is a merge, not an edit:
+
+| Recipe site | Pinned literal | The app at this PR's head | How it fails |
+|---|---|---|---|
+| `clickable[1]` | `[data-testid='view-switch-combos']` | emits `view-switch-matchups` (the Matchups tab label span in `src/App.tsx`) | the safety ledger, not a click. `plan.py` refuses at PLAN time — `click_unledgered` if a state clicks something absent from it, `clickable_unused` if an entry no state activates survives — so fixing one of these two rows without the other cannot even reach a browser |
+| the matchups state's `click` | `[data-testid='view-switch-combos']` | same | bridge **`element_not_found`** — the state fails at its click |
+| the grid state's `waitForText` | `"Included combinations"` | **absent from `src/`** | a 20 s `text` poll that never resolves, then a failed state |
+| that state's `name` + `caption` | `"combinations"` / "…LoRA combinations…" | the product noun is *matchup* | not a failure — a wrong output filename and a wrong store caption |
+
+🔴 **None of it fails silently.** The clicks fail with the bridge's own
+`element_not_found`, naming the selector; the wait fails as an expired poll
+(`plan.py`'s `waitForText` → `emit_dom("text", …, expect=…, timeoutMs=20000)`).
+That is what `_selectors`' own note buys by waiting on panel-BODY text rather
+than on a tab label: a drifted selector fails loudly instead of successfully
+capturing the wrong screen.
+
+⚠ **And the paired branch's fix for the third row is itself wrong** — found by
+this round's sweep, not by the audit. It substitutes `"Included matchups"`, the
+string commit `6c7cf8b` introduced. A **later** commit in this same PR replaced
+the single-window grid view with per-grid windows and deleted that copy, so
+*neither* `"Included combinations"` *nor* `"Included matchups"` exists in `src/`
+at head — check by content: `grep -rn "Included matchup" src/` returns nothing.
+**The grid state needs a fresh anchor read off the shipped `GridsView` before that
+branch merges**, or it trades one broken wait for another.
+
+**(b) Deliberately NOT renamed, because their replacements are app copy that has
+not reached `main`.** These are still wrong on the paired branch too, on purpose:
+
+- `_selectors`' quotation of the tab label `'Combinations (1)'` — prose inside a
+  comment, naming a label the app no longer renders.
+- `_contentCaveat`'s `"2 combinations"`, which `tests/run-tests-app-capture.sh`
+  pins as a needle: changing it early **reds that suite**.
+
+**Both become a follow-up the moment the app rename merges.**
 
 ### 11.8 🔴 The paid-cell surface, and why the scan budget is now the binding constraint
 

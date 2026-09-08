@@ -28,9 +28,26 @@
 // string via the exported `publishPointerFailedNotice`, so a reword has to move
 // the copy and the test together rather than walking past a keyword.
 //
-// ⚠ Session-scoped is the honest ceiling and this file does not claim more: a
-// full reload re-reads the store, and the store is exactly what could not be
-// written. The guard is "never offered again IN THIS SESSION".
+// 🔴 THE ROUND-2 FINDING, AND WHY THERE ARE NOW TWO POINTER-FAILURE OUTCOMES.
+// The copy used to end "…cannot be published again", which was FALSE: the only
+// thing retiring the record was `publishedLocalIds`, i.e. React state, so a
+// RELOAD re-read the store — the very store that could not be written — and the
+// card offered **Publish** again. The app now DELETES the private record on that
+// path (its only remaining purpose was to become the pointer), which closes it
+// for real when the delete lands. But `delete` is a per-viewer KV write like
+// `set` and can be refused by the same host, so there are two states and the
+// copy branches on them. BOTH are driven here, and both are pinned as the whole
+// normalised string:
+//
+//   - delete RESOLVES  → the store no longer holds the key, so a reload cannot
+//     re-list it. Asserted on the STORE, not on the rendered list — the list is
+//     already empty from the session retirement and would pass either way.
+//   - delete IS REFUSED → the record survives with its editable body, and the
+//     copy says so and tells the viewer not to click Publish again.
+//
+// ⚠ What is still NOT covered anywhere: a real page reload. jsdom does not
+// reload, so "the reload cannot re-list it" is asserted through the store's
+// contents, which is the state the reload would read — not by reloading.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -52,6 +69,13 @@ const VIEWER_ID = 99;
  * copy — the notice quotes it, and a case below proves the notice is the app's
  * sentence and not a bare host string. */
 const HOST_ERROR = 'QUOTA_EXCEEDED';
+
+/**
+ * The host's error for a refused `delete`. Deliberately DIFFERENT from
+ * `HOST_ERROR`: the notice quotes the SET failure, and a fixture that spelled
+ * both the same could not see a builder that quoted the wrong one.
+ */
+const DELETE_ERROR = 'STORAGE_UNAVAILABLE';
 
 const LOCAL_ID = 'l-halfpub';
 
@@ -136,16 +160,28 @@ const OBJECTS = [
 describe.each(OBJECTS)(
   '🔴 a $noun whose pointer write is REFUSED after a successful append',
   ({ noun, view, prefix, storageKey, record }) => {
-    /** Mount with the record seeded and every `set` under its OWN prefix refused. */
-    async function arrange() {
+    /**
+     * Mount with the record seeded and every `set` under its OWN prefix refused.
+     * `alsoRefuseDelete` additionally refuses the fallback `delete` on the same
+     * prefix — the second of the two outcomes the copy branches on.
+     */
+    async function arrange(alsoRefuseDelete = false) {
       const s = fakeShared({ seed: [] });
       const kv = fakeAppStorage(
         { [storageKey]: record },
         {},
-        // More refusals than the case can possibly consume, on purpose: with
-        // `failSetTimes: 1` a SECOND publish attempt would find the store healthy
-        // and succeed, which would make the duplicate look like a recovery.
-        { failSetTimes: 9, failSetPrefix: prefix, failSetError: HOST_ERROR },
+        {
+          // More refusals than the case can possibly consume, on purpose: with
+          // `failSetTimes: 1` a SECOND publish attempt would find the store
+          // healthy and succeed, which would make the duplicate look like a
+          // recovery.
+          failSetTimes: 9,
+          failSetPrefix: prefix,
+          failSetError: HOST_ERROR,
+          ...(alsoRefuseDelete
+            ? { failDeleteTimes: 9, failDeletePrefix: prefix, failDeleteError: DELETE_ERROR }
+            : {}),
+        },
       );
       mountApp({ shared: s.shared, appStorage: kv.appStorage });
       await openView(view);
@@ -193,7 +229,51 @@ describe.each(OBJECTS)(
       // 🔴 THE WHOLE STRING, from the exported builder. A keyword guard ("could
       // not") would be walkable by a reword that quietly implied the publish
       // failed — which is the reading that gets a viewer to click again.
-      expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR));
+      expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, true));
+    });
+
+    // 🔴 THE ROUND-2 FIX ITSELF. The session retirement empties the LIST either
+    // way, so the list cannot see this — the claim "a reload will not re-offer
+    // Publish" is a claim about the STORE, and that is where it is asserted.
+    it('DELETES the private record, so the store a reload would read no longer holds it', async () => {
+      const { deleteAttempts, deletes, store } = await arrange();
+
+      // POSITIVE CONTROL on the premise: the fallback really ran, on THIS key.
+      await waitFor(() =>
+        expect(deleteAttempts, 'the app never attempted the fallback delete').toContain(storageKey),
+      );
+      expect(deletes, 'the delete was attempted but not honoured').toContain(storageKey);
+      expect(
+        store.has(storageKey),
+        'the private record survived, so a reload re-offers Publish',
+      ).toBe(false);
+    });
+
+    // 🔴 THE OTHER OUTCOME, and the reason the copy is a branch rather than a
+    // second absolute claim: the fallback is a write to the store that just
+    // refused a write.
+    it('when the fallback DELETE is refused too, it says so instead of claiming removal', async () => {
+      const { deleteAttempts, deletes, store, appends } = await arrange(true);
+
+      // PREMISE, both directions: attempted, and genuinely refused.
+      await waitFor(() =>
+        expect(deleteAttempts, 'the app never attempted the fallback delete').toContain(storageKey),
+      );
+      expect(deletes, 'the fallback delete was not actually refused').not.toContain(storageKey);
+      expect(store.has(storageKey), 'the record was removed despite the refusal').toBe(true);
+
+      const notice = await screen.findByTestId('unpublished-error');
+      expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, false));
+
+      // …and the two branches are DIFFERENT sentences. Without this, a builder
+      // that ignored its third argument would satisfy both cases at once.
+      expect(publishPointerFailedNotice(noun, HOST_ERROR, false)).not.toBe(
+        publishPointerFailedNotice(noun, HOST_ERROR, true),
+      );
+
+      // Still exactly one public row: the refused fallback changes what is SAID,
+      // never how many times `append` ran.
+      expect(appends).toHaveLength(1);
     });
   },
 );
@@ -222,5 +302,13 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     expect(screen.queryByTestId('unpublished-error')).toBeNull();
     // The record is retired here too — by the pointer, the way it always was.
     await waitFor(() => expect(screen.queryByTestId('unpublished-card')).toBeNull());
+    // 🔴 AND THE FALLBACK DELETE IS SCOPED TO THE FAILURE. On the happy path the
+    // record is KEPT and rewritten to the pointer — the only per-viewer handle on
+    // a host-minted key (`publishedPointer`). A delete here would destroy it, and
+    // the cases above alone cannot see that: they only ever assert a delete DID
+    // happen.
+    expect(kv.deleteAttempts, 'the happy path deleted the pointer it just wrote').not.toContain(
+      storageKey,
+    );
   });
 });

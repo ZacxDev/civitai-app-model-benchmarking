@@ -202,12 +202,19 @@ export function GridPicker({
    * selections — every one of them local `useState` in `GridForm`, none of them
    * persisted, with no recovery and no message.
    *
-   * So the picker takes Escape off the pack entirely:
-   *   - `closeOnEscape={false}` on its own `Modal`, so the pack attaches nothing
-   *     for this modal and there is exactly one handler, not two;
-   *   - a CAPTURE-phase listener on `document`, which runs BEFORE any bubble-phase
-   *     listener — including the OUTER modal's — and `stopPropagation()` there
-   *     prevents the event ever reaching the bubble phase at all.
+   * So the picker takes Escape off the pack entirely — but the two halves are
+   * NOT equally load-bearing, and the round-2 audit was right to say so:
+   *   - 🔴 THE FIX IS THE CAPTURE-PHASE listener on `document`. It runs BEFORE
+   *     any bubble-phase listener — including the OUTER modal's — and its
+   *     `stopPropagation()` prevents the event ever reaching the bubble phase at
+   *     all. That alone closes the data loss.
+   *   - ⚠ `closeOnEscape={false}` on its own `Modal` is DEFENCE-IN-DEPTH, and is
+   *     inert as shipped: the capture listener already stops the event, so the
+   *     pack's own bubble handler cannot fire whether or not it is attached —
+   *     mutating the prop to `true` leaves the suite green (re-measured at this
+   *     branch's HEAD: 524/524, both vitest projects). It is kept to state the
+   *     ownership at the seam and to keep one Escape from being handled twice if
+   *     the capture listener is ever narrowed or removed.
    *
    * Capture is what makes the order deterministic. A bubble-phase listener here
    * would race the outer modal's on registration order, and the outer one is
@@ -351,9 +358,14 @@ export function GridPicker({
       title={copy.title}
       size="lg"
       closeButtonLabel={`Close ${copy.one} picker`}
-      // 🔴 The picker owns Escape itself — see the capture-phase effect above.
-      // Leaving the pack's handler on would put TWO handlers on `document` for
-      // one modal, and the pack's fires in the bubble phase the effect stops.
+      // ⚠ INERT AS SHIPPED — do NOT read this as closing a live hazard. The
+      // picker owns Escape itself (the capture-phase effect above), and that
+      // listener calls `stopPropagation()`, so the pack's bubble-phase handler
+      // never runs whatever this prop says: mutating it to `true` was measured to
+      // leave the whole suite green (re-measured at this branch's HEAD: 524/524).
+      // It is kept as cheap defence — it states the ownership at the seam, and it
+      // is what would stop one Escape being handled twice if the capture effect
+      // were ever narrowed or removed.
       closeOnEscape={false}
     >
       <Stack gap={12} data-testid={testId}>

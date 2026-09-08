@@ -190,9 +190,23 @@ function plural(n: number, one: string, many: string): string {
  *
  * ⚠ `boardTruncated: false` is NOT "definitely withdrawn" either — an unparseable
  * row still reads as missing. What it buys is that the app READ everything it
- * could, which is the strongest claim available; the copy stays at "no longer on
- * the board" and attributes removal as the reason, without asserting anything
- * about a row nobody can see.
+ * could, which is the strongest claim available.
+ *
+ * 🔴 SO A RESIDUAL UNSUPPORTED CLAIM REMAINS, AND THIS SAYS SO RATHER THAN
+ * CLOSING OVER IT. On the complete-scan branch the copy attributes removal ("no
+ * longer on the board"), and for the unparseable case named two paragraphs above
+ * that IS an assertion about a row nobody can see: the row is on the board; the
+ * app merely could not read it. An earlier draft of this docstring ended by
+ * saying the copy asserts nothing about such a row — which was itself false, for
+ * exactly the case it had just named. What the `boardTruncated` split did was
+ * NARROW the unsupported claim, from "every missing member, including everything
+ * past a page cap" (routine, and the common case on a busy board) to "a member
+ * whose `data` blob does not parse" (rare, and an app-shape failure). It did not
+ * eliminate it.
+ *
+ * Eliminating it needs `splitRows` to report the keys it SKIPPED, so the resolver
+ * can tell "unread" from "unreadable" and say a third thing. That is a change to
+ * the scan's return shape and is deliberately not made here.
  */
 export function missingMembersNotice(
   resolved: ResolvedGridRows,

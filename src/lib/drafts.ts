@@ -76,7 +76,22 @@ export function buildDraft(
   };
 }
 
-/** Rewrite a record to the POINTER it becomes after publish (see the shared core). */
+/**
+ * Rewrite a record to the POINTER it becomes after publish (see the shared core).
+ *
+ * ⚠ TEST-ONLY — SAME CLASS AS `recordKind` IN `benchmark.ts`, and labelled for
+ * the same reason: an exported helper that reads like a live path and is not one.
+ * It lost its last production import when `App.tsx`'s three publish paths were
+ * consolidated into `publishRecord`, which calls `publishedPointer` from
+ * `unpublished.ts` directly. The only caller left is `drafts.test.ts`, so it is
+ * dropped from the built bundle entirely.
+ *
+ * Kept rather than inlined for the one thing it still does: it states, in the
+ * matchup object's own module, that a matchup's pointer is the SHARED shape and
+ * not a per-object one — the boundary `unpublished.ts` exists to hold. Do not
+ * read it as coverage of the publish path; `src/publishPointerFailure.test.tsx`
+ * covers that, through the real `App`.
+ */
 export function submittedPointer(
   localId: string,
   sharedKey: string,

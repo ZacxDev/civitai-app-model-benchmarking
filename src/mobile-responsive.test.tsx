@@ -516,8 +516,11 @@ describe('420 — the 44px figure itself', () => {
   // differently, and it covers any second listbox this app grows.
   //
   // ⚠ jsdom does NO layout, so this asserts the CASCADE — the computed
-  // `min-height` on the real rendered rows — and never the geometry. The ~37px
-  // above is a statement about the pack's box model, not a measurement here.
+  // `min-height` on the real rendered rows — and never the geometry. And the
+  // ~37px above is arithmetic over THIS APP'S OWN box, not the pack's:
+  // `GridPicker.tsx`'s `optionStyle` sets `padding: '10px 12px'` on a hand-built
+  // `<div role="option">`. The pack emits no `role="option"` anywhere — which is
+  // exactly why the rule's three pack-facing selectors could not reach this row.
   it('SELECTOR REACHABILITY: the option rule matches the live grid-picker rows', async () => {
     setViewport('mobile');
     renderApp();

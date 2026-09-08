@@ -31,15 +31,25 @@ bridge is a set of React hooks from `@civitai/blocks-react`. The block never hol
 credentials: the host injects the viewer identity and a scoped token at runtime.
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
-two things: model **combinations** (a checkpoint + a family-scoped weighted LoRA
-stack) and multi-ecosystem **prompts** (one prompt string + params per ecosystem,
-e.g. SDXL / Pony / Flux). The top-voted set forms a **combinations × prompts
-matrix**; anyone can **run** an included cell (the app matches the combo's base
-model to the prompt's ecosystem entry and spends their own Buzz), and the scanned
-outputs **publish to a shared grid** so every model compares side-by-side on
-identical prompts — for **all** viewers.
+three things: model **matchups** (a checkpoint + a family-scoped weighted LoRA
+stack), multi-ecosystem **prompts** (one prompt string + params per ecosystem,
+e.g. SDXL / Pony / Flux), and **grids** — a named, hand-picked set of matchups
+(rows) × prompts (columns). **Every published grid is its own matrix**, and any
+viewer can open anyone else's; a system-owned **Top Grid** (the top-voted matchups
+× the top-voted prompts) is pinned first so the board always has one. Anyone can
+**run** a cell (the app matches the matchup's base model to the prompt's ecosystem
+entry and spends their own Buzz), and the scanned outputs **publish to a shared
+grid** so every model compares side-by-side on identical prompts — for **all**
+viewers.
 
-> **The platform has no concept of a "benchmark," "combination," or "grid."** That
+> ⚠ **Vocabulary, because this README uses both senses.** The thing a user
+> submits and votes on is a **matchup** everywhere in the UI and in this
+> document. The string `'combination'` still appears below in the *wire* tables —
+> that is the persisted `data.kind` discriminator, frozen forever, and it is
+> never a name for the product concept. Where you see `combination` in code font
+> it is the wire value; the prose noun is always *matchup*.
+
+> **The platform has no concept of a "benchmark," "matchup," or "grid."** That
 > entire model is owned by this app. The platform only provides generic,
 > capability-scoped seams (a resource picker, a Buzz workflow bridge, cross-user
 > shared storage, a generation-output publish + a per-viewer gated image read).
@@ -49,7 +59,7 @@ identical prompts — for **all** viewers.
 ## Quickstart
 
 No account, no network, no config — the SDK's mock host answers the full block
-protocol locally (seeded with demo combos/prompts), so you can see the app running
+protocol locally (seeded with demo matchups/prompts), so you can see the app running
 immediately:
 
 ```bash
@@ -78,7 +88,7 @@ straight to the file:
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
+| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
 | **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`MatchupForm.tsx`](src/components/MatchupForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
@@ -100,7 +110,7 @@ A few notes worth calling out:
   `useSharedStorage()` exposes `list` / `append` / `vote` / `unvote` / `withdraw` /
   `getCount(s)`. **Submit** = `append({ title, body, data })`; **upvote** =
   `vote(key)` (idempotent server-side); **delete your own** = `withdraw(key)` —
-  surfaced as the author-only **Remove** control on every combination / prompt
+  surfaced as the author-only **Remove** control on every matchup / prompt
   card, behind a confirm step, and reconciled optimistically so the row does not
   reappear on a read-after-write-lagged `list()`. The included set (top-N by
   votes) is derived **client-side** from `list` + counts.
@@ -141,12 +151,19 @@ submit flows are modals:
   withdraw**, so a grid renders its surviving members plus an honest count of the
   missing ones.
 
-The pure, node-testable core lives in [`src/lib/`](src/lib):
+The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
+is named here**, and that is checked rather than trusted —
+[`readme-inventory.test.ts`](src/readme-inventory.test.ts) compares this list
+against the directory and fails if the set grows *or* shrinks, because this
+paragraph once silently went one module short:
 [`benchmark.ts`](src/lib/benchmark.ts) (the data-model parse/migrate, `WorkflowBody`
 construction, top-N-by-votes, optimistic reconcile, the moderated-text/opaque-data
 split), [`ecosystem.ts`](src/lib/ecosystem.ts) (base-model → ecosystem matcher),
 [`gen-defaults.ts`](src/lib/gen-defaults.ts), [`workflow.ts`](src/lib/workflow.ts)
-(the poll loop), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
+(the poll loop), [`kv.ts`](src/lib/kv.ts) (the per-viewer **in-flight run** record —
+the money path's crash-safety: a run is persisted before it can be lost and
+resume-polled rather than re-submitted, so a reload never charges the viewer
+twice), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
 validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
 (ranking, the Top Grid, and the missing-member notice),
 [`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
@@ -191,7 +208,7 @@ See the parse/migrate tests in [`lib/benchmark.test.ts`](src/lib/benchmark.test.
 **group key** (the key a prompt's `byEcosystem` map is keyed by). SDXL-derivatives
 (Pony / Illustrious / NoobAI) win over the generic SDXL rule; unknowns fall to an
 explicit `Other` bucket. A cell is runnable **iff** the prompt has an entry for the
-combo's ecosystem.
+matchup's ecosystem.
 
 ## Handling direct traffic
 
@@ -317,7 +334,7 @@ deploys to `<blockId>.civit.ai`.
   host lock/claim would make generate-once strict.
 - **Result curation** — no owner controls to hide/replace a published grid CELL
   yet. `withdraw` *is* surfaced now, but only on the rows a contributor authors
-  directly (combinations and prompts, via the Remove control); a `result` row
+  directly (matchups, prompts and grids, via the Remove control); a `result` row
   published by a cell run has no in-app retraction path.
 
 ## Links
