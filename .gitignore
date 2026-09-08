@@ -2,6 +2,9 @@ node_modules
 dist
 *.local
 
+# direnv's per-repo cache for `use flake` (see .envrc).
+.direnv/
+
 # Local env files — never commit these (only `.env.example` is tracked).
 .env
 .env.development

@@ -36,6 +36,6 @@
   },
   "contentRating": "pg13",
   "minApiVersion": "1.0",
-  "buildCommand": "npm run build",
+  "buildCommand": "pnpm run build",
   "outputDir": "dist"
 }
