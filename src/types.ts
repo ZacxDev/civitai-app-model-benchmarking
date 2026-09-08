@@ -4,11 +4,13 @@
 // whole benchmark is app-owned. Every contribution lives in App Blocks SHARED
 // storage as a `{ title, body, data }` record: the moderated user-visible TEXT
 // in `title`/`body`, and the structured payload in the opaque `data` blob (see
-// lib/benchmark.ts `build*Payload` / `parse*`). `data.kind` discriminates the
-// three record types on the ONE shared list.
+// lib/benchmark.ts `build*Payload` / `parse*`, and lib/grids.ts for `grid`).
+// `data.kind` discriminates the four record types on the ONE shared list.
 
-/** The three kinds of record the app appends to the single shared list. */
-export type RecordKind = 'combination' | 'prompt' | 'result';
+/** The four kinds of record the app appends to the single shared list.
+ * 🔴 Each string is a PERSISTED WIRE VALUE carried by rows already on the board,
+ * so none of them may ever be renamed (spec §6.1, restated by §11.4). */
+export type RecordKind = 'combination' | 'prompt' | 'result' | 'grid';
 
 // ---------------------------------------------------------------------------
 // Combination — a NAMED GROUP of model configs to benchmark together (vote-able).
@@ -166,6 +168,26 @@ export interface ResultData {
 }
 
 // ---------------------------------------------------------------------------
+// Grid — a NAMED, hand-picked set of matchups × prompts, built privately and
+// then published as the FOURTH row kind on the one shared board (spec §11.2).
+//
+// 🔴 THIS WIRE SHAPE IS EFFECTIVELY PERMANENT from the first published grid
+// onward: once another viewer appends a grid row, the app owner cannot delete or
+// rewrite it — `update`/`withdraw` are author-scoped (§2.3) and `report()` does
+// not hide. There is no migration path for another author's rows.
+// ---------------------------------------------------------------------------
+
+/** The opaque structured payload for a `grid` shared record. */
+export interface GridData {
+  v: 1;
+  kind: 'grid';
+  /** Ordered, de-duplicated shared keys of the matchups forming the grid's ROWS. */
+  matchupKeys: string[];
+  /** Ordered, de-duplicated shared keys of the prompts forming the grid's COLUMNS. */
+  promptKeys: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Parsed (display) views — a shared row + its typed data, ready to render.
 // ---------------------------------------------------------------------------
 
@@ -187,6 +209,17 @@ export interface PromptRow {
   name: string;
   description: string;
   data: PromptData;
+}
+
+/** A parsed grid: the shared row's key/votes + its typed payload. Grid votes are
+ * real (`shared.vote` on the grid row), so `count` orders Community Grids. */
+export interface GridRow {
+  key: string;
+  count: number;
+  authorUserId: number;
+  name: string;
+  description: string;
+  data: GridData;
 }
 
 /** A parsed result row (key/author + typed payload). */
