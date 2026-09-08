@@ -89,7 +89,7 @@ function renderApp(deps: Partial<AppDeps>) {
 
 /** Drive a fresh cell to the `confirming` state (Run this cell → estimate). */
 async function toConfirming() {
-  await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+  await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
   const grid = await screen.findByTestId('results-grid');
   const cell = within(grid).getByTestId('grid-cell');
   expect(cell).toHaveAttribute('data-state', 'empty');
@@ -157,7 +157,7 @@ describe('#2 stalled persistence: an in-flight workflow survives a reload', () =
     });
     renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // The cell is IN-FLIGHT (stalled), not an empty runnable cell → cannot be re-charged.
@@ -177,7 +177,7 @@ describe('#2 stalled persistence: an in-flight workflow survives a reload', () =
     });
     renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll, publish: async () => [9001, 9002] });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await waitFor(() => expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument());
 
@@ -251,7 +251,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // Same assertions as the single-key case: stalled, never empty+runnable.
@@ -325,7 +325,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // The viewer reaches Confirm while the scan is still walking pages — which
@@ -390,7 +390,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [9001],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // Drive the adopt path (rehydrate threw → cell runnable → confirm adopts).
@@ -436,7 +436,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [9001],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     const runCell = await within(grid).findByTestId('run-cell');
     // Let the (empty, one-page) scan finish before clicking, so the gate is
@@ -483,7 +483,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(await within(grid).findByTestId('run-cell'));
     await userEvent.click(await within(grid).findByTestId('cell-confirm-run'));
@@ -541,7 +541,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // POSITIVE CONTROL: the cap really did bite — this cell was NOT rehydrated,
@@ -594,7 +594,7 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     // POSITIVE CONTROL ON THE PREMISE: the rehydrate really did fail, so the
@@ -853,7 +853,7 @@ describe('#4 claim before spend: a claim that cannot be written refuses the run'
       );
       renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
 
-      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
       const grid = await screen.findByTestId('results-grid');
 
       // POSITIVE CONTROL ON THE PREMISE: the rehydrate really did fail, so the
@@ -902,7 +902,7 @@ describe('#4 claim before spend: a claim that cannot be written refuses the run'
       );
       renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
 
-      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
       const grid = await screen.findByTestId('results-grid');
 
       await waitFor(() =>
@@ -1012,7 +1012,7 @@ describe('#4 claim before spend: a claim that cannot be written refuses the run'
     );
     renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap(), publish: async () => [] });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
 
     await waitFor(() =>
@@ -1049,7 +1049,7 @@ describe('#4 claim before spend: a claim that cannot be written refuses the run'
         publish: async () => [],
       });
 
-      await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+      await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
       const grid = await screen.findByTestId('results-grid');
       await waitFor(() => expect(within(grid).getByTestId('cell-unknown')).toBeInTheDocument());
       expect(submit, 'the unknown state ran on its own — the exit must be deliberate').not.toHaveBeenCalled();
@@ -1112,7 +1112,7 @@ describe('#3 estimate rejection: a workflow that cannot be priced fails honestly
       publish: async () => [],
     });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(within(grid).getByTestId('run-cell'));
 

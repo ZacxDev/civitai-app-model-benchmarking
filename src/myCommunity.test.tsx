@@ -22,7 +22,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
@@ -67,7 +67,7 @@ function row(
   };
 }
 
-function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
+function mountApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
   return render(
     <Harness
       // 🔴 `null` is passed THROUGH, never coerced to `undefined`: the mock host
@@ -87,6 +87,20 @@ function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: strin
       />
     </Harness>,
   );
+}
+
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
 }
 
 const signedIn = { id: VIEWER_ID, username: 'me' };
@@ -114,7 +128,7 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
         row('theirs', 'Their matchup', OTHER_ID, comboData),
       ],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
 
     // COMMUNITY (the default sub-tab) = every published row, both authors.
     await screen.findByTestId('matchups-view');
@@ -140,7 +154,7 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
         row('p-theirs', 'Their prompt', OTHER_ID, promptData),
       ],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
 
     await screen.findByTestId('matchups-view');
     await openPromptsView();
@@ -164,7 +178,7 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
         row('theirs', 'Their matchup', OTHER_ID, comboData),
       ],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
 
     await waitFor(() => expect(screen.getByTestId('subtab-my')).toHaveTextContent('My (1)'));
     expect(screen.getByTestId('subtab-community')).toHaveTextContent('Community (2)');
@@ -192,7 +206,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     const authorStore = fakeAppStorage();
     const otherStore = fakeAppStorage();
 
-    const authorView = renderApp(
+    const authorView = await renderApp(
       { shared: board.shared, appStorage: authorStore.appStorage },
       signedIn,
     );
@@ -214,7 +228,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     authorView.unmount();
 
     // A SECOND viewer, same board, their own store: nothing on either sub-tab.
-    const otherView = renderApp(
+    const otherView = await renderApp(
       { shared: board.shared, appStorage: otherStore.appStorage },
       { id: OTHER_ID, username: 'them' },
     );
@@ -228,7 +242,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     otherView.unmount();
 
     // PUBLISH — the one action that crosses the boundary.
-    const authorAgain = renderApp(
+    const authorAgain = await renderApp(
       { shared: board.shared, appStorage: authorStore.appStorage },
       signedIn,
     );
@@ -258,7 +272,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     authorAgain.unmount();
 
     // POSITIVE CONTROL: the SAME second-viewer render now surfaces it.
-    renderApp(
+    await renderApp(
       { shared: board.shared, appStorage: otherStore.appStorage },
       { id: OTHER_ID, username: 'them' },
     );
@@ -283,7 +297,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
       ],
     });
     const { appStorage, store } = fakeAppStorage();
-    renderApp({ shared, appStorage }, signedIn);
+    await renderApp({ shared, appStorage }, signedIn);
 
     await openMy();
     await waitFor(() => expect(keysOf('matchup-card')).toEqual(['mine']));
@@ -322,7 +336,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     // implementation passes whatever the implementation says, which is precisely
     // the failure mode for a copy guarantee. A reword must come here too.
     const { shared } = fakeShared({ seed: [row('mine', 'My matchup', VIEWER_ID, comboData)] });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
 
     await openMy();
     const note = await screen.findByTestId('archive-note');
@@ -350,7 +364,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
       ],
     });
     const { appStorage } = fakeAppStorage({ [ARCHIVE_KEY]: ['mine'] });
-    renderApp({ shared, appStorage }, signedIn);
+    await renderApp({ shared, appStorage }, signedIn);
 
     await openMy();
     // The archived row is out of My…
@@ -369,7 +383,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
       ],
     });
     const { appStorage, store } = fakeAppStorage();
-    renderApp({ shared, appStorage }, signedIn);
+    await renderApp({ shared, appStorage }, signedIn);
 
     await openMy();
     await userEvent.click(await screen.findByTestId('archive-action'));
@@ -391,7 +405,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
       ],
     });
     const { appStorage, store } = fakeAppStorage();
-    renderApp({ shared, appStorage }, signedIn);
+    await renderApp({ shared, appStorage }, signedIn);
 
     await screen.findByTestId('matchups-view');
     await openPromptsView();
@@ -429,7 +443,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
         row('theirs', 'Another matchup', OTHER_ID, comboData),
       ],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage }, null);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, null);
 
     // Community is READABLE signed out — both rows, no ownership at all.
     await waitFor(() => expect(keysOf('matchup-card')).toHaveLength(2));
@@ -460,7 +474,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       });
       const { appStorage, setAttempts, deletes } = fakeAppStorage();
       let signInRequests = 0;
-      renderApp(
+      await renderApp(
         { shared, appStorage, requestSignIn: () => (signInRequests += 1) },
         null,
       );
@@ -532,7 +546,7 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
       [draftKey('l1')]: unpublishedMatchup,
       [unpubPromptKey('up1')]: unpublishedPrompt,
     });
-    renderApp({ shared, appStorage }, signedIn);
+    await renderApp({ shared, appStorage }, signedIn);
 
     const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
     const noDraft = (where: string) =>

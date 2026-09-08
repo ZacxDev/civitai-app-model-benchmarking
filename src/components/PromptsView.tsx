@@ -24,6 +24,14 @@ import { WithdrawButton } from './WithdrawButton.js';
 import { SubTabs, MyTabSignedOut, type SubTab } from './SubTabs.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
+/** The "Included" badge's tooltip — the column-side mirror of
+ * `INCLUDED_ROW_TOOLTIP`. Exported for the same reason: it is a claim, it has
+ * been wrong once (it named the `Slider` 527 deletes), and a test pins it whole. */
+export const INCLUDED_COLUMN_TOOLTIP =
+  'Included: currently in the top by votes, so it forms a column of the ' +
+  'system-owned Top Grid — ranked over the entries this app has loaded. To pick ' +
+  'your own columns, build a grid in the Grids tab.';
+
 export interface PromptsViewProps {
   prompts: PromptRow[];
   includedKeys: Set<string>;
@@ -102,7 +110,7 @@ export function PromptsView({
             <Group gap={8}>
               <strong>{prompt.name || `#${prompt.key}`}</strong>
               {includedKeys.has(prompt.key) && (
-                <Tooltip label="Included: currently in your top-N by votes, so it forms a column of the grid you see. Change how many in the Grid tab.">
+                <Tooltip label={INCLUDED_COLUMN_TOOLTIP}>
                   <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
                     <Badge color="success" variant="light" data-testid="prompt-included">
                       Included

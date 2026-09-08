@@ -13,7 +13,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData } from './types.js';
 
 const comboData: CombinationData = {
@@ -40,7 +40,7 @@ function seedCombo(key = 'combo-1'): SharedListItem {
   };
 }
 
-function renderApp(deps: Partial<AppDeps>) {
+function mountApp(deps: Partial<AppDeps>) {
   render(
     <Harness
       viewer={{ id: 99, username: 'me' }}
@@ -55,6 +55,20 @@ function renderApp(deps: Partial<AppDeps>) {
       <App deps={{ resolveResources: async () => [], pollIntervalMs: 0, sleep: immediateSleep, ...deps }} />
     </Harness>,
   );
+}
+
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
 }
 
 describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => {
@@ -76,7 +90,7 @@ describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => 
     // Deliberately EMPTY: at base the highlight could only come from here, so a
     // pass without it proves the row's own flag drove the render.
     const { appStorage } = fakeAppStorage();
-    renderApp({ shared, appStorage, track: vi.fn() });
+    await renderApp({ shared, appStorage, track: vi.fn() });
 
     const card = await screen.findByTestId('matchup-card');
     const vote = within(card).getByTestId('matchup-vote');
@@ -90,7 +104,7 @@ describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => 
     // sends `unvote` for a vote that no longer exists.
     const { shared } = fakeShared({ seed: [{ ...seedCombo(), viewerVoted: false }] });
     const { appStorage } = fakeAppStorage({ 'voted:v1': ['combo-1'] });
-    renderApp({ shared, appStorage, track: vi.fn() });
+    await renderApp({ shared, appStorage, track: vi.fn() });
 
     const card = await screen.findByTestId('matchup-card');
     const vote = within(card).getByTestId('matchup-vote');
@@ -113,7 +127,7 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     const { shared } = fakeShared({ seed: [seedCombo()] });
     const { appStorage } = fakeAppStorage();
     const track = vi.fn();
-    renderApp({ shared, appStorage, track });
+    await renderApp({ shared, appStorage, track });
 
     // `block_loaded` fires once the handshake settles.
     await waitFor(() => expect(track).toHaveBeenCalledWith('block_loaded', expect.anything()));
@@ -131,7 +145,7 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     const { shared } = fakeShared({ seed: [{ ...seedCombo(), viewerVoted: true }] });
     const { appStorage } = fakeAppStorage();
     const track = vi.fn();
-    renderApp({ shared, appStorage, track });
+    await renderApp({ shared, appStorage, track });
 
     const card = await screen.findByTestId('matchup-card');
     const vote = within(card).getByTestId('matchup-vote');
@@ -146,7 +160,7 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     const { shared } = fakeShared({ seed: [seedCombo()] });
     const { appStorage, setAttempts } = fakeAppStorage();
     const track = vi.fn();
-    renderApp({ shared, appStorage, track });
+    await renderApp({ shared, appStorage, track });
 
     const card = await screen.findByTestId('matchup-card');
     const vote = within(card).getByTestId('matchup-vote');

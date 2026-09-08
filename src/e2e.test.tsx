@@ -15,7 +15,7 @@ import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
-import { CKPT_SDXL, LORA_SDXL, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, LORA_SDXL, immediateSleep, openView } from './test-helpers.js';
 
 const comboSeed: CombinationData = {
   v: 2,
@@ -70,6 +70,7 @@ function renderApp(
 describe('submit a combination', () => {
   it('picks a checkpoint + LoRA and publishes it to shared storage', async () => {
     renderApp();
+    await openView('Matchups');
     await userEvent.click(await screen.findByTestId('submit-matchup'));
     const form = await screen.findByTestId('matchup-form');
     await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
@@ -130,6 +131,7 @@ describe('edit-in-place: the author edits their OWN combination', () => {
       ],
     });
 
+    await openView('Matchups');
     const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
@@ -180,6 +182,7 @@ describe('withdraw: the author removes their OWN combination (real SHARED_WITHDR
       ],
     });
 
+    await openView('Matchups');
     const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
@@ -204,6 +207,7 @@ describe('withdraw: the author removes their OWN combination (real SHARED_WITHDR
 describe('vote on a combination', () => {
   it('increments the vote count through the shared store', async () => {
     renderApp({ seed: [{ value: { title: 'Votable Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [] }] });
+    await openView('Matchups');
     const card = await screen.findByTestId('matchup-card');
     const vote = within(card).getByTestId('matchup-vote');
     expect(within(vote).getByTestId('vote-count')).toHaveTextContent('0');
@@ -223,7 +227,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     });
 
     // go to the grid tab
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     // the single cell is empty → run it
     const emptyCell = within(grid).getByTestId('grid-cell');
@@ -253,7 +257,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
       ],
       harness: { gatedImagesError: 'gated read failed' },
     });
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(within(grid).getByTestId('run-cell'));
     await userEvent.click(await screen.findByTestId('cell-confirm-run'));
@@ -287,7 +291,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // publish + gated reads still flow through the real hooks → mock host.
     renderApp({ deps: { shared: laggingShared } });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     const emptyCell = within(grid).getByTestId('grid-cell');
     expect(emptyCell).toHaveAttribute('data-state', 'empty');

@@ -18,7 +18,7 @@ import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -59,7 +59,7 @@ function row(
   };
 }
 
-function renderApp(deps: Partial<AppDeps>) {
+function mountApp(deps: Partial<AppDeps>) {
   render(
     <Harness
       viewer={{ id: VIEWER_ID, username: 'me' }}
@@ -84,10 +84,24 @@ function renderApp(deps: Partial<AppDeps>) {
   );
 }
 
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
+}
+
 describe('withdraw: the author removes their OWN combination', () => {
   it('confirms first, tells the shared store the key, and drops the card', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
@@ -102,7 +116,7 @@ describe('withdraw: the author removes their OWN combination', () => {
 
   it('does nothing when the confirm step is cancelled', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
@@ -122,7 +136,7 @@ describe('withdraw: the ownership guard', () => {
     const { shared, withdraws } = fakeShared({
       seed: [row('mine', 'Mine', VIEWER_ID, comboData), row('theirs', 'Theirs', OTHER_ID, comboData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
@@ -143,7 +157,7 @@ describe('withdraw: the ownership guard', () => {
     const { shared, withdraws } = fakeShared({
       seed: [row('mine', 'My Prompt', VIEWER_ID, promptData), row('theirs', 'Their Prompt', OTHER_ID, promptData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     const cards = await screen.findAllByTestId('prompt-card');
@@ -160,7 +174,7 @@ describe('withdraw: the ownership guard', () => {
 describe('withdraw: the author removes their OWN prompt', () => {
   it('confirms first, tells the shared store the key, and drops the card', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     const card = await screen.findByTestId('prompt-card');
@@ -269,7 +283,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
     });
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     // The orphan-to-be is in the STORE first, so its absence below is the fix
     // acting and not a key that was never there. (527: pointers are storage, not
@@ -311,7 +325,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     const swallow = (): void => {};
     process.on('unhandledRejection', swallow);
     try {
-      renderApp({ shared: rejecting, appStorage });
+      await renderApp({ shared: rejecting, appStorage });
       expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
 
       const card = await screen.findByTestId('matchup-card');
@@ -358,7 +372,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     const { appStorage, deletes, store, listCalls } = fakeAppStorage({
       [draftKey(POINTER_LOCAL_ID)]: pointer,
     });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     // Baseline AFTER mount: the My-tab load legitimately lists both prefixes once
@@ -414,7 +428,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       [draftKey(POINTER_LOCAL_ID)]: pointer,
       [unpubPromptKey('up1')]: promptPointer,
     });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     expect(store.has(unpubPromptKey('up1'))).toBe(true);
@@ -455,7 +469,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     });
     const otherPointer = { v: 1, localId: 'l2', sharedKey: OTHER_KEY, submittedAt: 'ts2' };
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey('l2')]: otherPointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     expect(store.has(draftKey('l2'))).toBe(true);
     const cards = await screen.findAllByTestId('matchup-card');
@@ -484,7 +498,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     // neither would it be reachable for edit. That is why this asserts both.
     const { shared, appends } = fakeShared({ seed: [] });
     const { appStorage, sets } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     await userEvent.click(await screen.findByTestId('submit-prompt'));
@@ -529,7 +543,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       withdrawRefuses: true,
     });
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
     const card = await screen.findByTestId('matchup-card');
@@ -584,7 +598,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       {},
       { failListTimes: 1, failListPrefix: DRAFT_PREFIX },
     );
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     // POSITIVE CONTROL for the premise: the My tab shows NOTHING unpublished even
     // though the store holds a renderable unsubmitted record — i.e. the render
@@ -646,7 +660,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       {},
       { pageSize: 2 },
     );
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
     const card = await screen.findByTestId('matchup-card');
@@ -681,7 +695,7 @@ describe('withdraw: the list reconciles', () => {
       reflectMutations: false,
       seed: [row('mine', 'Mine', VIEWER_ID, comboData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));

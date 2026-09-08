@@ -59,7 +59,7 @@ export function MyTabSignedOut({
   noun,
   onRequireAuth,
 }: {
-  noun: 'matchup' | 'prompt';
+  noun: 'matchup' | 'prompt' | 'grid';
   onRequireAuth: () => void;
 }): React.JSX.Element {
   return (

@@ -28,14 +28,14 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
 import type { CombinationData } from './types.js';
 
 const VIEWER_ID = 99;
 const OTHER_ID = 7;
 
-function renderApp(deps: Partial<AppDeps>, viewerId: number = VIEWER_ID) {
+function mountApp(deps: Partial<AppDeps>, viewerId: number = VIEWER_ID) {
   return render(
     <Harness
       viewer={{ id: viewerId, username: `u${viewerId}` }}
@@ -58,6 +58,20 @@ function renderApp(deps: Partial<AppDeps>, viewerId: number = VIEWER_ID) {
       />
     </Harness>,
   );
+}
+
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
 }
 
 /** Switch to the My sub-tab of whichever view is mounted (§11.1). */
@@ -127,7 +141,7 @@ describe('🔴 criterion 7: no private path ever calls shared.append', () => {
   it('creates, re-edits and discards an unpublished matchup with ZERO shared-storage writes', async () => {
     const { shared, appends, updates, withdraws } = fakeShared();
     const { appStorage } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await openMy();
     // CREATE — the private path.
@@ -158,7 +172,7 @@ describe('🔴 criterion 7: no private path ever calls shared.append', () => {
     // recorder wired to nothing.
     const { shared, appends } = fakeShared();
     const { appStorage } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await openMy();
     await fillAndSavePrivately('Draft one', await screen.findByTestId('new-unpublished'));
@@ -180,7 +194,7 @@ describe('criterion 1: a matchup can be created and edited without ever going pu
   it('writes the whole matchup to the per-viewer store under draft:v1:', async () => {
     const { shared, appends } = fakeShared();
     const { appStorage, store } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await openMy();
     await fillAndSavePrivately('Realism showdown', await screen.findByTestId('new-unpublished'));
@@ -204,7 +218,7 @@ describe('criterion 1: a matchup can be created and edited without ever going pu
 
   it('survives a reload: the SAME per-viewer store rehydrates the record on a fresh mount', async () => {
     const { appStorage, store } = fakeAppStorage();
-    const first = renderApp({ shared: fakeShared().shared, appStorage });
+    const first = await renderApp({ shared: fakeShared().shared, appStorage });
     await openMy();
     await fillAndSavePrivately('Survives a reload', await screen.findByTestId('new-unpublished'));
     await screen.findByTestId('unpublished-card');
@@ -212,7 +226,7 @@ describe('criterion 1: a matchup can be created and edited without ever going pu
 
     // A brand-new App + a brand-new shared board — only the per-viewer store carries over.
     const { shared, appends } = fakeShared();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
     await openMy();
     const card = await screen.findByTestId('unpublished-card');
     expect(card).toHaveTextContent('Survives a reload');
@@ -234,14 +248,14 @@ describe('criterion 2: before publish, no other viewer can see it', () => {
     const authorStore = fakeAppStorage();
     const otherStore = fakeAppStorage();
 
-    const authorView = renderApp({ shared: board.shared, appStorage: authorStore.appStorage }, VIEWER_ID);
+    const authorView = await renderApp({ shared: board.shared, appStorage: authorStore.appStorage }, VIEWER_ID);
     await openMy();
     await fillAndSavePrivately('Not yours to see', await screen.findByTestId('new-unpublished'));
     await screen.findByTestId('unpublished-card');
     authorView.unmount();
 
     // The other viewer: same board, their own store — on BOTH sub-tabs.
-    const otherView = renderApp(
+    const otherView = await renderApp(
       { shared: board.shared, appStorage: otherStore.appStorage },
       OTHER_ID,
     );
@@ -256,7 +270,7 @@ describe('criterion 2: before publish, no other viewer can see it', () => {
     // POSITIVE CONTROL: the same second-viewer render DOES surface the matchup
     // once the author takes the explicit publish action. Without this, "sees
     // nothing" could just mean the second render never shows anything.
-    const authorAgain = renderApp(
+    const authorAgain = await renderApp(
       { shared: board.shared, appStorage: authorStore.appStorage },
       VIEWER_ID,
     );
@@ -265,7 +279,7 @@ describe('criterion 2: before publish, no other viewer can see it', () => {
     await waitFor(() => expect(board.appends).toHaveLength(1));
     authorAgain.unmount();
 
-    renderApp({ shared: board.shared, appStorage: otherStore.appStorage }, OTHER_ID);
+    await renderApp({ shared: board.shared, appStorage: otherStore.appStorage }, OTHER_ID);
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('Not yours to see');
     // Still nothing PRIVATE crossed over — the other viewer has no unpublished
@@ -283,7 +297,7 @@ describe('criterion 3: after publish the record is kept as a pointer at the shar
   it('rewrites draft:v1:<localId> to {localId, sharedKey, submittedAt}', async () => {
     const { shared, appends } = fakeShared();
     const { appStorage, store } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await openMy();
     await fillAndSavePrivately('Pointer please', await screen.findByTestId('new-unpublished'));
@@ -326,7 +340,7 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     const { appStorage } = fakeAppStorage({
       [draftKey('l1')]: { v: 1, localId: 'l1', sharedKey: LIVE_KEY, submittedAt: 'ts' },
     });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     // ⚠️ 527: the route in is the row's OWN Edit control in the My tab, not a
     // pointer card. `isOwnRow` over the board scan IS the "mine" index the
@@ -364,7 +378,7 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     const { appStorage } = fakeAppStorage({
       [draftKey('l1')]: { v: 1, localId: 'l1', sharedKey: 'gone', submittedAt: 'ts' },
     });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await openMy();
     // The panel really did load (so the absence below is not an unmounted view).
@@ -386,7 +400,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
       {},
       { usedBytes: 1024 * 1024 * 3, limitBytes: 1024 * 1024 * 12, limitRows: 4321 },
     );
-    renderApp({ shared: fakeShared().shared, appStorage });
+    await renderApp({ shared: fakeShared().shared, appStorage });
 
     await openMy();
     const line = await screen.findByTestId('storage-quota');
@@ -415,7 +429,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
       {},
       { usedBytes: 1024 * 1024 * 3, limitBytes: 1024 * 1024 * 12, limitRows: 4321 },
     );
-    renderApp({ shared: fakeShared().shared, appStorage });
+    await renderApp({ shared: fakeShared().shared, appStorage });
 
     await openMy();
     const line = await screen.findByTestId('storage-quota');
@@ -435,7 +449,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
         throw new Error('host declined');
       },
     };
-    renderApp({ shared: fakeShared().shared, appStorage: refusing });
+    await renderApp({ shared: fakeShared().shared, appStorage: refusing });
 
     await openMy();
     await screen.findByTestId('unpublished-panel');
@@ -460,7 +474,7 @@ describe('the My tab degrades rather than breaking the public board', () => {
     const shared: UseSharedStorage = fakeShared({
       seed: [liveRow('k1', 'A public matchup', OTHER_ID, 2)],
     }).shared;
-    renderApp({ shared, appStorage: broken });
+    await renderApp({ shared, appStorage: broken });
 
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('A public matchup');

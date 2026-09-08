@@ -88,9 +88,10 @@
 // cannot tell whether the file drifted or the original measurement was wrong.
 // If you add a case here, re-run the base arm and update these two lines.
 //
-// The 9 that go red are the regression coverage: the two seam/cascade cases,
-// the four >=44px tap-target cases (tabs, vote, run-cell, slider), the two
-// style-contract cases and the 44px literal pin. The 7 that were already green
+// The 8 that go red are the regression coverage: the two seam/cascade cases,
+// the three >=44px tap-target cases (tabs, vote, run-cell — the SLIDER case went
+// with the slider 527 deleted), the two style-contract cases and the 44px
+// literal pin. The 7 that were already green
 // at base are NOT regression coverage and are labelled
 // where they sit — the two INVARIANT GUARDs on the grid's structure, the #16
 // no-maxWidth guard, and the two DESKTOP cases, which are green at base for the
@@ -114,7 +115,7 @@ import {
   compactTapTargetCss,
 } from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
 
 // ---------------------------------------------------------------------------
@@ -254,6 +255,9 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
   it('gives the vote control a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
+    // Grids is the default view since 527 (§11.5); the vote control under test
+    // is the MATCHUP one, so navigate to it.
+    await openView('Matchups');
     const vote = await screen.findByTestId('matchup-vote');
     expect(minHeightPx(vote)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
   });
@@ -407,26 +411,15 @@ describe('420 — the 44px figure itself', () => {
     expect(compactTapTargetCss()).toContain('min-height: 44px');
   });
 
-  it('SELECTOR REACHABILITY: the slider rule matches the live range control', async () => {
-    // 🔴 CORRECTED after the round-2 audit: this used to pin
-    // `[data-civitai-ui-range]` as a SUBSTRING, justified as "text because jsdom
-    // does no layout". That is a non-reason — the reachability case above proves
-    // selectors against the live DOM with querySelectorAll, which needs no
-    // layout — and it left the exact hole that case exists to close: a pack
-    // rename orphans the rule while the substring stays green.
-    // The slider is 6px tall from the pack and only renders in the Grid view.
-    setViewport('mobile');
-    renderApp();
-    await openGrid();
-
-    const ranges = document.querySelectorAll(
-      `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,
-    );
-    expect(ranges.length).toBeGreaterThan(0);
-    for (const r of ranges) {
-      expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    }
-  });
+  // 🔴 "SELECTOR REACHABILITY: the slider rule matches the live range control"
+  // IS DELETED. It asserted `[data-civitai-ui-range]` reached a LIVE node, and
+  // 527 removes the app's only `Slider` (§11.5, criterion 9) — so its premise
+  // (`ranges.length > 0`) is now unsatisfiable by construction. The honest fix is
+  // the one taken in `compact.ts`: the selector went with the control, because a
+  // rule that matches nothing is a claim of coverage the DOM cannot back. The
+  // guard that this file still owes — that every selector in the emitted sheet
+  // reaches a live node — is the reachability case above, which covers the two
+  // that remain.
 });
 
 // ---------------------------------------------------------------------------
@@ -743,6 +736,7 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // "Included".
     setViewport('mobile');
     renderApp();
+    await openView('Matchups');
     await screen.findByTestId('matchups-list');
 
     const triggers = document.querySelectorAll(

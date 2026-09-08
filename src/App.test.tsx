@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { Harness } from '@civitai/blocks-react/testing';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 
 function renderApp(deps: Partial<AppDeps>) {
   render(
@@ -35,6 +35,9 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
     const { shared, appends } = fakeShared({ reflectMutations: false }); // list() NEVER returns the append
     renderApp({ shared });
 
+    // Grids is the default view since 527 (§11.5); this case is about the
+    // matchup list, so it navigates there first.
+    await openView('Matchups');
     await userEvent.click(await screen.findByTestId('submit-matchup'));
     const form = await screen.findByTestId('matchup-form');
     await userEvent.type(within(form).getByTestId('matchup-name'), 'Lagging Combo');
@@ -53,15 +56,13 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
   });
 });
 
-describe('item 4: the Top-N control reads as personal, not global', () => {
-  it('labels it "(your view)" with a hint that it does not change the shared grid', async () => {
-    renderApp({ appStorage: fakeAppStorage().appStorage });
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
-    await screen.findByTestId('top-n');
-    expect(screen.getByText(/Show top N \(your view\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/doesn't change the shared grid/i)).toBeInTheDocument();
-  });
-});
+// 🔴 "item 4: the Top-N control reads as personal, not global" IS DELETED, and
+// deleted rather than weakened. It asserted the copy on a `Slider` that 527
+// REMOVES (§11.5, acceptance criterion 9): the control it described no longer
+// exists, so the only way to make the case pass would be to re-add the thing the
+// criterion deletes. Its replacement is the POSITIVE claim that the control and
+// its copy are gone, and it lives in `gridsView.test.tsx` beside the other
+// criterion-9 cases so the deletion and the new default view read together.
 
 describe('item 6: one-time "How this works" panel', () => {
   it('shows the submit → vote → grid → run(public) → compare explainer for a first-time viewer', async () => {

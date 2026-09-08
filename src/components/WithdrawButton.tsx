@@ -7,6 +7,10 @@
 // CONFIRM button, never from the trigger. Rendering this control at all is the
 // caller's ownership decision (`isOwnRow`); this component owns only the confirm
 // handshake.
+//
+// ⚠ Removing a GRID removes only the grid row. Its members are other rows, owned
+// by other authors, and they are untouched — which is why the confirm copy names
+// the noun rather than promising anything about what the row contains.
 
 import { useState } from 'react';
 import { Button, Group } from '@civitai/blocks-react/ui';
@@ -15,7 +19,7 @@ import { metaText } from '../theme.js';
 
 export interface WithdrawButtonProps {
   /** What the row is, for the accessible name + confirm copy. */
-  noun: 'matchup' | 'prompt';
+  noun: 'matchup' | 'prompt' | 'grid';
   /** Fires ONLY after the viewer confirms. */
   onWithdraw: () => Promise<void> | void;
   'data-testid'?: string;

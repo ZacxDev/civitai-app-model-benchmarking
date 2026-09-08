@@ -56,10 +56,13 @@ export const TOOLTIP_GAP_PX = 6;
  * 🔴 THIS PARAGRAPH HAS BEEN WRONG TWICE. Both corrections came from MEASURING
  * the cascade, not from reading it, and the current text is the third attempt:
  *
- *   - `height: auto` reaches the BUTTONS **and the RANGE** (measured: range
- *     `height` 6px -> 16px with the pack sheet linked), NOT the segments. Round 1
- *     said "segments only" (backwards); round 2 said "buttons only" — also wrong,
- *     because the same commit had just added the range selector to this rule.
+ *   - `height: auto` reaches the BUTTONS, NOT the segments. Round 1 said
+ *     "segments only" (backwards); round 2 said "buttons only" — right about the
+ *     buttons but written when the rule ALSO carried `[data-civitai-ui-range]`
+ *     (measured then: range `height` 6px -> 16px with the pack sheet linked).
+ *     ⚠ 527 deleted the app's only `Slider`, so there is no range control left on
+ *     any surface — the selector went with it rather than staying as a rule that
+ *     matches nothing, which is a claim of coverage the DOM cannot back.
  *   - The BUTTON override wins by **CASCADE LAYER**, not by order or specificity:
  *     the pack's button CSS lives in `@layer civitai.components` and this sheet is
  *     UNLAYERED, so an unlayered declaration beats any layered one and neither
@@ -80,10 +83,6 @@ export const TOOLTIP_GAP_PX = 6;
  * = 44 in every case — which is exactly why two false explanations survived.
  * The `min-height` is what does the work, and it is deliberate: it beats the
  * pack's `height: 30px` without out-specifying or `!important`-ing it.
- *
- * `[data-civitai-ui-range]` is the "Show top N" slider — 6px tall from the pack,
- * the smallest target on the page and the only control that changes what a
- * narrow-viewport reader SEES. It gets the same floor.
  *
  * ---------------------------------------------------------------------------
  * THE TOOLTIP BLOCK (`@supports (anchor-name: …)`)
@@ -221,8 +220,7 @@ export const TOOLTIP_GAP_PX = 6;
  */
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
-[${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
-[${COMPACT_ATTR}='true'] [data-civitai-ui-range] {
+[${COMPACT_ATTR}='true'] [data-civitai-ui-segment] {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
 }

@@ -32,7 +32,7 @@ export interface UnpublishedItem {
 export interface UnpublishedListProps {
   items: UnpublishedItem[];
   /** What the object is, for the accessible names and the empty-state copy. */
-  noun: 'matchup' | 'prompt';
+  noun: 'matchup' | 'prompt' | 'grid';
   /** The host-reported private-storage line, or null while unread/anonymous. */
   quotaLine?: string | null;
   onNew: () => void;

@@ -22,7 +22,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -52,7 +52,7 @@ function combo(key: string, authorUserId: number, title: string): SharedListItem
   };
 }
 
-function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
+function mountApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
   render(
     <Harness
       // 🔴 `null` is passed THROUGH, never coerced to `undefined`: the mock host
@@ -73,12 +73,26 @@ function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: strin
   );
 }
 
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
+}
+
 describe('report — the board’s abuse seam', () => {
   it('is offered on ANOTHER viewer’s row and not on the viewer’s own', async () => {
     const { shared } = fakeShared({
       seed: [combo('theirs', OTHER_ID, 'Someone else’s combo'), combo('mine', VIEWER_ID, 'My combo')],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
 
     const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
@@ -96,7 +110,7 @@ describe('report — the board’s abuse seam', () => {
 
   it('🔴 offers NO report affordance to a signed-out viewer (the host rejects those)', async () => {
     const { shared } = fakeShared({ seed: [combo('theirs', OTHER_ID, 'Someone else’s combo')] });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, null);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, null);
 
     const card = await screen.findByTestId('matchup-card');
     expect(within(card).queryByTestId('matchup-report')).toBeNull();
@@ -123,7 +137,7 @@ describe('report — the board’s abuse seam', () => {
   it('files the report against the row’s key, and LEAVES THE ROW on the board', async () => {
     const { shared, reports } = fakeShared({ seed: [combo('theirs', OTHER_ID, 'Someone else’s combo')] });
     const track = vi.fn();
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-report'));
@@ -147,7 +161,7 @@ describe('report — the board’s abuse seam', () => {
       reportRejects: true,
     });
     const track = vi.fn();
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-report'));

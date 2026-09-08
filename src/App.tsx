@@ -45,7 +45,6 @@ import {
   Loader,
   Modal,
   SegmentedControl,
-  Slider,
   Stack,
 } from '@civitai/blocks-react/ui';
 
@@ -61,6 +60,8 @@ import type {
   DraftUnsubmitted,
   InflightRun,
   PromptRow,
+  UnpublishedGrid,
+  UnpublishedGridRecord,
   UnpublishedPrompt,
   UnpublishedPromptRecord,
 } from './types.js';
@@ -107,15 +108,27 @@ import {
   unpubPromptKey,
   unpubPromptToInput,
 } from './lib/unpubPrompts.js';
+import { buildGridPayload, newGridLocalId, unpubGridKey, type GridInput } from './lib/grids.js';
+import {
+  buildUnpubGrid,
+  isPublishedGrid,
+  parseUnpubGrid,
+  sortUnpubGrids,
+  UNPUB_GRID_PREFIX,
+  unpubGridToInput,
+} from './lib/unpubGrids.js';
 import { parsePointer, publishedPointer, unpublishedKey } from './lib/unpublished.js';
 import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
 import { MatchupsView } from './components/MatchupsView.js';
 import { PromptsView } from './components/PromptsView.js';
+import { GridsView } from './components/GridsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
 import { MatchupForm } from './components/MatchupForm.js';
 import { PromptForm } from './components/PromptForm.js';
+import { GridForm } from './components/GridForm.js';
+import type { GridPickerItem } from './components/GridPicker.js';
 import { GatedCell as DefaultGatedCell, type GatedCellComponent } from './components/GatedCell.js';
 
 export interface AppDeps {
@@ -178,7 +191,12 @@ type ModalState =
   | { kind: 'combo'; edit?: CombinationRow }
   | { kind: 'prompt'; edit?: PromptRow }
   | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
-  | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean };
+  | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean }
+  // 🔴 A grid has only the PRIVATE form. Matchups and prompts each have a public
+  // one too (submit straight to the board); a grid does not, because a grid is
+  // assembled from other people's rows and there is no reason to make that
+  // assembly public before the author has looked at it. One form, one store.
+  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -327,10 +345,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const canGenerate = hasGenerateScope(token.scopes);
 
   // ---- view + modal state ----
-  const [view, setView] = useState<View>('combos');
+  // 🔴 GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance criterion 9). The app's
+  // primary object is the grid — the matchup and prompt lists exist to feed it —
+  // so opening on a submission list put the thing the block is FOR two clicks
+  // away. It also means the Top Grid is on screen before anything is submitted.
+  const [view, setView] = useState<View>('grid');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
-  const [topN, setTopN] = useState<number>(DEFAULT_TOP_N);
+  // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
+  // is the `topN` state behind it. It was the only consumer of matchup and prompt
+  // votes, and it let two viewers of ONE shared board be told different absolute
+  // facts about what "the grid" contained. Those votes are discovery ranking now:
+  // they order the Community lists and they decide the TOP GRID's members, at the
+  // fixed `DEFAULT_TOP_N`. A viewer who wants a different set builds a grid — the
+  // object that makes such a choice shareable instead of private and unstated.
+  // Do not reintroduce it: a per-viewer slider over a shared object is what made
+  // "Included" mean two different things to two readers of the same board.
   // One-time "How this works" explainer. `null` = still hydrating the dismissed
   // flag (render nothing yet — no flash-then-hide); `false` = show; `true` = hide.
   const [howtoDismissed, setHowtoDismissed] = useState<boolean | null>(null);
@@ -539,11 +569,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // `data` is not moderated). Publish — and only publish — copies it onto the
   // public board.
   //
-  // TWO PREFIXES, ONE RULE: unpublished matchups keep the historical `draft:v1:`
-  // prefix (live viewers hold records under it — §11.1) and unpublished prompts
-  // use `unpub:prompt:v1:`. The shared logic lives in `lib/unpublished.ts`.
+  // THREE PREFIXES, ONE RULE: unpublished matchups keep the historical
+  // `draft:v1:` prefix (live viewers hold records under it — §11.1), unpublished
+  // prompts use `unpub:prompt:v1:`, and unpublished grids `unpub:grid:v1:`. All
+  // three are DISJOINT, so `list({prefix})` still narrows to exactly one object
+  // kind and a withdraw of one kind can never reach another kind's pointer. The
+  // shared logic lives in `lib/unpublished.ts`; each object contributes only its
+  // own record parser.
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
   const [unpubPrompts, setUnpubPrompts] = useState<UnpublishedPromptRecord[]>([]);
+  const [unpubGrids, setUnpubGrids] = useState<UnpublishedGridRecord[]>([]);
   /** Shared keys this viewer archived — an AUTHOR-SIDE HIDE of their own My list
    * and nothing more (§11.3). Never sent to the shared board. */
   const [archived, setArchived] = useState<string[]>([]);
@@ -558,6 +593,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // so there is nothing to show and nothing to guess at.
       setDrafts([]);
       setUnpubPrompts([]);
+      setUnpubGrids([]);
       setArchived([]);
       setQuota(null);
       return;
@@ -605,6 +641,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         /* best-effort — same reasoning as the matchup scan above */
       }
       try {
+        const foundGrids: UnpublishedGridRecord[] = [];
+        await forEachStoredKey(
+          store,
+          UNPUB_GRID_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const parsed = parseUnpubGrid(await store.get(key));
+            if (cancelled) return 'stop';
+            if (parsed) foundGrids.push(parsed);
+          },
+          { shouldStop: () => cancelled },
+        );
+        if (!cancelled) setUnpubGrids(sortUnpubGrids(foundGrids));
+      } catch {
+        /* best-effort — same reasoning as the two scans above */
+      }
+      try {
         // 🔴 ONE key, not a prefix scan: the archive is a single `string[]`
         // (§11.3), so a failed read degrades to "nothing archived" — which shows
         // MORE of the viewer's own rows, never fewer.
@@ -637,14 +690,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     }
   }, [ready, viewer]);
 
-  const { combinations, prompts, results } = useMemo(() => splitRows(items), [items]);
-  const includedCombos = useMemo(() => topByVotes(combinations, topN), [combinations, topN]);
-  const includedPrompts = useMemo(() => topByVotes(prompts, topN), [prompts, topN]);
-  // The grid's benchmarkable ROWS are the included combos' configs (flattened,
-  // grouped under their combination).
-  const includedConfigs = useMemo(() => flattenConfigs(includedCombos), [includedCombos]);
+  // 🔴 ALL FOUR BUCKETS. `grids` used to be destructured away and discarded: the
+  // parser classified a grid row correctly and the App then dropped it on the
+  // floor, so a published grid was invisible no matter what was on the board.
+  const { combinations, prompts, results, grids } = useMemo(() => splitRows(items), [items]);
+  // The top-voted sets, at the FIXED `DEFAULT_TOP_N` now that the per-viewer
+  // slider is gone. These are the "Included" badges on the Matchups and Prompts
+  // lists AND the members of the system-owned Top Grid — one computation, so the
+  // badge and the grid can never disagree about who is in.
+  const includedCombos = useMemo(() => topByVotes(combinations, DEFAULT_TOP_N), [combinations]);
+  const includedPrompts = useMemo(() => topByVotes(prompts, DEFAULT_TOP_N), [prompts]);
   const includedComboKeys = useMemo(() => new Set(includedCombos.map((r) => r.key)), [includedCombos]);
   const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
+
+  /** Every matchup and prompt currently on the board, as `GridPicker` rows. */
+  const matchupPickerItems = useMemo<GridPickerItem[]>(
+    () =>
+      combinations.map((c) => ({
+        key: c.key,
+        name: c.name || `#${c.key}`,
+        description: c.description,
+        meta: `${c.data.configs.length} config${c.data.configs.length === 1 ? '' : 's'}`,
+      })),
+    [combinations],
+  );
+  const promptPickerItems = useMemo<GridPickerItem[]>(
+    () =>
+      prompts.map((p) => ({
+        key: p.key,
+        name: p.name || `#${p.key}`,
+        description: p.description,
+      })),
+    [prompts],
+  );
 
   // ---- vote wiring ----
   // Apply the host's post-mutation answer to the row: the returned aggregate
@@ -841,6 +919,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
 
   /**
+   * Withdraw a GRID — sweeping the GRID prefix for its pointer.
+   *
+   * 🔴 IT REMOVES THE GRID ROW AND NOTHING ELSE. A grid's members are other
+   * authors' rows; `withdraw` is author-scoped, so this app could not touch them
+   * even if it wanted to, and it must not appear to: every matchup and prompt the
+   * grid named stays on the board, keeps its votes, and keeps serving every OTHER
+   * grid that names it. What the grid's readers lose is the grid.
+   */
+  const withdrawGrid = useCallback(
+    (key: string) => withdrawRow(key, UNPUB_GRID_PREFIX),
+    [withdrawRow],
+  );
+
+  /**
    * Report ANOTHER viewer's row for platform moderator review — the board's only
    * abuse seam, and the one power that is not author-scoped.
    *
@@ -901,6 +993,29 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const deleteUnpubPrompt = useCallback(
     async (localId: string) => {
       await depsRef.current.appStorage.delete(unpubPromptKey(localId));
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
+  /** Save an unpublished GRID. 🔴 PRIVATE PATH — the third mirror of `saveDraft`,
+   * against the disjoint `unpub:grid:v1:` prefix. A grid names other people's
+   * rows, but naming them is not publishing anything: nothing here reaches
+   * `shared.append`. */
+  const saveUnpubGrid = useCallback(
+    async (localId: string, input: GridInput) => {
+      await depsRef.current.appStorage.set(unpubGridKey(localId), buildUnpubGrid(localId, input));
+      depsRef.current.track('save_unpublished_grid');
+      closeModal();
+      refreshDrafts();
+    },
+    [closeModal, refreshDrafts],
+  );
+
+  /** Discard an unpublished grid. 🔴 PRIVATE PATH — per-viewer delete only. */
+  const deleteUnpubGrid = useCallback(
+    async (localId: string) => {
+      await depsRef.current.appStorage.delete(unpubGridKey(localId));
       refreshDrafts();
     },
     [refreshDrafts],
@@ -1008,6 +1123,47 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         depsRef.current.track('submit_prompt', {
           overrideCount: Object.keys(input.overrides ?? {}).length,
           fromUnpublished: true,
+        });
+        refreshDrafts();
+        reload();
+      } finally {
+        submittingRef.current.delete(rec.localId);
+      }
+    },
+    [optimisticInsert, refreshDrafts, reload],
+  );
+
+  /**
+   * PUBLISH a GRID — the third mirror of `submitDraft`, and the ONLY moment a
+   * grid becomes visible to anyone else.
+   *
+   * `buildGridPayload` is reused verbatim, so the row carries `data.kind: 'grid'`
+   * at `v: 1` and §11.2's moderation split: the author's name and description go
+   * to the moderated `title`/`body` and `data` carries the member keys ONLY. That
+   * split is the whole reason the payload builder is not open-coded here — a grid
+   * whose name rode in `data` would route author prose around the content belt,
+   * and the wire shape is effectively permanent from the first published grid.
+   *
+   * The private record is then KEPT as the pointer at the row it became, same as
+   * every other object: shared keys are host-minted and the shared list has no
+   * "mine" index, so it is the only per-viewer handle on the row.
+   */
+  const publishUnpubGrid = useCallback(
+    async (rec: UnpublishedGrid) => {
+      if (submittingRef.current.has(rec.localId)) return;
+      submittingRef.current.add(rec.localId);
+      try {
+        const input = unpubGridToInput(rec);
+        const payload = buildGridPayload(input) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        await depsRef.current.appStorage.set(
+          unpubGridKey(rec.localId),
+          publishedPointer(rec.localId, key),
+        );
+        optimisticInsert(key, payload);
+        depsRef.current.track('submit_grid', {
+          matchupCount: input.matchupKeys.length,
+          promptCount: input.promptKeys.length,
         });
         refreshDrafts();
         reload();
@@ -1409,6 +1565,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     () => unpubPrompts.filter((p): p is UnpublishedPrompt => !isPublishedPrompt(p)),
     [unpubPrompts],
   );
+  const unpublishedGrids = useMemo(
+    () => unpubGrids.filter((g): g is UnpublishedGrid => !isPublishedGrid(g)),
+    [unpubGrids],
+  );
   const archivedKeys = useMemo(() => new Set(archived), [archived]);
   const quotaLine = formatQuota(quota);
 
@@ -1425,6 +1585,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       if (rec) await publishUnpubPrompt(rec);
     },
     [unpublishedPrompts, publishUnpubPrompt],
+  );
+  const publishGridById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedGrids.find((g) => g.localId === localId);
+      if (rec) await publishUnpubGrid(rec);
+    },
+    [unpublishedGrids, publishUnpubGrid],
+  );
+  const editGridById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedGrids.find((g) => g.localId === localId);
+      if (rec)
+        setModal({
+          kind: 'unpub-grid',
+          localId: rec.localId,
+          initial: unpubGridToInput(rec),
+          existing: true,
+        });
+    },
+    [unpublishedGrids],
   );
   const editMatchupById = useCallback(
     (localId: string) => {
@@ -1573,7 +1753,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               value: 'prompts',
               label: <span data-testid="view-switch-prompts">Prompts ({prompts.length})</span>,
             },
-            { value: 'grid', label: <span data-testid="view-switch-grid">Grid</span> },
+            { value: 'grid', label: <span data-testid="view-switch-grid">Grids</span> },
           ]}
         />
 
@@ -1588,6 +1768,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           order, and the alternative is a ranking that silently omits row 2001
           while looking complete. Rendered next to the switch so it is visible in
           all three views, since all three read the same truncated ranking.
+
+          ⚠ 527 gave it a THIRD reader without changing a line here, and that is
+          why it is placed next to the switch rather than inside a view: the Grids
+          view ranks Community Grids by the same client-side count over the same
+          truncated scan, and the TOP GRID's members come straight out of the
+          matchup and prompt rankings this notice is about. It is now the DEFAULT
+          view, so this disclosure is the first thing a viewer of an over-cap
+          board sees.
         */}
         {boardTruncated && (
           <Alert color="warning" data-testid="board-truncated-notice">
@@ -1660,23 +1848,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           // default content-based minimum would re-introduce the blowout one
           // level below the containment in `contentStyle`.
           <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
-            <Group justify="space-between" align="flex-end" gap={12}>
-              <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
-                Included matchups × prompts. Run an empty cell to contribute its outputs to the shared grid.
-              </span>
-              <div style={{ width: 240 }}>
-                <Slider
-                  label="Show top N (your view)"
-                  description="Only changes how many rows/columns YOU see — it doesn't change the shared grid or anyone else's view."
-                  showValue
-                  min={1}
-                  max={20}
-                  value={topN}
-                  onChange={(v) => setTopN(v || DEFAULT_TOP_N)}
-                  data-testid="top-n"
-                />
-              </div>
-            </Group>
             {!canGenerate && viewer && (
               <Alert color="info" data-testid="grid-consent">
                 <Group justify="space-between" align="center" gap={10}>
@@ -1691,21 +1862,55 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 </Group>
               </Alert>
             )}
-            <ResultsGrid
-              configs={includedConfigs}
-              prompts={includedPrompts}
-              results={results}
-              runs={runs}
-              c={c}
-              canRun={canGenerate && !!viewer}
-              buzzTotal={buzzTotal}
-              GatedCell={deps.GatedCell}
-              onRunCell={beginRun}
-              onConfirmRun={confirmRun}
-              onResumeRun={resumeRun}
-              onCancelRun={cancelRun}
-              onAddCombination={() => setView('combos')}
-              onAddPrompt={() => setView('prompts')}
+            <GridsView
+              grids={grids}
+              combinations={combinations}
+              prompts={prompts}
+              votedKeys={votedKeys}
+              viewerId={viewer?.id ?? null}
+              loading={loading}
+              error={error}
+              onVote={onVote}
+              onUnvote={onUnvote}
+              onRequireAuth={requireAuth}
+              onWithdraw={withdrawGrid}
+              onReport={reportRow}
+              unpublished={unpublishedGrids}
+              quotaLine={quotaLine}
+              archivedKeys={archivedKeys}
+              onNewUnpublished={() =>
+                setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false })
+              }
+              onEditUnpublished={editGridById}
+              onDiscardUnpublished={deleteUnpubGrid}
+              onPublishUnpublished={publishGridById}
+              onArchive={archiveRow}
+              onUnarchive={unarchiveRow}
+              /* 🔴 The matrix is rendered HERE, not inside GridsView, because
+                 every prop below it is money-shaped (the estimate → confirm →
+                 submit → poll path and the Buzz gate). A browse surface has no
+                 business holding those. `matchups`/`prompts` arrive already
+                 RESOLVED against the live board, so a withdrawn member simply
+                 is not among them — and the count of what is gone is disclosed
+                 by the view that resolved them. */
+              renderMatrix={(matchups, gridPrompts) => (
+                <ResultsGrid
+                  configs={flattenConfigs(matchups)}
+                  prompts={gridPrompts}
+                  results={results}
+                  runs={runs}
+                  c={c}
+                  canRun={canGenerate && !!viewer}
+                  buzzTotal={buzzTotal}
+                  GatedCell={deps.GatedCell}
+                  onRunCell={beginRun}
+                  onConfirmRun={confirmRun}
+                  onResumeRun={resumeRun}
+                  onCancelRun={cancelRun}
+                  onAddCombination={() => setView('combos')}
+                  onAddPrompt={() => setView('prompts')}
+                />
+              )}
             />
           </Stack>
         )}
@@ -1775,6 +1980,31 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               initial={modal.initial}
               submitLabel="Save privately"
               onSubmit={(input) => saveUnpubPrompt(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* The PRIVATE grid form. 🔴 There is no public sibling: a grid has ONE
+            create path and it lands in the per-viewer store. Publishing it is a
+            separate, explicit button on the record (see `publishUnpubGrid`). */}
+        <Modal
+          opened={modal.kind === 'unpub-grid'}
+          onClose={closeModal}
+          title={
+            modal.kind === 'unpub-grid' && modal.existing
+              ? 'Edit your unpublished grid'
+              : 'New grid (not published yet)'
+          }
+          size="lg"
+        >
+          {modal.kind === 'unpub-grid' && (
+            <GridForm
+              key={modal.localId}
+              matchupItems={matchupPickerItems}
+              promptItems={promptPickerItems}
+              initial={modal.initial}
+              submitLabel="Save privately"
+              onSubmit={(input) => saveUnpubGrid(modal.localId, input)}
               onCancel={closeModal}
             />
           )}

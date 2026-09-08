@@ -5,9 +5,16 @@
 //   1. number disagreement — with exactly one included combination the live app
 //      read "The top 1 are included as the grid's rows.";
 //   2. a leaked placeholder — with nothing included it read "The top N …";
-//   3. a false claim about the SHARED grid — inclusion is `topByVotes(rows,
-//      topN)` where topN is the Grid tab's per-viewer "Show top N" slider, which
-//      that same tab describes as changing "how many rows/columns YOU see".
+//   3. a false claim about the SHARED grid — inclusion was `topByVotes(rows,
+//      topN)` where topN was the Grid tab's per-viewer "Show top N" slider, which
+//      that same tab described as changing "how many rows/columns YOU see".
+//
+// ⚠ 527 DELETED that slider (§11.5). Inclusion is now `topByVotes(rows,
+// DEFAULT_TOP_N)` — the same set for every viewer, except that the set is ranked
+// over the rows THIS CLIENT's scan read, which the board-truncation notice
+// discloses separately. "in your view" is therefore still not false, and the
+// header copy is unchanged; the TOOLTIP is what had to move, because it named the
+// deleted control by name.
 //
 // These assert the RENDERED output of the real components, so they fail on the
 // pre-fix tree rather than merely re-stating the helper's unit tests.
@@ -16,8 +23,8 @@ import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { CombinationRow, PromptRow } from '../types.js';
-import { MatchupsView } from './MatchupsView.js';
-import { PromptsView } from './PromptsView.js';
+import { INCLUDED_ROW_TOOLTIP, MatchupsView } from './MatchupsView.js';
+import { INCLUDED_COLUMN_TOOLTIP, PromptsView } from './PromptsView.js';
 
 const noop = () => {};
 
@@ -132,11 +139,21 @@ describe('included-summary copy (rendered)', () => {
     expect(viewText()).toContain('in your view');
   });
 
-  it('the Included tooltip does not claim membership of the shared grid either', () => {
+  it('the Included tooltip renders the WHOLE pinned string, on both axes', () => {
+    // 🔴 THE WHOLE NORMALISED STRING, not a keyword. The tooltip is prose making
+    // a CLAIM about what "Included" means, and a keyword guard on it is walkable
+    // by a reword — which is exactly how it came to name a control that no longer
+    // exists ("Change how many in the Grid tab") and stay green. A cosmetic
+    // reword failing this case is the price of the claim being checkable.
     renderPrompts([promptRow('a', 3)], new Set(['a']));
-    // The badge is wrapped by the tooltip trigger; the label rides an attribute.
-    const html = document.body.innerHTML;
-    expect(html).not.toContain("it forms one of the grid's columns.");
-    expect(html).toMatch(/top-N by votes/);
+    expect(document.body.textContent).toContain(INCLUDED_COLUMN_TOOLTIP);
+    // …and the pre-fix strings, both of which asserted something untrue.
+    expect(document.body.innerHTML).not.toContain("it forms one of the grid's columns.");
+    expect(document.body.innerHTML).not.toContain('Change how many in the Grid tab');
+
+    document.body.innerHTML = '';
+    renderCombos([comboRow('a', 3)], new Set(['a']));
+    expect(document.body.textContent).toContain(INCLUDED_ROW_TOOLTIP);
+    expect(document.body.innerHTML).not.toContain('Change how many in the Grid tab');
   });
 });

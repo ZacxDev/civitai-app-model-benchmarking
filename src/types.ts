@@ -306,6 +306,31 @@ export interface UnpublishedPrompt {
 
 export type UnpublishedPromptRecord = UnpublishedPrompt | PublishedPointer;
 
+/**
+ * A grid that has NOT been published — the whole editable grid, private.
+ *
+ * 🔴 It stores the MEMBER KEYS, not copies of the member rows. A grid is a set of
+ * REFERENCES to shared rows another author owns and may withdraw at any time
+ * (§11.2 calls dangling references NORMAL), so copying the rows in would freeze a
+ * stale snapshot of somebody else's record and hide exactly the disappearance the
+ * grid is obliged to disclose.
+ */
+export interface UnpublishedGrid {
+  v: 1;
+  /** App-chosen, per-viewer id. NOT a shared key (those are host-minted). */
+  localId: string;
+  name: string;
+  description: string;
+  /** Shared keys of the chosen matchups (the grid's ROWS), in authored order. */
+  matchupKeys: string[];
+  /** Shared keys of the chosen prompts (the grid's COLUMNS), in authored order. */
+  promptKeys: string[];
+  /** ISO timestamp of the last local edit (ordering only). */
+  updatedAt: string;
+}
+
+export type UnpublishedGridRecord = UnpublishedGrid | PublishedPointer;
+
 // ---------------------------------------------------------------------------
 // Runner queue (the estimate → confirm → submit → poll → publish lifecycle).
 // ---------------------------------------------------------------------------

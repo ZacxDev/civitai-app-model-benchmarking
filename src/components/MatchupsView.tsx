@@ -33,6 +33,21 @@ import { WithdrawButton } from './WithdrawButton.js';
 import { SubTabs, MyTabSignedOut, type SubTab } from './SubTabs.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
+/**
+ * The "Included" badge's tooltip.
+ *
+ * 🔴 EXPORTED SO A TEST CAN PIN THE WHOLE STRING. It is a CLAIM about what the
+ * badge means, and this claim has already been wrong once: it read "Change how
+ * many in the Grid tab", naming the per-viewer `Slider` that 527 deletes (§11.5).
+ * A keyword guard would have stayed green through that reword; the whole
+ * normalised string is what makes the claim machine-readable, and a cosmetic
+ * reword failing the test is the price of that.
+ */
+export const INCLUDED_ROW_TOOLTIP =
+  'Included: currently in the top by votes, so its model configs are rows of the ' +
+  'system-owned Top Grid — ranked over the entries this app has loaded. To pick ' +
+  'your own rows, build a grid in the Grids tab.';
+
 export interface MatchupsViewProps {
   combinations: CombinationRow[];
   includedKeys: Set<string>;
@@ -116,7 +131,7 @@ export function MatchupsView({
             <Group gap={8}>
               <strong>{combo.name || `#${combo.key}`}</strong>
               {includedKeys.has(combo.key) && (
-                <Tooltip label="Included: currently in your top-N by votes, so its model configs are rows of the grid you see. Change how many in the Grid tab.">
+                <Tooltip label={INCLUDED_ROW_TOOLTIP}>
                   <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
                     <Badge color="success" variant="light" data-testid="matchup-included">
                       Included
