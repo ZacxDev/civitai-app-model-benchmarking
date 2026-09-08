@@ -57,8 +57,8 @@ function renderApp(deps: Partial<AppDeps>, viewerId: number = VIEWER_ID) {
 /** Drive the draft form: open it, name it, pick a checkpoint, save. */
 async function fillAndSaveDraft(name: string, opener: HTMLElement) {
   await userEvent.click(opener);
-  const form = await screen.findByTestId('combination-form');
-  const nameInput = within(form).getByTestId('combo-name');
+  const form = await screen.findByTestId('matchup-form');
+  const nameInput = within(form).getByTestId('matchup-name');
   await userEvent.clear(nameInput);
   await userEvent.type(nameInput, name);
   if (within(form).queryByTestId('checkpoint-name') === null) {
@@ -67,8 +67,8 @@ async function fillAndSaveDraft(name: string, opener: HTMLElement) {
       expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'),
     );
   }
-  await userEvent.click(within(form).getByTestId('combo-submit'));
-  await waitFor(() => expect(screen.queryByTestId('combination-form')).toBeNull());
+  await userEvent.click(within(form).getByTestId('matchup-submit'));
+  await waitFor(() => expect(screen.queryByTestId('matchup-form')).toBeNull());
 }
 
 /** Every `draft:v1:` value currently in the per-viewer store, parsed. */
@@ -166,7 +166,7 @@ describe('criterion 1: a matchup can be created and edited without ever going pu
     const card = await screen.findByTestId('draft-card');
     expect(card).toHaveTextContent('Realism showdown');
     // The public list is still empty — the draft is not a combination row.
-    expect(screen.queryByTestId('combo-card')).toBeNull();
+    expect(screen.queryByTestId('matchup-card')).toBeNull();
     expect(appends).toEqual([]);
 
     const drafts = storedDrafts(store);
@@ -215,10 +215,10 @@ describe('criterion 2: before submit, no other viewer can see it', () => {
       { shared: board.shared, appStorage: otherStore.appStorage },
       OTHER_ID,
     );
-    await screen.findByTestId('combos-view');
+    await screen.findByTestId('matchups-view');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('draft-card')).toBeNull();
-    expect(screen.queryByTestId('combo-card')).toBeNull();
+    expect(screen.queryByTestId('matchup-card')).toBeNull();
     otherView.unmount();
 
     // POSITIVE CONTROL: the same second-viewer render DOES surface the matchup
@@ -233,7 +233,7 @@ describe('criterion 2: before submit, no other viewer can see it', () => {
     authorAgain.unmount();
 
     renderApp({ shared: board.shared, appStorage: otherStore.appStorage }, OTHER_ID);
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('Not yours to see');
     // Still nothing PRIVATE crossed over — the other viewer has no draft of their own.
     expect(screen.queryByTestId('draft-card')).toBeNull();
@@ -294,12 +294,12 @@ describe('criterion 4: editing a submitted matchup preserves the key AND the vot
     // The retained pointer is the per-viewer handle on the row — it is what
     // routes the viewer to the live record.
     await userEvent.click(await screen.findByTestId('draft-edit-submitted'));
-    const form = await screen.findByTestId('combination-form');
-    const nameInput = within(form).getByTestId('combo-name');
+    const form = await screen.findByTestId('matchup-form');
+    const nameInput = within(form).getByTestId('matchup-name');
     expect(nameInput).toHaveValue('Live matchup');
     await userEvent.clear(nameInput);
     await userEvent.type(nameInput, 'Live matchup, edited');
-    await userEvent.click(within(form).getByTestId('combo-submit'));
+    await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     await waitFor(() => expect(updates).toHaveLength(1));
     // 🔴 THE SAME HOST-MINTED KEY. `append` would mint a new one and start the
@@ -309,7 +309,7 @@ describe('criterion 4: editing a submitted matchup preserves the key AND the vot
     expect(appends, 'an edit minted a NEW row instead of updating the live one').toEqual([]);
 
     // 🔴 AND THE VOTE TOTAL SURVIVES, on screen, after the post-edit re-fetch.
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     await waitFor(() => expect(card).toHaveTextContent('Live matchup, edited'));
     expect(card.getAttribute('data-key')).toBe(LIVE_KEY);
     expect(within(card).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
@@ -412,7 +412,7 @@ describe('the drafts panel degrades rather than breaking the public board', () =
     }).shared;
     renderApp({ shared, appStorage: broken });
 
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('A public matchup');
     expect(screen.getByTestId('drafts-empty')).toBeInTheDocument();
   });

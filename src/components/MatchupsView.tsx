@@ -1,5 +1,10 @@
-// Browse + vote on COMBINATIONS. The top-N by votes are badged "Included" (they
-// form the grid's rows). The submit affordance opens the combination form.
+// Browse + vote on MATCHUPS. The top-N by votes are badged "Included" (they
+// form the grid's rows). The submit affordance opens the matchup form.
+//
+// 🔴 "Matchup" is the USER-FACING name only. The wire value stays
+// `data.kind: 'combination'` (see docs/matchups.md §6.1) and the parsed row type
+// is still `CombinationRow` — renaming either would be a data migration this app
+// cannot perform, since `shared.update` is author-scoped.
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 import { Tooltip } from '@civitai/components-react';
@@ -15,7 +20,7 @@ import { VoteButton } from './VoteButton.js';
 import { ReportButton } from '@civitai/blocks-react/ui';
 import { WithdrawButton } from './WithdrawButton.js';
 
-export interface CombosViewProps {
+export interface MatchupsViewProps {
   combinations: CombinationRow[];
   includedKeys: Set<string>;
   votedKeys: Set<string>;
@@ -42,7 +47,7 @@ export interface CombosViewProps {
   draftsSlot?: ReactNode;
 }
 
-export function CombosView({
+export function MatchupsView({
   combinations,
   includedKeys,
   votedKeys,
@@ -57,46 +62,46 @@ export function CombosView({
   onWithdraw,
   onReport,
   draftsSlot,
-}: CombosViewProps): React.JSX.Element {
+}: MatchupsViewProps): React.JSX.Element {
   return (
-    <Stack gap={14} data-testid="combos-view">
+    <Stack gap={14} data-testid="matchups-view">
       {draftsSlot}
       <Group justify="space-between" align="center" gap={12}>
-        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="combos-included-summary">
-          Submit and vote on checkpoint + LoRA combinations. {includedSummary(includedKeys.size, 'row')}
+        <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="matchups-included-summary">
+          Submit and vote on checkpoint + LoRA matchups. {includedSummary(includedKeys.size, 'row')}
         </span>
-        <Button size="sm" onClick={onSubmitNew} data-testid="submit-combination">
-          Submit combination
+        <Button size="sm" onClick={onSubmitNew} data-testid="submit-matchup">
+          Submit matchup
         </Button>
       </Group>
 
       {error && (
-        <Alert color="error" data-testid="combos-error">
+        <Alert color="error" data-testid="matchups-error">
           {error}
         </Alert>
       )}
 
       {loading && (
         <Stack align="center" gap={10} style={{ padding: '28px 0' }}>
-          <Loader data-testid="combos-loading" />
-          <span style={metaText}>Loading combinations…</span>
+          <Loader data-testid="matchups-loading" />
+          <span style={metaText}>Loading matchups…</span>
         </Stack>
       )}
 
       {!loading && combinations.length === 0 && (
         <EmptyState
-          data-testid="combos-empty"
-          title="No combinations yet"
-          body="Be the first to submit a checkpoint + LoRA combination for the community to vote on."
+          data-testid="matchups-empty"
+          title="No matchups yet"
+          body="Be the first to submit a checkpoint + LoRA matchup for the community to vote on."
           action={
             <Button size="sm" onClick={onSubmitNew}>
-              Submit combination
+              Submit matchup
             </Button>
           }
         />
       )}
 
-      <Stack gap={10} data-testid="combos-list">
+      <Stack gap={10} data-testid="matchups-list">
         {combinations.map((combo) => {
           const isOwn = isOwnRow(combo, viewerId);
           // Distinct ecosystems across the combo's configs (in first-seen order).
@@ -106,7 +111,7 @@ export function CombosView({
             if (!ecos.includes(e)) ecos.push(e);
           }
           return (
-            <Card key={combo.key} withBorder padding="md" data-testid="combo-card" data-key={combo.key}>
+            <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
               <Group justify="space-between" align="flex-start">
                 <Stack gap={4}>
                   <Group gap={8}>
@@ -114,13 +119,13 @@ export function CombosView({
                     {includedKeys.has(combo.key) && (
                       <Tooltip label="Included: currently in your top-N by votes, so its model configs are rows of the grid you see. Change how many in the Grid tab.">
                         <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
-                          <Badge color="success" variant="light" data-testid="combo-included">
+                          <Badge color="success" variant="light" data-testid="matchup-included">
                             Included
                           </Badge>
                         </span>
                       </Tooltip>
                     )}
-                    <Badge variant="light" data-testid="combo-config-count">
+                    <Badge variant="light" data-testid="matchup-config-count">
                       {combo.data.configs.length} config{combo.data.configs.length === 1 ? '' : 's'}
                     </Badge>
                     {ecos.map((e) => (
@@ -130,7 +135,7 @@ export function CombosView({
                     ))}
                   </Group>
                   {combo.description && <span style={mutedText}>{combo.description}</span>}
-                  <span style={metaText} data-testid="combo-config-summary">
+                  <span style={metaText} data-testid="matchup-config-summary">
                     {combo.data.configs.map((cfg, i) => (
                       <Fragment key={cfg.id}>
                         {i > 0 && ' · '}
@@ -145,15 +150,15 @@ export function CombosView({
                 <Group gap={6} align="center">
                   {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
                   {isOwn && (
-                    <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="combo-edit">
+                    <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="matchup-edit">
                       Edit
                     </Button>
                   )}
                   {isOwn && (
                     <WithdrawButton
-                      noun="combination"
+                      noun="matchup"
                       onWithdraw={() => onWithdraw(combo.key)}
-                      data-testid="combo-withdraw"
+                      data-testid="matchup-withdraw"
                     />
                   )}
                   {/* Escalation, and the mirror image of the two above: offered only
@@ -162,9 +167,9 @@ export function CombosView({
                       Remove. Filing does NOT hide the row; see ReportButton. */}
                   {!isOwn && viewerId != null && (
                     <ReportButton
-                      noun="combination"
+                      noun="matchup"
                       onReport={() => onReport(combo.key)}
-                      data-testid="combo-report"
+                      data-testid="matchup-report"
                     />
                   )}
                   <VoteButton
@@ -174,7 +179,7 @@ export function CombosView({
                     onVote={() => onVote(combo.key)}
                     onUnvote={() => onUnvote(combo.key)}
                     onRequireAuth={onRequireAuth}
-                    data-testid="combo-vote"
+                    data-testid="matchup-vote"
                   />
                 </Group>
               </Group>

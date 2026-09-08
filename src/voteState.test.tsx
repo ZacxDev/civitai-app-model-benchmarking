@@ -78,8 +78,8 @@ describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => 
     const { appStorage } = fakeAppStorage();
     renderApp({ shared, appStorage, track: vi.fn() });
 
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     await waitFor(() => expect(vote).toHaveAttribute('data-voted', 'true'));
   });
 
@@ -92,10 +92,10 @@ describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => 
     const { appStorage } = fakeAppStorage({ 'voted:v1': ['combo-1'] });
     renderApp({ shared, appStorage, track: vi.fn() });
 
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     // Settle the mount effects, then assert the host's answer survived them.
-    await waitFor(() => expect(screen.getByTestId('combo-card')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('matchup-card')).toBeInTheDocument());
     await waitFor(() => expect(vote).toHaveAttribute('data-voted', 'false'));
   });
 });
@@ -118,8 +118,8 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     // `block_loaded` fires once the handshake settles.
     await waitFor(() => expect(track).toHaveBeenCalledWith('block_loaded', expect.anything()));
 
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     expect(vote).toHaveAttribute('data-voted', 'false');
     await userEvent.click(vote);
 
@@ -133,8 +133,8 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     const track = vi.fn();
     renderApp({ shared, appStorage, track });
 
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     await waitFor(() => expect(vote).toHaveAttribute('data-voted', 'true'));
     await userEvent.click(vote); // now an UNVOTE
 
@@ -148,8 +148,8 @@ describe('vote round-trip (optimistic flip) + analytics', () => {
     const track = vi.fn();
     renderApp({ shared, appStorage, track });
 
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     await userEvent.click(vote);
     await waitFor(() => expect(vote).toHaveAttribute('data-voted', 'true'));
 

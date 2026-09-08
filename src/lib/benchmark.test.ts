@@ -170,7 +170,7 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
   it('validates required fields', () => {
     expect(
       validateCombination({ name: '', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }),
-    ).toContain('Give the combination a name.');
+    ).toContain('Give the matchup a name.');
     expect(validateCombination({ name: 'X', description: '', configs: [newConfig()] })).toContain(
       'Add at least one model config (pick a checkpoint).',
     );

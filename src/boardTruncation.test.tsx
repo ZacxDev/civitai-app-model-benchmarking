@@ -133,7 +133,7 @@ describe('board scan truncation', () => {
 
     // Wait for the board to actually load before asserting an absence — a notice
     // that is merely late would otherwise read as a notice that is absent.
-    await waitFor(() => expect(screen.getByTestId('combo-card')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('matchup-card')).toBeInTheDocument());
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 });

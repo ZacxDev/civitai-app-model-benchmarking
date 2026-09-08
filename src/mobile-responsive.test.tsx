@@ -250,7 +250,7 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
   it('gives the vote control a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
-    const vote = await screen.findByTestId('combo-vote');
+    const vote = await screen.findByTestId('matchup-vote');
     expect(minHeightPx(vote)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
   });
 
@@ -739,7 +739,7 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // "Included".
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('combos-list');
+    await screen.findByTestId('matchups-list');
 
     const triggers = document.querySelectorAll(
       `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip']`,

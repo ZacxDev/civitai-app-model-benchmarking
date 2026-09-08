@@ -1,5 +1,5 @@
 // A withdraw ("Remove") control for a row the viewer AUTHORED — a two-step,
-// confirm-before-firing composition of the pack's Button, shared by CombosView
+// confirm-before-firing composition of the pack's Button, shared by MatchupsView
 // and PromptsView (the sibling of VoteButton).
 //
 // 🔴 The removal is DESTRUCTIVE and PUBLIC (the row leaves the shared grid for
@@ -15,7 +15,7 @@ import { metaText } from '../theme.js';
 
 export interface WithdrawButtonProps {
   /** What the row is, for the accessible name + confirm copy. */
-  noun: 'combination' | 'prompt';
+  noun: 'matchup' | 'prompt';
   /** Fires ONLY after the viewer confirms. */
   onWithdraw: () => Promise<void> | void;
   'data-testid'?: string;

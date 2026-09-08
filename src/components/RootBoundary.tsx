@@ -86,7 +86,7 @@ export class RootBoundary extends Component<RootBoundaryProps, RootBoundaryState
             {error.message || 'The app hit an unexpected error.'}
           </Alert>
           <span style={{ color: token.dimmed, fontSize: 13, lineHeight: 1.5 }}>
-            Your combinations, prompts and votes are safe — they live in shared storage. Try
+            Your matchups, prompts and votes are safe — they live in shared storage. Try
             reloading this view.
           </span>
           <Button data-testid="root-boundary-retry" onClick={this.reset}>

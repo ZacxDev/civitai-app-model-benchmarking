@@ -97,11 +97,11 @@ import {
 } from './lib/drafts.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
-import { CombosView } from './components/CombosView.js';
+import { MatchupsView } from './components/MatchupsView.js';
 import { DraftsPanel } from './components/DraftsPanel.js';
 import { PromptsView } from './components/PromptsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
-import { CombinationForm } from './components/CombinationForm.js';
+import { MatchupForm } from './components/MatchupForm.js';
 import { PromptForm } from './components/PromptForm.js';
 import { GatedCell as DefaultGatedCell, type GatedCellComponent } from './components/GatedCell.js';
 
@@ -176,7 +176,7 @@ type ModalState =
  * names a JS property.
  */
 export const ESTIMATE_FAILED_MESSAGE =
-  "Couldn't price this run — the server declined to estimate it. Try a different combination, or try again later.";
+  "Couldn't price this run — the server declined to estimate it. Try a different matchup, or try again later.";
 export const ESTIMATE_NO_COST_MESSAGE =
   "Couldn't price this run — no price came back. Please try again.";
 
@@ -1366,10 +1366,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             </Group>
             <ol style={{ ...mutedText, margin: 0, paddingLeft: 18, display: 'grid', gap: 3, fontSize: 13 }}>
               <li>
-                <strong>Submit</strong> checkpoint + LoRA combinations and prompts.
+                <strong>Submit</strong> checkpoint + LoRA matchups and prompts.
               </li>
               <li>
-                <strong>Vote</strong> — the top-voted combinations and prompts become the grid's rows and
+                <strong>Vote</strong> — the top-voted matchups and prompts become the grid's rows and
                 columns.
               </li>
               <li>
@@ -1413,7 +1413,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             {
               value: 'combos',
               label: (
-                <span data-testid="view-switch-combos">Combinations ({combinations.length})</span>
+                <span data-testid="view-switch-matchups">Matchups ({combinations.length})</span>
               ),
             },
             {
@@ -1444,7 +1444,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         )}
 
         {view === 'combos' && (
-          <CombosView
+          <MatchupsView
             combinations={combinations}
             includedKeys={includedComboKeys}
             votedKeys={votedKeys}
@@ -1488,7 +1488,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
             <Group justify="space-between" align="flex-end" gap={12}>
               <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
-                Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
+                Included matchups × prompts. Run an empty cell to contribute its outputs to the shared grid.
               </span>
               <div style={{ width: 240 }}>
                 <Slider
@@ -1539,11 +1539,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'combo'}
           onClose={closeModal}
-          title={modal.kind === 'combo' && modal.edit ? 'Edit combination' : 'Submit a combination'}
+          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'Submit a matchup'}
           size="lg"
         >
           {modal.kind === 'combo' && (
-            <CombinationForm
+            <MatchupForm
               key={modal.edit?.key ?? 'new'}
               pickResource={deps.pickResource}
               initial={modal.edit ? combinationToInput(modal.edit) : undefined}
@@ -1567,7 +1567,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           size="lg"
         >
           {modal.kind === 'draft' && (
-            <CombinationForm
+            <MatchupForm
               key={modal.localId}
               pickResource={deps.pickResource}
               initial={modal.initial}

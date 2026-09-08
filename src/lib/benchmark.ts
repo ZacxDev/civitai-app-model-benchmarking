@@ -118,7 +118,7 @@ function filledConfigs(configs: ModelConfig[]): ModelConfig[] {
 /** Human-readable validation errors that block a combination submit. */
 export function validateCombination(input: CombinationInput): string[] {
   const errs: string[] = [];
-  if (!input.name.trim()) errs.push('Give the combination a name.');
+  if (!input.name.trim()) errs.push('Give the matchup a name.');
   const filled = filledConfigs(input.configs);
   if (filled.length === 0) errs.push('Add at least one model config (pick a checkpoint).');
   if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} configs.`);

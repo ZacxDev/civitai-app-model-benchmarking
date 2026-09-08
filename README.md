@@ -75,9 +75,9 @@ straight to the file:
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`CombosView`](src/components/CombosView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
+| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
-| **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`CombinationForm.tsx`](src/components/CombinationForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
+| **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`MatchupForm.tsx`](src/components/MatchupForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
 | **Buzz balance** — show the wallet / gate cost | `useBuzzBalance()` | [`App.tsx`](src/App.tsx) |
 | **Consent + sign-in gating** for the generation scope | `useRequestConsent()` / `useRequestSignIn()` | [`scopes.ts`](src/scopes.ts), [`App.tsx`](src/App.tsx) |
@@ -113,8 +113,8 @@ A few notes worth calling out:
 Three tabs, routed by [`src/App.tsx`](src/App.tsx) through a `SegmentedControl`;
 submit flows are modals:
 
-- **Combos** ([`CombosView.tsx`](src/components/CombosView.tsx) +
-  [`CombinationForm.tsx`](src/components/CombinationForm.tsx)) — submit + vote on a
+- **Combos** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
+  [`MatchupForm.tsx`](src/components/MatchupForm.tsx)) — submit + vote on a
   checkpoint (any base model) plus a family-scoped weighted LoRA stack, picked via
   the resource picker.
 - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +

@@ -40,7 +40,7 @@ export interface ResultsGridProps {
   /** Resume-poll a stalled cell's existing workflow (no re-submit, no re-charge). */
   onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
-  /** Jump to the Combinations tab — the next step when the grid has no rows. */
+  /** Jump to the Matchups tab — the next step when the grid has no rows. */
   onAddCombination?: () => void;
   /** Jump to the Prompts tab — the next step when the grid has no columns. */
   onAddPrompt?: () => void;
@@ -94,13 +94,13 @@ export function ResultsGrid({
     const needsCombination = configs.length === 0;
     const needsPrompt = prompts.length === 0;
     const body = needsCombination && needsPrompt
-      ? 'The grid needs at least one included combination (with a model config) and one included prompt. Submit and vote to fill the top slots.'
+      ? 'The grid needs at least one included matchup (with a model config) and one included prompt. Submit and vote to fill the top slots.'
       : needsCombination
-        ? 'The grid has columns but no rows yet: it needs at least one included combination with a model config.'
+        ? 'The grid has columns but no rows yet: it needs at least one included matchup with a model config.'
         : 'The grid has rows but no columns yet: it needs at least one included prompt.';
     const action = needsCombination && onAddCombination ? (
-      <Button size="sm" onClick={onAddCombination} data-testid="grid-empty-add-combination">
-        Go to Combinations
+      <Button size="sm" onClick={onAddCombination} data-testid="grid-empty-add-matchup">
+        Go to Matchups
       </Button>
     ) : !needsCombination && needsPrompt && onAddPrompt ? (
       <Button size="sm" onClick={onAddPrompt} data-testid="grid-empty-add-prompt">
@@ -263,7 +263,7 @@ function RowFragment({
         {groupStart && (
           <div
             style={{ fontSize: 11, color: token.dimmed, fontWeight: 600, marginBottom: 2 }}
-            data-testid="grid-group-combo"
+            data-testid="grid-group-matchup"
           >
             {row.comboName || `#${row.comboKey}`} · ▲ {row.comboCount}
           </div>

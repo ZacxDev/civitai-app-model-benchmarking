@@ -88,14 +88,14 @@ describe('withdraw: the author removes their OWN combination', () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
     renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
 
     // Confirm-before-firing: the trigger alone must NOT have withdrawn anything.
     expect(withdraws).toEqual([]);
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
-    await waitFor(() => expect(screen.queryByTestId('combo-card')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('matchup-card')).toBeNull());
     expect(withdraws).toEqual(['mine']);
   });
 
@@ -103,15 +103,15 @@ describe('withdraw: the author removes their OWN combination', () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
     renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-cancel'));
 
     expect(withdraws).toEqual([]);
-    const still = screen.getByTestId('combo-card');
+    const still = screen.getByTestId('matchup-card');
     expect(still).toHaveTextContent('Mine');
     // Back to the un-armed trigger, so the affordance is reusable.
-    expect(within(still).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(still).getByTestId('matchup-withdraw')).toBeInTheDocument();
     expect(within(still).queryByTestId('withdraw-confirm')).toBeNull();
   });
 });
@@ -123,17 +123,17 @@ describe('withdraw: the ownership guard', () => {
     });
     renderApp({ shared });
 
-    const cards = await screen.findAllByTestId('combo-card');
+    const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
 
     // The viewer's own row HAS the control — so the absence below is a guard
     // decision, not a control that simply never renders.
-    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
     // 🔴 THE OWNERSHIP GUARD: someone else's row carries no withdraw control, and
     // no armed confirm behind it either.
-    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
     expect(within(theirs).queryByTestId('withdraw-confirm')).toBeNull();
     expect(withdraws).toEqual([]);
   });
@@ -266,8 +266,8 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // acting and not a card that never rendered.
     await screen.findByTestId('draft-submitted');
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -306,8 +306,8 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
       renderApp({ shared: rejecting, appStorage });
       await screen.findByTestId('draft-submitted');
 
-      const card = await screen.findByTestId('combo-card');
-      await userEvent.click(within(card).getByTestId('combo-withdraw'));
+      const card = await screen.findByTestId('matchup-card');
+      await userEvent.click(within(card).getByTestId('matchup-withdraw'));
       await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
       // The app DID try — so the assertions below are about what happened after
@@ -319,7 +319,7 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
       expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
       expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
       // …and the row it points at is still on the public board.
-      expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+      expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
     } finally {
       process.off('unhandledRejection', swallow);
     }
@@ -397,9 +397,9 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     renderApp({ shared, appStorage });
 
     await screen.findByTestId('draft-submitted');
-    const cards = await screen.findAllByTestId('combo-card');
+    const cards = await screen.findAllByTestId('matchup-card');
     const target = cards.find((el) => el.getAttribute('data-key') === LIVE_KEY)!;
-    await userEvent.click(within(target).getByTestId('combo-withdraw'));
+    await userEvent.click(within(target).getByTestId('matchup-withdraw'));
     await userEvent.click(within(target).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -471,8 +471,8 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     renderApp({ shared, appStorage });
 
     await screen.findByTestId('draft-submitted');
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     // The call DID happen and DID resolve (no throw) — so what follows is about
@@ -483,7 +483,7 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
     expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
-    expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+    expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
   });
 
   it('is found IN THE STORE even when the drafts list never resolved', async () => {
@@ -521,8 +521,8 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // version of this test did, and this control is what caught it.
     expect(listCalls.map((c) => c?.prefix)).toContain(DRAFT_PREFIX);
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -568,8 +568,8 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     renderApp({ shared, appStorage });
 
     await screen.findByTestId('draft-submitted');
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -602,12 +602,12 @@ describe('withdraw: the list reconciles', () => {
     });
     renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     const listsBefore = listCalls.length;
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
-    await waitFor(() => expect(screen.queryByTestId('combo-card')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('matchup-card')).toBeNull());
     expect(withdraws).toEqual(['mine']);
 
     // Wait for the reload's list() to actually LAND (it re-serves the row) and
@@ -615,6 +615,6 @@ describe('withdraw: the list reconciles', () => {
     // but timing luck.
     await waitFor(() => expect(listCalls.length).toBeGreaterThan(listsBefore));
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId('combo-card')).toBeNull();
+    expect(screen.queryByTestId('matchup-card')).toBeNull();
   });
 });

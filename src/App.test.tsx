@@ -35,21 +35,21 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
     const { shared, appends } = fakeShared({ reflectMutations: false }); // list() NEVER returns the append
     renderApp({ shared });
 
-    await userEvent.click(await screen.findByTestId('submit-combination'));
-    const form = await screen.findByTestId('combination-form');
-    await userEvent.type(within(form).getByTestId('combo-name'), 'Lagging Combo');
+    await userEvent.click(await screen.findByTestId('submit-matchup'));
+    const form = await screen.findByTestId('matchup-form');
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'Lagging Combo');
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
     await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
-    await userEvent.click(within(form).getByTestId('combo-submit'));
+    await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     // The row appears without a manual reload…
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('Lagging Combo');
     expect(appends).toHaveLength(1);
 
     // …and it PERSISTS after the reconcile reload settles (not wiped by the empty list()).
     await new Promise((r) => setTimeout(r, 0));
-    await waitFor(() => expect(screen.getByTestId('combo-card')).toHaveTextContent('Lagging Combo'));
+    await waitFor(() => expect(screen.getByTestId('matchup-card')).toHaveTextContent('Lagging Combo'));
   });
 });
 

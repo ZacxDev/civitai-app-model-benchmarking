@@ -16,7 +16,7 @@ import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import type { CombinationRow, PromptRow } from '../types.js';
-import { CombosView } from './CombosView.js';
+import { MatchupsView } from './MatchupsView.js';
 import { PromptsView } from './PromptsView.js';
 
 const noop = () => {};
@@ -55,7 +55,7 @@ function promptRow(key: string, count: number): PromptRow {
 
 function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
   return render(
-    <CombosView
+    <MatchupsView
       combinations={rows}
       includedKeys={includedKeys}
       votedKeys={new Set()}
