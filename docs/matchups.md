@@ -772,6 +772,12 @@ here so the next reader measures instead of trusting:
 2. **§6.3(b)'s line numbers drifted.** `tests/run-tests-app-capture.sh` cites
    `3843-3844`; the actual lines are **`4511-4512`**. (Same class as §11.4's
    warning — re-resolve by content.)
+   ⚠ **And so did §6.3(d)'s, which an earlier draft of this section missed:** it
+   cites `tests/mutants-app-capture.sh:1264-1265`; the actual lines are
+   **`1338-1339`**. Found by the PR #38 audit, not by this sweep — which is the
+   lesson: this section swept ONE claim's offsets and hand-checked the other, and
+   only the hand-checked one was wrong. **Sweep every claim in a commit the way you
+   swept the hardest one.**
 3. 🔴 **§6.3 misses a FIFTH coupled file.**
    `tests/fixtures/app-capture/evidence/manifest.json` carries the same selectors
    as data-driven probes and must move with the other four. The spec says "four";
@@ -798,3 +804,51 @@ quotation of the tab label `'Combinations (1)'`, and `_contentCaveat`'s
 `"2 combinations"` (which `run-tests-app-capture.sh` pins as a needle, so changing
 it early reds the suite). **Both become a follow-up the moment the app rename
 merges.**
+
+### 11.8 🔴 The paid-cell surface, and why the scan budget is now the binding constraint
+
+Surfaced by the PR #38 adversarial audit. **Not fixed here — documented, because the
+honest mitigation is a product decision, not a patch.**
+
+**What changed.** Before this rework the runnable matrix was a single window:
+`DEFAULT_TOP_N` (5) matchups × ≤`MAX_CONFIGS` (8) configs × 5 prompts ≈ **200 cells**.
+The deleted slider could widen *one viewer's* window to 20 × 8 × 20, but there was
+still only ever one window.
+
+After it, **every published grid is its own window** of ≤20 × ≤8 × ≤20
+(`MAX_GRID_MATCHUPS` / `MAX_GRID_PROMPTS`, `src/lib/grids.ts`), any viewer can open
+anyone else's, and nothing bounds how many grids name disjoint members.
+
+**Why that collides with §7.2.** Every run appends a `result` row to the **same**
+flat list the board scan pages, and that scan is capped at `LIST_PAGE 50 ×
+MAX_PAGES 40 = 2000` rows. One fully-run 20×20 grid of 8-config matchups is
+**3200 cells → 3200 result rows**, which exceeds the entire scan budget on its own.
+
+Past the cap the failure is not an error, it is a **quiet wrongness** that compounds:
+the scan truncates oldest-first, so the Top Grid loses its longest-standing members,
+every grid's membership silently shrinks, vote ranking degrades, and a grid's
+missing-member notice can no longer distinguish "withdrawn" from "not read" (which is
+why §11.4's notice now branches on `boardTruncated` — audit finding F4).
+
+🔴 **And §11.5 forbids the obvious lever.** Raising `MAX_PAGES` trades a silent wrong
+answer for a slow one, linear in board size on every load. That is still the right
+call, which is what makes this a design constraint rather than a tuning knob.
+
+**Today the board is ~22 rows, so nothing is broken.** What this rework changed is the
+*slope*: it is now possible for a small number of enthusiastic viewers to reach the
+cap, where before it took the whole community. Options, none taken here, in rough
+order of honesty:
+
+1. **Bound the product** — a lower per-grid cap, or a cap on published grids per
+   viewer. Cheapest, and the only one that acts before the cliff.
+2. **Stop paging results in the same scan** — results are the growth driver and are
+   read per-cell; a separate read path would take them off the ranking scan entirely.
+   This is the real fix and it is a platform-shaped change.
+3. **Disclose harder** — the truncation notice already exists; it could name what was
+   lost rather than that something was.
+
+**Closing condition:** this stops being a horizon risk and becomes an incident the
+first time `listAll` reports `truncated: true` against the live board. That is already
+observable — the app computes it — so the check is: does anyone see
+`board-truncated-notice` in production? Until then it is a documented slope, and this
+section is what makes it a decision someone took rather than a surprise.

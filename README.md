@@ -116,31 +116,48 @@ A few notes worth calling out:
 Three tabs, routed by [`src/App.tsx`](src/App.tsx) through a `SegmentedControl`;
 submit flows are modals:
 
-- **Combos** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
-  [`MatchupForm.tsx`](src/components/MatchupForm.tsx)) — submit + vote on a
+- **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
+  [`MatchupForm.tsx`](src/components/MatchupForm.tsx)), with **My** / **Community**
+  sub-tabs — create privately, **Publish** to the shared board, then vote on a
   checkpoint (any base model) plus a family-scoped weighted LoRA stack, picked via
   the resource picker.
 - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
   [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a
   **multi-ecosystem** prompt: one raw prompt string + generation params *per
   ecosystem* (SDXL / Pony / Flux / …).
-- **Grid** ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)) — the top-N combos
-  (rows) × top-N prompts (cols) matrix. Each runnable cell (the prompt has an entry
-  for the combo's ecosystem) can be **run**; each cell renders that combo's
-  published outputs on that prompt via the per-viewer gated read
+- **Grids** ([`GridsView.tsx`](src/components/GridsView.tsx) +
+  [`GridForm.tsx`](src/components/GridForm.tsx) +
+  [`GridPicker.tsx`](src/components/GridPicker.tsx)) — the **default** view, with
+  **My** / **Community** sub-tabs. A *grid* is a named, hand-picked set of matchups
+  (rows) × prompts (cols), built privately with a search + multi-select picker and
+  then published; Community Grids sorts by vote count, with a system-owned **Top
+  Grid** (top-voted matchups × top-voted prompts) pinned first — it has no shared
+  key, so it cannot be voted on. Opening a grid renders the matrix
+  ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)): each runnable cell (the
+  prompt has an entry for the matchup's ecosystem) can be **run**, and each renders
+  that matchup's published outputs via the per-viewer gated read
   ([`GatedCell.tsx`](src/components/GatedCell.tsx)). Non-matching cells are a
-  disabled **N/A**.
+  disabled **N/A**. 🔴 A published grid names shared keys **another author can
+  withdraw**, so a grid renders its surviving members plus an honest count of the
+  missing ones.
 
 The pure, node-testable core lives in [`src/lib/`](src/lib):
 [`benchmark.ts`](src/lib/benchmark.ts) (the data-model parse/migrate, `WorkflowBody`
 construction, top-N-by-votes, optimistic reconcile, the moderated-text/opaque-data
 split), [`ecosystem.ts`](src/lib/ecosystem.ts) (base-model → ecosystem matcher),
-[`gen-defaults.ts`](src/lib/gen-defaults.ts), and [`workflow.ts`](src/lib/workflow.ts)
-(the poll loop).
+[`gen-defaults.ts`](src/lib/gen-defaults.ts), [`workflow.ts`](src/lib/workflow.ts)
+(the poll loop), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
+validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
+(ranking, the Top Grid, and the missing-member notice),
+[`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
+its three callers [`drafts.ts`](src/lib/drafts.ts),
+[`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
+[`unpubGrids.ts`](src/lib/unpubGrids.ts), and [`archive.ts`](src/lib/archive.ts)
+(the author-side hide).
 
 ### The stored value shape (moderation boundary)
 
-One append-only shared list holds three record kinds, discriminated by `data.kind`
+One append-only shared list holds **four** record kinds, discriminated by `data.kind`
 and versioned (`data.v: 1`, defensively parsed/migrated on read). Every record
 splits into a **moderated** half and an **opaque** half:
 
@@ -149,6 +166,14 @@ splits into a **moderated** half and an **opaque** half:
 | `combination` | name / description + resource display names | `{ v, kind, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }` |
 | `prompt` | name / description + **every** per-ecosystem prompt + negative | `{ v, kind, byEcosystem:{[eco]:{prompt, params}} }` |
 | `result` | terse machine label | `{ v, kind, comboKey, promptKey, ecosystem, imageIds:number[] }` |
+| `grid` | name / description | `{ v, kind, matchupKeys:string[], promptKeys:string[] }` |
+
+> 🔴 **`data.kind: 'combination'` is a persisted WIRE VALUE and is never renamed**,
+> even though the UI now calls it a *matchup*. It discriminates every row already on
+> the live board, and the app cannot migrate another viewer's rows — `update` and
+> `withdraw` are author-scoped. The same holds for the `v:` versions and
+> `ResultData.comboKey`. Pinned by
+> [`renameWireCompat.test.ts`](src/renameWireCompat.test.ts).
 
 - **`title` / `body`** → **all user-visible text**. This is what the platform's text
   content-safety belt moderates. All authored text is swept here.
