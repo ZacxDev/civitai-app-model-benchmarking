@@ -16,6 +16,7 @@ import type {
   CombinationData,
   CombinationRow,
   EcosystemPrompt,
+  GridRow,
   LoraRef,
   ModelConfig,
   PromptData,
@@ -28,6 +29,10 @@ import type {
   ResultRow,
 } from '../types.js';
 import { ecosystemForBaseModel } from './ecosystem.js';
+// `grids.ts` imports `newId`/`RawSharedItem` back from here, so this is a module
+// CYCLE — safe because both directions reference only hoisted function
+// declarations from inside function bodies, never at module-evaluation time.
+import { parseGrid } from './grids.js';
 
 /** Max LoRAs the server accepts in `additionalResources` (mirrors the Zod gate). */
 export const MAX_LORAS = 5;
@@ -304,13 +309,35 @@ export function buildResultPayload(data: Omit<ResultData, 'v' | 'kind'>): Shared
 // Parse / migrate (defensive — `data` is app-owned but a forged row is possible)
 // ---------------------------------------------------------------------------
 
+/**
+ * 🔴 THE ONE ENUMERATION of the record kinds that ride the shared board, written
+ * as a `Record<RecordKind, true>` so it is EXHAUSTIVE BY TYPE: adding a fifth
+ * member to `RecordKind` in `types.ts` is a typecheck error here until this table
+ * gains it. That is exactly the failure `grid` hit — it was added to `RecordKind`
+ * and given a parser, but the kind list in `recordKind` was open-coded, so a grid
+ * row appended to the board classified as `null` and was invisible to the scan.
+ *
+ * 🔴 These are PERSISTED WIRE VALUES (docs/matchups.md §6.1/§11.2). `'combination'`
+ * stays `'combination'` forever — the user-visible noun is "matchup", the wire
+ * string is not — and `'grid'` is permanent from the first published grid onward.
+ */
+const RECORD_KINDS: Readonly<Record<RecordKind, true>> = {
+  combination: true,
+  prompt: true,
+  result: true,
+  grid: true,
+};
+
 /** The `data.kind` discriminant of a shared row, or null when unrecognised.
- * Accepts any known schema version (v1 legacy … v3 current prompt). */
+ * Accepts any known schema version (v1 legacy … v3 current prompt; a `grid` is
+ * `v: 1` from its first row). Per-kind version rules are the parsers' business. */
 export function recordKind(value: SharedStorageValue): RecordKind | null {
   const d = value.data as { kind?: unknown; v?: unknown } | undefined;
   if (!d || (d.v !== 1 && d.v !== 2 && d.v !== 3)) return null;
-  if (d.kind === 'combination' || d.kind === 'prompt' || d.kind === 'result') return d.kind;
-  return null;
+  if (typeof d.kind !== 'string') return null;
+  // `hasOwnProperty`, NOT `in`: `'constructor' in RECORD_KINDS` is true through
+  // the prototype chain, which would classify a forged row as a known kind.
+  return Object.prototype.hasOwnProperty.call(RECORD_KINDS, d.kind) ? (d.kind as RecordKind) : null;
 }
 
 export interface RawSharedItem {
@@ -622,15 +649,26 @@ export function isOwnRow(row: { authorUserId: number }, viewerId: number | null)
   return viewerId != null && row.authorUserId === viewerId;
 }
 
-/** Split a flat list of shared rows into typed combos / prompts / results. */
+/**
+ * Split a flat list of shared rows into typed combos / prompts / results / grids
+ * — the ONE board scan, over the ONE shared list (§2.3 C1: no server-side filter
+ * exists, so every kind arrives interleaved in the same paged read).
+ *
+ * 🔴 The buckets PARTITION the input: each parser rejects any `data.kind` but its
+ * own, so no row can land in two buckets, and a row no parser claims (forged,
+ * malformed, or an unknown/future `kind`) is SKIPPED rather than thrown on. The
+ * scan must survive anything the unmoderated `data` blob can carry.
+ */
 export function splitRows(items: RawSharedItem[]): {
   combinations: CombinationRow[];
   prompts: PromptRow[];
   results: ResultRow[];
+  grids: GridRow[];
 } {
   const combinations: CombinationRow[] = [];
   const prompts: PromptRow[] = [];
   const results: ResultRow[] = [];
+  const grids: GridRow[] = [];
   for (const it of items) {
     const c = parseCombination(it);
     if (c) {
@@ -643,9 +681,14 @@ export function splitRows(items: RawSharedItem[]): {
       continue;
     }
     const r = parseResult(it);
-    if (r) results.push(r);
+    if (r) {
+      results.push(r);
+      continue;
+    }
+    const g = parseGrid(it);
+    if (g) grids.push(g);
   }
-  return { combinations, prompts, results };
+  return { combinations, prompts, results, grids };
 }
 
 // ---------------------------------------------------------------------------
