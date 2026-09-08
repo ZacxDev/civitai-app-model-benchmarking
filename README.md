@@ -55,9 +55,12 @@ immediately:
 ```bash
 git clone https://github.com/ZacxDev/civitai-app-model-benchmarking
 cd civitai-app-model-benchmarking
-npm install
-npm run dev:harness      # → mock host at http://localhost:5189
+pnpm install
+pnpm run dev:harness     # → mock host at http://localhost:5189
 ```
+
+(No pnpm on your PATH? This repo ships a nix flake that pins node + pnpm:
+`direnv allow`, or `nix develop`. See [Develop](#develop).)
 
 Want to run against the *real* production host with live reload? See
 [Develop](#develop) below.
@@ -201,7 +204,14 @@ on the pack's `--ci-*` CSS vars so they stay auto-themed:
 
 ## Develop
 
-Requires **Node 22+**. Run `npm install` first.
+The toolchain is pinned, not assumed: [`.nvmrc`](.nvmrc) states the node major —
+the single authority, read by [`flake.nix`](flake.nix) and by CI via
+`actions/setup-node`'s `node-version-file` — and the flake pins pnpm alongside
+it. Get a shell with `direnv allow` (or `nix develop`), then `pnpm install`.
+
+Not a nix user? Any node of that major plus pnpm 11 works; those are exactly
+what CI installs, and `src/toolchain-lockstep.test.ts` keeps the two pins from
+drifting apart.
 
 ### Recommended: `dev-tunnel` — prod-fidelity live dev
 
@@ -231,7 +241,7 @@ go   install github.com/civitai/cli/cmd/civitai@latest
 [`block.manifest.json`](block.manifest.json), here `model-benchmarking`):
 
 ```bash
-npm run dev                       # local Vite dev server (localhost:5189)
+pnpm run dev                      # local Vite dev server (localhost:5189)
 civitai app dev-tunnel            # or: civitai app dev-tunnel model-benchmarking
 ```
 
@@ -242,12 +252,12 @@ a browser **signed in** to your beta-enabled Civitai account. Edit any file unde
 ### Scripts
 
 ```bash
-npm run dev:harness   # offline mock host at http://localhost:5189 (Quickstart)
-npm run dev           # plain Vite dev server (used under `civitai app dev-tunnel`)
-npm test              # vitest: a `node` (pure-logic) project + a `dom` (jsdom component/e2e) project
-npm run typecheck     # tsc --noEmit
-npm run build         # tsc --noEmit && vite build  → dist/
-npm run preview       # preview the production build
+pnpm run dev:harness   # offline mock host at http://localhost:5189 (Quickstart)
+pnpm run dev           # plain Vite dev server (used under `civitai app dev-tunnel`)
+pnpm test              # vitest: a `node` (pure-logic) project + a `dom` (jsdom component/e2e) project
+pnpm run typecheck     # tsc --noEmit
+pnpm run build         # tsc --noEmit && vite build  → dist/
+pnpm run preview       # preview the production build
 ```
 
 The dev server pins host + port (`localhost:5189`, `--strictPort`) because the SDK
@@ -263,13 +273,13 @@ Blocks are validated and submitted with the
 
 ```bash
 civitai app validate      # lint block.manifest.json + the build output
-civitai app submit        # build (npm run build) + upload dist/ for review
+civitai app submit        # build (pnpm run build) + upload dist/ for review
 ```
 
 The manifest ([`block.manifest.json`](block.manifest.json)) declares the block id,
 the requested scopes (`ai:write:budgeted`, `buzz:read:self`,
 `apps:storage:shared:read`, `apps:storage:shared:write` — kept in lockstep with
-[`src/scopes.ts`](src/scopes.ts)), `buildCommand: "npm run build"`, and
+[`src/scopes.ts`](src/scopes.ts)), `buildCommand: "pnpm run build"`, and
 `outputDir: "dist"`. Publishing goes through Civitai's moderator review, then
 deploys to `<blockId>.civit.ai`.
 

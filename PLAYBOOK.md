@@ -21,7 +21,7 @@ not from memory. Re-introspect if the versions move.
 "@civitai/theme": "^0.2.0",         // NEW direct dep — the token source
 ```
 
-Then `npm install`. Verify the resolved versions:
+Then `pnpm install`. Verify the resolved versions:
 
 ```bash
 for p in blocks-react theme app-sdk; do
@@ -257,14 +257,14 @@ call-sites are unchanged.
 1. **Typecheck / build / test** — all three must be green:
    ```bash
    npx tsc -p tsconfig.json --noEmit      # typecheck
-   npm run build                          # tsc + vite build
+   pnpm run build                         # tsc + vite build
    npx vitest run                         # tests
    ```
 2. **Run it + screenshot both themes** via the standalone dev harness. The harness
    (`@civitai/blocks-react/testing`) honors URL toggles — **`?theme=light`** overrides
    the harness's default theme with **zero code change** (it's spread after the props):
    ```bash
-   npm run dev:harness                     # → http://localhost:5189
+   pnpm run dev:harness                    # → http://localhost:5189
    # then drive http://localhost:5189/?theme=dark  and  ?theme=light
    ```
    Screenshot combos / prompts / grid / a submit modal, at a narrow (~420px) and wide
@@ -290,4 +290,4 @@ call-sites are unchanged.
       render; `ResultsGrid.test.tsx` asserts the grid `aria-label`, per-cell run `aria-label`,
       and the in-flight `role="status" aria-live="polite"` region). Copy these assertions —
       an unasserted affordance regresses silently on the next refactor.
-- [ ] `tsc`, `npm run build`, `vitest` all green; block behavior/manifest unchanged.
+- [ ] `tsc`, `pnpm run build`, `vitest` all green; block behavior/manifest unchanged.

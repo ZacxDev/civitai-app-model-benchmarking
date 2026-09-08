@@ -11,19 +11,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          # 🔒 LOCKSTEP: `src/toolchain-lockstep.test.ts` requires this to equal
+          # the `pnpmMajor` pinned in flake.nix, so a local shell and CI cannot
+          # run different pnpm majors. Change both, or neither.
+          version: 11
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          # `.nvmrc` is the single authority for the node major — flake.nix
+          # reads the same file. Never restate the version here.
+          node-version-file: .nvmrc
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Test
-        run: npm test
+        run: pnpm test
 
       - name: Build
-        run: npm run build
+        run: pnpm build
