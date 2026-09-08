@@ -96,7 +96,6 @@ import {
   newDraftLocalId,
   parseDraft,
   sortDrafts,
-  submittedPointer,
 } from './lib/drafts.js';
 import {
   buildUnpubPrompt,
@@ -117,7 +116,12 @@ import {
   UNPUB_GRID_PREFIX,
   unpubGridToInput,
 } from './lib/unpubGrids.js';
-import { parsePointer, publishedPointer, unpublishedKey } from './lib/unpublished.js';
+import {
+  parsePointer,
+  publishedPointer,
+  publishPointerFailedNotice,
+  unpublishedKey,
+} from './lib/unpublished.js';
 import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
@@ -1060,82 +1064,167 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const submittingRef = useRef<Set<string>>(new Set());
 
   /**
-   * PUBLISH — the one place an unpublished matchup crosses into the public board,
-   * and the only moment the record becomes visible to anyone else.
-   * `buildCombinationPayload`
-   * is reused verbatim so a submitted draft is byte-identical to a row submitted
-   * directly, including `data.kind: 'combination'` (a persisted wire value that
-   * discriminates every row already on the board — never renamed) and including
-   * the moderation split: every user-authored string is in `title`/`body`, and
-   * `data` carries structure only.
+   * Local ids whose `shared.append` HAS ALREADY RESOLVED in this session.
+   *
+   * 🔴 THIS IS THE SECOND HALF OF THE ANTI-DUPLICATE GUARD, and it exists because
+   * `submittingRef` alone only covers the window while a call is IN FLIGHT. The
+   * uncovered window is the one that costs: `append` succeeds, the pointer write
+   * that would have retired the record REJECTS (per-app quota, >64KB, anon), the
+   * record therefore keeps its editable body, the card keeps saying **Publish**,
+   * and a second click appends a SECOND permanent public row. `append` has no
+   * idempotency key and `update`/`withdraw` are addressed by the key that only
+   * ever reached the failed write — so the duplicate is unmergeable and, from
+   * this app, unremovable.
+   *
+   * It is STATE rather than a ref on purpose: retiring the id has to re-render
+   * the three unpublished lists, which is what actually takes the button away.
+   *
+   * ⚠ THE SCOPE, STATED SO NOBODY READS MORE INTO IT. It is SESSION-scoped —
+   * neither durable nor viewer-scoped:
+   *   - a RELOAD re-reads the store, and the store is exactly what could not be
+   *     written, so the record comes back still offering Publish. Nothing here
+   *     can fix that: the only durable record of the append was the pointer whose
+   *     write failed.
+   *   - it is deliberately NOT cleared on a viewer switch. The clear would have
+   *     to live in an effect, and the drafts effect below re-runs on
+   *     `draftsVersion` — i.e. after every publish — so putting it there would
+   *     undo this guard immediately. The residual cost is that a SECOND viewer in
+   *     the same session whose stored record happened to carry an identical
+   *     `localId` would have it hidden; local ids are `newId()`-minted (timestamp
+   *     plus a process-local counter) and the two viewers' records were written by
+   *     different processes, so that is a collision, not a normal case.
+   */
+  const [publishedLocalIds, setPublishedLocalIds] = useState<string[]>([]);
+  const publishedThisSession = useMemo(() => new Set(publishedLocalIds), [publishedLocalIds]);
+
+  /**
+   * 🔴 THE ONE PATH FROM A PER-VIEWER RECORD TO THE PUBLIC BOARD, for all three
+   * publishable objects. It was open-coded three times (matchup, prompt, grid)
+   * and was wrong at all three in the same direction — the pointer write had no
+   * `catch`, so the failure above was silent on every surface. Each object now
+   * contributes only what genuinely differs: its own local id, its own KV key,
+   * its own payload (built by its own builder, so the wire shape and the
+   * moderation split stay that builder's business) and its own analytics event.
+   *
+   * THE ORDER BELOW IS THE GUARD, and every line of it is load-bearing:
+   *
+   *  1. `append` FIRST and alone. Everything after it is reasoning about a row
+   *     that is already public and already permanent.
+   *  2. RETIRE THE LOCAL ID IMMEDIATELY — before the pointer write, not after.
+   *     This is the only step that cannot be skipped by a rejection, and it is
+   *     what makes "the UI never offers Publish for this record again" true
+   *     regardless of what the KV does next.
+   *  3. The pointer write is ATTEMPTED AND CAUGHT. It is a real loss when it
+   *     fails (the pointer is the only per-viewer handle on a host-minted key —
+   *     see `publishedPointer`), but it is a loss on top of a success, not a
+   *     reason to pretend the publish did not happen.
+   *  4. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
+   *     catches it and renders it; a quiet `finally` here is what made this
+   *     invisible in the first place.
+   */
+  const publishRecord = useCallback(
+    async (spec: {
+      /** Per-viewer local id: the claim identity AND the pointer's own id. */
+      localId: string;
+      /** Viewer-facing noun, for the honest failure copy. */
+      noun: 'matchup' | 'prompt' | 'grid';
+      /** The per-viewer KV key holding this record. */
+      storageKey: string;
+      /** The board payload, from this object's own payload builder. */
+      payload: SharedAppendValue;
+      /** Analytics event name and props for this object kind. */
+      event: string;
+      props: Record<string, unknown>;
+    }) => {
+      if (submittingRef.current.has(spec.localId)) return;
+      if (publishedThisSession.has(spec.localId)) return;
+      submittingRef.current.add(spec.localId);
+      try {
+        const { key } = await depsRef.current.shared.append(spec.payload);
+        // 🔴 STEP 2 — see the comment above. Nothing between the `append` and
+        // this line may await.
+        setPublishedLocalIds((prev) => (prev.includes(spec.localId) ? prev : [...prev, spec.localId]));
+        let pointerError: string | null = null;
+        try {
+          await depsRef.current.appStorage.set(
+            spec.storageKey,
+            publishedPointer(spec.localId, key),
+          );
+        } catch (e) {
+          pointerError = errMsg(e);
+        }
+        optimisticInsert(key, spec.payload);
+        depsRef.current.track(spec.event, spec.props);
+        refreshDrafts();
+        reload();
+        if (pointerError !== null) {
+          throw new Error(publishPointerFailedNotice(spec.noun, pointerError));
+        }
+      } finally {
+        submittingRef.current.delete(spec.localId);
+      }
+    },
+    [optimisticInsert, publishedThisSession, refreshDrafts, reload],
+  );
+
+  /**
+   * PUBLISH a MATCHUP — the one place an unpublished matchup crosses into the
+   * public board, and the only moment the record becomes visible to anyone else.
+   * `buildCombinationPayload` is reused verbatim so a submitted draft is
+   * byte-identical to a row submitted directly, including `data.kind:
+   * 'combination'` (a persisted wire value that discriminates every row already
+   * on the board — never renamed) and including the moderation split: every
+   * user-authored string is in `title`/`body`, and `data` carries structure only.
    *
    * The draft is then KEPT, rewritten to `{localId, sharedKey, submittedAt}`: it
    * is the only per-viewer handle on the row, since shared keys are host-minted
-   * and the shared list has no "mine" index.
+   * and the shared list has no "mine" index. `publishRecord` owns everything
+   * about WHEN that write happens and what a refusal means.
    */
   const submitDraft = useCallback(
     async (draft: DraftUnsubmitted) => {
-      if (submittingRef.current.has(draft.localId)) return;
-      submittingRef.current.add(draft.localId);
-      try {
-        const input = draftToInput(draft);
-        const payload = buildCombinationPayload(input) as SharedAppendValue;
-        const { key } = await depsRef.current.shared.append(payload);
-        await depsRef.current.appStorage.set(
-          draftKey(draft.localId),
-          submittedPointer(draft.localId, key),
-        );
-        optimisticInsert(key, payload);
-        depsRef.current.track('submit_combo', {
+      const input = draftToInput(draft);
+      await publishRecord({
+        localId: draft.localId,
+        noun: 'matchup',
+        storageKey: draftKey(draft.localId),
+        payload: buildCombinationPayload(input) as SharedAppendValue,
+        event: 'submit_combo',
+        props: {
           configCount: input.configs.filter((cfg) => cfg?.checkpoint).length,
           fromDraft: true,
-        });
-        refreshDrafts();
-        reload();
-      } finally {
-        submittingRef.current.delete(draft.localId);
-      }
+        },
+      });
     },
-    [optimisticInsert, refreshDrafts, reload],
+    [publishRecord],
   );
 
   /**
-   * PUBLISH a PROMPT — the exact mirror of `submitDraft`, and for the same
-   * reasons: `buildPromptPayload` is reused verbatim so a published record is
-   * byte-identical to a prompt submitted directly (including `data.kind:
-   * 'prompt'` and the moderation split), the same synchronous claim set prevents
-   * a double-tap minting two rows, and the record is KEPT as the pointer at the
-   * row it became.
+   * PUBLISH a PROMPT — the exact mirror of `submitDraft`: `buildPromptPayload` is
+   * reused verbatim so a published record is byte-identical to a prompt submitted
+   * directly (including `data.kind: 'prompt'` and the moderation split).
    */
   const publishUnpubPrompt = useCallback(
     async (rec: UnpublishedPrompt) => {
-      if (submittingRef.current.has(rec.localId)) return;
-      submittingRef.current.add(rec.localId);
-      try {
-        const input = unpubPromptToInput(rec);
-        const payload = buildPromptPayload(input) as SharedAppendValue;
-        const { key } = await depsRef.current.shared.append(payload);
-        await depsRef.current.appStorage.set(
-          unpubPromptKey(rec.localId),
-          publishedPointer(rec.localId, key),
-        );
-        optimisticInsert(key, payload);
-        depsRef.current.track('submit_prompt', {
+      const input = unpubPromptToInput(rec);
+      await publishRecord({
+        localId: rec.localId,
+        noun: 'prompt',
+        storageKey: unpubPromptKey(rec.localId),
+        payload: buildPromptPayload(input) as SharedAppendValue,
+        event: 'submit_prompt',
+        props: {
           overrideCount: Object.keys(input.overrides ?? {}).length,
           fromUnpublished: true,
-        });
-        refreshDrafts();
-        reload();
-      } finally {
-        submittingRef.current.delete(rec.localId);
-      }
+        },
+      });
     },
-    [optimisticInsert, refreshDrafts, reload],
+    [publishRecord],
   );
 
   /**
-   * PUBLISH a GRID — the third mirror of `submitDraft`, and the ONLY moment a
-   * grid becomes visible to anyone else.
+   * PUBLISH a GRID — the third caller, and the ONLY moment a grid becomes visible
+   * to anyone else.
    *
    * `buildGridPayload` is reused verbatim, so the row carries `data.kind: 'grid'`
    * at `v: 1` and §11.2's moderation split: the author's name and description go
@@ -1143,35 +1232,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * split is the whole reason the payload builder is not open-coded here — a grid
    * whose name rode in `data` would route author prose around the content belt,
    * and the wire shape is effectively permanent from the first published grid.
-   *
-   * The private record is then KEPT as the pointer at the row it became, same as
-   * every other object: shared keys are host-minted and the shared list has no
-   * "mine" index, so it is the only per-viewer handle on the row.
    */
   const publishUnpubGrid = useCallback(
     async (rec: UnpublishedGrid) => {
-      if (submittingRef.current.has(rec.localId)) return;
-      submittingRef.current.add(rec.localId);
-      try {
-        const input = unpubGridToInput(rec);
-        const payload = buildGridPayload(input) as SharedAppendValue;
-        const { key } = await depsRef.current.shared.append(payload);
-        await depsRef.current.appStorage.set(
-          unpubGridKey(rec.localId),
-          publishedPointer(rec.localId, key),
-        );
-        optimisticInsert(key, payload);
-        depsRef.current.track('submit_grid', {
+      const input = unpubGridToInput(rec);
+      await publishRecord({
+        localId: rec.localId,
+        noun: 'grid',
+        storageKey: unpubGridKey(rec.localId),
+        payload: buildGridPayload(input) as SharedAppendValue,
+        event: 'submit_grid',
+        props: {
           matchupCount: input.matchupKeys.length,
           promptCount: input.promptKeys.length,
-        });
-        refreshDrafts();
-        reload();
-      } finally {
-        submittingRef.current.delete(rec.localId);
-      }
+        },
+      });
     },
-    [optimisticInsert, refreshDrafts, reload],
+    [publishRecord],
   );
 
   const submitCombination = useCallback(
@@ -1557,17 +1634,35 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // once as a stub that can do neither. The pointer keeps its STORAGE role: it is
   // the per-viewer handle a withdraw sweeps (`clearPointerFor`) and the reason a
   // published record is not left behind as an editable private copy.
+  //
+  // 🔴 `publishedThisSession` IS THE SECOND FILTER ON ALL THREE, and it is what
+  // makes "a successful `append` retires the record from this list" true even
+  // when the pointer write that would normally have retired it was REFUSED. The
+  // stored record still carries its editable body in that case, so `isSubmitted`
+  // / `isPublishedPrompt` / `isPublishedGrid` all still say "unpublished" — and
+  // without this filter the card comes back saying **Publish**, one click from a
+  // second permanent public row. See `publishRecord`.
   const unpublishedMatchups = useMemo(
-    () => drafts.filter((d): d is DraftUnsubmitted => !isSubmitted(d)),
-    [drafts],
+    () =>
+      drafts.filter(
+        (d): d is DraftUnsubmitted => !isSubmitted(d) && !publishedThisSession.has(d.localId),
+      ),
+    [drafts, publishedThisSession],
   );
   const unpublishedPrompts = useMemo(
-    () => unpubPrompts.filter((p): p is UnpublishedPrompt => !isPublishedPrompt(p)),
-    [unpubPrompts],
+    () =>
+      unpubPrompts.filter(
+        (p): p is UnpublishedPrompt =>
+          !isPublishedPrompt(p) && !publishedThisSession.has(p.localId),
+      ),
+    [unpubPrompts, publishedThisSession],
   );
   const unpublishedGrids = useMemo(
-    () => unpubGrids.filter((g): g is UnpublishedGrid => !isPublishedGrid(g)),
-    [unpubGrids],
+    () =>
+      unpubGrids.filter(
+        (g): g is UnpublishedGrid => !isPublishedGrid(g) && !publishedThisSession.has(g.localId),
+      ),
+    [unpubGrids, publishedThisSession],
   );
   const archivedKeys = useMemo(() => new Set(archived), [archived]);
   const quotaLine = formatQuota(quota);
@@ -1870,6 +1965,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               viewerId={viewer?.id ?? null}
               loading={loading}
               error={error}
+              /* 🔴 The SAME flag the `board-truncated-notice` above is rendered
+                 from. A grid's members are resolved against the rows this scan
+                 READ, so when it stopped early a "missing" member may simply be
+                 unread — and the notice must not tell the viewer its author
+                 removed it. */
+              boardTruncated={boardTruncated}
               onVote={onVote}
               onUnvote={onUnvote}
               onRequireAuth={requireAuth}

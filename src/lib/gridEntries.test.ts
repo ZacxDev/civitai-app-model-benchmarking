@@ -316,6 +316,50 @@ describe('the disclosure copy', () => {
     );
   });
 
+  it('🔴 does NOT blame the authors when the BOARD SCAN was TRUNCATED', () => {
+    // 🔴 THE CLAIM THE OLD COPY MADE AND COULD NOT SUPPORT. "Missing" is a set
+    // difference against the rows the scan READ, and `listAll` caps at
+    // `LIST_PAGE × MAX_PAGES`. On an over-cap board a member that is perfectly
+    // alive reads as missing, so "their authors removed them" is an assertion
+    // about other people's actions the app has no evidence for — and it points
+    // the reader at the wrong remedy. Same honesty rule the existing
+    // `board-truncated-notice` already applies to the ranking.
+    //
+    // 🔴 THE WHOLE NORMALISED STRING is pinned, in both branches, not a keyword:
+    // the artifact under test IS prose, and a guard on the word "removed" is
+    // walkable by a reword that re-implies removal in different words. A cosmetic
+    // reword now fails this test. That is the price of a machine-readable claim.
+    const r = resolveGridRows(
+      { system: false, row: grid('gk-n', 1, ['mk-alpha', 'mk-x', 'mk-y'], ['qk-tango', 'qk-z']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(missingMembersNotice(r, true)).toBe(
+      "3 of this grid's 5 members (2 rows, 1 column) could not be found on the board — " +
+        'but this board has more entries than the app can load at once, so they may simply ' +
+        'not have been read rather than removed. Everything else below still renders; ' +
+        'nothing was quietly dropped.',
+    );
+    // The two branches are genuinely different sentences, not one string with a
+    // clause bolted on — so a mutant that ignores the flag cannot satisfy both.
+    expect(missingMembersNotice(r, true)).not.toBe(missingMembersNotice(r, false));
+    // 🔴 THE DEFAULT IS THE COMPLETE-SCAN BRANCH. A caller that has not been
+    // taught about truncation keeps the old, stronger sentence; the App passes
+    // the flag explicitly.
+    expect(missingMembersNotice(r)).toBe(missingMembersNotice(r, false));
+  });
+
+  it('stays NULL on a truncated scan when nothing is missing at all', () => {
+    // The flag decides WHICH sentence, never WHETHER there is one: a grid whose
+    // members all resolved has nothing to disclose, truncated board or not.
+    const r = resolveGridRows(
+      { system: false, row: grid('gk-ok', 1, ['mk-alpha'], ['qk-tango']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(missingMembersNotice(r, true)).toBeNull();
+  });
+
   it('🔴 is NULL when nothing is missing — no reassuring "0 missing" line', () => {
     const r = resolveGridRows(
       { system: false, row: grid('gk-ok', 1, ['mk-alpha'], ['qk-tango']) },

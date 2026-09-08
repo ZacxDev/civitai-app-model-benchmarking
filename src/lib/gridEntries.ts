@@ -169,17 +169,48 @@ function plural(n: number, one: string, many: string): string {
  * "2 members are gone" reads very differently against 4 authored members than
  * against 40. `null` when nothing is missing, so the caller renders no notice at
  * all rather than a reassuring "0 missing" nobody reads.
+ *
+ * 🔴 `boardTruncated` DECIDES WHICH CAUSE MAY BE NAMED, and it is the whole
+ * reason this takes a second argument. "Missing" is computed by set difference
+ * against the rows the scan actually READ, so it has (at least) two causes and
+ * the resolver cannot tell them apart:
+ *
+ *   - the member's row really was WITHDRAWN by its author (§11.2 calls this
+ *     normal), or
+ *   - the BOARD SCAN never reached it — `listAll` caps at `LIST_PAGE` ×
+ *     `MAX_PAGES` rows, and a row past that cap is simply unread. (A row whose
+ *     `data` fails to parse lands here too: `splitRows` skips it silently.)
+ *
+ * The sentence used to assert the first unconditionally — "their authors removed
+ * them" — which on an over-cap board is a claim about other people's actions
+ * that the app has no evidence for, and it points the reader at the wrong
+ * remedy. Attribute removal ONLY when the scan was complete; when it was not,
+ * say the members may simply not have been read. Same honesty rule as the
+ * `board-truncated-notice` this app already renders.
+ *
+ * ⚠ `boardTruncated: false` is NOT "definitely withdrawn" either — an unparseable
+ * row still reads as missing. What it buys is that the app READ everything it
+ * could, which is the strongest claim available; the copy stays at "no longer on
+ * the board" and attributes removal as the reason, without asserting anything
+ * about a row nobody can see.
  */
-export function missingMembersNotice(resolved: ResolvedGridRows): string | null {
+export function missingMembersNotice(
+  resolved: ResolvedGridRows,
+  boardTruncated = false,
+): string | null {
   if (resolved.missingTotal <= 0) return null;
   const parts: string[] = [];
   if (resolved.missingMatchups > 0) parts.push(plural(resolved.missingMatchups, 'row', 'rows'));
   if (resolved.missingPrompts > 0) parts.push(plural(resolved.missingPrompts, 'column', 'columns'));
-  return (
-    `${resolved.missingTotal} of this grid's ${resolved.authoredTotal} members ` +
-    `(${parts.join(', ')}) are no longer on the board — their authors removed them. ` +
-    'Everything else below still renders; nothing was quietly dropped.'
-  );
+  const head = `${resolved.missingTotal} of this grid's ${resolved.authoredTotal} members (${parts.join(', ')}) `;
+  return boardTruncated
+    ? head +
+        'could not be found on the board — but this board has more entries than the app ' +
+        'can load at once, so they may simply not have been read rather than removed. ' +
+        'Everything else below still renders; nothing was quietly dropped.'
+    : head +
+        'are no longer on the board — their authors removed them. ' +
+        'Everything else below still renders; nothing was quietly dropped.';
 }
 
 /** The one-line structural summary of a grid, as listed. */

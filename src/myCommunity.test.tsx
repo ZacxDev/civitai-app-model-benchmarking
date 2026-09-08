@@ -463,8 +463,18 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     // 🔴 THE HAZARD: `appStorage.set` rejects for an anonymous viewer and
     // `shared.append` rejects too, so any control that fired one here would
     // surface as an unhandled rejection out of a click handler. The guard is that
-    // the anonymous surface offers none — and this walks the ones it DOES offer
-    // (both sub-tabs, both views, and the one sign-in button) to prove it.
+    // the anonymous surface offers none — and this walks the ones it DOES offer.
+    //
+    // 🔴 THE WALK IS THE CLAIM, AND IT USED TO BE NARROWER THAN THE SENTENCE
+    // DESCRIBING IT. The docstring said "both sub-tabs, both views" while the app
+    // has THREE views, Grids is the DEFAULT one (§11.5), and the walk never
+    // entered it. It also never touched `submit-matchup` or `submit-prompt`,
+    // which render UNGATED for an anonymous viewer — those paths turn out to be
+    // handled (both forms catch), but a guard that reads as coverage while
+    // providing none is worse than no guard, because it stops anyone looking.
+    // The walk is now as wide as the sentence: all THREE views, both sub-tabs on
+    // each, both ungated submit buttons opened AND dismissed, and the sign-in
+    // buttons clicked. Widening it — not narrowing the sentence — is the fix.
     const rejections: unknown[] = [];
     const onRejection = (e: unknown) => rejections.push(e);
     process.on('unhandledRejection', onRejection);
@@ -474,23 +484,47 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       });
       const { appStorage, setAttempts, deletes } = fakeAppStorage();
       let signInRequests = 0;
-      await renderApp(
-        { shared, appStorage, requestSignIn: () => (signInRequests += 1) },
-        null,
-      );
+      // Mounted WITHOUT `renderApp`'s navigate-to-Matchups step: the DEFAULT view
+      // is where an anonymous viewer actually lands, and it is the one the old
+      // walk never visited.
+      mountApp({ shared, appStorage, requestSignIn: () => (signInRequests += 1) }, null);
 
+      // ---- GRIDS: the default view (§11.5, criterion 9) ----
+      await screen.findByTestId('grid-view');
+      // The create affordance IS gated here — asserted, so "no write" cannot be
+      // credited to a button the walk simply failed to find.
+      expect(screen.queryByTestId('grid-new')).toBeNull();
+      await openMy();
+      await userEvent.click(await screen.findByTestId('my-sign-in'));
+      await openCommunity();
+
+      // ---- MATCHUPS ----
+      await openView('Matchups');
       await screen.findByTestId('matchups-view');
       await openMy();
       await userEvent.click(await screen.findByTestId('my-sign-in'));
       await openCommunity();
+      // 🔴 UNGATED FOR ANON: `submit-matchup` renders for everyone. Open the form
+      // it raises and dismiss it — this is the path the old walk never entered.
+      await userEvent.click(await screen.findByTestId('submit-matchup'));
+      await screen.findByTestId('matchup-form');
+      await userEvent.click(screen.getByTestId('matchup-cancel'));
+
+      // ---- PROMPTS ----
       await openPromptsView();
       await openMy();
       await userEvent.click(await screen.findByTestId('my-sign-in'));
       await openCommunity();
+      // 🔴 Also ungated for anon.
+      await userEvent.click(await screen.findByTestId('submit-prompt'));
+      await screen.findByTestId('prompt-form');
+      await userEvent.click(screen.getByTestId('prompt-cancel'));
 
-      // POSITIVE CONTROL on the walk: the sign-in button really was clicked, so
-      // the empty write ledgers below are about a surface that was exercised.
-      expect(signInRequests, 'the anonymous surface was never actually clicked').toBe(2);
+      // POSITIVE CONTROL on the walk: the sign-in button really was clicked on
+      // all THREE views, so the empty write ledgers below are about a surface
+      // that was exercised. A literal, not a `>=`: this is the walk's ledger, so
+      // a view appearing or disappearing should be a decision someone takes.
+      expect(signInRequests, 'the anonymous surface was never actually clicked').toBe(3);
 
       // 🔴 NOT ONE write was attempted, on either store. `setAttempts` records
       // even a REJECTED `set`, which `sets` would not — so this cannot be

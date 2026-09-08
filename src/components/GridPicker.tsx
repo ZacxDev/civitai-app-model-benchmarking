@@ -79,7 +79,9 @@ export interface GridPickerProps {
   selected: readonly string[];
   /** Confirm. Receives the picked keys in the order the user picked them. */
   onConfirm: (keys: string[]) => void;
-  /** Cancel / Escape / overlay click / ×. The parent must flip `opened`. */
+  /** Cancel / Escape / overlay click / ×. The parent must flip `opened`.
+   * 🔴 Escape reaches ONLY this callback — never an enclosing modal's. See the
+   * capture-phase effect in the body. */
   onCancel: () => void;
   /** Test id prefix. Defaults to `grid-picker`. */
   'data-testid'?: string;
@@ -187,6 +189,41 @@ export function GridPicker({
     wasOpen.current = opened;
   }, [opened, selected]);
 
+  /**
+   * 🔴 ESCAPE IS OWNED HERE, NOT BY `Modal`, AND THAT IS A DATA-LOSS FIX.
+   *
+   * This picker is a modal rendered INSIDE another modal — `GridForm` lives in
+   * the App's `unpub-grid` `Modal`. The pack's `Modal` attaches its Escape
+   * handler to `document` and deliberately does NOT `stopPropagation`, saying so
+   * in its own source: "v0 assumes a single modal, so letting the event continue
+   * is correct" (`@civitai/blocks-react/dist/ui/Modal.js`). With two modals open
+   * that is not correct: ONE Escape ran BOTH `onClose`s, so the picker closed AND
+   * the grid form unmounted, destroying the name, the description and BOTH key
+   * selections — every one of them local `useState` in `GridForm`, none of them
+   * persisted, with no recovery and no message.
+   *
+   * So the picker takes Escape off the pack entirely:
+   *   - `closeOnEscape={false}` on its own `Modal`, so the pack attaches nothing
+   *     for this modal and there is exactly one handler, not two;
+   *   - a CAPTURE-phase listener on `document`, which runs BEFORE any bubble-phase
+   *     listener — including the OUTER modal's — and `stopPropagation()` there
+   *     prevents the event ever reaching the bubble phase at all.
+   *
+   * Capture is what makes the order deterministic. A bubble-phase listener here
+   * would race the outer modal's on registration order, and the outer one is
+   * registered first (it mounted first), so it would win.
+   */
+  useEffect(() => {
+    if (!opened) return;
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onCancel();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [opened, onCancel]);
+
   const needle = query.trim().toLowerCase();
   const filtered = useMemo(() => items.filter((it) => matches(it, needle)), [items, needle]);
 
@@ -239,8 +276,9 @@ export function GridPicker({
   }
 
   function onListKeyDown(e: ReactKeyboardEvent<HTMLDivElement>): void {
-    // Escape is deliberately NOT handled here: Modal owns it on `document`, and
-    // swallowing it would break the one close affordance keyboard users expect.
+    // Escape is deliberately NOT handled here: the document-level handler above
+    // owns it for the whole picker, so a key that arrives on the list is already
+    // dealt with before React sees it.
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
@@ -313,6 +351,10 @@ export function GridPicker({
       title={copy.title}
       size="lg"
       closeButtonLabel={`Close ${copy.one} picker`}
+      // 🔴 The picker owns Escape itself — see the capture-phase effect above.
+      // Leaving the pack's handler on would put TWO handlers on `document` for
+      // one modal, and the pack's fires in the bubble phase the effect stops.
+      closeOnEscape={false}
     >
       <Stack gap={12} data-testid={testId}>
         <span style={mutedText} data-testid={`${testId}-intro`}>

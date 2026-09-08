@@ -15,7 +15,7 @@
 // two drift apart, and the copy is the half that must not.
 
 import { useState } from 'react';
-import { Badge, Button, Card, Group, Stack } from '@civitai/blocks-react/ui';
+import { Alert, Badge, Button, Card, Group, Stack } from '@civitai/blocks-react/ui';
 
 import { metaText, mutedText } from '../theme.js';
 
@@ -54,12 +54,30 @@ export function UnpublishedList({
   // Which record is mid-publish — the button that could mint a public row is
   // disabled while its own call is in flight, so a double-tap can't append twice.
   const [publishing, setPublishing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  /**
+   * 🔴 THE `catch` IS NOT DECORATION — it is what stops a failed publish being
+   * SILENT, which is the whole reason a half-published record went unreported.
+   * `onPublish` reaches `shared.append` and then `appStorage.set`, and BOTH can
+   * reject (the append for an anonymous or rate-limited viewer, the `set` on the
+   * per-APP quota, on >64KB, or for anon). A bare `try/finally` — which this had
+   * — spun the button, put the record back, and told the viewer nothing, while
+   * `MatchupForm` and `PromptForm` had caught and rendered since they shipped.
+   *
+   * The message is rendered VERBATIM because the App composes it: when the row
+   * DID reach the board and only the private half failed, the honest sentence
+   * says so (`publishPointerFailedNotice`), and shortening it to "Publish
+   * failed" would invite the second click that mints a duplicate public row.
+   */
   const publish = async (localId: string) => {
     if (publishing) return;
     setPublishing(localId);
+    setError(null);
     try {
       await onPublish(localId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to publish.');
     } finally {
       setPublishing(null);
     }
@@ -84,6 +102,15 @@ export function UnpublishedList({
           New {noun}
         </Button>
       </Group>
+
+      {/* 🔴 OUTSIDE the list, not on a card: the failure that matters most is the
+          one where the record has just been retired FROM the list, so a notice
+          rendered per-card would unmount with the card it was about. */}
+      {error && (
+        <Alert color="error" data-testid="unpublished-error">
+          {error}
+        </Alert>
+      )}
 
       {items.length === 0 ? (
         <span style={mutedText} data-testid="unpublished-empty">

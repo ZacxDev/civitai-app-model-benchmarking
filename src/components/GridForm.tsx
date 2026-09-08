@@ -53,6 +53,16 @@ export function GridForm({
 
   const input: GridInput = { name, description, matchupKeys, promptKeys };
 
+  /**
+   * 🔴 THE `catch` IS THE SAME ONE `MatchupForm` AND `PromptForm` HAVE HAD SINCE
+   * THEY SHIPPED, and this form went out without it. `onSubmit` is
+   * `saveUnpubGrid`, i.e. `appStorage.set` — which REJECTS on the per-APP 50MB
+   * quota (so one viewer at the ceiling breaks it for every viewer), on a >64KB
+   * value, and for an anonymous viewer. With only a `finally`, every one of those
+   * unspun the button and left the form open with no message, so the viewer's
+   * next move is to press Save again against the same refusal. Failures on the
+   * private path are reported in the same place validation failures are.
+   */
   const handleSubmit = async () => {
     const errs = validateGrid(input);
     setErrors(errs);
@@ -60,6 +70,8 @@ export function GridForm({
     setBusy(true);
     try {
       await onSubmit(input);
+    } catch (e) {
+      setErrors([e instanceof Error ? e.message : 'Failed to save.']);
     } finally {
       setBusy(false);
     }

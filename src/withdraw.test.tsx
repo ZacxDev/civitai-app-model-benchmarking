@@ -18,8 +18,9 @@ import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
+import { UNPUB_GRID_PREFIX, unpubGridKey } from './lib/grids.js';
 import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
-import type { CombinationData, PromptData } from './types.js';
+import type { CombinationData, GridData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
 const OTHER_ID = 7;
@@ -57,6 +58,27 @@ function row(
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
+}
+
+/** A GRID row on the shared board. Its members are keys nothing here seeds — a
+ * grid's members belong to other authors and dangling ones are NORMAL (§11.2),
+ * so this is the ordinary case, not a degenerate one. */
+function gridRow(key: string, title: string, authorUserId: number): SharedListItem {
+  const data: GridData = {
+    v: 1,
+    kind: 'grid', // 🔴 persisted wire value — never renamed
+    matchupKeys: ['mk-a'],
+    promptKeys: ['qk-a'],
+  };
+  return {
+    key,
+    authorUserId,
+    count: 1,
+    viewerVoted: false,
+    value: { title, body: '', data },
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+  } as unknown as SharedListItem;
 }
 
 function mountApp(deps: Partial<AppDeps>) {
@@ -440,6 +462,126 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     await waitFor(() => expect(withdraws).toEqual([PROMPT_KEY]));
     await waitFor(() => expect(deletes).toContain(unpubPromptKey('up1')));
     expect(store.has(unpubPromptKey('up1'))).toBe(false);
+    // …and the unrelated MATCHUP pointer is not collateral damage.
+    expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
+    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+  });
+
+  it('sweeps the GRID prefix — and NEITHER other one — when a GRID is withdrawn', async () => {
+    // 🔴 `withdrawGrid`'s PREFIX ARGUMENT WAS UNGUARDED. The matchup and prompt
+    // surfaces each have a case pinning which prefix they sweep; the grid one had
+    // none, and an audit changed `UNPUB_GRID_PREFIX` -> `DRAFT_PREFIX` in
+    // `withdrawGrid` with all 499 tests still green. That mutant is a real data
+    // loss in both directions at once: the grid's own pointer is orphaned
+    // forever (shared keys are host-minted and the shared list has no "mine"
+    // index, so it is unrecoverable), AND the sweep walks a MATCHUP's pointers
+    // looking for a match — a grid key can never equal a matchup key here, but
+    // "can never" is exactly the premise that died when prompts got a store.
+    //
+    // The claim has the same two halves as the prompt case, and each alone is
+    // walkable: the sweep runs on the GRID prefix, and on NEITHER of the other
+    // two. 🔴 THE COST HALF IS MEASURED WITH NO GRID POINTER IN THE STORE, on
+    // purpose — a sweep that FINDS its match calls `refreshDrafts()`, which
+    // re-lists every prefix, and the counts then cannot tell a sweep from a
+    // refresh.
+    const GRID_KEY = 'g1';
+    const { shared, withdraws } = fakeShared({
+      seed: [gridRow(GRID_KEY, 'My Grid', VIEWER_ID)],
+    });
+    const { appStorage, deletes, store, listCalls } = fakeAppStorage({
+      [draftKey(POINTER_LOCAL_ID)]: pointer,
+      [unpubPromptKey('up-other')]: {
+        v: 1,
+        localId: 'up-other',
+        sharedKey: 'some-other-prompt',
+        submittedAt: 'ts',
+      },
+    });
+    mountApp({ shared, appStorage });
+    await screen.findByTestId('grid-view'); // Grids is the DEFAULT view (§11.5)
+
+    // Baseline AFTER mount: the load lists all three prefixes once legitimately,
+    // so the claim is that the WITHDRAW adds none to the other two — not that
+    // there are zero. Counting from zero would pin the mount effect instead.
+    const listsOf = (prefix: string) => listCalls.filter((c) => c?.prefix === prefix).length;
+    await waitFor(() => expect(listsOf(DRAFT_PREFIX)).toBeGreaterThan(0));
+    await waitFor(() => expect(listsOf(UNPUB_PROMPT_PREFIX)).toBeGreaterThan(0));
+    const draftsBefore = listsOf(DRAFT_PREFIX);
+    const promptsBefore = listsOf(UNPUB_PROMPT_PREFIX);
+    const gridsBefore = listsOf(UNPUB_GRID_PREFIX);
+
+    const card = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the viewer’s own grid never rendered').toBeTruthy();
+      return el!;
+    });
+    await userEvent.click(within(card).getByTestId('grid-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([GRID_KEY]));
+
+    // 🔴 POSITIVE CONTROL: a sweep DID run, on the GRID prefix. Without it the
+    // two "no extra listing" assertions below are satisfied by a withdraw that
+    // swept nothing at all — which is the orphan-forever bug, not the fix.
+    await waitFor(() =>
+      expect(
+        listsOf(UNPUB_GRID_PREFIX),
+        'the grid withdraw swept nothing — its own pointers would be orphaned',
+      ).toBeGreaterThan(gridsBefore),
+    );
+
+    // 🔴 NOT ONE extra listing of EITHER other prefix, and neither foreign
+    // pointer is touched.
+    expect(
+      listsOf(DRAFT_PREFIX),
+      'the grid path swept the MATCHUP prefix it can never match',
+    ).toBe(draftsBefore);
+    expect(
+      listsOf(UNPUB_PROMPT_PREFIX),
+      'the grid path swept the PROMPT prefix it can never match',
+    ).toBe(promptsBefore);
+    expect(deletes).toEqual([]);
+    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+    expect(store.has(unpubPromptKey('up-other'))).toBe(true);
+  });
+
+  it('🔴 DELETES the grid’s OWN pointer when that grid is withdrawn', async () => {
+    // The other half, and the one that silently orphans: a published-then-
+    // withdrawn grid leaves a pointer at a row that no longer exists unless the
+    // sweep clears it, and that pointer is the viewer's only per-viewer handle.
+    const GRID_KEY = 'g1';
+    const gridPointer = {
+      v: 1,
+      localId: 'gl1',
+      sharedKey: GRID_KEY,
+      submittedAt: '2026-09-07T00:00:00.000Z',
+    };
+    const { shared, withdraws } = fakeShared({
+      seed: [gridRow(GRID_KEY, 'My Grid', VIEWER_ID)],
+    });
+    const { appStorage, deletes, store } = fakeAppStorage({
+      [draftKey(POINTER_LOCAL_ID)]: pointer,
+      [unpubGridKey('gl1')]: gridPointer,
+    });
+    mountApp({ shared, appStorage });
+    await screen.findByTestId('grid-view');
+    expect(store.has(unpubGridKey('gl1'))).toBe(true);
+
+    const card = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the viewer’s own grid never rendered').toBeTruthy();
+      return el!;
+    });
+    await userEvent.click(within(card).getByTestId('grid-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([GRID_KEY]));
+    await waitFor(() => expect(deletes).toContain(unpubGridKey('gl1')));
+    expect(store.has(unpubGridKey('gl1'))).toBe(false);
     // …and the unrelated MATCHUP pointer is not collateral damage.
     expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);

@@ -559,6 +559,136 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     expect(s.appends).toEqual([]);
   });
 
+  it('🔴 ESCAPE IN THE PICKER CLOSES ONLY THE PICKER — the grid form survives', async () => {
+    // 🔴 THE DATA LOSS THIS PINS. The picker is a `Modal` rendered INSIDE the
+    // grid form's `Modal`. The pack attaches its Escape handler to `document`
+    // and deliberately does NOT `stopPropagation` — it says so in its own source
+    // ("v0 assumes a single modal") — so ONE Escape ran BOTH `onClose`s: the
+    // picker closed AND `closeModal()` unmounted `GridForm`, destroying the
+    // name, the description and BOTH key selections. All four are local
+    // `useState` in `GridForm`; nothing had been persisted, so there was no
+    // recovery and no message. The picker now owns Escape itself, in the CAPTURE
+    // phase, so the outer modal's bubble-phase handler never runs.
+    const s = fakeShared({ seed: [...MATCHUPS, ...PROMPTS] });
+    const { appStorage, sets } = fakeAppStorage();
+    renderApp({ shared: s.shared, appStorage });
+    await screen.findByTestId('grid-view');
+
+    await userEvent.click(await screen.findByTestId('grid-new'));
+    const form = await screen.findByTestId('grid-form');
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Escape survivor');
+    await userEvent.type(within(form).getByTestId('grid-form-description'), 'both axes chosen');
+
+    // Both axes picked FIRST, so the state Escape could destroy is real state and
+    // not an empty form that would look identical either way.
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    const rowPicker = await screen.findByTestId('grid-pick-rows');
+    await userEvent.click(
+      within(rowPicker)
+        .getAllByTestId('grid-pick-rows-option')
+        .find((el) => el.getAttribute('data-key') === 'mk-echo')!,
+    );
+    await userEvent.click(within(rowPicker).getByTestId('grid-pick-rows-confirm'));
+
+    await userEvent.click(within(form).getByTestId('grid-form-pick-cols'));
+    const colPicker = await screen.findByTestId('grid-pick-cols');
+    await userEvent.click(
+      within(colPicker)
+        .getAllByTestId('grid-pick-cols-option')
+        .find((el) => el.getAttribute('data-key') === 'qk-whisky')!,
+    );
+    await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    expect(within(form).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
+    expect(within(form).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
+
+    // Re-open the row picker and press Escape.
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    await screen.findByTestId('grid-pick-rows');
+
+    // 🔴 POSITIVE CONTROL: TWO modals really are mounted. Without it, an Escape
+    // that "left the form alone" could just mean the picker never opened, and
+    // the case would pass against a picker that does not render at all.
+    expect(screen.getAllByRole('dialog'), 'the picker did not open on top of the form').toHaveLength(
+      2,
+    );
+
+    await userEvent.keyboard('{Escape}');
+
+    // The picker closed…
+    await waitFor(() => expect(screen.queryByTestId('grid-pick-rows')).toBeNull());
+    // …and the form did NOT. Every piece of unsaved state is still there.
+    const after = screen.getByTestId('grid-form');
+    expect(within(after).getByTestId('grid-form-name')).toHaveValue('Escape survivor');
+    expect(within(after).getByTestId('grid-form-description')).toHaveValue('both axes chosen');
+    expect(within(after).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
+    expect(within(after).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    // And the form still WORKS afterwards — Escape left no half-torn-down state.
+    await userEvent.click(within(after).getByTestId('grid-form-submit'));
+    await waitFor(() => expect(sets.some((w) => w.key.startsWith(UNPUB_GRID_PREFIX))).toBe(true));
+    expect(sets.find((w) => w.key.startsWith(UNPUB_GRID_PREFIX))!.value).toMatchObject({
+      name: 'Escape survivor',
+      matchupKeys: ['mk-echo'],
+      promptKeys: ['qk-whisky'],
+    });
+  });
+
+  it('🔴 REPORTS a refused private save instead of silently unspinning the button', async () => {
+    // `saveUnpubGrid` is `appStorage.set`, which rejects on the per-APP 50MB
+    // quota, on a >64KB value, and for an anonymous viewer. `GridForm` shipped
+    // with `try/finally` and no `catch`, so all three failed in total silence —
+    // unlike `MatchupForm` and `PromptForm`, which have caught since they
+    // shipped. The viewer's next move against a silent refusal is to press Save
+    // again, forever.
+    const s = fakeShared({ seed: [...MATCHUPS, ...PROMPTS] });
+    const { appStorage, setAttempts, sets } = fakeAppStorage(
+      {},
+      {},
+      { failSetTimes: 9, failSetPrefix: UNPUB_GRID_PREFIX, failSetError: 'QUOTA_EXCEEDED' },
+    );
+    renderApp({ shared: s.shared, appStorage });
+    await screen.findByTestId('grid-view');
+
+    await userEvent.click(await screen.findByTestId('grid-new'));
+    const form = await screen.findByTestId('grid-form');
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Refused');
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    const rowPicker = await screen.findByTestId('grid-pick-rows');
+    await userEvent.click(
+      within(rowPicker)
+        .getAllByTestId('grid-pick-rows-option')
+        .find((el) => el.getAttribute('data-key') === 'mk-echo')!,
+    );
+    await userEvent.click(within(rowPicker).getByTestId('grid-pick-rows-confirm'));
+    await userEvent.click(within(form).getByTestId('grid-form-pick-cols'));
+    const colPicker = await screen.findByTestId('grid-pick-cols');
+    await userEvent.click(
+      within(colPicker)
+        .getAllByTestId('grid-pick-cols-option')
+        .find((el) => el.getAttribute('data-key') === 'qk-whisky')!,
+    );
+    await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    await userEvent.click(within(form).getByTestId('grid-form-submit'));
+
+    // POSITIVE CONTROL on the premise: the write was ATTEMPTED and REFUSED —
+    // `setAttempts` records a rejected `set`, `sets` records only what stored.
+    await waitFor(() =>
+      expect(setAttempts.some((w) => w.key.startsWith(UNPUB_GRID_PREFIX))).toBe(true),
+    );
+    expect(sets.some((w) => w.key.startsWith(UNPUB_GRID_PREFIX))).toBe(false);
+
+    const errs = await screen.findByTestId('grid-form-errors');
+    expect(errs).toHaveTextContent('QUOTA_EXCEEDED');
+    // The form stayed open with the viewer's work intact — a closed form here
+    // would read as a save that succeeded.
+    expect(screen.getByTestId('grid-form-name')).toHaveValue('Refused');
+    // 🔴 And nothing reached the public board on the failing private path.
+    expect(s.appends).toEqual([]);
+  });
+
   it('POSITIVE CONTROL: Publish appends exactly one `kind: grid` row and keeps the pointer', async () => {
     const s = fakeShared({ seed: [...MATCHUPS, ...PROMPTS] });
     const { appStorage, sets } = fakeAppStorage({

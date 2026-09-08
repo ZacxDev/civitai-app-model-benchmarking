@@ -56,6 +56,16 @@ export interface GridsViewProps {
   viewerId: number | null;
   loading: boolean;
   error: string | null;
+  /**
+   * Whether the board scan hit its page cap (`listAll`'s `truncated`).
+   *
+   * 🔴 IT IS AN INPUT TO THE MISSING-MEMBERS COPY, not decoration. A member reads
+   * as "missing" by set difference against the rows the scan READ — so on a
+   * truncated scan it may not be missing at all, and the notice must not blame
+   * its author for removing it. The App computes this for the
+   * `board-truncated-notice` already; it just never reached here.
+   */
+  boardTruncated?: boolean;
   onVote: (key: string) => Promise<number> | void;
   onUnvote: (key: string) => Promise<number> | void;
   onRequireAuth: () => void;
@@ -94,6 +104,7 @@ export function GridsView({
   viewerId,
   loading,
   error,
+  boardTruncated = false,
   onVote,
   onUnvote,
   onRequireAuth,
@@ -145,12 +156,12 @@ export function GridsView({
     () => resolveGridRows(openEntry, combinations, prompts),
     [openEntry, combinations, prompts],
   );
-  const openMissing = missingMembersNotice(openResolved);
+  const openMissing = missingMembersNotice(openResolved, boardTruncated);
   const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
 
   const entryCard = (entry: GridEntry, extraActions?: ReactNode): React.JSX.Element => {
     const resolved = resolveGridRows(entry, combinations, prompts);
-    const missing = missingMembersNotice(resolved);
+    const missing = missingMembersNotice(resolved, boardTruncated);
     const key = entry.system ? '__system__' : entry.row.key;
     const isOwn = !entry.system && isOwnRow(entry.row, viewerId);
     const isOpen = entry.system ? openKey === null : openKey === entry.row.key;

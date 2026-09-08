@@ -396,8 +396,17 @@ describe('splitRows', () => {
 // §11.2). These pin the BOARD-SCAN WIRING specifically: `grids.ts` owns whether
 // a payload is a well-formed grid, this file owns whether the scan ever ASKS.
 // The gap being closed here is that it did not: `grid` was in `RecordKind` and
-// had a parser, but `recordKind` open-coded a three-kind list and `splitRows`
-// had no grid bucket, so a grid row appended today was invisible.
+// had a parser, but `splitRows` had no grid bucket, so a grid row appended today
+// was invisible.
+//
+// ⚠ CORRECTION. This paragraph used to add "and `recordKind` open-coded a
+// three-kind list", implying that function was part of the failure. It was not.
+// `splitRows` calls the four parsers directly and has never called `recordKind`,
+// and `recordKind` has NO production caller — MEASURED, not inferred: a
+// load-bearing string literal planted in its body does not appear in `pnpm
+// build`'s bundle, while the same literal planted in `splitRows` does. So the
+// `recordKind` cases below are a TEST-ONLY CONTRACT surface (see the comment on
+// `RECORD_KINDS`); the cases that pin the LIVE scan are the `splitRows` ones.
 // ---------------------------------------------------------------------------
 describe('the grid record kind is wired through the board scan (§11.2)', () => {
   // Fixture discipline: every key, count, name and prompt string below is

@@ -502,6 +502,52 @@ describe('420 — the 44px figure itself', () => {
       expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
   });
+
+  // 🔴 THE ONE TAP TARGET THIS APP BUILDS ITSELF, and it shipped under the floor.
+  // The other three selectors in the rule all reach PACK-rendered controls, which
+  // is exactly how this was missed: `GridPicker` is hand-built (the pack ships no
+  // MultiSelect), so its option rows are plain `<div role="option">` carrying
+  // `padding: 10px 12px` around a 14px line — about 37px, against the 44 every
+  // other control in the same rule is held to, and they are the primary hit
+  // target of the whole grid-builder flow on a phone.
+  //
+  // The selector is the ROLE, not a testid: it pins the STATE (this element is an
+  // option in a listbox) rather than a word a future component could spell
+  // differently, and it covers any second listbox this app grows.
+  //
+  // ⚠ jsdom does NO layout, so this asserts the CASCADE — the computed
+  // `min-height` on the real rendered rows — and never the geometry. The ~37px
+  // above is a statement about the pack's box model, not a measurement here.
+  it('SELECTOR REACHABILITY: the option rule matches the live grid-picker rows', async () => {
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('grid-view');
+
+    // Grids is the default view (§11.5), so the builder is two clicks away.
+    await userEvent.click(await screen.findByTestId('grid-new'));
+    await screen.findByTestId('grid-form');
+    await userEvent.click(screen.getByTestId('grid-form-pick-rows'));
+    await screen.findByTestId('grid-pick-rows');
+
+    const options = document.querySelectorAll(`[${COMPACT_ATTR}='true'] [role='option']`);
+    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the
+    // case passes vacuously, which is the failure mode this whole family of
+    // reachability cases exists to prevent.
+    expect(options.length, 'the option selector reached no live node').toBeGreaterThan(0);
+    for (const o of options) {
+      expect(minHeightPx(o)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
+
+  it('the emitted stylesheet floors the option rows with the IMPORTED constant', () => {
+    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some
+    // future refactor of the case above stops mounting a picker.
+    // 🔴 The figure is INTERPOLATED from `MIN_TAP_TARGET_PX`, never spelled: the
+    // literal `44px` is pinned once, a few cases up, and a second literal here
+    // would be a copy that can drift from the constant.
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] [role='option']`);
+    expect(compactTapTargetCss()).toContain(`min-height: ${MIN_TAP_TARGET_PX}px`);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -310,12 +310,32 @@ export function buildResultPayload(data: Omit<ResultData, 'v' | 'kind'>): Shared
 // ---------------------------------------------------------------------------
 
 /**
- * 🔴 THE ONE ENUMERATION of the record kinds that ride the shared board, written
- * as a `Record<RecordKind, true>` so it is EXHAUSTIVE BY TYPE: adding a fifth
- * member to `RecordKind` in `types.ts` is a typecheck error here until this table
- * gains it. That is exactly the failure `grid` hit — it was added to `RecordKind`
- * and given a parser, but the kind list in `recordKind` was open-coded, so a grid
- * row appended to the board classified as `null` and was invisible to the scan.
+ * The enumeration of the record kinds that ride the shared board, written as a
+ * `Record<RecordKind, true>` so it is EXHAUSTIVE BY TYPE: adding a fifth member
+ * to `RecordKind` in `types.ts` is a typecheck error here until this table gains
+ * it.
+ *
+ * 🔴 WHAT THAT EXHAUSTIVENESS DOES **NOT** PROTECT — stated plainly because an
+ * earlier version of this comment claimed the opposite. It said `grid` "was added
+ * to `RecordKind` and given a parser, but the kind list in `recordKind` was
+ * open-coded, so a grid row appended to the board classified as `null` and was
+ * invisible to the scan." **That is false, in both halves.** `splitRows` — the
+ * ONE board scan — calls the four parsers directly and has never called
+ * `recordKind`; and `recordKind` has NO production caller at all, only tests, so
+ * it is dropped from the built bundle entirely. It could not have caused that bug
+ * and it cannot prevent the next one. The real cause is recorded where it
+ * actually happened, at the `splitRows` destructure in `App.tsx`: the `grids`
+ * bucket was parsed correctly and then dropped on the floor.
+ *
+ * 🔴 SO WHAT IS IT FOR? `recordKind` is a TEST-ONLY CONTRACT SURFACE, kept
+ * deliberately rather than deleted: `renameWireCompat.test.ts` asserts through it
+ * that a pre-rename `kind: 'combination'` row is still classified as
+ * `combination`, which is the cheapest executable statement of that frozen wire
+ * value. The table's type-level exhaustiveness is real, but it guards THIS
+ * function only — do not read it as coverage of the scan. Wiring it into
+ * `splitRows` was considered and rejected: it would be a second gate in front of
+ * four parsers that each already reject every `data.kind` but their own, and a
+ * redundant gate is how the gate behind it stops being reachable.
  *
  * 🔴 These are PERSISTED WIRE VALUES (docs/matchups.md §6.1/§11.2). `'combination'`
  * stays `'combination'` forever — the user-visible noun is "matchup", the wire

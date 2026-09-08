@@ -53,6 +53,21 @@ export const TOOLTIP_GAP_PX = 6;
  *     confirm/cancel, withdraw, the modal form actions).
  *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
+ *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
+ *
+ * 🔴 THE OPTION ROWS ARE THE ONE TAP TARGET THIS APP BUILDS ITSELF, and they
+ * shipped below the floor. `GridPicker` is hand-built because the pack has no
+ * MultiSelect (see the header there), so its rows are plain `<div role="option">`
+ * carrying `padding: 10px 12px` around a 14px line — ~37px, under the 44 every
+ * other control in this rule is held to, and they are the primary hit target of
+ * the whole grid-builder flow on a phone. The three selectors above all reach
+ * PACK-rendered controls, which is exactly why this one was missed: nothing in
+ * the pack emits it.
+ *
+ * The selector is `[role='option']` — the ROLE, not a `data-testid` — so it pins
+ * the STATE (this element is an option in a listbox) rather than a word a future
+ * component could spell differently, and it covers any second listbox this app
+ * grows without a fourth selector.
  *
  * 🔴 THIS PARAGRAPH HAS BEEN WRONG THREE TIMES. Every correction came from
  * MEASURING the DOM or the cascade, never from reading it:
@@ -233,7 +248,8 @@ export const TOOLTIP_GAP_PX = 6;
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
-[${COMPACT_ATTR}='true'] [data-civitai-ui-range] {
+[${COMPACT_ATTR}='true'] [data-civitai-ui-range],
+[${COMPACT_ATTR}='true'] [role='option'] {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
 }

@@ -64,6 +64,33 @@ export function publishedPointer(
 }
 
 /**
+ * The honest copy for a publish whose `shared.append` SUCCEEDED but whose
+ * pointer write did not.
+ *
+ * 🔴 THE ASYMMETRY THIS SENTENCE EXISTS TO STATE. `append` is IRREVERSIBLE by
+ * this app: the row is public the instant it resolves, `update`/`withdraw` are
+ * author-scoped-but-key-addressed (and the key only ever reached the pointer
+ * write that just failed), `report()` does not hide, and there is no merge. The
+ * per-viewer `set` that records the row's key, by contrast, rejects routinely —
+ * on the per-APP 50MB quota (so one viewer at the ceiling breaks it for
+ * everyone), on a >64KB value, and for an anonymous viewer.
+ *
+ * So the two halves of a publish do NOT fail together, and the failure that
+ * matters is the one where the PUBLIC half landed and the PRIVATE half did not.
+ * Saying "publish failed" there would be a lie that invites a second click, and
+ * a second click on `append` mints a SECOND permanent public row — there is no
+ * idempotency key to collapse them. This sentence says which half landed, that
+ * the record is gone from this list, and where the published copy now lives.
+ */
+export function publishPointerFailedNotice(noun: string, hostError: string): string {
+  return (
+    `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
+    `updated, so it is no longer listed here and cannot be published again. ` +
+    `Find it under Published by you to edit or remove it. (${hostError})`
+  );
+}
+
+/**
  * Defensive parse of one stored KV value. The store is per-viewer and app-owned,
  * but a value can still be from an older/newer build, so an unusable row is
  * dropped rather than crashing the list.
