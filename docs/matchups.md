@@ -760,3 +760,41 @@ meaning "superseded" and `complete` would be false).
 Cards **453** (details page) and **454** (prompt-in-matchup voting) remain open and
 untouched. If a grid detail view makes 453 redundant, that is a decision to record,
 not to assume.
+
+### 11.7 Corrections to §6.3, measured while executing it (2026-09-07)
+
+§6.3's inventory of `datapacket-talos` consumers was executed in full. Four of its
+claims did not survive contact, and one documented control is wrong. Corrected
+here so the next reader measures instead of trusting:
+
+1. **"Two of three captions" is wrong — it is ONE of three.** The other two never
+   contained the word.
+2. **§6.3(b)'s line numbers drifted.** `tests/run-tests-app-capture.sh` cites
+   `3843-3844`; the actual lines are **`4511-4512`**. (Same class as §11.4's
+   warning — re-resolve by content.)
+3. 🔴 **§6.3 misses a FIFTH coupled file.**
+   `tests/fixtures/app-capture/evidence/manifest.json` carries the same selectors
+   as data-driven probes and must move with the other four. The spec says "four";
+   it is five.
+4. **§6.3(d)'s failure mode is wrong, in the safe direction.** It says a missed
+   state rename makes the mutant "silently a no-op". It does not: `apply_mutant`'s
+   `grep -cF` uniqueness guard scores it **BROKEN**, loudly. The hazard is real but
+   it is not silent.
+
+🔴 **And the control §6.3(c) documents does not hold.** It says to confirm the DOM
+fixture with `grep -c testid` → **12**. `-c` counts **lines**, and that file is 9
+lines with all 12 testids on one — so it returns **1**, which reads as "the file is
+barely coupled" and would have justified skipping it. The occurrence count needs
+`grep -o … | wc -l`. The underlying warning in §6.3(c) — that the JSON escaping
+makes a naive `"combo…"` grep return zero against a fully coupled file — **is
+correct and was confirmed**.
+
+**Still open downstream (§6.3(e)):** the live store listing caption still says
+"combinations" and needs a listing revision, i.e. another moderator review.
+
+⚠ **Two literals in `datapacket-talos` are deliberately NOT renamed yet**, because
+their new values are app copy that has not reached `main`: the `_selectors`
+quotation of the tab label `'Combinations (1)'`, and `_contentCaveat`'s
+`"2 combinations"` (which `run-tests-app-capture.sh` pins as a needle, so changing
+it early reds the suite). **Both become a follow-up the moment the app rename
+merges.**
