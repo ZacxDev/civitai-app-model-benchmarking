@@ -157,7 +157,7 @@ describe('ResultsGrid render (config rows)', () => {
 
   it('groups configs under their combination (combo name shown once per group)', () => {
     renderGrid();
-    const groupHeaders = screen.getAllByTestId('grid-group-combo').map((e) => e.textContent);
+    const groupHeaders = screen.getAllByTestId('grid-group-matchup').map((e) => e.textContent);
     // Two groups → two combo headers (SDXL Combo appears once for its 2 configs).
     expect(groupHeaders).toHaveLength(2);
     expect(groupHeaders[0]).toContain('SDXL Combo');
@@ -374,7 +374,7 @@ describe('ResultsGrid render (config rows)', () => {
         />,
       );
       expect(screen.getByTestId('grid-empty').textContent).toContain('no rows yet');
-      const btn = screen.getByTestId('grid-empty-add-combination');
+      const btn = screen.getByTestId('grid-empty-add-matchup');
       btn.click();
       expect(onAddCombination).toHaveBeenCalledTimes(1);
       // The wrong tab's action must NOT be offered.
@@ -395,13 +395,13 @@ describe('ResultsGrid render (config rows)', () => {
       expect(screen.getByTestId('grid-empty').textContent).toContain('no columns yet');
       screen.getByTestId('grid-empty-add-prompt').click();
       expect(onAddPrompt).toHaveBeenCalledTimes(1);
-      expect(screen.queryByTestId('grid-empty-add-combination')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('grid-empty-add-matchup')).not.toBeInTheDocument();
     });
 
     it('renders without an action when no callbacks are supplied (props stay optional)', () => {
       render(<ResultsGrid {...emptyProps} configs={[]} prompts={[]} />);
       expect(screen.getByTestId('grid-empty')).toBeInTheDocument();
-      expect(screen.queryByTestId('grid-empty-add-combination')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('grid-empty-add-matchup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('grid-empty-add-prompt')).not.toBeInTheDocument();
     });
   });

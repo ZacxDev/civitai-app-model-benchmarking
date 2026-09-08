@@ -41,7 +41,7 @@ import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } from './test-he
  * Literals on both sides — this table IS the contract the capture recipe buys.
  */
 const TABS: ReadonlyArray<readonly [string, string]> = [
-  ['view-switch-combos', 'combos-view'],
+  ['view-switch-matchups', 'matchups-view'],
   ['view-switch-prompts', 'prompts-view'],
   ['view-switch-grid', 'grid-view'],
 ];

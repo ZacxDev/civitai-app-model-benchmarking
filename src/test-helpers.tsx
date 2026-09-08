@@ -4,6 +4,9 @@
 // protocol (shared storage, workflow, picker, consent, viewer). NOT a *.test
 // file, so it isn't collected as a suite.
 
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
 import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
 import type {
   SharedAppendValue,
@@ -13,6 +16,26 @@ import type {
 } from '@civitai/blocks-react';
 
 import type { GatedCellComponent } from './components/GatedCell.js';
+
+/**
+ * Open one of the three views by its TAB NAME.
+ *
+ * 🔴 It exists because GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance
+ * criterion 9): a case that wants the Matchups or Prompts list has to say so, and
+ * before 527 it did not have to. One helper rather than ~40 open-coded clicks so
+ * the tab's accessible name lives at exactly one site — the previous default
+ * changed once already and every call site is a place it can be missed.
+ *
+ * ⚠ The accessible name carries a COUNT ("Matchups (3)"), so the match is
+ * anchored at the START and not exact. The strip's controls are `role="tab"`, NOT
+ * `role="button"` — asking for "button" fails in a way that reads exactly like
+ * the app not rendering.
+ */
+export async function openView(name: 'Matchups' | 'Prompts' | 'Grids'): Promise<HTMLElement> {
+  const strip = await screen.findByTestId('view-switch');
+  await userEvent.click(within(strip).getByRole('tab', { name: new RegExp(`^${name}`) }));
+  return strip;
+}
 
 export const CKPT_SDXL: BlockResourceInfo = {
   versionId: 1001,

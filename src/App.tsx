@@ -45,7 +45,6 @@ import {
   Loader,
   Modal,
   SegmentedControl,
-  Slider,
   Stack,
 } from '@civitai/blocks-react/ui';
 
@@ -61,6 +60,10 @@ import type {
   DraftUnsubmitted,
   InflightRun,
   PromptRow,
+  UnpublishedGrid,
+  UnpublishedGridRecord,
+  UnpublishedPrompt,
+  UnpublishedPromptRecord,
 } from './types.js';
 import {
   buildCellWorkflowBody,
@@ -95,14 +98,37 @@ import {
   sortDrafts,
   submittedPointer,
 } from './lib/drafts.js';
+import {
+  buildUnpubPrompt,
+  isPublishedPrompt,
+  newUnpubPromptLocalId,
+  parseUnpubPrompt,
+  sortUnpubPrompts,
+  UNPUB_PROMPT_PREFIX,
+  unpubPromptKey,
+  unpubPromptToInput,
+} from './lib/unpubPrompts.js';
+import { buildGridPayload, newGridLocalId, unpubGridKey, type GridInput } from './lib/grids.js';
+import {
+  buildUnpubGrid,
+  isPublishedGrid,
+  parseUnpubGrid,
+  sortUnpubGrids,
+  UNPUB_GRID_PREFIX,
+  unpubGridToInput,
+} from './lib/unpubGrids.js';
+import { parsePointer, publishedPointer, unpublishedKey } from './lib/unpublished.js';
+import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
-import { CombosView } from './components/CombosView.js';
-import { DraftsPanel } from './components/DraftsPanel.js';
+import { MatchupsView } from './components/MatchupsView.js';
 import { PromptsView } from './components/PromptsView.js';
+import { GridsView } from './components/GridsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
-import { CombinationForm } from './components/CombinationForm.js';
+import { MatchupForm } from './components/MatchupForm.js';
 import { PromptForm } from './components/PromptForm.js';
+import { GridForm } from './components/GridForm.js';
+import type { GridPickerItem } from './components/GridPicker.js';
 import { GatedCell as DefaultGatedCell, type GatedCellComponent } from './components/GatedCell.js';
 
 export interface AppDeps {
@@ -153,17 +179,24 @@ type ClaimOutcome =
   | { ok: false; reason: 'rejected' | 'no-viewer' };
 
 /**
- * The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode, or
- * the DRAFT form — the same combination form saving to the PER-VIEWER store
- * instead of the public board. `draft` is a distinct kind rather than a flag on
- * `combo` because the two write to different stores, and a single branch deciding
- * which store a save lands in is exactly the branch that gets got wrong later.
+ * The submit modal: closed, a combo/prompt form in CREATE or EDIT mode, or one of
+ * the two UNPUBLISHED forms — the same combination/prompt form saving to the
+ * PER-VIEWER store instead of the public board. Each private kind is distinct
+ * rather than a flag on its public sibling because the two write to different
+ * stores, and a single branch deciding which store a save lands in is exactly the
+ * branch that gets got wrong later.
  */
 type ModalState =
   | { kind: 'none' }
   | { kind: 'combo'; edit?: CombinationRow }
   | { kind: 'prompt'; edit?: PromptRow }
-  | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean };
+  | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
+  | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean }
+  // 🔴 A grid has only the PRIVATE form. Matchups and prompts each have a public
+  // one too (submit straight to the board); a grid does not, because a grid is
+  // assembled from other people's rows and there is no reason to make that
+  // assembly public before the author has looked at it. One form, one store.
+  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -176,7 +209,7 @@ type ModalState =
  * names a JS property.
  */
 export const ESTIMATE_FAILED_MESSAGE =
-  "Couldn't price this run — the server declined to estimate it. Try a different combination, or try again later.";
+  "Couldn't price this run — the server declined to estimate it. Try a different matchup, or try again later.";
 export const ESTIMATE_NO_COST_MESSAGE =
   "Couldn't price this run — no price came back. Please try again.";
 
@@ -312,10 +345,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const canGenerate = hasGenerateScope(token.scopes);
 
   // ---- view + modal state ----
-  const [view, setView] = useState<View>('combos');
+  // 🔴 GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance criterion 9). The app's
+  // primary object is the grid — the matchup and prompt lists exist to feed it —
+  // so opening on a submission list put the thing the block is FOR two clicks
+  // away. It also means the Top Grid is on screen before anything is submitted.
+  const [view, setView] = useState<View>('grid');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
-  const [topN, setTopN] = useState<number>(DEFAULT_TOP_N);
+  // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
+  // is the `topN` state behind it. It was the only consumer of matchup and prompt
+  // votes, and it let two viewers of ONE shared board be told different absolute
+  // facts about what "the grid" contained. Those votes are discovery ranking now:
+  // they order the Community lists and they decide the TOP GRID's members, at the
+  // fixed `DEFAULT_TOP_N`. A viewer who wants a different set builds a grid — the
+  // object that makes such a choice shareable instead of private and unstated.
+  // Do not reintroduce it: a per-viewer slider over a shared object is what made
+  // "Included" mean two different things to two readers of the same board.
   // One-time "How this works" explainer. `null` = still hydrating the dismissed
   // flag (render nothing yet — no flash-then-hide); `false` = show; `true` = hide.
   const [howtoDismissed, setHowtoDismissed] = useState<boolean | null>(null);
@@ -515,14 +560,28 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, viewer?.id]);
 
-  // ---- drafts (the PRIVATE half of the create → submit boundary) ----
+  // ---- the PRIVATE half of the create → publish boundary ----
   //
-  // 🔴 Everything in this block reads and writes `appStorage` ONLY. A draft is
-  // private because it lives in the per-viewer store, not because of any field
-  // on it — a `visibility` flag inside a shared row's `data` would be cosmetic
-  // (the row is world-readable the instant it is appended, and `data` is not
-  // moderated). Submit — and only submit — copies a draft onto the public board.
+  // 🔴 Everything in this block reads and writes `appStorage` ONLY. An
+  // unpublished record is private because it lives in the per-viewer store, not
+  // because of any field on it — a `visibility` flag inside a shared row's `data`
+  // would be cosmetic (the row is world-readable the instant it is appended, and
+  // `data` is not moderated). Publish — and only publish — copies it onto the
+  // public board.
+  //
+  // THREE PREFIXES, ONE RULE: unpublished matchups keep the historical
+  // `draft:v1:` prefix (live viewers hold records under it — §11.1), unpublished
+  // prompts use `unpub:prompt:v1:`, and unpublished grids `unpub:grid:v1:`. All
+  // three are DISJOINT, so `list({prefix})` still narrows to exactly one object
+  // kind and a withdraw of one kind can never reach another kind's pointer. The
+  // shared logic lives in `lib/unpublished.ts`; each object contributes only its
+  // own record parser.
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
+  const [unpubPrompts, setUnpubPrompts] = useState<UnpublishedPromptRecord[]>([]);
+  const [unpubGrids, setUnpubGrids] = useState<UnpublishedGridRecord[]>([]);
+  /** Shared keys this viewer archived — an AUTHOR-SIDE HIDE of their own My list
+   * and nothing more (§11.3). Never sent to the shared board. */
+  const [archived, setArchived] = useState<string[]>([]);
   const [quota, setQuota] = useState<AppStorageQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
@@ -533,6 +592,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // Anonymous: the host rejects every per-viewer write and reads back null,
       // so there is nothing to show and nothing to guess at.
       setDrafts([]);
+      setUnpubPrompts([]);
+      setUnpubGrids([]);
+      setArchived([]);
       setQuota(null);
       return;
     }
@@ -562,6 +624,49 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         /* best-effort — a KV failure must not take the public board down with it */
       }
       try {
+        const foundPrompts: UnpublishedPromptRecord[] = [];
+        await forEachStoredKey(
+          store,
+          UNPUB_PROMPT_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const parsed = parseUnpubPrompt(await store.get(key));
+            if (cancelled) return 'stop';
+            if (parsed) foundPrompts.push(parsed);
+          },
+          { shouldStop: () => cancelled },
+        );
+        if (!cancelled) setUnpubPrompts(sortUnpubPrompts(foundPrompts));
+      } catch {
+        /* best-effort — same reasoning as the matchup scan above */
+      }
+      try {
+        const foundGrids: UnpublishedGridRecord[] = [];
+        await forEachStoredKey(
+          store,
+          UNPUB_GRID_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const parsed = parseUnpubGrid(await store.get(key));
+            if (cancelled) return 'stop';
+            if (parsed) foundGrids.push(parsed);
+          },
+          { shouldStop: () => cancelled },
+        );
+        if (!cancelled) setUnpubGrids(sortUnpubGrids(foundGrids));
+      } catch {
+        /* best-effort — same reasoning as the two scans above */
+      }
+      try {
+        // 🔴 ONE key, not a prefix scan: the archive is a single `string[]`
+        // (§11.3), so a failed read degrades to "nothing archived" — which shows
+        // MORE of the viewer's own rows, never fewer.
+        const raw = await store.get<unknown>(ARCHIVE_KEY);
+        if (!cancelled) setArchived(parseArchive(raw));
+      } catch {
+        if (!cancelled) setArchived([]);
+      }
+      try {
         // 🔴 The storage ceilings are HOST-reported. Read them; never hard-code
         // "50 MB" (acceptance criterion 6) — that is the host's number to move.
         const q = await store.getQuota();
@@ -585,14 +690,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     }
   }, [ready, viewer]);
 
-  const { combinations, prompts, results } = useMemo(() => splitRows(items), [items]);
-  const includedCombos = useMemo(() => topByVotes(combinations, topN), [combinations, topN]);
-  const includedPrompts = useMemo(() => topByVotes(prompts, topN), [prompts, topN]);
-  // The grid's benchmarkable ROWS are the included combos' configs (flattened,
-  // grouped under their combination).
-  const includedConfigs = useMemo(() => flattenConfigs(includedCombos), [includedCombos]);
+  // 🔴 ALL FOUR BUCKETS. `grids` used to be destructured away and discarded: the
+  // parser classified a grid row correctly and the App then dropped it on the
+  // floor, so a published grid was invisible no matter what was on the board.
+  const { combinations, prompts, results, grids } = useMemo(() => splitRows(items), [items]);
+  // The top-voted sets, at the FIXED `DEFAULT_TOP_N` now that the per-viewer
+  // slider is gone. These are the "Included" badges on the Matchups and Prompts
+  // lists AND the members of the system-owned Top Grid — one computation, so the
+  // badge and the grid can never disagree about who is in.
+  const includedCombos = useMemo(() => topByVotes(combinations, DEFAULT_TOP_N), [combinations]);
+  const includedPrompts = useMemo(() => topByVotes(prompts, DEFAULT_TOP_N), [prompts]);
   const includedComboKeys = useMemo(() => new Set(includedCombos.map((r) => r.key)), [includedCombos]);
   const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
+
+  /** Every matchup and prompt currently on the board, as `GridPicker` rows. */
+  const matchupPickerItems = useMemo<GridPickerItem[]>(
+    () =>
+      combinations.map((c) => ({
+        key: c.key,
+        name: c.name || `#${c.key}`,
+        description: c.description,
+        meta: `${c.data.configs.length} config${c.data.configs.length === 1 ? '' : 's'}`,
+      })),
+    [combinations],
+  );
+  const promptPickerItems = useMemo<GridPickerItem[]>(
+    () =>
+      prompts.map((p) => ({
+        key: p.key,
+        name: p.name || `#${p.key}`,
+        description: p.description,
+      })),
+    [prompts],
+  );
 
   // ---- vote wiring ----
   // Apply the host's post-mutation answer to the row: the returned aggregate
@@ -671,30 +801,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // Mirrors the submit path: host mutation → optimistic reconcile → track →
   // reload.
   /**
-   * Drop the per-viewer draft POINTER at a shared row that no longer exists.
+   * Drop the per-viewer POINTER at a shared row that no longer exists, under the
+   * given object's storage prefix.
    *
-   * 🔴 A submitted draft is rewritten to `{localId, sharedKey, submittedAt}` and
-   * its `configs` are DROPPED (see `submittedPointer`). So once the row it
+   * 🔴 A published record is rewritten to `{localId, sharedKey, submittedAt}` and
+   * its editable body is DROPPED (see `publishedPointer`). So once the row it
    * points at is withdrawn there is nothing left to restore and nothing left to
-   * act on: the drafts panel rendered a card claiming "Live on the board" for a
-   * row that is gone, with NO buttons at all (its only action, "Edit the live
-   * one", is gated on the row being loaded), and it still consumed a quota row.
-   * An unremovable card asserting a live board entry that does not exist is
-   * worse than no card, so the pointer goes.
+   * act on — the pointer is a per-viewer row asserting a board entry that does
+   * not exist, and it still consumes a quota row. So the pointer goes.
    *
    * Scope, deliberately narrow, and narrow in TWO independent ways:
    *
-   *   1. Only the COMBINATIONS surface reaches this function at all. ⚠️ This
-   *      paragraph used to say prompts reached it and harmlessly found nothing;
-   *      that stopped being true when `withdrawPrompt` was split out below, and
-   *      the sentence survived because it sits outside that diff. A reader who
-   *      believes the old text concludes the prompt path still scans — which is
-   *      exactly what the "NEVER EVEN STARTS the pointer scan" case asserts
-   *      against. Prompts are never created from a draft, so the scan there
-   *      could only ever run to completion and find nothing; it is skipped.
-   *   2. Even on the combinations surface the ONLY pointer touched is one whose
-   *      `sharedKey` equals the withdrawn key — another of the viewer's own
-   *      combinations keeps its pointer, which is a separate guard.
+   *   1. Only the withdrawn row's OWN prefix is scanned. ⚠️ This used to be
+   *      hard-wired to `DRAFT_PREFIX` with a comment explaining that prompts
+   *      could never have a pointer — TRUE until 527 gave prompts an unpublished
+   *      form of their own. It is now a parameter, and the prompt surface passes
+   *      `UNPUB_PROMPT_PREFIX` rather than skipping the scan: skipping it would
+   *      orphan exactly the pointers the new prompt publish path writes.
+   *   2. Even within one prefix the ONLY pointer touched is one whose
+   *      `sharedKey` equals the withdrawn key — another of the viewer's own rows
+   *      keeps its pointer, which is a separate guard.
    *
    * 🔴 THE LOOKUP GOES TO THE STORE, NOT TO RENDER STATE, and that is not a
    * style choice. Reading the `drafts` state (or a ref mirroring it) makes the
@@ -702,23 +828,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * NOTHING TO DO WITH THE POINTER — and there are three such reasons, all
    * reachable: the KV list effect has not resolved yet (withdraw first and the
    * list is still `[]`), `list()` threw and was swallowed so the board could
-   * stay up, or the viewer has more drafts than `KV_MAX_PAGES` pages. In
+   * stay up, or the viewer has more records than `KV_MAX_PAGES` pages. In
    * every one of those the pointer is real, the scan against render state
    * misses it, and nothing ever re-checks — the exact orphan this function
    * exists to remove, persisting with no error anywhere. Measured before the
    * fix: withdrawing before the list resolved left `deletes: []` and the
    * buttonless card on screen.
    */
-  const clearDraftPointerFor = useCallback(
-    async (sharedKey: string) => {
+  const clearPointerFor = useCallback(
+    async (prefix: string, sharedKey: string) => {
       const store = depsRef.current.appStorage;
       try {
-        await forEachStoredKey(store, DRAFT_PREFIX, async (key) => {
-          const parsed = parseDraft(await store.get(key));
-          if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) return;
+        await forEachStoredKey(store, prefix, async (key) => {
+          const parsed = parsePointer(await store.get(key));
+          if (!parsed || parsed.sharedKey !== sharedKey) return;
           // Idempotent per the SDK: deleting a key that isn't set resolves
           // `{deleted: false}` rather than throwing.
-          await store.delete(draftKey(parsed.localId));
+          await store.delete(unpublishedKey(prefix, parsed.localId));
           refreshDrafts();
           return 'stop';
         });
@@ -731,11 +857,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const withdrawRow = useCallback(
     /**
-     * @param clearPointer whether to look for (and drop) a draft pointer at this
-     *   key afterwards. TRUE only on the combinations surface — see the call
-     *   sites and `clearDraftPointerFor`'s cost note.
+     * @param pointerPrefix the per-viewer storage prefix to sweep for a pointer
+     *   at this key afterwards. Each surface passes ITS OWN prefix; the two are
+     *   disjoint, so a matchup withdraw can never reach a prompt's pointer.
      */
-    async (key: string, clearPointer: boolean) => {
+    async (key: string, pointerPrefix: string) => {
       // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
       // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
       //
@@ -763,32 +889,48 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const res = await depsRef.current.shared.withdraw(key);
       if (!res.ok) return;
       optimisticDelete(key);
-      if (clearPointer) await clearDraftPointerFor(key);
+      await clearPointerFor(pointerPrefix, key);
       depsRef.current.track('withdraw');
       reload();
     },
-    [optimisticDelete, reload, clearDraftPointerFor],
+    [optimisticDelete, reload, clearPointerFor],
   );
 
-  /**
-   * Withdraw a COMBINATION. This is the only surface where a draft pointer can
-   * exist, so it is the only one that pays for the lookup.
-   */
+  /** Withdraw a COMBINATION — sweeping the matchup prefix for its pointer. */
   const withdrawCombination = useCallback(
-    (key: string) => withdrawRow(key, true),
+    (key: string) => withdrawRow(key, DRAFT_PREFIX),
     [withdrawRow],
   );
 
   /**
-   * Withdraw a PROMPT. 🔴 No pointer scan: prompts are never created from a
-   * draft, so a prompt's host-minted key CANNOT match a pointer — the scan could
-   * only ever run to completion and find nothing. Skipping it is not an
-   * optimisation of a rare path, it is declining a guaranteed-fruitless one:
-   * `clearDraftPointerFor` is a paged KV walk (one `list` per page plus one
-   * `get` per key, serially over the postMessage bridge) with the withdraw
-   * button held in `loading` for its whole duration.
+   * Withdraw a PROMPT — sweeping the PROMPT prefix for its pointer.
+   *
+   * 🔴 THIS USED TO SWEEP NOTHING, and the reasoning was sound at the time:
+   * prompts had no unpublished form, so a prompt's host-minted key could not
+   * match any pointer and the walk was guaranteed fruitless. 527 gave prompts
+   * their own unpublished store (`unpub:prompt:v1:`), which retired that premise
+   * — a published-then-withdrawn prompt now leaves exactly the orphan the matchup
+   * sweep exists to remove. The prefixes are disjoint, so this scans only prompt
+   * pointers and the matchup sweep only matchup pointers.
    */
-  const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
+  const withdrawPrompt = useCallback(
+    (key: string) => withdrawRow(key, UNPUB_PROMPT_PREFIX),
+    [withdrawRow],
+  );
+
+  /**
+   * Withdraw a GRID — sweeping the GRID prefix for its pointer.
+   *
+   * 🔴 IT REMOVES THE GRID ROW AND NOTHING ELSE. A grid's members are other
+   * authors' rows; `withdraw` is author-scoped, so this app could not touch them
+   * even if it wanted to, and it must not appear to: every matchup and prompt the
+   * grid named stays on the board, keeps its votes, and keeps serving every OTHER
+   * grid that names it. What the grid's readers lose is the grid.
+   */
+  const withdrawGrid = useCallback(
+    (key: string) => withdrawRow(key, UNPUB_GRID_PREFIX),
+    [withdrawRow],
+  );
 
   /**
    * Report ANOTHER viewer's row for platform moderator review — the board's only
@@ -808,13 +950,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     depsRef.current.track('report');
   }, []);
 
-  // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
+  // ---- private write paths (see the per-viewer block above) ----
 
   /**
-   * Save a draft. 🔴 PRIVATE PATH — `appStorage.set` and nothing else. This is
-   * the path acceptance criterion 7 pins: it must never reach `shared.append`,
-   * because that call is the moment the record becomes public and there is no
-   * other boundary in the platform that makes it not so.
+   * Save an unpublished MATCHUP. 🔴 PRIVATE PATH — `appStorage.set` and nothing
+   * else. This is the path acceptance criterion 7 pins: it must never reach
+   * `shared.append`, because that call is the moment the record becomes public
+   * and there is no other boundary in the platform that makes it not so.
    */
   const saveDraft = useCallback(
     async (localId: string, input: CombinationInput) => {
@@ -826,7 +968,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [closeModal, refreshDrafts],
   );
 
-  /** Discard a draft. 🔴 PRIVATE PATH — per-viewer delete only. */
+  /** Discard an unpublished matchup. 🔴 PRIVATE PATH — per-viewer delete only. */
   const deleteDraft = useCallback(
     async (localId: string) => {
       await depsRef.current.appStorage.delete(draftKey(localId));
@@ -835,14 +977,92 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [refreshDrafts],
   );
 
+  /** Save an unpublished PROMPT. 🔴 PRIVATE PATH — the exact mirror of
+   * `saveDraft`, against the disjoint `unpub:prompt:v1:` prefix. */
+  const saveUnpubPrompt = useCallback(
+    async (localId: string, input: PromptInput) => {
+      await depsRef.current.appStorage.set(unpubPromptKey(localId), buildUnpubPrompt(localId, input));
+      depsRef.current.track('save_unpublished_prompt');
+      closeModal();
+      refreshDrafts();
+    },
+    [closeModal, refreshDrafts],
+  );
+
+  /** Discard an unpublished prompt. 🔴 PRIVATE PATH — per-viewer delete only. */
+  const deleteUnpubPrompt = useCallback(
+    async (localId: string) => {
+      await depsRef.current.appStorage.delete(unpubPromptKey(localId));
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
+  /** Save an unpublished GRID. 🔴 PRIVATE PATH — the third mirror of `saveDraft`,
+   * against the disjoint `unpub:grid:v1:` prefix. A grid names other people's
+   * rows, but naming them is not publishing anything: nothing here reaches
+   * `shared.append`. */
+  const saveUnpubGrid = useCallback(
+    async (localId: string, input: GridInput) => {
+      await depsRef.current.appStorage.set(unpubGridKey(localId), buildUnpubGrid(localId, input));
+      depsRef.current.track('save_unpublished_grid');
+      closeModal();
+      refreshDrafts();
+    },
+    [closeModal, refreshDrafts],
+  );
+
+  /** Discard an unpublished grid. 🔴 PRIVATE PATH — per-viewer delete only. */
+  const deleteUnpubGrid = useCallback(
+    async (localId: string) => {
+      await depsRef.current.appStorage.delete(unpubGridKey(localId));
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
+  // ---- archive (an AUTHOR-SIDE HIDE, and NOT a suppression — §11.3) ----
+  //
+  // 🔴 IT WRITES ONE PER-VIEWER KEY AND TOUCHES THE SHARED BOARD NOWHERE. The row
+  // stays appended, keeps its votes, and stays in Community for every viewer
+  // including this one — the app HAS no power to do otherwise (`update`/`withdraw`
+  // are author-scoped, `report()` does not hide), which is exactly why the UI says
+  // so in words next to the control (`ARCHIVE_NOTE`).
+  const writeArchive = useCallback(
+    async (next: string[]) => {
+      if (!viewer) return;
+      setArchived(next);
+      try {
+        await depsRef.current.appStorage.set(ARCHIVE_KEY, next);
+      } catch (e) {
+        // The host's own error string — developer-facing, never viewer copy.
+        console.debug('[model-benchmarking] archive write rejected:', e);
+        // Re-read on the next refresh rather than leaving the optimistic value
+        // as the only record of a write that did not land.
+        refreshDrafts();
+      }
+    },
+    [viewer, refreshDrafts],
+  );
+
+  const archiveRow = useCallback(
+    (key: string) => writeArchive(withArchived(archived, key)),
+    [archived, writeArchive],
+  );
+  const unarchiveRow = useCallback(
+    (key: string) => writeArchive(withoutArchived(archived, key)),
+    [archived, writeArchive],
+  );
+
   // Synchronous claim set, mirroring the runner's: a second submit for the same
   // draft returns here, so a double-tap can never mint two public rows (and
   // `append` has no idempotency key — a duplicate is permanent and unmergeable).
   const submittingRef = useRef<Set<string>>(new Set());
 
   /**
-   * SUBMIT — the one place a draft crosses into the public board, and the only
-   * moment the record becomes visible to anyone else. `buildCombinationPayload`
+   * PUBLISH — the one place an unpublished matchup crosses into the public board,
+   * and the only moment the record becomes visible to anyone else.
+   * `buildCombinationPayload`
    * is reused verbatim so a submitted draft is byte-identical to a row submitted
    * directly, including `data.kind: 'combination'` (a persisted wire value that
    * discriminates every row already on the board — never renamed) and including
@@ -874,6 +1094,81 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         reload();
       } finally {
         submittingRef.current.delete(draft.localId);
+      }
+    },
+    [optimisticInsert, refreshDrafts, reload],
+  );
+
+  /**
+   * PUBLISH a PROMPT — the exact mirror of `submitDraft`, and for the same
+   * reasons: `buildPromptPayload` is reused verbatim so a published record is
+   * byte-identical to a prompt submitted directly (including `data.kind:
+   * 'prompt'` and the moderation split), the same synchronous claim set prevents
+   * a double-tap minting two rows, and the record is KEPT as the pointer at the
+   * row it became.
+   */
+  const publishUnpubPrompt = useCallback(
+    async (rec: UnpublishedPrompt) => {
+      if (submittingRef.current.has(rec.localId)) return;
+      submittingRef.current.add(rec.localId);
+      try {
+        const input = unpubPromptToInput(rec);
+        const payload = buildPromptPayload(input) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        await depsRef.current.appStorage.set(
+          unpubPromptKey(rec.localId),
+          publishedPointer(rec.localId, key),
+        );
+        optimisticInsert(key, payload);
+        depsRef.current.track('submit_prompt', {
+          overrideCount: Object.keys(input.overrides ?? {}).length,
+          fromUnpublished: true,
+        });
+        refreshDrafts();
+        reload();
+      } finally {
+        submittingRef.current.delete(rec.localId);
+      }
+    },
+    [optimisticInsert, refreshDrafts, reload],
+  );
+
+  /**
+   * PUBLISH a GRID — the third mirror of `submitDraft`, and the ONLY moment a
+   * grid becomes visible to anyone else.
+   *
+   * `buildGridPayload` is reused verbatim, so the row carries `data.kind: 'grid'`
+   * at `v: 1` and §11.2's moderation split: the author's name and description go
+   * to the moderated `title`/`body` and `data` carries the member keys ONLY. That
+   * split is the whole reason the payload builder is not open-coded here — a grid
+   * whose name rode in `data` would route author prose around the content belt,
+   * and the wire shape is effectively permanent from the first published grid.
+   *
+   * The private record is then KEPT as the pointer at the row it became, same as
+   * every other object: shared keys are host-minted and the shared list has no
+   * "mine" index, so it is the only per-viewer handle on the row.
+   */
+  const publishUnpubGrid = useCallback(
+    async (rec: UnpublishedGrid) => {
+      if (submittingRef.current.has(rec.localId)) return;
+      submittingRef.current.add(rec.localId);
+      try {
+        const input = unpubGridToInput(rec);
+        const payload = buildGridPayload(input) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        await depsRef.current.appStorage.set(
+          unpubGridKey(rec.localId),
+          publishedPointer(rec.localId, key),
+        );
+        optimisticInsert(key, payload);
+        depsRef.current.track('submit_grid', {
+          matchupCount: input.matchupKeys.length,
+          promptCount: input.promptKeys.length,
+        });
+        refreshDrafts();
+        reload();
+      } finally {
+        submittingRef.current.delete(rec.localId);
       }
     },
     [optimisticInsert, refreshDrafts, reload],
@@ -1253,46 +1548,84 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const buzzTotal =
     buzz.balance != null ? buzz.balance.blue + buzz.balance.green + buzz.balance.yellow : null;
 
-  // ---- drafts render wiring ----
-  // The shared keys currently loaded, so a submitted POINTER only offers "Edit
-  // the live one" when its row is actually in hand to edit.
-  const loadedSharedKeys = useMemo(() => new Set(combinations.map((r) => r.key)), [combinations]);
-
-  /**
-   * Edit the PUBLIC row a submitted draft points at. 🔴 This routes into the
-   * existing `shared.update` path — which is author-scoped and preserves BOTH
-   * the host-minted key and the row's vote total. It is the only post-submit
-   * mutation the app offers: there is deliberately no un-submit (spec §9 Q2,
-   * decided 2026-08-30), because `withdraw` destroys the vote total and orphans
-   * every `result` row other viewers spent Buzz on, and nobody can clean those up.
-   */
-  const editSubmittedDraft = useCallback(
-    (sharedKey: string) => {
-      const row = combinations.find((r) => r.key === sharedKey);
-      if (row) setModal({ kind: 'combo', edit: row });
-    },
-    [combinations],
+  // ---- My-tab render wiring (the PRIVATE half, now inside each object's view) ----
+  //
+  // 🔴 POINTERS ARE NOT RENDERED, and that is the §11.1 partition rather than an
+  // omission. A published row reaches the My tab through `isOwnRow` over the board
+  // scan — the client-side "mine" index the spec settles on — so rendering the
+  // pointer too would show the same row twice, once as a card with Edit/Remove and
+  // once as a stub that can do neither. The pointer keeps its STORAGE role: it is
+  // the per-viewer handle a withdraw sweeps (`clearPointerFor`) and the reason a
+  // published record is not left behind as an editable private copy.
+  const unpublishedMatchups = useMemo(
+    () => drafts.filter((d): d is DraftUnsubmitted => !isSubmitted(d)),
+    [drafts],
   );
+  const unpublishedPrompts = useMemo(
+    () => unpubPrompts.filter((p): p is UnpublishedPrompt => !isPublishedPrompt(p)),
+    [unpubPrompts],
+  );
+  const unpublishedGrids = useMemo(
+    () => unpubGrids.filter((g): g is UnpublishedGrid => !isPublishedGrid(g)),
+    [unpubGrids],
+  );
+  const archivedKeys = useMemo(() => new Set(archived), [archived]);
+  const quotaLine = formatQuota(quota);
 
-  const draftsSlot = (
-    <DraftsPanel
-      drafts={drafts}
-      quotaLine={formatQuota(quota)}
-      loadedSharedKeys={loadedSharedKeys}
-      canDraft={!!viewer}
-      onNewDraft={() => setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })}
-      onEditDraft={(draft) =>
+  const publishMatchupById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedMatchups.find((d) => d.localId === localId);
+      if (rec) await submitDraft(rec);
+    },
+    [unpublishedMatchups, submitDraft],
+  );
+  const publishPromptById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedPrompts.find((p) => p.localId === localId);
+      if (rec) await publishUnpubPrompt(rec);
+    },
+    [unpublishedPrompts, publishUnpubPrompt],
+  );
+  const publishGridById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedGrids.find((g) => g.localId === localId);
+      if (rec) await publishUnpubGrid(rec);
+    },
+    [unpublishedGrids, publishUnpubGrid],
+  );
+  const editGridById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedGrids.find((g) => g.localId === localId);
+      if (rec)
         setModal({
-          kind: 'draft',
-          localId: draft.localId,
-          initial: draftToInput(draft),
+          kind: 'unpub-grid',
+          localId: rec.localId,
+          initial: unpubGridToInput(rec),
           existing: true,
-        })
-      }
-      onSubmitDraft={submitDraft}
-      onDeleteDraft={deleteDraft}
-      onEditSubmitted={editSubmittedDraft}
-    />
+        });
+    },
+    [unpublishedGrids],
+  );
+  const editMatchupById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedMatchups.find((d) => d.localId === localId);
+      if (rec)
+        setModal({ kind: 'draft', localId: rec.localId, initial: draftToInput(rec), existing: true });
+    },
+    [unpublishedMatchups],
+  );
+  const editPromptById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedPrompts.find((p) => p.localId === localId);
+      if (rec)
+        setModal({
+          kind: 'unpub-prompt',
+          localId: rec.localId,
+          initial: unpubPromptToInput(rec),
+          existing: true,
+        });
+    },
+    [unpublishedPrompts],
   );
 
   // ---- render ----
@@ -1366,10 +1699,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             </Group>
             <ol style={{ ...mutedText, margin: 0, paddingLeft: 18, display: 'grid', gap: 3, fontSize: 13 }}>
               <li>
-                <strong>Submit</strong> checkpoint + LoRA combinations and prompts.
+                <strong>Submit</strong> checkpoint + LoRA matchups and prompts.
               </li>
               <li>
-                <strong>Vote</strong> — the top-voted combinations and prompts become the grid's rows and
+                <strong>Vote</strong> — the top-voted matchups and prompts become the grid's rows and
                 columns.
               </li>
               <li>
@@ -1413,14 +1746,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             {
               value: 'combos',
               label: (
-                <span data-testid="view-switch-combos">Combinations ({combinations.length})</span>
+                <span data-testid="view-switch-matchups">Matchups ({combinations.length})</span>
               ),
             },
             {
               value: 'prompts',
               label: <span data-testid="view-switch-prompts">Prompts ({prompts.length})</span>,
             },
-            { value: 'grid', label: <span data-testid="view-switch-grid">Grid</span> },
+            { value: 'grid', label: <span data-testid="view-switch-grid">Grids</span> },
           ]}
         />
 
@@ -1435,6 +1768,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           order, and the alternative is a ranking that silently omits row 2001
           while looking complete. Rendered next to the switch so it is visible in
           all three views, since all three read the same truncated ranking.
+
+          ⚠ 527 gave it a THIRD reader without changing a line here, and that is
+          why it is placed next to the switch rather than inside a view: the Grids
+          view ranks Community Grids by the same client-side count over the same
+          truncated scan, and the TOP GRID's members come straight out of the
+          matchup and prompt rankings this notice is about. It is now the DEFAULT
+          view, so this disclosure is the first thing a viewer of an over-cap
+          board sees.
         */}
         {boardTruncated && (
           <Alert color="warning" data-testid="board-truncated-notice">
@@ -1444,7 +1785,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         )}
 
         {view === 'combos' && (
-          <CombosView
+          <MatchupsView
             combinations={combinations}
             includedKeys={includedComboKeys}
             votedKeys={votedKeys}
@@ -1458,7 +1799,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
             onWithdraw={withdrawCombination}
             onReport={reportRow}
-            draftsSlot={draftsSlot}
+            unpublished={unpublishedMatchups}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
+            }
+            onEditUnpublished={editMatchupById}
+            onDiscardUnpublished={deleteDraft}
+            onPublishUnpublished={publishMatchupById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
           />
         )}
 
@@ -1477,6 +1828,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
             onWithdraw={withdrawPrompt}
             onReport={reportRow}
+            unpublished={unpublishedPrompts}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
+            }
+            onEditUnpublished={editPromptById}
+            onDiscardUnpublished={deleteUnpubPrompt}
+            onPublishUnpublished={publishPromptById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
           />
         )}
 
@@ -1486,23 +1848,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           // default content-based minimum would re-introduce the blowout one
           // level below the containment in `contentStyle`.
           <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
-            <Group justify="space-between" align="flex-end" gap={12}>
-              <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }}>
-                Included combinations × prompts. Run an empty cell to contribute its outputs to the shared grid.
-              </span>
-              <div style={{ width: 240 }}>
-                <Slider
-                  label="Show top N (your view)"
-                  description="Only changes how many rows/columns YOU see — it doesn't change the shared grid or anyone else's view."
-                  showValue
-                  min={1}
-                  max={20}
-                  value={topN}
-                  onChange={(v) => setTopN(v || DEFAULT_TOP_N)}
-                  data-testid="top-n"
-                />
-              </div>
-            </Group>
             {!canGenerate && viewer && (
               <Alert color="info" data-testid="grid-consent">
                 <Group justify="space-between" align="center" gap={10}>
@@ -1517,21 +1862,55 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 </Group>
               </Alert>
             )}
-            <ResultsGrid
-              configs={includedConfigs}
-              prompts={includedPrompts}
-              results={results}
-              runs={runs}
-              c={c}
-              canRun={canGenerate && !!viewer}
-              buzzTotal={buzzTotal}
-              GatedCell={deps.GatedCell}
-              onRunCell={beginRun}
-              onConfirmRun={confirmRun}
-              onResumeRun={resumeRun}
-              onCancelRun={cancelRun}
-              onAddCombination={() => setView('combos')}
-              onAddPrompt={() => setView('prompts')}
+            <GridsView
+              grids={grids}
+              combinations={combinations}
+              prompts={prompts}
+              votedKeys={votedKeys}
+              viewerId={viewer?.id ?? null}
+              loading={loading}
+              error={error}
+              onVote={onVote}
+              onUnvote={onUnvote}
+              onRequireAuth={requireAuth}
+              onWithdraw={withdrawGrid}
+              onReport={reportRow}
+              unpublished={unpublishedGrids}
+              quotaLine={quotaLine}
+              archivedKeys={archivedKeys}
+              onNewUnpublished={() =>
+                setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false })
+              }
+              onEditUnpublished={editGridById}
+              onDiscardUnpublished={deleteUnpubGrid}
+              onPublishUnpublished={publishGridById}
+              onArchive={archiveRow}
+              onUnarchive={unarchiveRow}
+              /* 🔴 The matrix is rendered HERE, not inside GridsView, because
+                 every prop below it is money-shaped (the estimate → confirm →
+                 submit → poll path and the Buzz gate). A browse surface has no
+                 business holding those. `matchups`/`prompts` arrive already
+                 RESOLVED against the live board, so a withdrawn member simply
+                 is not among them — and the count of what is gone is disclosed
+                 by the view that resolved them. */
+              renderMatrix={(matchups, gridPrompts) => (
+                <ResultsGrid
+                  configs={flattenConfigs(matchups)}
+                  prompts={gridPrompts}
+                  results={results}
+                  runs={runs}
+                  c={c}
+                  canRun={canGenerate && !!viewer}
+                  buzzTotal={buzzTotal}
+                  GatedCell={deps.GatedCell}
+                  onRunCell={beginRun}
+                  onConfirmRun={confirmRun}
+                  onResumeRun={resumeRun}
+                  onCancelRun={cancelRun}
+                  onAddCombination={() => setView('combos')}
+                  onAddPrompt={() => setView('prompts')}
+                />
+              )}
             />
           </Stack>
         )}
@@ -1539,11 +1918,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'combo'}
           onClose={closeModal}
-          title={modal.kind === 'combo' && modal.edit ? 'Edit combination' : 'Submit a combination'}
+          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'Submit a matchup'}
           size="lg"
         >
           {modal.kind === 'combo' && (
-            <CombinationForm
+            <MatchupForm
               key={modal.edit?.key ?? 'new'}
               pickResource={deps.pickResource}
               initial={modal.edit ? combinationToInput(modal.edit) : undefined}
@@ -1557,22 +1936,75 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             />
           )}
         </Modal>
-        {/* The DRAFT form — the same combination form, saving to the PER-VIEWER
-            store. Its submit button says "Save draft" precisely because saving
-            is not submitting: nothing here reaches the public board. */}
+        {/* The PRIVATE matchup form — the same combination form, saving to the
+            PER-VIEWER store. Its submit button says "Save privately" precisely
+            because saving is not publishing: nothing here reaches the public
+            board. (The word "draft" left the rendered vocabulary in 527; the
+            STORAGE prefix keeps it forever — see lib/drafts.ts.) */}
         <Modal
           opened={modal.kind === 'draft'}
           onClose={closeModal}
-          title={modal.kind === 'draft' && modal.existing ? 'Edit draft' : 'New draft'}
+          title={
+            modal.kind === 'draft' && modal.existing
+              ? 'Edit your unpublished matchup'
+              : 'New matchup (not published yet)'
+          }
           size="lg"
         >
           {modal.kind === 'draft' && (
-            <CombinationForm
+            <MatchupForm
               key={modal.localId}
               pickResource={deps.pickResource}
               initial={modal.initial}
-              submitLabel="Save draft"
+              submitLabel="Save privately"
               onSubmit={(input) => saveDraft(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* The PRIVATE prompt form — the mirror of the matchup one, against the
+            `unpub:prompt:v1:` prefix. Same rule: saving is not publishing. */}
+        <Modal
+          opened={modal.kind === 'unpub-prompt'}
+          onClose={closeModal}
+          title={
+            modal.kind === 'unpub-prompt' && modal.existing
+              ? 'Edit your unpublished prompt'
+              : 'New prompt (not published yet)'
+          }
+          size="lg"
+        >
+          {modal.kind === 'unpub-prompt' && (
+            <PromptForm
+              key={modal.localId}
+              initial={modal.initial}
+              submitLabel="Save privately"
+              onSubmit={(input) => saveUnpubPrompt(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* The PRIVATE grid form. 🔴 There is no public sibling: a grid has ONE
+            create path and it lands in the per-viewer store. Publishing it is a
+            separate, explicit button on the record (see `publishUnpubGrid`). */}
+        <Modal
+          opened={modal.kind === 'unpub-grid'}
+          onClose={closeModal}
+          title={
+            modal.kind === 'unpub-grid' && modal.existing
+              ? 'Edit your unpublished grid'
+              : 'New grid (not published yet)'
+          }
+          size="lg"
+        >
+          {modal.kind === 'unpub-grid' && (
+            <GridForm
+              key={modal.localId}
+              matchupItems={matchupPickerItems}
+              promptItems={promptPickerItems}
+              initial={modal.initial}
+              submitLabel="Save privately"
+              onSubmit={(input) => saveUnpubGrid(modal.localId, input)}
               onCancel={closeModal}
             />
           )}

@@ -20,7 +20,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData } from './types.js';
 
 const comboData: CombinationData = {
@@ -133,7 +133,40 @@ describe('board scan truncation', () => {
 
     // Wait for the board to actually load before asserting an absence — a notice
     // that is merely late would otherwise read as a notice that is absent.
-    await waitFor(() => expect(screen.getByTestId('combo-card')).toBeInTheDocument());
+    // ⚠ The load anchor is the MATCHUPS view's card, so this navigates there:
+    // Grids is the default since 527 (§11.5) and its own list renders before the
+    // board scan resolves, so it is not a load anchor.
+    await openView('Matchups');
+    await waitFor(() => expect(screen.getByTestId('matchup-card')).toBeInTheDocument());
+    expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
+  });
+
+  // 🔴 CRITERION: the SAME notice reaches the GRIDS view, which is where the
+  // truncated ranking now does the most work — it decides the Top Grid's members
+  // and orders Community Grids. This is deliberately NOT a second notice: it
+  // asserts the ONE existing `board-truncated-notice` is visible on the view the
+  // app opens on, which is what "extend it to the Grids view" has to mean when
+  // the notice is rendered next to the view switch.
+  it('🔴 the SAME notice is visible on the Grids view — the default one', async () => {
+    const { shared, pages } = endlessShared();
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
+
+    // The default view really is Grids (criterion 9) — asserted, not assumed,
+    // because the whole point of this case is WHERE the notice is visible.
+    expect(await screen.findByTestId('grid-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('matchups-view')).toBeNull();
+
+    const notice = await screen.findByTestId('board-truncated-notice');
+    expect(notice).toHaveTextContent(/only the entries loaded so far/i);
+    expect(pages(), 'the scan did not page — nothing was truncated').toBeGreaterThan(1);
+  });
+
+  it('does NOT cry truncation on the Grids view either, on a board that fits', async () => {
+    renderApp({ shared: finiteShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
+
+    // The Grids list is the load anchor here: the Top Grid card is rendered from
+    // the scanned rows, so its presence means the scan settled.
+    await waitFor(() => expect(screen.getByTestId('grid-system-badge')).toBeInTheDocument());
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 });

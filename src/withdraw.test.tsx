@@ -17,7 +17,8 @@ import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -58,7 +59,7 @@ function row(
   };
 }
 
-function renderApp(deps: Partial<AppDeps>) {
+function mountApp(deps: Partial<AppDeps>) {
   render(
     <Harness
       viewer={{ id: VIEWER_ID, username: 'me' }}
@@ -83,35 +84,49 @@ function renderApp(deps: Partial<AppDeps>) {
   );
 }
 
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
+}
+
 describe('withdraw: the author removes their OWN combination', () => {
   it('confirms first, tells the shared store the key, and drops the card', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
 
     // Confirm-before-firing: the trigger alone must NOT have withdrawn anything.
     expect(withdraws).toEqual([]);
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
-    await waitFor(() => expect(screen.queryByTestId('combo-card')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('matchup-card')).toBeNull());
     expect(withdraws).toEqual(['mine']);
   });
 
   it('does nothing when the confirm step is cancelled', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('mine', 'Mine', VIEWER_ID, comboData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-cancel'));
 
     expect(withdraws).toEqual([]);
-    const still = screen.getByTestId('combo-card');
+    const still = screen.getByTestId('matchup-card');
     expect(still).toHaveTextContent('Mine');
     // Back to the un-armed trigger, so the affordance is reusable.
-    expect(within(still).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(still).getByTestId('matchup-withdraw')).toBeInTheDocument();
     expect(within(still).queryByTestId('withdraw-confirm')).toBeNull();
   });
 });
@@ -121,19 +136,19 @@ describe('withdraw: the ownership guard', () => {
     const { shared, withdraws } = fakeShared({
       seed: [row('mine', 'Mine', VIEWER_ID, comboData), row('theirs', 'Theirs', OTHER_ID, comboData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
-    const cards = await screen.findAllByTestId('combo-card');
+    const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
 
     // The viewer's own row HAS the control — so the absence below is a guard
     // decision, not a control that simply never renders.
-    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
+    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
     // 🔴 THE OWNERSHIP GUARD: someone else's row carries no withdraw control, and
     // no armed confirm behind it either.
-    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
     expect(within(theirs).queryByTestId('withdraw-confirm')).toBeNull();
     expect(withdraws).toEqual([]);
   });
@@ -142,7 +157,7 @@ describe('withdraw: the ownership guard', () => {
     const { shared, withdraws } = fakeShared({
       seed: [row('mine', 'My Prompt', VIEWER_ID, promptData), row('theirs', 'Their Prompt', OTHER_ID, promptData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     const cards = await screen.findAllByTestId('prompt-card');
@@ -159,7 +174,7 @@ describe('withdraw: the ownership guard', () => {
 describe('withdraw: the author removes their OWN prompt', () => {
   it('confirms first, tells the shared store the key, and drops the card', async () => {
     const { shared, withdraws } = fakeShared({ seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)] });
-    renderApp({ shared });
+    await renderApp({ shared });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     const card = await screen.findByTestId('prompt-card');
@@ -173,18 +188,26 @@ describe('withdraw: the author removes their OWN prompt', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Withdrawing a row the viewer SUBMITTED FROM A DRAFT: the pointer must go with
-// it, but ONLY on success.
+// Withdrawing a row the viewer PUBLISHED FROM A PRIVATE RECORD: the pointer must
+// go with it, but ONLY on success.
 // ---------------------------------------------------------------------------
 //
-// 🔴 THE DEFECT. Submit rewrites a draft to a POINTER — `{localId, sharedKey,
-// submittedAt}` — and DROPS `configs` (see `submittedPointer`). Withdraw the
-// row it points at and the drafts panel kept rendering a card reading
-// "Submitted / Live on the board. Edits keep its votes." for a row that no
-// longer exists — and with ZERO buttons, because its only action ("Edit the
-// live one") is gated on the shared row being loaded. Unremovable, false, and
-// still consuming a quota row. Since `configs` were dropped there is nothing to
-// restore, so the pointer is deleted rather than tombstoned.
+// ⚠️ 527 CHANGED TWO PREMISES HERE, AND BOTH ARE LOAD-BEARING BELOW:
+//   1. The pointer is no longer RENDERED. The old drafts panel drew a
+//      "Submitted / Live on the board" card per pointer; the My tab reaches a
+//      published row through `isOwnRow` instead (§11.1), so every assertion that
+//      used to read `draft-submitted` off the screen now reads the STORE — which
+//      is what the guard was always about.
+//   2. Prompts now HAVE pointers. `withdrawPrompt` used to skip the sweep because
+//      a prompt could not have one; it sweeps `unpub:prompt:v1:` now, and the
+//      cases below pin BOTH halves — it does not touch the matchup prefix, and it
+//      does clear its own.
+//
+// 🔴 THE DEFECT. Publish rewrites a private record to a POINTER — `{localId,
+// sharedKey, submittedAt}` — and DROPS the editable body (see `publishedPointer`).
+// Withdraw the row it points at and the pointer is left asserting a board entry
+// that does not exist, still consuming a quota row, with nothing left to restore.
+// So the pointer is deleted rather than tombstoned.
 //
 // 🔴 THE ORDER IS THE GUARD, and the second test below is the one that matters:
 // clear the pointer BEFORE the host confirms and this fix becomes a data-loss
@@ -254,29 +277,28 @@ const LIVE_KEY = 'mine';
 const POINTER_LOCAL_ID = 'l1';
 const pointer = { v: 1, localId: POINTER_LOCAL_ID, sharedKey: LIVE_KEY, submittedAt: '2026-08-30T00:00:00.000Z' };
 
-describe('withdraw: the draft pointer at the withdrawn row', () => {
+describe('withdraw: the pointer at the withdrawn row', () => {
   it('is DELETED once the host confirms the withdraw', async () => {
     const { shared, withdraws } = fakeShared({
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
     });
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
-    // The orphan-to-be is on screen first, so its absence below is the fix
-    // acting and not a card that never rendered.
-    await screen.findByTestId('draft-submitted');
+    // The orphan-to-be is in the STORE first, so its absence below is the fix
+    // acting and not a key that was never there. (527: pointers are storage, not
+    // a rendered card — see the block comment above.)
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
     // The per-viewer KV really was told to drop the pointer…
     await waitFor(() => expect(deletes).toContain(draftKey(POINTER_LOCAL_ID)));
-    // …the key is gone from the store (so it stops costing a quota row)…
+    // …and the key is gone from the store (so it stops costing a quota row).
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(false);
-    // …and the buttonless "Live on the board" card is off the screen.
-    await waitFor(() => expect(screen.queryByTestId('draft-submitted')).toBeNull());
   });
 
   it('🔴 SURVIVES a withdraw the host REJECTS — the row is still live, so the handle stays', async () => {
@@ -303,11 +325,11 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     const swallow = (): void => {};
     process.on('unhandledRejection', swallow);
     try {
-      renderApp({ shared: rejecting, appStorage });
-      await screen.findByTestId('draft-submitted');
+      await renderApp({ shared: rejecting, appStorage });
+      expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
 
-      const card = await screen.findByTestId('combo-card');
-      await userEvent.click(within(card).getByTestId('combo-withdraw'));
+      const card = await screen.findByTestId('matchup-card');
+      await userEvent.click(within(card).getByTestId('matchup-withdraw'));
       await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
       // The app DID try — so the assertions below are about what happened after
@@ -317,56 +339,109 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
       // 🔴 THE POINTER IS UNTOUCHED.
       expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
       expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
-      expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
       // …and the row it points at is still on the public board.
-      expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+      expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
     } finally {
       process.off('unhandledRejection', swallow);
     }
   });
 
-  it('NEVER EVEN STARTS the pointer scan when a PROMPT is withdrawn', async () => {
-    // 🔴 THIS ASSERTS THE SCAN IS NOT STARTED, NOT MERELY THAT NOTHING WAS
-    // DELETED. It used to assert only `deletes` — which stopped meaning
-    // anything the moment the prompt surface stopped scanning at all: no scan
-    // trivially implies no delete, so the guard would have gone vacuous exactly
-    // when the behaviour it describes was introduced. The claim that matters now
-    // is about COST, so it is measured in list calls.
+  it('sweeps the PROMPT prefix — and never the matchup one — when a PROMPT is withdrawn', async () => {
+    // 🔴 THE PREMISE THIS CASE USED TO ENFORCE IS DEAD, AND THAT IS THE POINT.
+    // It asserted the prompt surface started NO pointer scan, which was correct
+    // while prompts had no unpublished form: a match was impossible by
+    // construction, so the paged KV walk could only ever run to completion and
+    // find nothing. 527 gave prompts their own private store, and keeping the
+    // old assertion would have enforced a bug — every published-then-withdrawn
+    // prompt leaving its pointer orphaned, with a green test saying so on purpose.
     //
-    // Why the cost is worth a guard: `clearDraftPointerFor` is a paged KV walk —
-    // one `list` per page plus one `get` PER KEY, serially over the postMessage
-    // bridge, with the withdraw button held in `loading` throughout. On the
-    // prompts surface a match is impossible by construction (prompts are never
-    // created from a draft), so that walk could only ever run to completion and
-    // find nothing. It is declining a guaranteed-fruitless scan, not shaving a
-    // rare path.
+    // The claim now has two halves, and both are asserted because either alone is
+    // walkable: the sweep runs on the PROMPT prefix (so the prompt's own pointer
+    // goes) and NOT on the matchup prefix (so a matchup pointer is not collateral
+    // damage, and the surfaces stay disjoint).
+    // 🔴 THE COST HALF IS MEASURED WITH NO PROMPT POINTER IN THE STORE, on
+    // purpose. A sweep that finds its match calls `refreshDrafts()`, which
+    // re-lists EVERY prefix — so with a match present the matchup prefix is
+    // listed again for a reason that has nothing to do with sweeping it, and the
+    // count can no longer tell the two apart. With nothing to match, any listing
+    // of the matchup prefix after the withdraw could only be a sweep.
+    const PROMPT_KEY = 'p1';
     const { shared, withdraws } = fakeShared({
-      seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)],
+      seed: [row(PROMPT_KEY, 'My Prompt', VIEWER_ID, promptData)],
     });
     const { appStorage, deletes, store, listCalls } = fakeAppStorage({
       [draftKey(POINTER_LOCAL_ID)]: pointer,
     });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
-    // Baseline AFTER mount: the drafts panel legitimately lists the store once on
-    // load, so the claim is that the WITHDRAW adds none — not that there are
-    // zero. Counting from zero here would pin the mount effect instead.
-    const draftLists = () => listCalls.filter((c) => c?.prefix === DRAFT_PREFIX).length;
-    await waitFor(() => expect(draftLists()).toBeGreaterThan(0));
-    const before = draftLists();
+    // Baseline AFTER mount: the My-tab load legitimately lists both prefixes once
+    // on load, so the claim is that the WITHDRAW adds none to the MATCHUP prefix —
+    // not that there are zero. Counting from zero here would pin the mount effect.
+    const listsOf = (prefix: string) => listCalls.filter((c) => c?.prefix === prefix).length;
+    await waitFor(() => expect(listsOf(DRAFT_PREFIX)).toBeGreaterThan(0));
+    const draftsBefore = listsOf(DRAFT_PREFIX);
+    const promptsBefore = listsOf(UNPUB_PROMPT_PREFIX);
 
     const card = await screen.findByTestId('prompt-card');
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
-    await waitFor(() => expect(withdraws).toEqual(['p1']));
+    await waitFor(() => expect(withdraws).toEqual([PROMPT_KEY]));
     await waitFor(() => expect(screen.queryByTestId('prompt-card')).toBeNull());
 
-    // 🔴 NOT ONE extra listing of the drafts prefix.
-    expect(draftLists(), 'the prompt path started a pointer scan it can never win').toBe(before);
-    // …and, still, an unrelated combination's pointer is not collateral damage.
+    // 🔴 POSITIVE CONTROL: a sweep DID run, on the PROMPT prefix. Without it the
+    // "no matchup listing" assertion below is satisfied by a withdraw that swept
+    // nothing at all — which is exactly the pre-527 behaviour this case retires.
+    await waitFor(() =>
+      expect(
+        listsOf(UNPUB_PROMPT_PREFIX),
+        'the prompt withdraw swept nothing — its own pointers would be orphaned',
+      ).toBeGreaterThan(promptsBefore),
+    );
+
+    // 🔴 NOT ONE extra listing of the MATCHUP prefix, and the matchup pointer is
+    // untouched: a prompt withdraw can never reach a matchup's handle.
+    expect(
+      listsOf(DRAFT_PREFIX),
+      'the prompt path swept the matchup prefix it can never match',
+    ).toBe(draftsBefore);
     expect(deletes).toEqual([]);
+    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
+  });
+
+  it('🔴 DELETES the prompt’s OWN pointer when that prompt is withdrawn', async () => {
+    // The other half of the case above, and the one that would silently orphan:
+    // 527 gave prompts a private store, so a published-then-withdrawn prompt
+    // leaves a pointer at a row that no longer exists unless the sweep clears it.
+    const PROMPT_KEY = 'p1';
+    const promptPointer = {
+      v: 1,
+      localId: 'up1',
+      sharedKey: PROMPT_KEY,
+      submittedAt: '2026-09-07T00:00:00.000Z',
+    };
+    const { shared, withdraws } = fakeShared({
+      seed: [row(PROMPT_KEY, 'My Prompt', VIEWER_ID, promptData)],
+    });
+    const { appStorage, deletes, store } = fakeAppStorage({
+      [draftKey(POINTER_LOCAL_ID)]: pointer,
+      [unpubPromptKey('up1')]: promptPointer,
+    });
+    await renderApp({ shared, appStorage });
+
+    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    expect(store.has(unpubPromptKey('up1'))).toBe(true);
+
+    const card = await screen.findByTestId('prompt-card');
+    await userEvent.click(within(card).getByTestId('prompt-withdraw'));
+    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
+
+    await waitFor(() => expect(withdraws).toEqual([PROMPT_KEY]));
+    await waitFor(() => expect(deletes).toContain(unpubPromptKey('up1')));
+    expect(store.has(unpubPromptKey('up1'))).toBe(false);
+    // …and the unrelated MATCHUP pointer is not collateral damage.
+    expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
   });
 
@@ -394,12 +469,12 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     });
     const otherPointer = { v: 1, localId: 'l2', sharedKey: OTHER_KEY, submittedAt: 'ts2' };
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey('l2')]: otherPointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('draft-submitted');
-    const cards = await screen.findAllByTestId('combo-card');
+    expect(store.has(draftKey('l2'))).toBe(true);
+    const cards = await screen.findAllByTestId('matchup-card');
     const target = cards.find((el) => el.getAttribute('data-key') === LIVE_KEY)!;
-    await userEvent.click(within(target).getByTestId('combo-withdraw'));
+    await userEvent.click(within(target).getByTestId('matchup-withdraw'));
     await userEvent.click(within(target).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -409,25 +484,21 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // walked past belongs to a row that is still live.
     expect(deletes).toEqual([]);
     expect(store.get(draftKey('l2'))).toEqual(otherPointer);
-    expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
   });
 
-  it('🔴 THE PREMISE: submitting a PROMPT writes no draft key, so there is nothing to orphan', async () => {
-    // 🔴 THIS PINS THE ASSUMPTION THAT MAKES `clearPointer: false` SAFE, and
-    // nothing else in the suite does. `withdrawPrompt` skips the pointer scan
-    // because a prompt can never have a pointer — which is true only because
-    // `submittedPointer(...)` is written from exactly ONE place (`submitDraft`,
-    // always a combination payload) and the prompt submit path never touches a
-    // `draft:v1:` key.
+  it('🔴 THE PREMISE: the DIRECT prompt submit writes no per-viewer key under either prefix', async () => {
+    // 🔴 THIS PINS WHICH PATHS MINT A POINTER AT ALL, and nothing else in the
+    // suite does. There are two ways a prompt reaches the board: PUBLISH from the
+    // private store (which writes a pointer under `unpub:prompt:v1:` — swept by
+    // `withdrawPrompt`, pinned two cases up), and the DIRECT "Submit prompt"
+    // form, which appends and writes nothing per-viewer at all.
     //
-    // If prompt drafts are ever added, that stops holding: `withdrawPrompt`
-    // would silently orphan their pointers, AND the "NEVER EVEN STARTS the
-    // pointer scan" case one test up would keep passing — it would be
-    // ENFORCING the bug. This case is the tie that makes that combination go
-    // red instead of green.
+    // The direct path writing a key under EITHER prefix would be a silent orphan:
+    // under the matchup prefix a prompt withdraw would never sweep it, and under
+    // neither would it be reachable for edit. That is why this asserts both.
     const { shared, appends } = fakeShared({ seed: [] });
     const { appStorage, sets } = fakeAppStorage();
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
     await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
     await userEvent.click(await screen.findByTestId('submit-prompt'));
@@ -445,10 +516,14 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     await waitFor(() => expect(appends).toHaveLength(1));
     expect(appends[0].title).toBe('A public prompt');
 
-    // 🔴 …and it wrote NO per-viewer draft key.
+    // 🔴 …and it wrote NO per-viewer key under EITHER unpublished prefix.
     expect(
       sets.map((s) => s.key).filter((k) => k.startsWith(DRAFT_PREFIX)),
-      'the prompt submit path wrote a draft pointer — withdrawPrompt would now orphan it',
+      'the direct prompt submit wrote a MATCHUP pointer — no prompt withdraw would ever sweep it',
+    ).toEqual([]);
+    expect(
+      sets.map((s) => s.key).filter((k) => k.startsWith(UNPUB_PROMPT_PREFIX)),
+      'the direct prompt submit wrote a private prompt record it never created',
     ).toEqual([]);
   });
 
@@ -468,11 +543,11 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
       withdrawRefuses: true,
     });
     const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('draft-submitted');
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     // The call DID happen and DID resolve (no throw) — so what follows is about
@@ -482,47 +557,67 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
     // 🔴 THE POINTER IS UNTOUCHED, and the row is still on the board.
     expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
     expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
-    expect(screen.getByTestId('draft-submitted')).toBeInTheDocument();
-    expect(screen.getByTestId('combo-card')).toBeInTheDocument();
+    expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
   });
 
-  it('is found IN THE STORE even when the drafts list never resolved', async () => {
+  it('is found IN THE STORE even when the per-viewer list never resolved', async () => {
     // 🔴 A LOOKUP AGAINST RENDER STATE IS SILENTLY INERT HERE. The mount effect's
     // `list()` throws and the App swallows it deliberately (a KV failure must not
     // take the public board down), so `drafts` stays `[]` with nothing to retry
     // it — and a scan over that state finds no pointer, deletes nothing, and
     // never re-checks. Same empty list, same silence, from two more realistic
     // routes: withdrawing before the mount effect has resolved at all, and a
-    // viewer with more drafts than `KV_MAX_PAGES` pages. The pointer is real
+    // viewer with more records than `KV_MAX_PAGES` pages. The pointer is real
     // in every one of them, which is why the lookup goes to the store.
     //
     // `failListTimes: 1` fails ONLY the mount effect's list; the withdraw-time
     // scan gets a working store. That is the discriminator: render state is
     // empty, the store is not.
+    //
+    // ⚠️ 527 COST THIS CASE ITS OLD POSITIVE CONTROL and it is rebuilt here
+    // rather than dropped. It used to prove "render state missed it" by finding
+    // `drafts-empty` on screen while a POINTER sat in the store — but pointers no
+    // longer render at all, so that observation would now be true whatever the
+    // listing did, i.e. vacuous. The store therefore also holds an UNSUBMITTED
+    // record, which the My tab WOULD render: seeing `unpublished-empty` with that
+    // record in the store is what proves the render state really is blind.
+    const BODY_LOCAL_ID = 'body1';
+    const unsubmitted = {
+      v: 1,
+      localId: BODY_LOCAL_ID,
+      name: 'Not published yet',
+      description: '',
+      configs: comboData.configs,
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    };
     const { shared, withdraws } = fakeShared({
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
     });
     const { appStorage, deletes, store, listCalls } = fakeAppStorage(
-      { [draftKey(POINTER_LOCAL_ID)]: pointer },
+      { [draftKey(POINTER_LOCAL_ID)]: pointer, [draftKey(BODY_LOCAL_ID)]: unsubmitted },
       {},
       { failListTimes: 1, failListPrefix: DRAFT_PREFIX },
     );
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
-    // POSITIVE CONTROL for the premise: the drafts panel is EMPTY, i.e. the
-    // render state really did miss the pointer. Without this the test could pass
-    // with a fully-loaded list and prove nothing about the store lookup.
-    await screen.findByTestId('drafts-empty');
-    expect(screen.queryByTestId('draft-submitted')).toBeNull();
-    // …and the drafts listing really was the one that failed. Without this the
-    // premise is unproven: the App issues TWO prefixed listings on mount and the
-    // INFLIGHT one goes first, so an untargeted failure eats the wrong call and
-    // the drafts load normally. That is not hypothetical — it is what the first
-    // version of this test did, and this control is what caught it.
+    // POSITIVE CONTROL for the premise: the My tab shows NOTHING unpublished even
+    // though the store holds a renderable unsubmitted record — i.e. the render
+    // state really did miss the store. Without this the test could pass with a
+    // fully-loaded list and prove nothing about the store lookup.
+    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await screen.findByTestId('unpublished-empty');
+    expect(store.has(draftKey(BODY_LOCAL_ID))).toBe(true);
+    expect(screen.queryByTestId('unpublished-card')).toBeNull();
+    // …and the matchup listing really was the one that failed. Without this the
+    // premise is unproven: the App issues several prefixed listings on mount and
+    // the INFLIGHT one goes first, so an untargeted failure eats the wrong call
+    // and the records load normally. That is not hypothetical — it is what the
+    // first version of this test did, and this control is what caught it.
     expect(listCalls.map((c) => c?.prefix)).toContain(DRAFT_PREFIX);
+    await userEvent.click(screen.getByTestId('subtab-community'));
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -565,11 +660,11 @@ describe('withdraw: the draft pointer at the withdrawn row', () => {
       {},
       { pageSize: 2 },
     );
-    renderApp({ shared, appStorage });
+    await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('draft-submitted');
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
     await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
@@ -600,14 +695,14 @@ describe('withdraw: the list reconciles', () => {
       reflectMutations: false,
       seed: [row('mine', 'Mine', VIEWER_ID, comboData)],
     });
-    renderApp({ shared });
+    await renderApp({ shared });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-withdraw'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     const listsBefore = listCalls.length;
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
-    await waitFor(() => expect(screen.queryByTestId('combo-card')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('matchup-card')).toBeNull());
     expect(withdraws).toEqual(['mine']);
 
     // Wait for the reload's list() to actually LAND (it re-serves the row) and
@@ -615,6 +710,6 @@ describe('withdraw: the list reconciles', () => {
     // but timing luck.
     await waitFor(() => expect(listCalls.length).toBeGreaterThan(listsBefore));
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByTestId('combo-card')).toBeNull();
+    expect(screen.queryByTestId('matchup-card')).toBeNull();
   });
 });

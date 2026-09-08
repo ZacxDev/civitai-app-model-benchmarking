@@ -88,9 +88,10 @@
 // cannot tell whether the file drifted or the original measurement was wrong.
 // If you add a case here, re-run the base arm and update these two lines.
 //
-// The 9 that go red are the regression coverage: the two seam/cascade cases,
-// the four >=44px tap-target cases (tabs, vote, run-cell, slider), the two
-// style-contract cases and the 44px literal pin. The 7 that were already green
+// The 8 that go red are the regression coverage: the two seam/cascade cases,
+// the three >=44px tap-target cases (tabs, vote, run-cell — the SLIDER case went
+// with the slider 527 deleted), the two style-contract cases and the 44px
+// literal pin. The 7 that were already green
 // at base are NOT regression coverage and are labelled
 // where they sit — the two INVARIANT GUARDs on the grid's structure, the #16
 // no-maxWidth guard, and the two DESKTOP cases, which are green at base for the
@@ -114,7 +115,7 @@ import {
   compactTapTargetCss,
 } from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
 
 // ---------------------------------------------------------------------------
@@ -229,9 +230,13 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
     renderApp();
     await screen.findByTestId('view-switch');
 
+    // 3 view tabs (matchups / prompts / grid) + the 2 sub-tabs the mounted
+    // Matchups view adds (My / Community — 527, §11.1). A literal rather than a
+    // `>= 3`: this is the reachability ledger, so a segment appearing or
+    // disappearing should be a decision someone takes on purpose.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui-segment]`),
-    ).toHaveLength(3); // combos / prompts / grid
+    ).toHaveLength(5);
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui='button']`).length,
     ).toBeGreaterThan(0);
@@ -250,7 +255,10 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
   it('gives the vote control a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
-    const vote = await screen.findByTestId('combo-vote');
+    // Grids is the default view since 527 (§11.5); the vote control under test
+    // is the MATCHUP one, so navigate to it.
+    await openView('Matchups');
+    const vote = await screen.findByTestId('matchup-vote');
     expect(minHeightPx(vote)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
   });
 
@@ -403,22 +411,93 @@ describe('420 — the 44px figure itself', () => {
     expect(compactTapTargetCss()).toContain('min-height: 44px');
   });
 
+  // 🔴 RESTORED. 527 deleted this case, and dropped `[data-civitai-ui-range]`
+  // from the rule in `compact.ts`, on the stated ground that "527 removes the
+  // app's only `Slider`, so its premise (`ranges.length > 0`) is unsatisfiable by
+  // construction". THAT WAS FALSE, and it cost a real regression: 527 removed the
+  // per-viewer "Show top N" slider, but `MatchupForm` still renders one `<Slider>`
+  // per LoRA (the weight control), and the pack's `Slider` still emits
+  // `data-civitai-ui-range`. So the selector matched a live node the whole time,
+  // and dropping it silently returned every LoRA weight slider to the pack's 6px
+  // height on a phone.
+  //
+  // The premise moved, so the ROUTE moved with it: the range no longer lives on
+  // the Grid view, it lives inside the Matchup edit form. That is a fixture
+  // change, not a reason to delete a guard — and this case is exactly the one
+  // whose job is to fail when a selector stops reaching anything.
   it('SELECTOR REACHABILITY: the slider rule matches the live range control', async () => {
-    // 🔴 CORRECTED after the round-2 audit: this used to pin
-    // `[data-civitai-ui-range]` as a SUBSTRING, justified as "text because jsdom
-    // does no layout". That is a non-reason — the reachability case above proves
-    // selectors against the live DOM with querySelectorAll, which needs no
-    // layout — and it left the exact hole that case exists to close: a pack
-    // rename orphans the rule while the substring stays green.
-    // The slider is 6px tall from the pack and only renders in the Grid view.
     setViewport('mobile');
-    renderApp();
-    await openGrid();
+    // A LOCAL seed, so the shared SEED (authorUserId 7, deliberately NOT the
+    // viewer) keeps serving every other case in this file unchanged. Here the
+    // viewer OWNS the row, because the LoRA slider is only reachable through the
+    // author-scoped Edit affordance.
+    const owned: SharedListItem[] = [
+      {
+        key: 'c-owned',
+        count: 3,
+        authorUserId: 99, // === the Harness viewer below; Edit is author-scoped
+        value: {
+          title: 'Owned Combo',
+          body: '',
+          data: {
+            v: 2,
+            kind: 'combination', // 🔴 wire value, never renamed
+            configs: [
+              {
+                id: 'cfgOwned',
+                label: 'weighted',
+                checkpoint: {
+                  versionId: 1001,
+                  modelId: 500,
+                  baseModel: 'SDXL 1.0',
+                  modelName: 'JuggernautXL',
+                },
+                // The LoRA is the whole point: MatchupForm renders one Slider per
+                // LoRA, so an empty stack would render NO range and this case
+                // would pass vacuously.
+                loras: [{ versionId: 2002, weight: 0.8, minStrength: 0, maxStrength: 1.5 }],
+              },
+            ],
+          },
+        },
+        viewerVoted: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as SharedListItem,
+    ];
+    const { shared } = fakeShared({ seed: owned });
+    render(
+      <Harness
+        viewer={{ id: 99, username: 'me' }}
+        theme="dark"
+        consentGranted
+        buzzBudget={1000}
+        buzzBalance={{ blue: 0, green: 0, yellow: 5000 }}
+        shared={{ seed: [] }}
+        showLog={false}
+      >
+        <App
+          deps={{
+            resolveResources: async () => [],
+            pollIntervalMs: 0,
+            sleep: immediateSleep,
+            shared,
+            appStorage: fakeAppStorage().appStorage,
+          }}
+        />
+      </Harness>,
+    );
+
+    await openView('Matchups');
+    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await userEvent.click(await screen.findByTestId('matchup-edit'));
 
     const ranges = document.querySelectorAll(
       `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,
     );
-    expect(ranges.length).toBeGreaterThan(0);
+    // POSITIVE CONTROL for the query itself: if this is 0 the case proves
+    // nothing, and would pass vacuously on an `every()` over an empty list.
+    expect(ranges.length, 'the range selector reached no live node').toBeGreaterThan(0);
     for (const r of ranges) {
       expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
@@ -739,7 +818,8 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // "Included".
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('combos-list');
+    await openView('Matchups');
+    await screen.findByTestId('matchups-list');
 
     const triggers = document.querySelectorAll(
       `[${COMPACT_ATTR}='true'] [data-civitai-ui='tooltip']`,

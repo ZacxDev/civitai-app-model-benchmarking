@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
+import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
 
 import type { CombinationRow, ModelConfig, PromptRow, ResultRow } from '../types.js';
+import { buildGridPayload } from './grids.js';
 import {
   buildCellWorkflowBody,
   buildCombinationPayload,
@@ -25,6 +26,7 @@ import {
   parseResult,
   promptToInput,
   reconcileOptimistic,
+  recordKind,
   resolveCell,
   splitRows,
   topByVotes,
@@ -170,7 +172,7 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
   it('validates required fields', () => {
     expect(
       validateCombination({ name: '', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }),
-    ).toContain('Give the combination a name.');
+    ).toContain('Give the matchup a name.');
     expect(validateCombination({ name: 'X', description: '', configs: [newConfig()] })).toContain(
       'Add at least one model config (pick a checkpoint).',
     );
@@ -386,6 +388,221 @@ describe('splitRows', () => {
     expect(combinations.map((c) => c.key)).toEqual(['c1']);
     expect(prompts.map((p) => p.key)).toEqual(['p1']);
     expect(results.map((r) => r.key)).toEqual(['r1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `grid` — the FOURTH record kind on the one shared board (docs/matchups.md
+// §11.2). These pin the BOARD-SCAN WIRING specifically: `grids.ts` owns whether
+// a payload is a well-formed grid, this file owns whether the scan ever ASKS.
+// The gap being closed here is that it did not: `grid` was in `RecordKind` and
+// had a parser, but `recordKind` open-coded a three-kind list and `splitRows`
+// had no grid bucket, so a grid row appended today was invisible.
+// ---------------------------------------------------------------------------
+describe('the grid record kind is wired through the board scan (§11.2)', () => {
+  // Fixture discipline: every key, count, name and prompt string below is
+  // pairwise DISTINCT and distinct from any constant these assertions name, so a
+  // mutant that hardcodes a literal cannot coincide with a fixture value.
+  const MATCHUP_KEY = 'shared_mk_77';
+  const PROMPT_KEY = 'shared_pk_88';
+  const RESULT_KEY = 'shared_rk_99';
+  const GRID_KEY = 'shared_gk_66';
+  const UNKNOWN_KEY = 'shared_xk_55';
+  /** A member key the grid names that is NOT on the board — §11.2 says dangling
+   * references are NORMAL, and `parseGrid` keeps them (resolution is elsewhere). */
+  const DANGLING_MATCHUP_KEY = 'withdrawn_mk_41';
+
+  const item = (key: string, count: number, value: SharedStorageValue): RawSharedItem => ({
+    key,
+    count,
+    authorUserId: 4242,
+    value,
+    viewerVoted: false,
+  });
+
+  const matchupItem = () =>
+    item(
+      MATCHUP_KEY,
+      3,
+      buildCombinationPayload({
+        name: 'Nocturne matchup',
+        description: 'two checkpoints',
+        configs: [{ id: 'cfg_zeta', checkpoint: checkpointFromPick(CKPT), loras: [] }],
+      }),
+    );
+  const promptItem = () =>
+    item(
+      PROMPT_KEY,
+      11,
+      buildPromptPayload({
+        name: 'Rainy alley',
+        description: 'a wet street at dusk',
+        default: { prompt: 'a rainy alley at dusk', params: {} },
+        overrides: {},
+      }),
+    );
+  const resultItem = () =>
+    item(
+      RESULT_KEY,
+      0,
+      buildResultPayload({
+        comboKey: MATCHUP_KEY,
+        configId: 'cfg_zeta',
+        promptKey: PROMPT_KEY,
+        ecosystem: 'SDXL',
+        imageIds: [808, 809],
+      }),
+    );
+  const gridItem = () =>
+    item(
+      GRID_KEY,
+      7,
+      buildGridPayload({
+        name: 'Nocturne bench',
+        description: 'the matchups I care about against the rainy prompts',
+        matchupKeys: [MATCHUP_KEY, DANGLING_MATCHUP_KEY],
+        promptKeys: [PROMPT_KEY],
+      }),
+    );
+  /** A row whose `data.kind` is not a kind this build knows (a forged row, or a
+   * FUTURE kind written by a newer client — both must be skipped, not crash). */
+  const unknownItem = () =>
+    item(UNKNOWN_KEY, 5, {
+      title: 'from a newer build',
+      body: '',
+      data: { v: 1, kind: 'leaderboard', entries: [1, 2, 3] },
+    });
+
+  it('recordKind classifies a grid row as `grid` (it returned null before)', () => {
+    expect(recordKind(gridItem().value)).toBe('grid');
+  });
+
+  it('🔴 recordKind is UNCHANGED for the three pre-existing kinds', () => {
+    // Literal expectations — these are persisted WIRE values (§6.1), not values
+    // re-derived from `RecordKind` or from the builders' own output.
+    expect(recordKind(matchupItem().value)).toBe('combination');
+    expect(recordKind(promptItem().value)).toBe('prompt');
+    expect(recordKind(resultItem().value)).toBe('result');
+    // …including the legacy shapes the parsers still migrate on read.
+    expect(recordKind({ title: 't', body: '', data: { v: 1, kind: 'combination' } })).toBe('combination');
+    expect(recordKind({ title: 't', body: '', data: { v: 1, kind: 'prompt' } })).toBe('prompt');
+    expect(recordKind({ title: 't', body: '', data: { v: 1, kind: 'result' } })).toBe('result');
+  });
+
+  it('recordKind returns null for an unknown kind — INCLUDING prototype-chain names', () => {
+    for (const kind of ['leaderboard', 'GRID', 'grids', '']) {
+      expect(recordKind({ title: 't', body: '', data: { v: 1, kind } })).toBeNull();
+    }
+    // 🔴 `'constructor' in RECORD_KINDS` is TRUE through Object.prototype. A
+    // membership test written with `in` instead of `hasOwnProperty` would
+    // classify each of these as a known record kind.
+    for (const kind of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      expect(recordKind({ title: 't', body: '', data: { v: 1, kind } })).toBeNull();
+    }
+    // Non-string / absent discriminants, and a missing `data`, are null too.
+    expect(recordKind({ title: 't', body: '', data: { v: 1, kind: 7 } })).toBeNull();
+    expect(recordKind({ title: 't', body: '', data: { v: 1 } })).toBeNull();
+    expect(recordKind({ title: 't', body: '' })).toBeNull();
+  });
+
+  it('recordKind still gates on the schema version — a v4 grid is not classified', () => {
+    expect(recordKind({ title: 't', body: '', data: { v: 4, kind: 'grid' } })).toBeNull();
+    expect(recordKind({ title: 't', body: '', data: { kind: 'grid' } })).toBeNull();
+  });
+
+  it('splitRows puts a grid row in the grid bucket, keys and order intact', () => {
+    const { grids } = splitRows([gridItem()]);
+    expect(grids.map((g) => g.key)).toEqual([GRID_KEY]);
+    expect(grids[0].name).toBe('Nocturne bench');
+    expect(grids[0].count).toBe(7);
+    // Authored ORDER is preserved and the DANGLING member is kept (§11.2) — the
+    // scan must not silently shrink a grid whose member row was withdrawn.
+    expect(grids[0].data.matchupKeys).toEqual([MATCHUP_KEY, DANGLING_MATCHUP_KEY]);
+    expect(grids[0].data.promptKeys).toEqual([PROMPT_KEY]);
+  });
+
+  it('🔴 a mixed board of all FOUR kinds partitions with none lost and none double-counted', () => {
+    // Interleaved deliberately: the shared list is one newest-first page with
+    // every kind mixed together (§2.3 C1 — no server-side filter exists).
+    const items = [resultItem(), gridItem(), matchupItem(), promptItem()];
+    const { combinations, prompts, results, grids } = splitRows(items);
+
+    // The count assertions come FIRST deliberately: a row-LOSS mutant must fail
+    // on this line, not on a downstream per-bucket assertion that happens to be
+    // checked earlier — otherwise the sum below is never proven reachable.
+    // NONE LOST: the bucket sizes sum to the input length.
+    expect(combinations.length + prompts.length + results.length + grids.length).toBe(items.length);
+    // NONE DOUBLE-COUNTED: the multiset of bucketed keys equals the input's.
+    // (An invariant guard, not a regression guard — the four parsers each reject
+    // every `data.kind` but their own, so double-counting is structurally
+    // impossible today. It pins that property against a future laxer parser.)
+    const bucketed = [...combinations, ...prompts, ...results, ...grids].map((r) => r.key).sort();
+    expect(bucketed).toEqual([...items].map((i) => i.key).sort());
+
+    // …and each row landed in the RIGHT bucket, not merely in some bucket.
+    expect(combinations.map((c) => c.key)).toEqual([MATCHUP_KEY]);
+    expect(prompts.map((p) => p.key)).toEqual([PROMPT_KEY]);
+    expect(results.map((r) => r.key)).toEqual([RESULT_KEY]);
+    expect(grids.map((g) => g.key)).toEqual([GRID_KEY]);
+  });
+
+  it('a row with an unknown `data.kind` is still SKIPPED by every bucket', () => {
+    const items = [matchupItem(), unknownItem(), gridItem()];
+    const { combinations, prompts, results, grids } = splitRows(items);
+    // Count first, so a mutant that buckets the unknown row fails on THIS claim.
+    // The unknown row appears in NO bucket — the sum is short by exactly it.
+    expect(combinations.length + prompts.length + results.length + grids.length).toBe(items.length - 1);
+    expect(combinations.map((c) => c.key)).toEqual([MATCHUP_KEY]);
+    expect(grids.map((g) => g.key)).toEqual([GRID_KEY]);
+    expect(prompts).toHaveLength(0);
+    expect(results).toHaveLength(0);
+  });
+
+  it('MALFORMED grid data is skipped rather than throwing, and never poisons a bucket', () => {
+    const malformed: RawSharedItem[] = [
+      // Right kind, but nothing renderable once junk entries are dropped.
+      item('bad_1', 1, { title: 'a', body: '', data: { v: 1, kind: 'grid', matchupKeys: 'not-an-array', promptKeys: [PROMPT_KEY] } }),
+      item('bad_2', 1, { title: 'b', body: '', data: { v: 1, kind: 'grid', matchupKeys: [MATCHUP_KEY], promptKeys: [] } }),
+      item('bad_3', 1, { title: 'c', body: '', data: { v: 1, kind: 'grid', matchupKeys: [null, 42, '  '], promptKeys: [PROMPT_KEY] } }),
+      item('bad_4', 1, { title: 'd', body: '', data: { v: 1, kind: 'grid' } }),
+      // A FUTURE grid version — dropped, not guessed at.
+      item('bad_5', 1, { title: 'e', body: '', data: { v: 2, kind: 'grid', matchupKeys: [MATCHUP_KEY], promptKeys: [PROMPT_KEY] } }),
+      // `data` that is not an object at all, and `data` absent entirely.
+      item('bad_6', 1, { title: 'f', body: '', data: 'grid' as unknown as Record<string, unknown> }),
+      item('bad_7', 1, { title: 'g', body: '', data: null as unknown as Record<string, unknown> }),
+      item('bad_8', 1, { title: 'h', body: '' }),
+    ];
+    // The scan must survive anything the UNMODERATED `data` blob can carry.
+    expect(() => splitRows(malformed)).not.toThrow();
+    const { combinations, prompts, results, grids } = splitRows(malformed);
+    expect(grids).toHaveLength(0);
+    expect(combinations).toHaveLength(0);
+    expect(prompts).toHaveLength(0);
+    expect(results).toHaveLength(0);
+
+    // …and a malformed grid sitting NEXT to a good one loses only itself.
+    const mixed = splitRows([malformed[0], gridItem(), malformed[4]]);
+    expect(mixed.grids.map((g) => g.key)).toEqual([GRID_KEY]);
+  });
+
+  it('🔴 the three pre-existing kinds split EXACTLY as before, grid bucket or not', () => {
+    const items = [matchupItem(), promptItem(), resultItem()];
+    const { combinations, prompts, results, grids } = splitRows(items);
+    expect(grids).toEqual([]);
+    // Pinned literal expectations for the three untouched kinds.
+    expect(combinations).toHaveLength(1);
+    expect(combinations[0].name).toBe('Nocturne matchup');
+    expect(combinations[0].data.kind).toBe('combination');
+    expect(combinations[0].data.v).toBe(2);
+    expect(combinations[0].data.configs[0].id).toBe('cfg_zeta');
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].data.kind).toBe('prompt');
+    expect(prompts[0].data.default.prompt).toBe('a rainy alley at dusk');
+    expect(results).toHaveLength(1);
+    expect(results[0].data.kind).toBe('result');
+    expect(results[0].data.comboKey).toBe(MATCHUP_KEY);
+    expect(results[0].data.promptKey).toBe(PROMPT_KEY);
+    expect(results[0].data.imageIds).toEqual([808, 809]);
   });
 });
 
