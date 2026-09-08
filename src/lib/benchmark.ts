@@ -715,12 +715,24 @@ export function topByVotes<T extends { key: string; count: number }>(
  * The one-line description of what is currently included, for the Combinations
  * and Prompts headers.
  *
- * 🔴 Inclusion is PER-VIEWER, not a property of the shared grid: the included
- * set is `topByVotes(rows, topN)` and `topN` is the Grid tab's "Show top N"
- * slider, which that tab itself describes as changing "how many rows/columns
- * YOU see". Copy here must therefore never assert what "the grid" contains —
- * two viewers with different slider values would both be told a different
- * absolute fact about one shared object. Hence the explicit "in your view".
+ * 🔴 Inclusion is PER-VIEWER, not a property of the shared grid — but the REASON
+ * changed in 527, and this comment is corrected to match the code.
+ *
+ * It used to read: "`topN` is the Grid tab's 'Show top N' slider, which that tab
+ * itself describes as changing how many rows/columns YOU see". **That control no
+ * longer exists** — 527 deleted the per-viewer slider (§11.5, criterion 9). Left
+ * as written, a maintainer would go looking for a slider that is not there and
+ * could reasonably conclude the "in your view" hedge had become unnecessary, and
+ * delete it. The hedge is what keeps this copy honest, so that would be a real
+ * defect introduced by a stale comment.
+ *
+ * The hedge is still CORRECT, for a different and more durable reason: the
+ * ranking is computed client-side over whatever rows THIS client's board scan
+ * actually read, and that scan is capped (`LIST_PAGE × MAX_PAGES`) and can
+ * truncate — which is exactly why `board-truncated-notice` exists. Two viewers
+ * whose scans truncated differently would each be told a different absolute fact
+ * about one shared object. So copy here must still never assert what "the grid"
+ * contains. Hence the explicit "in your view".
  *
  * Also fixes two defects in the string this replaces
  * (`The top {includedKeys.size || 'N'} are …`): it read "The top 1 ARE …" for a

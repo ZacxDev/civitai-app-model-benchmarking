@@ -52,17 +52,29 @@ export const TOOLTIP_GAP_PX = 6;
  *   - `[data-civitai-ui='button']`   → every pack Button (vote, run-cell,
  *     confirm/cancel, withdraw, the modal form actions).
  *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
+ *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *
- * 🔴 THIS PARAGRAPH HAS BEEN WRONG TWICE. Both corrections came from MEASURING
- * the cascade, not from reading it, and the current text is the third attempt:
+ * 🔴 THIS PARAGRAPH HAS BEEN WRONG THREE TIMES. Every correction came from
+ * MEASURING the DOM or the cascade, never from reading it:
  *
- *   - `height: auto` reaches the BUTTONS, NOT the segments. Round 1 said
- *     "segments only" (backwards); round 2 said "buttons only" — right about the
- *     buttons but written when the rule ALSO carried `[data-civitai-ui-range]`
- *     (measured then: range `height` 6px -> 16px with the pack sheet linked).
- *     ⚠ 527 deleted the app's only `Slider`, so there is no range control left on
- *     any surface — the selector went with it rather than staying as a rule that
- *     matches nothing, which is a claim of coverage the DOM cannot back.
+ *   - `height: auto` reaches the BUTTONS **and the RANGE** (measured: range
+ *     `height` 6px -> 16px with the pack sheet linked), NOT the segments. Round 1
+ *     said "segments only" (backwards); round 2 said "buttons only" — also wrong,
+ *     because the same commit had just added the range selector to this rule.
+ *   - 🔴 **Round 3 DELETED `[data-civitai-ui-range]` from this rule** on the
+ *     stated ground that "527 deleted the app's only `Slider`, so there is no
+ *     range control left on any surface". **That was false.** 527 deleted the
+ *     per-viewer "Show top N" slider, but `MatchupForm` still renders one
+ *     `<Slider>` per LoRA (the weight control) and the pack's `Slider` still
+ *     emits `data-civitai-ui-range` — verified in
+ *     `node_modules/@civitai/blocks-react/dist/ui/Slider.js`. Dropping the
+ *     selector silently returned every LoRA weight slider to the pack's 6px
+ *     height on a phone, undoing part of the 44px tap-target work, and the
+ *     reachability case that would have caught it was deleted in the same commit
+ *     citing the same false premise. Both are restored.
+ *     **The recurring lesson: enumerate the controls that still RENDER before
+ *     retiring a selector — "nothing matches this any more" is a measurement,
+ *     not an inference.**
  *   - The BUTTON override wins by **CASCADE LAYER**, not by order or specificity:
  *     the pack's button CSS lives in `@layer civitai.components` and this sheet is
  *     UNLAYERED, so an unlayered declaration beats any layered one and neither
@@ -220,7 +232,8 @@ export const TOOLTIP_GAP_PX = 6;
  */
 export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
-[${COMPACT_ATTR}='true'] [data-civitai-ui-segment] {
+[${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
+[${COMPACT_ATTR}='true'] [data-civitai-ui-range] {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
 }

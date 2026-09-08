@@ -411,15 +411,97 @@ describe('420 — the 44px figure itself', () => {
     expect(compactTapTargetCss()).toContain('min-height: 44px');
   });
 
-  // 🔴 "SELECTOR REACHABILITY: the slider rule matches the live range control"
-  // IS DELETED. It asserted `[data-civitai-ui-range]` reached a LIVE node, and
-  // 527 removes the app's only `Slider` (§11.5, criterion 9) — so its premise
-  // (`ranges.length > 0`) is now unsatisfiable by construction. The honest fix is
-  // the one taken in `compact.ts`: the selector went with the control, because a
-  // rule that matches nothing is a claim of coverage the DOM cannot back. The
-  // guard that this file still owes — that every selector in the emitted sheet
-  // reaches a live node — is the reachability case above, which covers the two
-  // that remain.
+  // 🔴 RESTORED. 527 deleted this case, and dropped `[data-civitai-ui-range]`
+  // from the rule in `compact.ts`, on the stated ground that "527 removes the
+  // app's only `Slider`, so its premise (`ranges.length > 0`) is unsatisfiable by
+  // construction". THAT WAS FALSE, and it cost a real regression: 527 removed the
+  // per-viewer "Show top N" slider, but `MatchupForm` still renders one `<Slider>`
+  // per LoRA (the weight control), and the pack's `Slider` still emits
+  // `data-civitai-ui-range`. So the selector matched a live node the whole time,
+  // and dropping it silently returned every LoRA weight slider to the pack's 6px
+  // height on a phone.
+  //
+  // The premise moved, so the ROUTE moved with it: the range no longer lives on
+  // the Grid view, it lives inside the Matchup edit form. That is a fixture
+  // change, not a reason to delete a guard — and this case is exactly the one
+  // whose job is to fail when a selector stops reaching anything.
+  it('SELECTOR REACHABILITY: the slider rule matches the live range control', async () => {
+    setViewport('mobile');
+    // A LOCAL seed, so the shared SEED (authorUserId 7, deliberately NOT the
+    // viewer) keeps serving every other case in this file unchanged. Here the
+    // viewer OWNS the row, because the LoRA slider is only reachable through the
+    // author-scoped Edit affordance.
+    const owned: SharedListItem[] = [
+      {
+        key: 'c-owned',
+        count: 3,
+        authorUserId: 99, // === the Harness viewer below; Edit is author-scoped
+        value: {
+          title: 'Owned Combo',
+          body: '',
+          data: {
+            v: 2,
+            kind: 'combination', // 🔴 wire value, never renamed
+            configs: [
+              {
+                id: 'cfgOwned',
+                label: 'weighted',
+                checkpoint: {
+                  versionId: 1001,
+                  modelId: 500,
+                  baseModel: 'SDXL 1.0',
+                  modelName: 'JuggernautXL',
+                },
+                // The LoRA is the whole point: MatchupForm renders one Slider per
+                // LoRA, so an empty stack would render NO range and this case
+                // would pass vacuously.
+                loras: [{ versionId: 2002, weight: 0.8, minStrength: 0, maxStrength: 1.5 }],
+              },
+            ],
+          },
+        },
+        viewerVoted: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as SharedListItem,
+    ];
+    const { shared } = fakeShared({ seed: owned });
+    render(
+      <Harness
+        viewer={{ id: 99, username: 'me' }}
+        theme="dark"
+        consentGranted
+        buzzBudget={1000}
+        buzzBalance={{ blue: 0, green: 0, yellow: 5000 }}
+        shared={{ seed: [] }}
+        showLog={false}
+      >
+        <App
+          deps={{
+            resolveResources: async () => [],
+            pollIntervalMs: 0,
+            sleep: immediateSleep,
+            shared,
+            appStorage: fakeAppStorage().appStorage,
+          }}
+        />
+      </Harness>,
+    );
+
+    await openView('Matchups');
+    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await userEvent.click(await screen.findByTestId('matchup-edit'));
+
+    const ranges = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,
+    );
+    // POSITIVE CONTROL for the query itself: if this is 0 the case proves
+    // nothing, and would pass vacuously on an `every()` over an empty list.
+    expect(ranges.length, 'the range selector reached no live node').toBeGreaterThan(0);
+    for (const r of ranges) {
+      expect(minHeightPx(r)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
