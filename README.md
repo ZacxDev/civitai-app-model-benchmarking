@@ -151,11 +151,16 @@ submit flows are modals:
   🔴 A published grid names shared keys **another author can withdraw**, so a grid
   renders its surviving members plus an honest count of the missing ones.
 
+<!-- lib-inventory:start — src/readme-inventory.test.ts reads ONLY between these
+     two markers, so the guard is about THIS paragraph and not about `src/lib/…`
+     links elsewhere in the file. Move them and the guard moves with them;
+     remove one and the guard fails loudly rather than silently widening. -->
+
 The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
 is named here**, and that is checked rather than trusted —
-[`readme-inventory.test.ts`](src/readme-inventory.test.ts) compares this list
-against the directory and fails if the set grows *or* shrinks, because this
-paragraph once silently went one module short:
+[`readme-inventory.test.ts`](src/readme-inventory.test.ts) compares *this
+paragraph*, and only it, against the directory and fails if the set grows *or*
+shrinks, because this paragraph once silently went one module short:
 [`benchmark.ts`](src/lib/benchmark.ts) (the data-model parse/migrate, `WorkflowBody`
 construction, top-N-by-votes, optimistic reconcile, the moderated-text/opaque-data
 split), [`ecosystem.ts`](src/lib/ecosystem.ts) (base-model → ecosystem matcher),
@@ -173,12 +178,15 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 directly, for the one publish path all three share — and
 [`archive.ts`](src/lib/archive.ts) (the author-side hide).
 
+<!-- lib-inventory:end -->
+
 ### The stored value shape (moderation boundary)
 
 One append-only shared list holds **four** record kinds, discriminated by
 `data.kind`. **Each kind carries its OWN `data.v`, and they are not all 1** —
-every row is defensively parsed and migrated on read, so older versions of all
-four are still live on the board. Every record splits into a **moderated** half
+every row is defensively parsed and migrated on read, so pre-migration shapes of
+the **three** older kinds are still live on the board (`grid` is v1 with no
+predecessor and no migration branch). Every record splits into a **moderated** half
 and an **opaque** half:
 
 | kind | `data.v` | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |

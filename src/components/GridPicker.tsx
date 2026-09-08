@@ -230,8 +230,10 @@ export function GridPicker({
    *   - ⚠ `closeOnEscape={false}` on its own `Modal` is DEFENCE-IN-DEPTH, and is
    *     inert as shipped: the capture listener already stops the event, so the
    *     pack's own bubble handler cannot fire whether or not it is attached —
-   *     mutating the prop to `true` leaves the suite green (re-measured at this
-   *     branch's HEAD: 524/524, both vitest projects). It is kept to state the
+   *     mutating the prop to `true` leaves the suite green (re-measured
+   *     2026-09-08 at this branch's HEAD: 526/526, 42 files, both vitest
+   *     projects — the same 526 baseline the sweep at the top of this file
+   *     names). It is kept to state the
    *     ownership at the seam and to keep one Escape from being handled twice if
    *     the capture listener is ever narrowed or removed.
    *
@@ -381,7 +383,8 @@ export function GridPicker({
       // picker owns Escape itself (the capture-phase effect above), and that
       // listener calls `stopPropagation()`, so the pack's bubble-phase handler
       // never runs whatever this prop says: mutating it to `true` was measured to
-      // leave the whole suite green (re-measured at this branch's HEAD: 524/524).
+      // leave the whole suite green (re-measured 2026-09-08 at this branch's
+      // HEAD: 526/526, 42 files, both vitest projects).
       // It is kept as cheap defence — it states the ownership at the seam, and it
       // is what would stop one Escape being handled twice if the capture effect
       // were ever narrowed or removed.

@@ -25,8 +25,12 @@
 // Every case below therefore asserts the same three things per object: exactly
 // ONE append, the record RETIRED from the list (so the button is not offered
 // again), and the honest sentence RENDERED — pinned as the whole normalised
-// string via the exported `publishPointerFailedNotice`, so a reword has to move
-// the copy and the test together rather than walking past a keyword.
+// string against a LITERAL typed into this file (`NOTICE_PRIVATE_COPY_REMOVED` /
+// `NOTICE_PRIVATE_COPY_SURVIVED` below), so a reword of the copy fails here by
+// name. The call to the exported `publishPointerFailedNotice` is kept ALONGSIDE
+// each literal as a separate, weaker claim: it pins the WIRING — the App renders
+// THIS builder's output for the outcome it observed — and can say nothing about
+// the words, because an expectation obtained from the builder moves with it.
 //
 // 🔴 THE ROUND-2 FINDING, AND WHY THERE ARE NOW TWO POINTER-FAILURE OUTCOMES.
 // The copy used to end "…cannot be published again", which was FALSE: the only
@@ -37,7 +41,7 @@
 // for real when the delete lands. But `delete` is a per-viewer KV write like
 // `set` and can be refused by the same host, so there are two states and the
 // copy branches on them. BOTH are driven here, and both are pinned as the whole
-// normalised string:
+// normalised string against their own literal:
 //
 //   - delete RESOLVES  → the store no longer holds the key, so a reload cannot
 //     re-list it. Asserted on the STORE, not on the rendered list — the list is
@@ -78,6 +82,57 @@ const HOST_ERROR = 'QUOTA_EXCEEDED';
 const DELETE_ERROR = 'STORAGE_UNAVAILABLE';
 
 const LOCAL_ID = 'l-halfpub';
+
+/**
+ * 🔴 THE COPY ITSELF, TYPED OUT — NOT obtained from the builder.
+ *
+ * WHAT WENT WRONG BEFORE THIS EXISTED. Every assertion on the notice called
+ * `publishPointerFailedNotice(...)` for its expectation, i.e. it derived the
+ * expected value from the implementation under test, so BOTH SIDES MOVED
+ * TOGETHER on any reword and the regression this whole change exists to prevent
+ * was reintroducible with a fully green suite. Measured, on the tree before
+ * these two constants landed:
+ *
+ *   - reverting the removed branch to the sentence this change proved FALSE —
+ *     "so it is no longer listed here and cannot be published again" — left the
+ *     suite green;
+ *   - rewording the REFUSED branch to claim removal anyway — "so the private
+ *     copy has been discarded and will not be offered again" — also left it
+ *     green. The `not.toBe(...)` below cannot see that one: the two strings
+ *     still differ, they are just both wrong.
+ *
+ * So the expectation is a LITERAL here. Only `noun` (this file's fixture) and
+ * `HOST_ERROR` (this file's constant) are interpolated; nothing is read from
+ * `src/lib/unpublished.ts`. A reword of either branch fails here by name, which
+ * is the point: the copy is the guard, so the copy is what is pinned.
+ *
+ * ⚠ These are prose, and a cosmetic reword WILL fail them. That cost is
+ * deliberate — pay it and update the literal, having re-read whether the new
+ * sentence still says the true thing about the store.
+ */
+const NOTICE_PRIVATE_COPY_REMOVED = (noun: string): string =>
+  `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
+  `updated with its key (${HOST_ERROR}), so the private copy has been discarded and this ` +
+  `list will not offer to publish it again. Find it under Published by you to edit or ` +
+  `remove it.`;
+
+const NOTICE_PRIVATE_COPY_SURVIVED = (noun: string): string =>
+  `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
+  `updated with its key (${HOST_ERROR}), and discarding that private copy was refused too — ` +
+  `so after a reload it can reappear here still offering Publish. Do NOT publish it again: ` +
+  `that would put a SECOND, unmergeable copy on the board. Find it under Published by you ` +
+  `to edit or remove it.`;
+
+/**
+ * The rendered notice as ONE normalised string. JSX and the `Alert` wrapper both
+ * introduce whitespace the copy does not have, so the comparison is against the
+ * collapsed text — the same normalisation `toHaveTextContent` applies, done here
+ * so the assertion can be an EQUALITY rather than a substring match. A substring
+ * match would pass a notice that also said something else.
+ */
+function noticeText(el: HTMLElement): string {
+  return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
 
 function mountApp(deps: Partial<AppDeps>) {
   return render(
@@ -226,9 +281,17 @@ describe.each(OBJECTS)(
     it('SAYS SO — the row is public, the local copy is not, and both halves are named', async () => {
       await arrange();
       const notice = await screen.findByTestId('unpublished-error');
-      // 🔴 THE WHOLE STRING, from the exported builder. A keyword guard ("could
-      // not") would be walkable by a reword that quietly implied the publish
-      // failed — which is the reading that gets a viewer to click again.
+
+      // 🔴 THE GUARD: the whole normalised sentence, against a LITERAL typed into
+      // this file. A keyword guard ("could not") would be walkable by a reword
+      // that quietly implied the publish failed — which is the reading that gets
+      // a viewer to click again — and an expectation built by CALLING the builder
+      // is walkable by ANY reword, because both sides move together.
+      expect(noticeText(notice)).toBe(NOTICE_PRIVATE_COPY_REMOVED(noun));
+
+      // …and the WIRING, which the literal above cannot see: that what the App
+      // rendered is this builder's output for the outcome it observed, rather
+      // than a sentence assembled somewhere else that happens to match today.
       expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, true));
     });
 
@@ -263,6 +326,14 @@ describe.each(OBJECTS)(
       expect(store.has(storageKey), 'the record was removed despite the refusal').toBe(true);
 
       const notice = await screen.findByTestId('unpublished-error');
+
+      // 🔴 THE GUARD, same shape as the other branch and for the same reason: a
+      // LITERAL, so a reword that claims removal ANYWAY — the exact reword that
+      // gets a viewer to click Publish and mint the second unmergeable public
+      // row — fails here. `not.toBe(...)` below cannot see that one: two wrong
+      // sentences still differ from each other.
+      expect(noticeText(notice)).toBe(NOTICE_PRIVATE_COPY_SURVIVED(noun));
+
       expect(notice).toHaveTextContent(publishPointerFailedNotice(noun, HOST_ERROR, false));
 
       // …and the two branches are DIFFERENT sentences. Without this, a builder

@@ -626,8 +626,13 @@ Decisions embedded above, each with its reason:
 - **Keys are de-duplicated within each array.** A repeated key would render a
   duplicate row whose cells share one `(comboKey, configId, promptKey)` identity.
 - **Cap: 20 matchups × 20 prompts.** Not arbitrary — 20 is the `max` of the
-  `Slider` this rework deletes (`src/App.tsx:1494-1504`), so a hand-built grid may
-  not exceed what the app already rendered. It also keeps the payload far inside
+  per-viewer "Show top N" `Slider` this rework deletes, so a hand-built grid may
+  not exceed what the app already rendered. (The `Slider` is **gone at this PR's
+  head** — §11.5, pinned by `criterion 9: Grids is the DEFAULT view and the top-N
+  slider is gone` in `src/gridsView.test.tsx`, and explained at the
+  `THE PER-VIEWER "Show top N" Slider IS GONE` comment in `src/App.tsx`. It was
+  `max={20}` at **`ad546fb`**, the ref this cap was read off; there is no live
+  line to cite.) It also keeps the payload far inside
   appStorage's 64 KB per-value limit while unpublished.
 - **`v: 1` from the start**, so a later shape change is a migration-on-read like
   `parseCombination`/`parsePrompt` rather than a break.
@@ -640,7 +645,8 @@ silently render shorter — a quietly-shrinking grid is the same class of lie as
 §7.2 truncation this repo already discloses.
 
 **Results are unaffected and this is the payoff.** `result` rows key on
-`(comboKey, configId, promptKey)` (`src/lib/benchmark.ts:698`) — **not** on a grid.
+`(comboKey, configId, promptKey)` — see `cellKey()` in `src/lib/benchmark.ts` —
+**not** on a grid.
 A cell someone spent Buzz on appears in *every* grid containing that matchup and
 that prompt. Explicit grids make the existing result corpus more valuable, not less.
 
@@ -707,9 +713,15 @@ the same files**; this is invisible to find-and-replace.
 
 ⚠ **§6's line offsets have DRIFTED past `ad546fb` and must be re-resolved by
 content.** Measured example: the `"Included combinations"` `waitForText` anchor
-§6.3 cites at `src/App.tsx:835` is now at **`src/App.tsx:1491`**. The §6.3
-*inventory of consumers* is sound; its *offsets* are not. Same for §6.2's
-user-visible-string line list.
+§6.3 cites at `src/App.tsx:835` had already moved to `src/App.tsx:1491` **at
+`ad546fb`** — and it has since gone entirely: a later commit on this PR deleted
+that copy with the single-window grid view, so at this PR's head the string is
+**absent from `src/`** at any offset (`grep -rn "Included combination" src/`
+returns nothing; the live anchor is `"Top Grid"`, rendered by
+`src/components/GridsView.tsx`). Both halves of that are the point: the §6.3
+*inventory of consumers* is sound, its *offsets* are not, and an offset can rot
+past "wrong number" into "no such line". Same for §6.2's user-visible-string
+line list.
 
 ### 11.5 Votes, the Top Grid, and the default view
 
@@ -821,8 +833,9 @@ deferred**: they need opposite follow-ups. Paths are relative to the
 `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` (the audit
 report shortens it to `recipes/model-benchmarking.json`).
 
-**(a) Coupled to app strings and ALREADY FIXED on the paired branch
-`zach/527-mb-rename` (pushed, unmerged).** These are broken against
+**(a) Coupled to app strings and ALREADY FIXED on the paired branches
+`zach/527-mb-rename` and `zach/527-mb-rename-anchor` (both pushed, unmerged —
+the second re-anchors row 3; see the ✅ note below).** These are broken against
 `origin/trunk` *until that branch lands* — the follow-up is a merge, not an edit:
 
 | Recipe site | Pinned literal | The app at this PR's head | How it fails |
@@ -830,7 +843,7 @@ report shortens it to `recipes/model-benchmarking.json`).
 | `clickable[1]` | `[data-testid='view-switch-combos']` | emits `view-switch-matchups` (the Matchups tab label span in `src/App.tsx`) | the safety ledger, not a click. `plan.py` refuses at PLAN time — `click_unledgered` if a state clicks something absent from it, `clickable_unused` if an entry no state activates survives — so fixing one of these two rows without the other cannot even reach a browser |
 | the matchups state's `click` | `[data-testid='view-switch-combos']` | same | bridge **`element_not_found`** — the state fails at its click |
 | the grid state's `waitForText` | `"Included combinations"` | **absent from `src/`** | a 20 s `text` poll that never resolves, then a failed state |
-| that state's `name` + `caption` | `"combinations"` / "…LoRA combinations…" | the product noun is *matchup* | not a failure — a wrong output filename and a wrong store caption |
+| the **`combinations`** state's `name` + `caption` — the recipe state literally named `combinations` (it captures the Matchups view, and is the state row 2's click belongs to), **not** the `grid` state of the row above | `"combinations"` / "…LoRA combinations…" | the product noun is *matchup* | not a failure — a wrong output filename and a wrong store caption |
 
 🔴 **None of it fails silently.** The clicks fail with the bridge's own
 `element_not_found`, naming the selector; the wait fails as an expired poll
@@ -845,8 +858,15 @@ string commit `6c7cf8b` introduced. A **later** commit in this same PR replaced
 the single-window grid view with per-grid windows and deleted that copy, so
 *neither* `"Included combinations"` *nor* `"Included matchups"` exists in `src/`
 at head — check by content: `grep -rn "Included matchup" src/` returns nothing.
-**The grid state needs a fresh anchor read off the shipped `GridsView` before that
-branch merges**, or it trades one broken wait for another.
+The grid state needed a fresh anchor read off the shipped `GridsView` before that
+branch merged, or it would have traded one broken wait for another.
+
+✅ **That anchor is ALREADY APPLIED — do not redo it.** Branch
+`zach/527-mb-rename-anchor` in `civitai/talos-infra`, commit **`90bd3c608`**,
+re-anchors the grid state's `waitForText` on **`"Top Grid"`** (rendered by
+`src/components/GridsView.tsx`, and unaffected by the rename). So the follow-up
+for row 3 is a **merge of that branch too**, not an edit — `zach/527-mb-rename`
+alone still carries the broken `"Included matchups"`.
 
 **(b) Deliberately NOT renamed, because their replacements are app copy that has
 not reached `main`.** These are still wrong on the paired branch too, on purpose:

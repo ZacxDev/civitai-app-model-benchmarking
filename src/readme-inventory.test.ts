@@ -19,6 +19,11 @@
 // ⚠ IT PINS PRESENCE, NOT PROSE. The README naming `kv.ts` is not evidence that
 // what it SAYS about `kv.ts` is true; nothing mechanical can check that. This
 // closes the "silently one short" failure only.
+//
+// 🔴 AND IT IS SCOPED TO THE INVENTORY PARAGRAPH, which it was not at first. See
+// `inventoryParagraph()` below: a whole-file scan was blind to a module dropped
+// from the inventory while the README still linked it from somewhere else, which
+// was true of three of the twelve.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -37,10 +42,41 @@ function libModulesOnDisk(): string[] {
     .sort();
 }
 
-/** Every `src/lib/<name>.ts` path the README references, deduped. */
-function libModulesInReadme(): string[] {
+const START = '<!-- lib-inventory:start';
+const END = '<!-- lib-inventory:end -->';
+
+/**
+ * Just the inventory paragraph, between its two HTML-comment markers.
+ *
+ * 🔴 WHY THIS IS DELIMITED AND NOT A WHOLE-FILE REGEX. It used to scan the whole
+ * README, and the README links three of the twelve modules a SECOND time outside
+ * the inventory — `workflow.ts` from the hooks table, `ecosystem.ts` and
+ * `benchmark.ts` from the sections further down. Those other links kept the set
+ * equal for those three, so the exact failure this guard exists for — a module
+ * silently dropped from the INVENTORY — recurred undetected for a quarter of the
+ * modules while the README claimed the list itself was checked. Measured on that
+ * tree: deleting `workflow.ts` from the inventory paragraph left the suite
+ * 526/526 green.
+ *
+ * The marker is load-bearing, so a missing one THROWS rather than falling back to
+ * the whole file — a silent widening is how this got weak in the first place.
+ */
+function inventoryParagraph(): string {
   const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8');
-  const found = readme.match(/src\/lib\/[A-Za-z0-9_-]+\.ts/g) ?? [];
+  const from = readme.indexOf(START);
+  const to = readme.indexOf(END);
+  if (from < 0 || to < 0 || to <= from) {
+    throw new Error(
+      `README.md is missing the "${START}…${END}" markers around the src/lib ` +
+        `inventory — the guard cannot tell which paragraph it is about. Restore them.`,
+    );
+  }
+  return readme.slice(from, to);
+}
+
+/** Every `src/lib/<name>.ts` path the INVENTORY PARAGRAPH references, deduped. */
+function libModulesInReadme(): string[] {
+  const found = inventoryParagraph().match(/src\/lib\/[A-Za-z0-9_-]+\.ts/g) ?? [];
   return [...new Set(found)].sort();
 }
 

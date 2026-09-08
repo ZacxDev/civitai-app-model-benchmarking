@@ -1121,8 +1121,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *     earlier draft of this comment said "nothing between the `append` and
    *     this line may await", read as a measured rule. It is not one: moving the
    *     retirement to after the inner `try/catch` was measured behaviourally
-   *     identical (re-measured 2026-09-07 at this branch's HEAD: 524/524 green,
-   *     both vitest projects). It is kept ahead of the write because the
+   *     identical (re-measured 2026-09-08 at this branch's HEAD: 526/526 green
+   *     across 42 files, both vitest projects — the earlier "524/524" here was
+   *     a mid-edit tree's count, never this branch's). It is kept ahead of the
+   *     write because the
    *     catch is what the invariant actually rests on, and a future edit that
    *     removes or narrows that catch would silently take the retirement with
    *     it — before the write, a rejection cannot reach it at all.
@@ -1162,7 +1164,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // ⚠ BELT-AND-BRACES, not a live gate: every caller resolves `spec.localId`
       // out of a list this session's retirement has already filtered, so this
       // line is unreachable in production and deleting it leaves the suite green
-      // (re-measured at this branch's HEAD: 524/524). It is kept because it is
+      // (re-measured 2026-09-08 at this branch's HEAD: 526/526, 42 files, both
+      // vitest projects). It is kept because it is
       // the cheap half of the pair — `submittingRef` covers only the in-flight
       // window — and a future caller that hands a raw stored id straight in
       // would otherwise reach `append`.

@@ -110,9 +110,19 @@ export function publishedPointer(
  *     honest thing to do is say so and tell the viewer not to click it.
  *
  * Both branches are pinned as WHOLE NORMALISED STRINGS by
- * `src/publishPointerFailure.test.tsx` — a keyword guard here is walkable by a
- * reword that quietly re-implies the publish failed, which is the reading that
- * gets a viewer to click again.
+ * `src/publishPointerFailure.test.tsx`, against LITERALS TYPED OUT THERE —
+ * `NOTICE_PRIVATE_COPY_REMOVED` and `NOTICE_PRIVATE_COPY_SURVIVED`, neither of
+ * which calls this function. That distinction IS the guard, and this sentence
+ * used to over-claim it: the assertions built their expectation by CALLING this
+ * builder, so both sides moved together on any reword. Measured on that tree —
+ * reverting the `true` branch to the false sentence quoted above left the suite
+ * 526/526 GREEN, and so did rewording the `false` branch to claim removal
+ * anyway. A keyword guard is walkable by a reword that quietly re-implies the
+ * publish failed; a self-derived guard was walkable by ANY reword at all.
+ *
+ * ⚠ So a reword here is a TEST-BREAKING change, deliberately. Update the literal
+ * over there — and while you are in it, re-read whether the new sentence still
+ * says a true thing about the store for the branch it sits in.
  */
 export function publishPointerFailedNotice(
   noun: string,

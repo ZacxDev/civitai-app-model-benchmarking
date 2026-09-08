@@ -18,7 +18,10 @@ import type { CellRun, CombinationRow, PromptRow, ResultRow } from '../types.js'
 const c = palette();
 
 // A single combination with TWO configs (SDXL base + SDXL with LoRA) + one Flux
-// combination — so grouping, sibling-config cells, and N/A cells all appear.
+// combination — so grouping, sibling-config cells, and the CROSS-ECOSYSTEM cell
+// all appear. That last one is what used to render N/A; since the `prompt` v3
+// reframe it is an ordinary empty runnable cell, which is what the header above
+// says and what `renders NO N/A cells` below pins.
 const comboSdxl: CombinationRow = {
   key: 'c1',
   count: 5,
