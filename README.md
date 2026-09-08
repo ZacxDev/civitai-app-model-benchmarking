@@ -31,16 +31,16 @@ bridge is a set of React hooks from `@civitai/blocks-react`. The block never hol
 credentials: the host injects the viewer identity and a scoped token at runtime.
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
-three things: model **matchups** (a checkpoint + a family-scoped weighted LoRA
-stack), multi-ecosystem **prompts** (one prompt string + params per ecosystem,
-e.g. SDXL / Pony / Flux), and **grids** — a named, hand-picked set of matchups
-(rows) × prompts (columns). **Every published grid is its own matrix**, and any
-viewer can open anyone else's; a system-owned **Top Grid** (the top-voted matchups
-× the top-voted prompts) is pinned first so the board always has one. Anyone can
-**run** a cell (the app matches the matchup's base model to the prompt's ecosystem
-entry and spends their own Buzz), and the scanned outputs **publish to a shared
-grid** so every model compares side-by-side on identical prompts — for **all**
-viewers.
+three things: model **matchups** (up to eight configs, each a checkpoint + a
+family-scoped weighted LoRA stack), **prompts** (one default prompt + params that
+runs on every ecosystem, plus optional per-ecosystem overrides for SDXL / Pony /
+Flux / …), and **grids** — a named, hand-picked set of matchups (rows) × prompts
+(columns). **Every published grid is its own matrix**, and any viewer can open
+anyone else's; a system-owned **Top Grid** (the top-voted matchups × the top-voted
+prompts) is pinned first so the board always has one. **Every cell is runnable**:
+the app resolves the config's ecosystem to a prompt override or the default and
+spends the viewer's own Buzz, and the scanned outputs **publish to a shared grid**
+so every model compares side-by-side on identical prompts — for **all** viewers.
 
 > ⚠ **Vocabulary, because this README uses both senses.** The thing a user
 > submits and votes on is a **matchup** everywhere in the UI and in this
@@ -132,9 +132,10 @@ submit flows are modals:
   checkpoint (any base model) plus a family-scoped weighted LoRA stack, picked via
   the resource picker.
 - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
-  [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a
-  **multi-ecosystem** prompt: one raw prompt string + generation params *per
-  ecosystem* (SDXL / Pony / Flux / …).
+  [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt:
+  one **default** raw prompt string + generation params that runs on *every*
+  ecosystem, plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …)
+  that replace the prompt and/or patch the params for one base-model family.
 - **Grids** ([`GridsView.tsx`](src/components/GridsView.tsx) +
   [`GridForm.tsx`](src/components/GridForm.tsx) +
   [`GridPicker.tsx`](src/components/GridPicker.tsx)) — the **default** view, with
@@ -143,13 +144,12 @@ submit flows are modals:
   then published; Community Grids sorts by vote count, with a system-owned **Top
   Grid** (top-voted matchups × top-voted prompts) pinned first — it has no shared
   key, so it cannot be voted on. Opening a grid renders the matrix
-  ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)): each runnable cell (the
-  prompt has an entry for the matchup's ecosystem) can be **run**, and each renders
-  that matchup's published outputs via the per-viewer gated read
-  ([`GatedCell.tsx`](src/components/GatedCell.tsx)). Non-matching cells are a
-  disabled **N/A**. 🔴 A published grid names shared keys **another author can
-  withdraw**, so a grid renders its surviving members plus an honest count of the
-  missing ones.
+  ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)): **every** cell can be
+  **run** — the `prompt` v3 reframe gave every prompt a `default`, so there is no
+  N/A state left — and each renders that config's published outputs via the
+  per-viewer gated read ([`GatedCell.tsx`](src/components/GatedCell.tsx)).
+  🔴 A published grid names shared keys **another author can withdraw**, so a grid
+  renders its surviving members plus an honest count of the missing ones.
 
 The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
 is named here**, and that is checked rather than trusted —
@@ -167,23 +167,42 @@ twice), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
 validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
 (ranking, the Top Grid, and the missing-member notice),
 [`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
-its three callers [`drafts.ts`](src/lib/drafts.ts),
+its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
-[`unpubGrids.ts`](src/lib/unpubGrids.ts), and [`archive.ts`](src/lib/archive.ts)
-(the author-side hide).
+[`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
+directly, for the one publish path all three share — and
+[`archive.ts`](src/lib/archive.ts) (the author-side hide).
 
 ### The stored value shape (moderation boundary)
 
-One append-only shared list holds **four** record kinds, discriminated by `data.kind`
-and versioned (`data.v: 1`, defensively parsed/migrated on read). Every record
-splits into a **moderated** half and an **opaque** half:
+One append-only shared list holds **four** record kinds, discriminated by
+`data.kind`. **Each kind carries its OWN `data.v`, and they are not all 1** —
+every row is defensively parsed and migrated on read, so older versions of all
+four are still live on the board. Every record splits into a **moderated** half
+and an **opaque** half:
 
-| kind | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |
-|---|---|---|
-| `combination` | name / description + resource display names | `{ v, kind, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }` |
-| `prompt` | name / description + **every** per-ecosystem prompt + negative | `{ v, kind, byEcosystem:{[eco]:{prompt, params}} }` |
-| `result` | terse machine label | `{ v, kind, comboKey, promptKey, ecosystem, imageIds:number[] }` |
-| `grid` | name / description | `{ v, kind, matchupKeys:string[], promptKeys:string[] }` |
+| kind | `data.v` | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |
+|---|---|---|---|
+| `combination` | **2** | name / description + resource display names | `{ v: 2, kind, configs: [{ id, label?, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }] }` |
+| `prompt` | **3** | name / description + the default prompt + **every** override prompt + negatives | `{ v: 3, kind, default:{prompt, params}, overrides?:{[ecosystem]:{prompt?, params?}} }` |
+| `result` | **2** | terse machine label | `{ v: 2, kind, comboKey, configId, promptKey, ecosystem, imageIds:number[], promptAuthorUserId? }` |
+| `grid` | **1** | name / description | `{ v: 1, kind, matchupKeys:string[], promptKeys:string[] }` |
+
+Two of those versions carry a data-model reframe worth knowing before you write a
+consumer, because both changed what a *cell* is:
+
+- **`combination` v2** — the benchmark unit is a **config**, not the whole
+  matchup. One matchup carries up to `MAX_CONFIGS` configs, each its own grid
+  ROW. A v1 row (a bare `checkpoint` + `loras`) migrates on read into a single
+  config with the deterministic id `V1_CONFIG_ID`, so its v1 `result` rows still
+  match.
+- **`prompt` v3** — a prompt is **no longer one required entry per ecosystem**.
+  It is one `default` prompt + params that runs on **every** ecosystem, plus
+  optional sparse `overrides` that replace the prompt and/or patch the params for
+  one base-model family. The consequence is the whole point: **every cell is
+  runnable** — there is always a default — so the grid has no N/A state. A legacy
+  v1 `byEcosystem` prompt migrates on read: one entry becomes the `default` and
+  the rest become `overrides` (entries identical to the default collapse into it).
 
 > 🔴 **`data.kind: 'combination'` is a persisted WIRE VALUE and is never renamed**,
 > even though the UI now calls it a *matchup*. It discriminates every row already on
@@ -205,10 +224,17 @@ See the parse/migrate tests in [`lib/benchmark.test.ts`](src/lib/benchmark.test.
 
 [`src/lib/ecosystem.ts`](src/lib/ecosystem.ts) maps a checkpoint's precise
 `baseModel` string (e.g. `"SDXL 1.0"`, `"Pony"`, `"Flux.1 D"`) to an ecosystem
-**group key** (the key a prompt's `byEcosystem` map is keyed by). SDXL-derivatives
-(Pony / Illustrious / NoobAI) win over the generic SDXL rule; unknowns fall to an
-explicit `Other` bucket. A cell is runnable **iff** the prompt has an entry for the
-matchup's ecosystem.
+**group key** — the key a prompt's `overrides` map is keyed by.
+SDXL-derivatives (Pony / Illustrious / NoobAI) win over the generic SDXL rule;
+unknowns fall to an explicit `Other` bucket.
+
+⚠ **The match no longer decides whether a cell RUNS — only which prompt text it
+runs.** Under `prompt` v1 a cell was runnable *iff* the prompt had an entry for
+the config's ecosystem, and a non-match rendered a disabled **N/A**; v3 removed
+both. Today the group key selects an `overrides[…]` entry when one exists and the
+`default` otherwise, so the resolver **never returns null** — see `resolveCell`
+in [`lib/benchmark.ts`](src/lib/benchmark.ts), and the `renders NO N/A cells`
+case in [`ResultsGrid.test.tsx`](src/components/ResultsGrid.test.tsx).
 
 ## Handling direct traffic
 

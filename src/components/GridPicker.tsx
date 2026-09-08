@@ -9,8 +9,27 @@
 // the option list, its roles and its keyboard model are assembled here out of
 // the pack's primitives (`Modal`, `TextInput`, `Button`, `Stack`, `Group`,
 // `Badge`). There is no `role="listbox"` precedent anywhere in `src/` to copy,
-// so every accessibility decision below is deliberate and is pinned by a test in
-// `GridPicker.test.tsx` — see the comment on each.
+// so every accessibility decision below is deliberate — each carries a comment
+// saying why.
+//
+// ⚠ DELIBERATE IS NOT PINNED, AND THIS SENTENCE USED TO CONFLATE THEM: it read
+// "…is deliberate and is pinned by a test in `GridPicker.test.tsx`", which is
+// wider than the suite. MEASURED, by deleting each attribute in isolation and
+// running the FULL suite (baseline 526):
+//
+//   PINNED (the mutant is killed) — `role="listbox"` (13 red), `aria-selected`
+//   (14), `aria-activedescendant` (6), `role="option"` (5), and 2 red each for
+//   `aria-multiselectable`, the listbox's `aria-label`, `aria-disabled`, the
+//   option's `aria-describedby`, and the "Selected" badge's `aria-hidden`.
+//
+//   NOT PINNED (the mutant SURVIVES, 526/526) — the cap notice's `role="status"`,
+//   the "At limit" badge's `aria-hidden`, the count's `role="status"` AND its
+//   `aria-live="polite"`, and the Save button's `aria-describedby`. The count's
+//   TEXT is asserted a dozen times over; a text assertion cannot see a live
+//   region, so both of its attributes survive every one of them.
+//
+// Reading as coverage while providing none is worse than none — it stops the next
+// person looking. Pin them, or leave this list accurate.
 //
 // 🔴 THE THREE INVARIANTS THIS COMPONENT OWES §11.2:
 //

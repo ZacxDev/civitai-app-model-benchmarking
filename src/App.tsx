@@ -1686,11 +1686,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   //
   // 🔴 `publishedThisSession` IS THE SECOND FILTER ON ALL THREE, and it is what
   // makes "a successful `append` retires the record from this list" true even
-  // when the pointer write that would normally have retired it was REFUSED. The
-  // stored record still carries its editable body in that case, so `isSubmitted`
-  // / `isPublishedPrompt` / `isPublishedGrid` all still say "unpublished" — and
-  // without this filter the card comes back saying **Publish**, one click from a
-  // second permanent public row. See `publishRecord`.
+  // when the pointer write that would normally have retired it was REFUSED.
+  //
+  // ⚠ NARROWED BY `publishRecord`'s STEP 4, and this comment says so rather than
+  // over-claiming the way it used to. On a refused pointer write the app now
+  // DELETES the private record, so on the primary path the record is gone from
+  // the store and `refreshDrafts()` alone would drop it from these lists. This
+  // filter is what covers the sub-case where that delete is refused TOO: the
+  // record then keeps its editable body, `isSubmitted` / `isPublishedPrompt` /
+  // `isPublishedGrid` all still say "unpublished", and without this filter the
+  // card comes back saying **Publish**, one click from a second permanent public
+  // row. It also covers the window before `refreshDrafts()` resolves. See
+  // `publishRecord`, and `publishPointerFailedNotice` for the copy that branches
+  // on the same outcome.
   const unpublishedMatchups = useMemo(
     () =>
       drafts.filter(

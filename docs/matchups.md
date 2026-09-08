@@ -881,7 +881,11 @@ Past the cap the failure is not an error, it is a **quiet wrongness** that compo
 the scan truncates oldest-first, so the Top Grid loses its longest-standing members,
 every grid's membership silently shrinks, vote ranking degrades, and a grid's
 missing-member notice can no longer distinguish "withdrawn" from "not read" (which is
-why §11.4's notice now branches on `boardTruncated` — audit finding F4).
+why §11.2's missing-member notice now branches on `boardTruncated` — audit
+finding F4; `missingMembersNotice` in `src/lib/gridEntries.ts`. §11.4 is the
+rename map and has no notice in it — the wrong section was cited here until the
+round-2 sweep, which is the same class as the rotted offsets §11.6 warns about,
+one level up).
 
 🔴 **And §11.5 forbids the obvious lever.** Raising `MAX_PAGES` trades a silent wrong
 answer for a slow one, linear in board size on every load. That is still the right
