@@ -15,7 +15,7 @@ import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
-import { CKPT_SDXL, LORA_SDXL, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, LORA_SDXL, immediateSleep, openView } from './test-helpers.js';
 
 const comboSeed: CombinationData = {
   v: 2,
@@ -70,20 +70,21 @@ function renderApp(
 describe('submit a combination', () => {
   it('picks a checkpoint + LoRA and publishes it to shared storage', async () => {
     renderApp();
-    await userEvent.click(await screen.findByTestId('submit-combination'));
-    const form = await screen.findByTestId('combination-form');
-    await userEvent.type(within(form).getByTestId('combo-name'), 'My SDXL Combo');
+    await openView('Matchups');
+    await userEvent.click(await screen.findByTestId('submit-matchup'));
+    const form = await screen.findByTestId('matchup-form');
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
     await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
     // ecosystem is derived + shown
     expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('SDXL');
     await userEvent.click(within(form).getByTestId('add-lora'));
     await waitFor(() => expect(within(form).getByTestId('lora-row')).toBeInTheDocument());
-    await userEvent.click(within(form).getByTestId('combo-submit'));
+    await userEvent.click(within(form).getByTestId('matchup-submit'));
 
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('My SDXL Combo');
-    expect(within(card).getByTestId('combo-included')).toBeInTheDocument();
+    expect(within(card).getByTestId('matchup-included')).toBeInTheDocument();
   });
 });
 
@@ -130,26 +131,27 @@ describe('edit-in-place: the author edits their OWN combination', () => {
       ],
     });
 
-    const cards = await screen.findAllByTestId('combo-card');
+    await openView('Matchups');
+    const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
     // Author-scoped affordance: Edit only on the viewer's own row.
-    expect(within(mine).getByTestId('combo-edit')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('combo-edit')).toBeNull();
+    expect(within(mine).getByTestId('matchup-edit')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('matchup-edit')).toBeNull();
 
     // Open the edit form (prefilled), rename, save.
-    await userEvent.click(within(mine).getByTestId('combo-edit'));
-    const form = await screen.findByTestId('combination-form');
-    const nameInput = within(form).getByTestId('combo-name') as HTMLInputElement;
+    await userEvent.click(within(mine).getByTestId('matchup-edit'));
+    const form = await screen.findByTestId('matchup-form');
+    const nameInput = within(form).getByTestId('matchup-name') as HTMLInputElement;
     expect(nameInput.value).toBe('Mine'); // prefilled from the stored row
     await userEvent.clear(nameInput);
     await userEvent.type(nameInput, 'Mine (edited)');
-    await userEvent.click(within(form).getByTestId('combo-submit'));
+    await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     // Still exactly two cards (in-place update, NOT an append) and the name changed.
     await waitFor(() => expect(screen.getByText('Mine (edited)')).toBeInTheDocument());
-    expect(screen.getAllByTestId('combo-card')).toHaveLength(2);
+    expect(screen.getAllByTestId('matchup-card')).toHaveLength(2);
     expect(screen.queryByText('Mine')).toBeNull();
   });
 });
@@ -180,23 +182,24 @@ describe('withdraw: the author removes their OWN combination (real SHARED_WITHDR
       ],
     });
 
-    const cards = await screen.findAllByTestId('combo-card');
+    await openView('Matchups');
+    const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
     // Author-scoped affordance: Remove only on the viewer's own row.
-    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
 
     // Confirm-before-firing: arming the control alone removes nothing.
-    await userEvent.click(within(mine).getByTestId('combo-withdraw'));
-    expect(screen.getAllByTestId('combo-card')).toHaveLength(2);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    expect(screen.getAllByTestId('matchup-card')).toHaveLength(2);
     await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
 
     // The withdraw went through the REAL hook → SHARED_WITHDRAW → mock host, so
     // the row is gone from the store's own list(), not just from local state.
-    await waitFor(() => expect(screen.getAllByTestId('combo-card')).toHaveLength(1));
-    expect(screen.getByTestId('combo-card')).toHaveTextContent('Theirs');
+    await waitFor(() => expect(screen.getAllByTestId('matchup-card')).toHaveLength(1));
+    expect(screen.getByTestId('matchup-card')).toHaveTextContent('Theirs');
     expect(screen.queryByText('Mine')).toBeNull();
   });
 });
@@ -204,8 +207,9 @@ describe('withdraw: the author removes their OWN combination (real SHARED_WITHDR
 describe('vote on a combination', () => {
   it('increments the vote count through the shared store', async () => {
     renderApp({ seed: [{ value: { title: 'Votable Combo', body: '', data: comboSeed }, authorUserId: 7, voters: [] }] });
-    const card = await screen.findByTestId('combo-card');
-    const vote = within(card).getByTestId('combo-vote');
+    await openView('Matchups');
+    const card = await screen.findByTestId('matchup-card');
+    const vote = within(card).getByTestId('matchup-vote');
     expect(within(vote).getByTestId('vote-count')).toHaveTextContent('0');
     await userEvent.click(vote);
     await waitFor(() => expect(within(vote).getByTestId('vote-count')).toHaveTextContent('1'));
@@ -223,7 +227,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     });
 
     // go to the grid tab
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     // the single cell is empty → run it
     const emptyCell = within(grid).getByTestId('grid-cell');
@@ -253,7 +257,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
       ],
       harness: { gatedImagesError: 'gated read failed' },
     });
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(within(grid).getByTestId('run-cell'));
     await userEvent.click(await screen.findByTestId('cell-confirm-run'));
@@ -287,7 +291,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // publish + gated reads still flow through the real hooks → mock host.
     renderApp({ deps: { shared: laggingShared } });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
+    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
     const grid = await screen.findByTestId('results-grid');
     const emptyCell = within(grid).getByTestId('grid-cell');
     expect(emptyCell).toHaveAttribute('data-state', 'empty');

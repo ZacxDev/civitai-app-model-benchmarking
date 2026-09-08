@@ -31,15 +31,25 @@ bridge is a set of React hooks from `@civitai/blocks-react`. The block never hol
 credentials: the host injects the viewer identity and a scoped token at runtime.
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
-two things: model **combinations** (a checkpoint + a family-scoped weighted LoRA
-stack) and multi-ecosystem **prompts** (one prompt string + params per ecosystem,
-e.g. SDXL / Pony / Flux). The top-voted set forms a **combinations × prompts
-matrix**; anyone can **run** an included cell (the app matches the combo's base
-model to the prompt's ecosystem entry and spends their own Buzz), and the scanned
-outputs **publish to a shared grid** so every model compares side-by-side on
-identical prompts — for **all** viewers.
+three things: model **matchups** (up to eight configs, each a checkpoint + a
+family-scoped weighted LoRA stack), **prompts** (one default prompt + params that
+runs on every ecosystem, plus optional per-ecosystem overrides for SDXL / Pony /
+Flux / …), and **grids** — a named, hand-picked set of matchups (rows) × prompts
+(columns). **Every published grid is its own matrix**, and any viewer can open
+anyone else's; a system-owned **Top Grid** (the top-voted matchups × the top-voted
+prompts) is pinned first so the board always has one. **Every cell is runnable**:
+the app resolves the config's ecosystem to a prompt override or the default and
+spends the viewer's own Buzz, and the scanned outputs **publish to a shared grid**
+so every model compares side-by-side on identical prompts — for **all** viewers.
 
-> **The platform has no concept of a "benchmark," "combination," or "grid."** That
+> ⚠ **Vocabulary, because this README uses both senses.** The thing a user
+> submits and votes on is a **matchup** everywhere in the UI and in this
+> document. The string `'combination'` still appears below in the *wire* tables —
+> that is the persisted `data.kind` discriminator, frozen forever, and it is
+> never a name for the product concept. Where you see `combination` in code font
+> it is the wire value; the prose noun is always *matchup*.
+
+> **The platform has no concept of a "benchmark," "matchup," or "grid."** That
 > entire model is owned by this app. The platform only provides generic,
 > capability-scoped seams (a resource picker, a Buzz workflow bridge, cross-user
 > shared storage, a generation-output publish + a per-viewer gated image read).
@@ -49,7 +59,7 @@ identical prompts — for **all** viewers.
 ## Quickstart
 
 No account, no network, no config — the SDK's mock host answers the full block
-protocol locally (seeded with demo combos/prompts), so you can see the app running
+protocol locally (seeded with demo matchups/prompts), so you can see the app running
 immediately:
 
 ```bash
@@ -78,9 +88,9 @@ straight to the file:
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of combos, prompts, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`CombosView`](src/components/CombosView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
+| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
-| **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`CombinationForm.tsx`](src/components/CombinationForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
+| **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`MatchupForm.tsx`](src/components/MatchupForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
 | **Buzz balance** — show the wallet / gate cost | `useBuzzBalance()` | [`App.tsx`](src/App.tsx) |
 | **Consent + sign-in gating** for the generation scope | `useRequestConsent()` / `useRequestSignIn()` | [`scopes.ts`](src/scopes.ts), [`App.tsx`](src/App.tsx) |
@@ -100,7 +110,7 @@ A few notes worth calling out:
   `useSharedStorage()` exposes `list` / `append` / `vote` / `unvote` / `withdraw` /
   `getCount(s)`. **Submit** = `append({ title, body, data })`; **upvote** =
   `vote(key)` (idempotent server-side); **delete your own** = `withdraw(key)` —
-  surfaced as the author-only **Remove** control on every combination / prompt
+  surfaced as the author-only **Remove** control on every matchup / prompt
   card, behind a confirm step, and reconciled optimistically so the row does not
   reappear on a read-after-write-lagged `list()`. The included set (top-N by
   votes) is derived **client-side** from `list` + counts.
@@ -116,39 +126,102 @@ A few notes worth calling out:
 Three tabs, routed by [`src/App.tsx`](src/App.tsx) through a `SegmentedControl`;
 submit flows are modals:
 
-- **Combos** ([`CombosView.tsx`](src/components/CombosView.tsx) +
-  [`CombinationForm.tsx`](src/components/CombinationForm.tsx)) — submit + vote on a
+- **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
+  [`MatchupForm.tsx`](src/components/MatchupForm.tsx)), with **My** / **Community**
+  sub-tabs — create privately, **Publish** to the shared board, then vote on a
   checkpoint (any base model) plus a family-scoped weighted LoRA stack, picked via
   the resource picker.
 - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
-  [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a
-  **multi-ecosystem** prompt: one raw prompt string + generation params *per
-  ecosystem* (SDXL / Pony / Flux / …).
-- **Grid** ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)) — the top-N combos
-  (rows) × top-N prompts (cols) matrix. Each runnable cell (the prompt has an entry
-  for the combo's ecosystem) can be **run**; each cell renders that combo's
-  published outputs on that prompt via the per-viewer gated read
-  ([`GatedCell.tsx`](src/components/GatedCell.tsx)). Non-matching cells are a
-  disabled **N/A**.
+  [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt:
+  one **default** raw prompt string + generation params that runs on *every*
+  ecosystem, plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …)
+  that replace the prompt and/or patch the params for one base-model family.
+- **Grids** ([`GridsView.tsx`](src/components/GridsView.tsx) +
+  [`GridForm.tsx`](src/components/GridForm.tsx) +
+  [`GridPicker.tsx`](src/components/GridPicker.tsx)) — the **default** view, with
+  **My** / **Community** sub-tabs. A *grid* is a named, hand-picked set of matchups
+  (rows) × prompts (cols), built privately with a search + multi-select picker and
+  then published; Community Grids sorts by vote count, with a system-owned **Top
+  Grid** (top-voted matchups × top-voted prompts) pinned first — it has no shared
+  key, so it cannot be voted on. Opening a grid renders the matrix
+  ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)): **every** cell can be
+  **run** — the `prompt` v3 reframe gave every prompt a `default`, so there is no
+  N/A state left — and each renders that config's published outputs via the
+  per-viewer gated read ([`GatedCell.tsx`](src/components/GatedCell.tsx)).
+  🔴 A published grid names shared keys **another author can withdraw**, so a grid
+  renders its surviving members plus an honest count of the missing ones.
 
-The pure, node-testable core lives in [`src/lib/`](src/lib):
+<!-- lib-inventory:start — src/readme-inventory.test.ts reads ONLY what sits
+     between the END of this comment and the closing marker. So the guard is
+     about THIS paragraph: not about `src/lib/…` links elsewhere in the file,
+     and not about this comment either (it used to start the slice inside the
+     comment, which made this text count as inventory). Move the markers and the
+     guard moves with them. Remove one, duplicate either one ANYWHERE in this
+     file, or leave this comment unclosed, and the guard THROWS — each of those
+     used to widen the slice silently instead. -->
+
+The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
+is named here**, and that is checked rather than trusted —
+[`readme-inventory.test.ts`](src/readme-inventory.test.ts) compares *this
+paragraph*, and only it, against the directory and fails if the set grows *or*
+shrinks, because this paragraph once silently went one module short:
 [`benchmark.ts`](src/lib/benchmark.ts) (the data-model parse/migrate, `WorkflowBody`
 construction, top-N-by-votes, optimistic reconcile, the moderated-text/opaque-data
 split), [`ecosystem.ts`](src/lib/ecosystem.ts) (base-model → ecosystem matcher),
-[`gen-defaults.ts`](src/lib/gen-defaults.ts), and [`workflow.ts`](src/lib/workflow.ts)
-(the poll loop).
+[`gen-defaults.ts`](src/lib/gen-defaults.ts), [`workflow.ts`](src/lib/workflow.ts)
+(the poll loop), [`kv.ts`](src/lib/kv.ts) (the per-viewer **in-flight run** record —
+the money path's crash-safety: a run is persisted before it can be lost and
+resume-polled rather than re-submitted, so a reload never charges the viewer
+twice), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
+validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
+(ranking, the Top Grid, and the missing-member notice),
+[`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
+its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
+[`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
+[`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
+directly, for the one publish path all three share — and
+[`archive.ts`](src/lib/archive.ts) (the author-side hide).
+
+<!-- lib-inventory:end -->
 
 ### The stored value shape (moderation boundary)
 
-One append-only shared list holds three record kinds, discriminated by `data.kind`
-and versioned (`data.v: 1`, defensively parsed/migrated on read). Every record
-splits into a **moderated** half and an **opaque** half:
+One append-only shared list holds **four** record kinds, discriminated by
+`data.kind`. **Each kind carries its OWN `data.v`, and they are not all 1** —
+every row is defensively parsed and migrated on read, so pre-migration shapes of
+the **three** older kinds are still live on the board (`grid` is v1 with no
+predecessor and no migration branch). Every record splits into a **moderated** half
+and an **opaque** half:
 
-| kind | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |
-|---|---|---|
-| `combination` | name / description + resource display names | `{ v, kind, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }` |
-| `prompt` | name / description + **every** per-ecosystem prompt + negative | `{ v, kind, byEcosystem:{[eco]:{prompt, params}} }` |
-| `result` | terse machine label | `{ v, kind, comboKey, promptKey, ecosystem, imageIds:number[] }` |
+| kind | `data.v` | `title` / `body` (MODERATED text) | `data` (opaque, unmoderated) |
+|---|---|---|---|
+| `combination` | **2** | name / description + resource display names | `{ v: 2, kind, configs: [{ id, label?, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }] }` |
+| `prompt` | **3** | name / description + the default prompt + **every** override prompt + negatives | `{ v: 3, kind, default:{prompt, params}, overrides?:{[ecosystem]:{prompt?, params?}} }` |
+| `result` | **2** | terse machine label | `{ v: 2, kind, comboKey, configId, promptKey, ecosystem, imageIds:number[], promptAuthorUserId? }` |
+| `grid` | **1** | name / description | `{ v: 1, kind, matchupKeys:string[], promptKeys:string[] }` |
+
+Two of those versions carry a data-model reframe worth knowing before you write a
+consumer, because both changed what a *cell* is:
+
+- **`combination` v2** — the benchmark unit is a **config**, not the whole
+  matchup. One matchup carries up to `MAX_CONFIGS` configs, each its own grid
+  ROW. A v1 row (a bare `checkpoint` + `loras`) migrates on read into a single
+  config with the deterministic id `V1_CONFIG_ID`, so its v1 `result` rows still
+  match.
+- **`prompt` v3** — a prompt is **no longer one required entry per ecosystem**.
+  It is one `default` prompt + params that runs on **every** ecosystem, plus
+  optional sparse `overrides` that replace the prompt and/or patch the params for
+  one base-model family. The consequence is the whole point: **every cell is
+  runnable** — there is always a default — so the grid has no N/A state. A legacy
+  v1 `byEcosystem` prompt migrates on read: one entry becomes the `default` and
+  the rest become `overrides` (entries identical to the default collapse into it).
+
+> 🔴 **`data.kind: 'combination'` is a persisted WIRE VALUE and is never renamed**,
+> even though the UI now calls it a *matchup*. It discriminates every row already on
+> the live board, and the app cannot migrate another viewer's rows — `update` and
+> `withdraw` are author-scoped. The same holds for the `v:` versions and
+> `ResultData.comboKey`. Pinned by
+> [`renameWireCompat.test.ts`](src/renameWireCompat.test.ts).
 
 - **`title` / `body`** → **all user-visible text**. This is what the platform's text
   content-safety belt moderates. All authored text is swept here.
@@ -163,10 +236,17 @@ See the parse/migrate tests in [`lib/benchmark.test.ts`](src/lib/benchmark.test.
 
 [`src/lib/ecosystem.ts`](src/lib/ecosystem.ts) maps a checkpoint's precise
 `baseModel` string (e.g. `"SDXL 1.0"`, `"Pony"`, `"Flux.1 D"`) to an ecosystem
-**group key** (the key a prompt's `byEcosystem` map is keyed by). SDXL-derivatives
-(Pony / Illustrious / NoobAI) win over the generic SDXL rule; unknowns fall to an
-explicit `Other` bucket. A cell is runnable **iff** the prompt has an entry for the
-combo's ecosystem.
+**group key** — the key a prompt's `overrides` map is keyed by.
+SDXL-derivatives (Pony / Illustrious / NoobAI) win over the generic SDXL rule;
+unknowns fall to an explicit `Other` bucket.
+
+⚠ **The match no longer decides whether a cell RUNS — only which prompt text it
+runs.** Under `prompt` v1 a cell was runnable *iff* the prompt had an entry for
+the config's ecosystem, and a non-match rendered a disabled **N/A**; v3 removed
+both. Today the group key selects an `overrides[…]` entry when one exists and the
+`default` otherwise, so the resolver **never returns null** — see `resolveCell`
+in [`lib/benchmark.ts`](src/lib/benchmark.ts), and the `renders NO N/A cells`
+case in [`ResultsGrid.test.tsx`](src/components/ResultsGrid.test.tsx).
 
 ## Handling direct traffic
 
@@ -292,7 +372,7 @@ deploys to `<blockId>.civit.ai`.
   host lock/claim would make generate-once strict.
 - **Result curation** — no owner controls to hide/replace a published grid CELL
   yet. `withdraw` *is* surfaced now, but only on the rows a contributor authors
-  directly (combinations and prompts, via the Remove control); a `result` row
+  directly (matchups, prompts and grids, via the Remove control); a `result` row
   published by a cell run has no in-app retraction path.
 
 ## Links

@@ -1,4 +1,4 @@
-// Submit a COMBINATION — a named GROUP of one-or-more model configs to benchmark
+// Submit a MATCHUP — a named GROUP of one-or-more model configs to benchmark
 // together (v2 data model). Each config = one checkpoint + its own weighted LoRA
 // stack (the atomic benchmarkable unit). Per config: the checkpoint is picked
 // first (any base model); the LoRA picker is then family-scoped to THAT
@@ -24,26 +24,26 @@ import {
 } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 
-export interface CombinationFormProps {
+export interface MatchupFormProps {
   pickResource: (opts: {
     resourceType: BlockResourcePickerType;
     baseModelGroup?: string;
   }) => Promise<BlockResourceInfo | null>;
   onSubmit: (input: CombinationInput) => Promise<void>;
   onCancel: () => void;
-  /** Prefill (edit-in-place): the stored combination as a builder input. */
+  /** Prefill (edit-in-place): the stored matchup as a builder input. */
   initial?: CombinationInput;
-  /** Submit button label (defaults to "Submit combination"; "Save changes" in edit mode). */
+  /** Submit button label (defaults to "Submit matchup"; "Save changes" in edit mode). */
   submitLabel?: string;
 }
 
-export function CombinationForm({
+export function MatchupForm({
   pickResource,
   onSubmit,
   onCancel,
   initial,
   submitLabel,
-}: CombinationFormProps): React.JSX.Element {
+}: MatchupFormProps): React.JSX.Element {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [configs, setConfigs] = useState<ModelConfig[]>(() =>
@@ -113,21 +113,21 @@ export function CombinationForm({
   };
 
   return (
-    <Stack gap={14} data-testid="combination-form">
+    <Stack gap={14} data-testid="matchup-form">
       <TextInput
-        label="Combination name"
+        label="Matchup name"
         required
         value={name}
         onChange={(e) => setName(e.currentTarget.value)}
         placeholder="e.g. Realism showdown"
-        data-testid="combo-name"
+        data-testid="matchup-name"
       />
       <Textarea
         label="Description"
         value={description}
         onChange={(e) => setDescription(e.currentTarget.value)}
         placeholder="What are these model setups being compared on?"
-        data-testid="combo-description"
+        data-testid="matchup-description"
         minRows={2}
       />
 
@@ -145,7 +145,7 @@ export function CombinationForm({
       </Group>
       <span style={metaText}>
         Each config (one checkpoint + its LoRAs) is a benchmarkable row in the grid, grouped under this
-        combination.
+        matchup.
       </span>
 
       {configs.map((cfg, i) => {
@@ -252,7 +252,7 @@ export function CombinationForm({
       })}
 
       {errors.length > 0 && (
-        <Alert color="error" data-testid="combo-errors">
+        <Alert color="error" data-testid="matchup-errors">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
             {errors.map((e) => (
               <li key={e}>{e}</li>
@@ -262,11 +262,11 @@ export function CombinationForm({
       )}
 
       <Group justify="flex-end" gap={8}>
-        <Button variant="subtle" onClick={onCancel} data-testid="combo-cancel">
+        <Button variant="subtle" onClick={onCancel} data-testid="matchup-cancel">
           Cancel
         </Button>
-        <Button onClick={submit} loading={busy} data-testid="combo-submit">
-          {submitLabel ?? 'Submit combination'}
+        <Button onClick={submit} loading={busy} data-testid="matchup-submit">
+          {submitLabel ?? 'Submit matchup'}
         </Button>
       </Group>
     </Stack>

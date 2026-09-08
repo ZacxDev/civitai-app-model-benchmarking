@@ -204,8 +204,13 @@ describe('formatQuota — the privacy claim is NOT fused to the app-wide figures
   })!;
 
   it('is exactly the agreed sentence, clause for clause', () => {
+    // ⚠️ The leading noun moved from "Drafts" to "Unpublished items" in 527, when
+    // the word "draft" left the rendered vocabulary (§11.1) while the STORAGE
+    // prefix kept it. That is a deliberate reword, and this literal is exactly the
+    // price the pin exists to charge; the two clauses, their order and their
+    // scopes are unchanged.
     expect(line).toBe(
-      'Drafts are private to you. Storage is app-wide, shared with every other viewer: ' +
+      'Unpublished items are private to you. Storage is app-wide, shared with every other viewer: ' +
         '3.0 MB of 12 MB used, 12 of 4,321 rows.',
     );
   });
@@ -215,8 +220,8 @@ describe('formatQuota — the privacy claim is NOT fused to the app-wide figures
     // preceding the used/limit numbers, with no clause boundary between them.
     expect(line).not.toMatch(/priv\w*[^.]*\d[\d.,]*\s?(B|KB|MB)\b/i);
     // …and the privacy claim is still MADE. Dropping it silently would be the
-    // other way to pass the assertion above, and the drafts panel's own copy
-    // depends on drafts genuinely being per-viewer.
+    // other way to pass the assertion above, and the My tab's own copy depends on
+    // unpublished records genuinely being per-viewer.
     expect(line).toMatch(/private to you/i);
   });
 });

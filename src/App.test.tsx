@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { Harness } from '@civitai/blocks-react/testing';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 
 function renderApp(deps: Partial<AppDeps>) {
   render(
@@ -35,33 +35,34 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
     const { shared, appends } = fakeShared({ reflectMutations: false }); // list() NEVER returns the append
     renderApp({ shared });
 
-    await userEvent.click(await screen.findByTestId('submit-combination'));
-    const form = await screen.findByTestId('combination-form');
-    await userEvent.type(within(form).getByTestId('combo-name'), 'Lagging Combo');
+    // Grids is the default view since 527 (§11.5); this case is about the
+    // matchup list, so it navigates there first.
+    await openView('Matchups');
+    await userEvent.click(await screen.findByTestId('submit-matchup'));
+    const form = await screen.findByTestId('matchup-form');
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'Lagging Combo');
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
     await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
-    await userEvent.click(within(form).getByTestId('combo-submit'));
+    await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     // The row appears without a manual reload…
-    const card = await screen.findByTestId('combo-card');
+    const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('Lagging Combo');
     expect(appends).toHaveLength(1);
 
     // …and it PERSISTS after the reconcile reload settles (not wiped by the empty list()).
     await new Promise((r) => setTimeout(r, 0));
-    await waitFor(() => expect(screen.getByTestId('combo-card')).toHaveTextContent('Lagging Combo'));
+    await waitFor(() => expect(screen.getByTestId('matchup-card')).toHaveTextContent('Lagging Combo'));
   });
 });
 
-describe('item 4: the Top-N control reads as personal, not global', () => {
-  it('labels it "(your view)" with a hint that it does not change the shared grid', async () => {
-    renderApp({ appStorage: fakeAppStorage().appStorage });
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grid$/ }));
-    await screen.findByTestId('top-n');
-    expect(screen.getByText(/Show top N \(your view\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/doesn't change the shared grid/i)).toBeInTheDocument();
-  });
-});
+// 🔴 "item 4: the Top-N control reads as personal, not global" IS DELETED, and
+// deleted rather than weakened. It asserted the copy on a `Slider` that 527
+// REMOVES (§11.5, acceptance criterion 9): the control it described no longer
+// exists, so the only way to make the case pass would be to re-add the thing the
+// criterion deletes. Its replacement is the POSITIVE claim that the control and
+// its copy are gone, and it lives in `gridsView.test.tsx` beside the other
+// criterion-9 cases so the deletion and the new default view read together.
 
 describe('item 6: one-time "How this works" panel', () => {
   it('shows the submit → vote → grid → run(public) → compare explainer for a first-time viewer', async () => {

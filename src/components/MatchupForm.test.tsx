@@ -1,4 +1,4 @@
-// CombinationForm: item 2 — a combination holds an ARRAY of model configs (each a
+// MatchupForm: item 2 — a combination holds an ARRAY of model configs (each a
 // checkpoint + its LoRA stack). Add/remove config rows, per-config checkpoint +
 // family-scoped LoRA picking, ≥1-config validation, and edit-mode prefill.
 
@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockResourceInfo, BlockResourcePickerType } from '@civitai/app-sdk/blocks';
 
-import { CombinationForm } from './CombinationForm.js';
+import { MatchupForm } from './MatchupForm.js';
 import type { CombinationInput } from '../lib/benchmark.js';
 import { CKPT_SDXL, LORA_SDXL } from '../test-helpers.js';
 
@@ -25,10 +25,10 @@ function fakePicker() {
   return { pickResource, calls };
 }
 
-describe('CombinationForm multi-config builder (item 2)', () => {
+describe('MatchupForm multi-config builder (item 2)', () => {
   it('starts with one config and adds/removes config rows', async () => {
     const { pickResource } = fakePicker();
-    render(<CombinationForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    render(<MatchupForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getAllByTestId('config-card')).toHaveLength(1);
     // A single config shows no remove affordance.
     expect(screen.queryByTestId('remove-config')).toBeNull();
@@ -42,7 +42,7 @@ describe('CombinationForm multi-config builder (item 2)', () => {
 
   it('scopes the LoRA picker to the config checkpoint family', async () => {
     const { pickResource, calls } = fakePicker();
-    render(<CombinationForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    render(<MatchupForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} />);
     const card = screen.getByTestId('config-card');
     await userEvent.click(within(card).getByTestId('pick-checkpoint'));
     await waitFor(() => expect(within(card).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
@@ -56,19 +56,19 @@ describe('CombinationForm multi-config builder (item 2)', () => {
   it('requires a name and at least one config with a checkpoint', async () => {
     const onSubmit = vi.fn<(input: CombinationInput) => Promise<void>>();
     const { pickResource } = fakePicker();
-    render(<CombinationForm pickResource={pickResource} onSubmit={onSubmit} onCancel={vi.fn()} />);
-    await userEvent.click(screen.getByTestId('combo-submit'));
+    render(<MatchupForm pickResource={pickResource} onSubmit={onSubmit} onCancel={vi.fn()} />);
+    await userEvent.click(screen.getByTestId('matchup-submit'));
     expect(onSubmit).not.toHaveBeenCalled();
-    const errs = screen.getByTestId('combo-errors');
-    expect(errs).toHaveTextContent('Give the combination a name.');
+    const errs = screen.getByTestId('matchup-errors');
+    expect(errs).toHaveTextContent('Give the matchup a name.');
     expect(errs).toHaveTextContent('Add at least one model config');
   });
 
   it('submits a TWO-config combination', async () => {
     const onSubmit = vi.fn<(input: CombinationInput) => Promise<void>>();
     const { pickResource } = fakePicker();
-    render(<CombinationForm pickResource={pickResource} onSubmit={onSubmit} onCancel={vi.fn()} />);
-    await userEvent.type(screen.getByTestId('combo-name'), 'Realism showdown');
+    render(<MatchupForm pickResource={pickResource} onSubmit={onSubmit} onCancel={vi.fn()} />);
+    await userEvent.type(screen.getByTestId('matchup-name'), 'Realism showdown');
     // config 1 checkpoint
     await userEvent.click(screen.getAllByTestId('pick-checkpoint')[0]);
     await waitFor(() => expect(screen.getAllByTestId('checkpoint-name')).toHaveLength(1));
@@ -78,7 +78,7 @@ describe('CombinationForm multi-config builder (item 2)', () => {
     await waitFor(() => expect(screen.getAllByTestId('checkpoint-name')).toHaveLength(2));
     // label the second config
     await userEvent.type(screen.getAllByTestId('config-label')[1], 'variant B');
-    await userEvent.click(screen.getByTestId('combo-submit'));
+    await userEvent.click(screen.getByTestId('matchup-submit'));
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     const input = onSubmit.mock.calls[0][0] as CombinationInput;
@@ -89,7 +89,7 @@ describe('CombinationForm multi-config builder (item 2)', () => {
   });
 });
 
-describe('CombinationForm edit mode', () => {
+describe('MatchupForm edit mode', () => {
   it('prefills from an initial input (multiple configs) and uses the given submit label', () => {
     const initial: CombinationInput = {
       name: 'Existing combo',
@@ -99,11 +99,11 @@ describe('CombinationForm edit mode', () => {
         { id: 'b', label: 'pony', checkpoint: { versionId: 1101, modelId: 600, baseModel: 'Pony', modelName: 'AutismMix' }, loras: [] },
       ],
     };
-    render(<CombinationForm pickResource={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} submitLabel="Save changes" />);
-    expect((screen.getByTestId('combo-name') as HTMLInputElement).value).toBe('Existing combo');
+    render(<MatchupForm pickResource={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} submitLabel="Save changes" />);
+    expect((screen.getByTestId('matchup-name') as HTMLInputElement).value).toBe('Existing combo');
     expect(screen.getAllByTestId('config-card')).toHaveLength(2);
     const labels = screen.getAllByTestId('config-label') as HTMLInputElement[];
     expect(labels.map((l) => l.value)).toEqual(['base', 'pony']);
-    expect(screen.getByTestId('combo-submit')).toHaveTextContent('Save changes');
+    expect(screen.getByTestId('matchup-submit')).toHaveTextContent('Save changes');
   });
 });

@@ -9,6 +9,26 @@ delete-for-owner — are decided before code, not during it.
 sub-features of bullet 2 that are blocked on platform work (**421** comments,
 **422** owner moderation).
 
+> 🔴 **AMENDED 2026-09-07 by clawgate 527 — read §11 before acting on §3, §4, §6 or §9.**
+> Operator feedback reshaped the rework around **three publishable objects** —
+> Matchups, Prompts and **Grids** — where a Grid is a named, hand-picked set of
+> matchups × prompts that you build privately and publish. The amendments, all in
+> **§11**:
+>
+> - **§9 question 3 is REVERSED** — the public half of bullet 1 (now called a
+>   **Grid**) is back in scope, with a fourth row kind on the shared board.
+> - **§6.2's census is STALE** — it says "22 testids, complete"; the count is now
+>   **24**. §11.4 lists the two additions and the exact old→new map.
+> - **§4's draft/submit boundary is RETAINED but RENAMED** — "draft" disappears as a
+>   user-facing word; the same store boundary becomes **unpublished → Publish**, and
+>   it now covers prompts and grids too.
+> - **Archive** is added: an author-side hide that is **not** suppression.
+> - Cards **450, 452 and 455 are superseded by 527**. §11.6 records what of each
+>   survived and what was already shipped.
+>
+> Where §11 and an earlier section disagree, **§11 wins** — the earlier text is kept
+> so the decision can be read against what it replaced.
+
 > **On "seven bullets".** Card 423's criterion 1 says "each of the seven bullets";
 > the Context lists **six**. The reconciliation used here: bullet 2 bundles three
 > separable features (details page, comments, prompt-in-matchup voting), and the two
@@ -516,3 +536,422 @@ not survive measurement.
    blocked bullets are unchanged. §1.
 4. **A finding neither the card nor the ask names:** bullets 3 and 6 break the
    capture recipe's positional tab selectors **without any rename at all**. §6.4.
+
+---
+
+## 11. Amendment — three publishable objects (clawgate 527, 2026-09-07)
+
+Operator feedback on 2026-09-07 reshaped the rework. This section is the decision
+record; where it disagrees with §3–§9, **§11 wins**.
+
+### 11.1 The three objects, and the one boundary they share
+
+**Matchups**, **Prompts** and **Grids**. Each is created privately, then **published**
+in one irreversible step, and each gets **My** and **Community** sub-tabs.
+
+There is exactly **one** privacy mechanism and §2.3's constraints still bind it:
+**which store the row is in.** Private = `useAppStorage` (per-viewer, app-chosen
+keys, anonymous writes rejected). Public = `useSharedStorage.append` (world-readable
+the instant it lands, `data` not even moderated). There is no `visibility` field, and
+adding one to `data` would be **cosmetic** — §3's warning is unchanged and is now
+load-bearing for two more object types.
+
+**"Draft" disappears as a user-facing word.** §4's boundary is retained exactly;
+only the vocabulary and the placement change. An unpublished item now sits in its
+object's **My** tab carrying a **Publish** action, instead of in a separate Drafts
+panel.
+
+🔴 **The `draft:v1:` appStorage prefix does NOT change.** Real viewers hold records
+under it today; renaming the prefix orphans them, and the app cannot migrate another
+viewer's per-viewer KV. It keeps its historical name forever. New prefixes are
+chosen disjoint from it so `list({prefix})` still narrows cleanly:
+
+| object | unpublished prefix | note |
+|---|---|---|
+| Matchup | `draft:v1:` | **historical name, do not "tidy"** — live viewer records |
+| Prompt  | `unpub:prompt:v1:` | new |
+| Grid    | `unpub:grid:v1:` | new |
+
+Publishing is `shared.append`, and §9 question 2 still binds: **there is no
+unpublish.** `shared.update` (author-scoped, preserves key and vote total) remains
+the only post-publish mutation. Archive (§11.3) is the tidy-up, and it is not an
+unpublish.
+
+**My vs Community.** Both are client-side partitions of one paged scan; §2.3 C1
+still holds, so no server-side filter is possible.
+
+- **My** = rows where `isOwnRow(row, viewerId)` (the exported `isOwnRow` in
+  `src/lib/benchmark.ts` — cited by NAME, not by offset, per §11.6's lesson; the
+  offset that used to sit here was true at `ad546fb` (621) and is 668 at
+  `c23e726`), plus that object's unpublished appStorage records.
+- **Community** = every published row **including the viewer's own**, so an author
+  sees their row ranked the way everyone else sees it.
+
+⚠ The partition reads `useBlockContext().viewer.id`, which the installed SDK marks
+`@deprecated` (migration target: `signedIn` + `useViewer()`, which would need
+`user:read:self` added to the manifest). It is still on the wire and civitai/civitai's
+contract test pins the BLOCK_INIT viewer key set as exactly `['id','username']`. **Use
+the existing `isOwnRow`; do not migrate in 527.** Closing condition for the migration:
+`id` actually leaves the BLOCK_INIT payload, checked by re-reading the installed
+`ViewerInfo` type.
+
+### 11.2 🔴 The `grid` record kind — the irreversible decision
+
+A Grid is the **fourth** row kind on the one shared board. §9 question 3 deferred
+exactly this; the deferral is now **reversed**.
+
+**This wire shape is effectively permanent from the first published grid onward.**
+Once other viewers append grid rows, the app owner cannot delete or rewrite them —
+`update`/`withdraw` are author-scoped and `report()` does not hide (**§2.2** for the
+API surface, **§9 Q2** for `update` being the only post-submit mutation path — this
+used to cite §2.3, whose four constraints are C1 host-minted keys, C2 one flat list,
+C3 the 2000-row cap and C4 result-row growth, none of which says this). There is
+no migration path for other authors' rows. Get it right here.
+
+```ts
+/** The opaque structured payload for a `grid` shared record. */
+export interface GridData {
+  v: 1;
+  kind: 'grid';
+  /** Ordered, de-duplicated shared keys of the matchups forming the grid's ROWS. */
+  matchupKeys: string[];
+  /** Ordered, de-duplicated shared keys of the prompts forming the grid's COLUMNS. */
+  promptKeys: string[];
+}
+```
+
+Decisions embedded above, each with its reason:
+
+- **The grid's NAME and DESCRIPTION are not in `data`.** They go in the shared row's
+  `title`/`body`, which are the moderated, user-visible text (§2.2). Putting
+  author-supplied prose in the unmoderated `data` blob would route user text around
+  the content belt.
+- **Order is significant and preserved.** The author picked a row/column order;
+  arrays carry it. A `Set` or a sort would silently discard an authored decision.
+- **Keys are de-duplicated within each array.** A repeated key would render a
+  duplicate row whose cells share one `(comboKey, configId, promptKey)` identity.
+- **Cap: 20 matchups × 20 prompts.** Not arbitrary — 20 is the `max` of the
+  per-viewer "Show top N" `Slider` this rework deletes, so a hand-built grid may
+  not exceed what the app already rendered. (The `Slider` is **gone at this PR's
+  head** — §11.5, pinned by `criterion 9: Grids is the DEFAULT view and the top-N
+  slider is gone` in `src/gridsView.test.tsx`, and explained at the
+  `THE PER-VIEWER "Show top N" Slider IS GONE` comment in `src/App.tsx`. It was
+  `max={20}` at **`ad546fb`**, the ref this cap was read off; there is no live
+  line to cite.) It also keeps the payload far inside
+  appStorage's 64 KB per-value limit while unpublished.
+- **`v: 1` from the start**, so a later shape change is a migration-on-read like
+  `parseCombination`/`parsePrompt` rather than a break.
+
+🔴 **Dangling references are NORMAL, not exceptional.** A grid names keys whose rows
+another author may `withdraw` at any time, and the grid's author cannot repair
+another author's row. So a grid with missing members **renders the members it still
+has plus an honest count of what is gone**. It must never throw, and it must never
+silently render shorter — a quietly-shrinking grid is the same class of lie as the
+§7.2 truncation this repo already discloses.
+
+**Results are unaffected and this is the payoff.** `result` rows key on
+`(comboKey, configId, promptKey)` — see `cellKey()` in `src/lib/benchmark.ts` —
+**not** on a grid.
+A cell someone spent Buzz on appears in *every* grid containing that matchup and
+that prompt. Explicit grids make the existing result corpus more valuable, not less.
+
+### 11.3 Archive — an author-side hide, and NOT suppression
+
+**Storage:** one appStorage key, `archive:v1`, holding `string[]` of shared keys.
+
+**Semantics, exactly:** archiving one of your own published rows removes it from
+**your My list only**. The row stays on the shared board, stays in Community for
+everyone including you, keeps its votes, and keeps serving any grid that references
+it. Nothing about it changes for another viewer.
+
+🔴 **The UI must say this in words.** `taste.json`'s `suppressionNamedAsSuppression`
+rubric item applies: an "Archive" that a viewer could reasonably read as "removed"
+is a claim the code does not back, and §2.2 + §9 Q2 are why the app *has* no
+power to remove another viewer's view of a row. The existing author-only **Remove**
+(`withdraw`) is unchanged and remains the only true delete.
+
+### 11.4 The rename map — 24 testids, not 22
+
+🔴 **§6.2's "22, complete" is STALE.** Re-measured on `main` @ `ad546fb`,
+2026-09-07: the census returns **24**. Two were added after 2026-08-30 —
+`combo-report` (the report seam, `10a0b46`) and `view-switch-combos` (card 449,
+`2437f90`). §6.2's *method* is sound; its *count* was a snapshot and the surface
+kept moving.
+
+**Re-run the census; never quote the number.** Note the shell trap: `grep` on this
+host is a function wrapping ugrep, and it is not usable from `xargs` — resolve the
+real binary first, and confirm a positive control before believing any zero.
+
+```bash
+GREP=$(whence -p grep)                      # the FUNCTION is not an executable
+find src \( -name '*.tsx' -o -name '*.ts' \) ! -name '*.test.*' -print0 \
+  | xargs -0 "$GREP" -ho 'data-testid="[^"]*"' | "$GREP" -iE 'combo|combination' | sort -u
+# positive control — total testids, must be >> 0 (123 at ad546fb):
+find src \( -name '*.tsx' -o -name '*.ts' \) ! -name '*.test.*' -print0 \
+  | xargs -0 "$GREP" -ho 'data-testid="[^"]*"' | sort -u | wc -l
+```
+
+**The map is fixed here so the two rename streams can run in parallel** against one
+agreed vocabulary — `combo`/`combos`/`combination` → `matchup`/`matchups`/`matchup`:
+
+| old | new |  | old | new |
+|---|---|---|---|---|
+| `combination-form` | `matchup-form` | | `combos-empty` | `matchups-empty` |
+| `combo-cancel` | `matchup-cancel` | | `combos-error` | `matchups-error` |
+| `combo-card` | `matchup-card` | | `combos-included-summary` | `matchups-included-summary` |
+| `combo-config-count` | `matchup-config-count` | | `combos-list` | `matchups-list` |
+| `combo-config-summary` | `matchup-config-summary` | | `combos-loading` | `matchups-loading` |
+| `combo-description` | `matchup-description` | | `combos-view` | `matchups-view` |
+| `combo-edit` | `matchup-edit` | | `grid-empty-add-combination` | `grid-empty-add-matchup` |
+| `combo-errors` | `matchup-errors` | | `grid-group-combo` | `grid-group-matchup` |
+| `combo-included` | `matchup-included` | | `submit-combination` | `submit-matchup` |
+| `combo-name` | `matchup-name` | | `view-switch-combos` | `view-switch-matchups` |
+| `combo-report` | `matchup-report` | | | |
+| `combo-submit` | `matchup-submit` | | | |
+| `combo-vote` | `matchup-vote` | | | |
+| `combo-withdraw` | `matchup-withdraw` | | | |
+
+🔴 **§6.1 is unchanged and absolute: `data.kind: 'combination'` stays
+`'combination'` on the wire forever**, as do `v:`, `ResultData.comboKey` and the
+`draft:v1:` prefix. The string sits in renameable and un-renameable positions **in
+the same files**; this is invisible to find-and-replace.
+
+⚠ **§6's line offsets have DRIFTED past `ad546fb` and must be re-resolved by
+content.** Measured example: the `"Included combinations"` `waitForText` anchor
+§6.3 cites at `src/App.tsx:835` had already moved to `src/App.tsx:1491` **at
+`ad546fb`** — and it has since gone entirely: a later commit on this PR deleted
+that copy with the single-window grid view, so at this PR's head the string is
+**absent from `src/`** at any offset (`grep -rn "Included combination" src/`
+returns nothing; the live anchor is `"Top Grid"`, rendered by
+`src/components/GridsView.tsx`). Both halves of that are the point: the §6.3
+*inventory of consumers* is sound, its *offsets* are not, and an offset can rot
+past "wrong number" into "no such line". Same for §6.2's user-visible-string
+line list.
+
+### 11.5 Votes, the Top Grid, and the default view
+
+The per-viewer **"Show top N (your view)" `Slider` is deleted**
+(`data-testid="top-n"`). With it goes the only consumer of matchup and prompt votes,
+so their meaning is restated:
+
+- **Matchup and prompt votes are discovery ranking.** They sort the Community
+  Matchups / Community Prompts lists and they feed the Top Grid. They no longer
+  determine any user-built grid's contents.
+- **Grid votes** use `shared.vote`/`unvote` on the grid row, hydrating button state
+  from `viewerVoted` (§2.2). **Community Grids sorts by `count` descending** with
+  §7.1's existing deterministic tie-break, which `topByVotes()` already implements
+  (the exported `topByVotes` in `src/lib/benchmark.ts` — by NAME, not by offset;
+  the offset that used to sit here was true at `ad546fb` (661) and is 724 at
+  `c23e726`).
+- **The Top Grid** is a system-owned entry: `DEFAULT_TOP_N` (5) top-voted matchups ×
+  `DEFAULT_TOP_N` top-voted prompts, computed client-side by `topByVotes()`.
+  🔴 **It has no shared key, so it cannot be voted on and cannot be sorted by
+  count.** It is therefore **pinned first** in Community Grids, outside the vote
+  ordering, and labelled as system-owned — rather than given a fake position in a
+  ranking it does not participate in.
+
+**Grids becomes the default view on load.**
+
+⚠ §7.2's ceiling is unchanged and now feeds three lists instead of two. The
+`board-truncated-notice` **already exists and is already tested** (see §11.6); it
+must be extended to the Grids view, which reads the same truncated ranking. **Do not
+raise `MAX_PAGES`** — §7.2's reasoning is unchanged.
+
+### 11.6 Superseded cards, and what was already shipped
+
+Cards **450**, **452** and **455** are superseded by **527** (tagged
+`superseded-by:527` + `gate:blocked`; left `open` because clawgate has no status
+meaning "superseded" and `complete` would be false).
+
+- **450** (watch a matchup → a Watched tab) — superseded, not dropped. With
+  publishable Grids, "watch a matchup" collapses into "view someone else's published
+  Grid".
+- **452** (grid-as-default + ranking + truncation) — 🔴 **its criteria 3 and 4 were
+  already shipped** in `10a0b46` (#31). Cited **by content, not by offset**: the
+  Alert carrying `data-testid="board-truncated-notice"` in `src/App.tsx`, and its
+  test — **with a negative control**, `it('does NOT cry truncation on a board that
+  fits (negative control)')` — in `src/boardTruncation.test.tsx`. The `listAll`
+  helper at the bottom of `src/App.tsx` now returns `{ items, truncated }`. 452's
+  body still cites `src/App.tsx:931-938` as discarding the condition; that line no
+  longer exists. 527 inherits only the live remainder.
+
+  ⚠ **This bullet used to give line numbers, and every one of them had already
+  rotted** — found by the PR #38 round-2 sweep. **Every offset below now names
+  the ref it was measured at**, because the round-2 rewrite did not, and its own
+  "at head" numbers rotted within the same PR — the round-4 audit caught two of
+  them still wrong. Measured at `ad546fb` and at `c23e726` — the commit these
+  were re-derived against; the round-4 fix commit is its child and touches none
+  of the files below, so they hold at that head too:
+
+  | Thing | at `ad546fb` | at `c23e726` |
+  |---|---|---|
+  | `listAll` in `src/App.tsx` (452 cited `1609-1623`, **no ref**) | 1604 | 2197 |
+  | the `board-truncated-notice` Alert in `src/App.tsx` | 1440 | 1936 |
+  | the `describe('board scan truncation')` block in `src/boardTruncation.test.tsx` (452 cited `117-137`) | 117–139, 2 cases | 118–173, and the file carries 6 |
+
+  Same class as §11.4's and §11.7(2)'s warnings, third occurrence: **a line
+  number without a ref is a claim with no truth conditions** — and a ref-less
+  "at head" is the same defect wearing the word "head", since head moves. Prefer
+  a testid, a function name or a test title, which move with the code; when a
+  number is genuinely the point, pin it to a ref as above.
+- **455** (the rename) — its inventory is carried into 527 Phase 1 intact, with the
+  count and offsets corrected by §11.4. Its "depends on cards A–F" chain is void.
+
+Cards **453** (details page) and **454** (prompt-in-matchup voting) remain open and
+untouched. If a grid detail view makes 453 redundant, that is a decision to record,
+not to assume.
+
+### 11.7 Corrections to §6.3, measured while executing it (2026-09-07)
+
+§6.3's inventory of `datapacket-talos` consumers was executed in full. Four of its
+claims did not survive contact, and one documented control is wrong. Corrected
+here so the next reader measures instead of trusting:
+
+1. **"Two of three captions" is wrong — it is ONE of three.** The other two never
+   contained the word.
+2. **§6.3(b)'s line numbers drifted.** `tests/run-tests-app-capture.sh` cites
+   `3843-3844`; the actual lines are **`4511-4512`**. (Same class as §11.4's
+   warning — re-resolve by content.)
+   ⚠ **And so did §6.3(d)'s, which an earlier draft of this section missed:** it
+   cites `tests/mutants-app-capture.sh:1264-1265`; the actual lines are
+   **`1338-1339`**. Found by the PR #38 audit, not by this sweep — which is the
+   lesson: this section swept ONE claim's offsets and hand-checked the other, and
+   only the hand-checked one was wrong. **Sweep every claim in a commit the way you
+   swept the hardest one.**
+3. 🔴 **§6.3 misses a FIFTH coupled file.**
+   `tests/fixtures/app-capture/evidence/manifest.json` carries the same selectors
+   as data-driven probes and must move with the other four. The spec says "four";
+   it is five.
+4. **§6.3(d)'s failure mode is wrong, in the safe direction.** It says a missed
+   state rename makes the mutant "silently a no-op". It does not: `apply_mutant`'s
+   `grep -cF` uniqueness guard scores it **BROKEN**, loudly. The hazard is real but
+   it is not silent.
+
+🔴 **And the control §6.3(c) documents does not hold.** It says to confirm the DOM
+fixture with `grep -c testid` → **12**. `-c` counts **lines**, and that file is 9
+lines with all 12 testids on one — so it returns **1**, which reads as "the file is
+barely coupled" and would have justified skipping it. The occurrence count needs
+`grep -o … | wc -l`. The underlying warning in §6.3(c) — that the JSON escaping
+makes a naive `"combo…"` grep return zero against a fully coupled file — **is
+correct and was confirmed**.
+
+**Still open downstream (§6.3(e)):** the live store listing caption still says
+"combinations" and needs a listing revision, i.e. another moderator review.
+
+#### The downstream ledger — what actually breaks, and which half is where
+
+The round-2 audit of PR #38 found the note that closed this section said **"two
+literals"** when the real coupling is wider, and that it conflated two different
+states. The distinction that matters is **fixed-but-unmerged** vs **deliberately
+deferred**: they need opposite follow-ups. Paths are relative to the
+`datapacket-talos` checkout; the recipe is
+`.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` (the audit
+report shortens it to `recipes/model-benchmarking.json`).
+
+**(a) Coupled to app strings and ALREADY FIXED on the paired branches
+`zach/527-mb-rename` and `zach/527-mb-rename-anchor` (both pushed, unmerged —
+the second re-anchors row 3; see the ✅ note below).** These are broken against
+`origin/trunk` *until that branch lands* — the follow-up is a merge, not an edit:
+
+| Recipe site | Pinned literal | The app at this PR's head | How it fails |
+|---|---|---|---|
+| `clickable[1]` | `[data-testid='view-switch-combos']` | emits `view-switch-matchups` (the Matchups tab label span in `src/App.tsx`) | the safety ledger, not a click. `plan.py` refuses at PLAN time — `click_unledgered` if a state clicks something absent from it, `clickable_unused` if an entry no state activates survives — so fixing one of these two rows without the other cannot even reach a browser |
+| the matchups state's `click` | `[data-testid='view-switch-combos']` | same | bridge **`element_not_found`** — the state fails at its click |
+| the grid state's `waitForText` | `"Included combinations"` | **absent from `src/`** | a 20 s `text` poll that never resolves, then a failed state |
+| the **`combinations`** state's `name` + `caption` — the recipe state literally named `combinations` (it captures the Matchups view, and is the state row 2's click belongs to), **not** the `grid` state of the row above | `"combinations"` / "…LoRA combinations…" | the product noun is *matchup* | not a failure — a wrong output filename and a wrong store caption |
+
+🔴 **None of it fails silently.** The clicks fail with the bridge's own
+`element_not_found`, naming the selector; the wait fails as an expired poll
+(`plan.py`'s `waitForText` → `emit_dom("text", …, expect=…, timeoutMs=20000)`).
+That is what `_selectors`' own note buys by waiting on panel-BODY text rather
+than on a tab label: a drifted selector fails loudly instead of successfully
+capturing the wrong screen.
+
+⚠ **And the paired branch's fix for the third row is itself wrong** — found by
+this round's sweep, not by the audit. It substitutes `"Included matchups"`, the
+string commit `6c7cf8b` introduced. A **later** commit in this same PR replaced
+the single-window grid view with per-grid windows and deleted that copy, so
+*neither* `"Included combinations"` *nor* `"Included matchups"` exists in `src/`
+at head — check by content: `grep -rn "Included matchup" src/` returns nothing.
+The grid state needed a fresh anchor read off the shipped `GridsView` before that
+branch merged, or it would have traded one broken wait for another.
+
+✅ **That anchor is ALREADY APPLIED — do not redo it.** Branch
+`zach/527-mb-rename-anchor` in `civitai/talos-infra`, commit **`90bd3c608`**,
+re-anchors the grid state's `waitForText` on **`"Top Grid"`** (rendered by
+`src/components/GridsView.tsx`, and unaffected by the rename). So the follow-up
+for row 3 is a **merge, not an edit** — `zach/527-mb-rename` alone still carries
+the broken `"Included matchups"`.
+
+🔴 **And it is ONE merge, not two.** `90bd3c608` is a direct child of
+`zach/527-mb-rename` (`e3bb6deac`) — that commit is its single parent, so
+`zach/527-mb-rename-anchor` already CONTAINS the rename branch. Merge the anchor
+branch alone and both changes land. Verified:
+`git -C <talos-infra> merge-base --is-ancestor origin/zach/527-mb-rename
+origin/zach/527-mb-rename-anchor` exits **0**, and `git log -1 --format='%H %P'
+origin/zach/527-mb-rename-anchor` prints `90bd3c608… e3bb6deac…`. An earlier
+draft of this bullet said "a merge of that branch **too**", which reads as a
+second merge on top of the rename — the redundant work this whole note exists to
+prevent.
+
+**(b) Deliberately NOT renamed, because their replacements are app copy that has
+not reached `main`.** These are still wrong on the paired branch too, on purpose:
+
+- `_selectors`' quotation of the tab label `'Combinations (1)'` — prose inside a
+  comment, naming a label the app no longer renders.
+- `_contentCaveat`'s `"2 combinations"`, which `tests/run-tests-app-capture.sh`
+  pins as a needle: changing it early **reds that suite**.
+
+**Both become a follow-up the moment the app rename merges.**
+
+### 11.8 🔴 The paid-cell surface, and why the scan budget is now the binding constraint
+
+Surfaced by the PR #38 adversarial audit. **Not fixed here — documented, because the
+honest mitigation is a product decision, not a patch.**
+
+**What changed.** Before this rework the runnable matrix was a single window:
+`DEFAULT_TOP_N` (5) matchups × ≤`MAX_CONFIGS` (8) configs × 5 prompts ≈ **200 cells**.
+The deleted slider could widen *one viewer's* window to 20 × 8 × 20, but there was
+still only ever one window.
+
+After it, **every published grid is its own window** of ≤20 × ≤8 × ≤20
+(`MAX_GRID_MATCHUPS` / `MAX_GRID_PROMPTS`, `src/lib/grids.ts`), any viewer can open
+anyone else's, and nothing bounds how many grids name disjoint members.
+
+**Why that collides with §7.2.** Every run appends a `result` row to the **same**
+flat list the board scan pages, and that scan is capped at `LIST_PAGE 50 ×
+MAX_PAGES 40 = 2000` rows. One fully-run 20×20 grid of 8-config matchups is
+**3200 cells → 3200 result rows**, which exceeds the entire scan budget on its own.
+
+Past the cap the failure is not an error, it is a **quiet wrongness** that compounds:
+the scan truncates oldest-first, so the Top Grid loses its longest-standing members,
+every grid's membership silently shrinks, vote ranking degrades, and a grid's
+missing-member notice can no longer distinguish "withdrawn" from "not read" (which is
+why §11.2's missing-member notice now branches on `boardTruncated` — audit
+finding F4; `missingMembersNotice` in `src/lib/gridEntries.ts`. §11.4 is the
+rename map and has no notice in it — the wrong section was cited here until the
+round-2 sweep, which is the same class as the rotted offsets §11.6 warns about,
+one level up).
+
+🔴 **And §11.5 forbids the obvious lever.** Raising `MAX_PAGES` trades a silent wrong
+answer for a slow one, linear in board size on every load. That is still the right
+call, which is what makes this a design constraint rather than a tuning knob.
+
+**Today the board is ~22 rows, so nothing is broken.** What this rework changed is the
+*slope*: it is now possible for a small number of enthusiastic viewers to reach the
+cap, where before it took the whole community. Options, none taken here, in rough
+order of honesty:
+
+1. **Bound the product** — a lower per-grid cap, or a cap on published grids per
+   viewer. Cheapest, and the only one that acts before the cliff.
+2. **Stop paging results in the same scan** — results are the growth driver and are
+   read per-cell; a separate read path would take them off the ranking scan entirely.
+   This is the real fix and it is a platform-shaped change.
+3. **Disclose harder** — the truncation notice already exists; it could name what was
+   lost rather than that something was.
+
+**Closing condition:** this stops being a horizon risk and becomes an incident the
+first time `listAll` reports `truncated: true` against the live board. That is already
+observable — the app computes it — so the check is: does anyone see
+`board-truncated-notice` in production? Until then it is a documented slope, and this
+section is what makes it a decision someone took rather than a surprise.

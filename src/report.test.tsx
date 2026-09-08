@@ -22,7 +22,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -52,7 +52,7 @@ function combo(key: string, authorUserId: number, title: string): SharedListItem
   };
 }
 
-function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
+function mountApp(deps: Partial<AppDeps>, viewer: { id: number; username: string } | null) {
   render(
     <Harness
       // 🔴 `null` is passed THROUGH, never coerced to `undefined`: the mock host
@@ -73,33 +73,47 @@ function renderApp(deps: Partial<AppDeps>, viewer: { id: number; username: strin
   );
 }
 
+/**
+ * Mount the app and OPEN THE MATCHUPS VIEW.
+ *
+ * 🔴 The extra step exists because 527 made GRIDS the default view (spec §11.5,
+ * acceptance criterion 9). Every case below is about the matchup or prompt
+ * surfaces, so each has to navigate there now; doing it here rather than at each
+ * call site keeps the default's name at ONE site — it has moved once already.
+ */
+async function renderApp(...args: Parameters<typeof mountApp>) {
+  const r = mountApp(...args);
+  await openView('Matchups');
+  return r;
+}
+
 describe('report — the board’s abuse seam', () => {
   it('is offered on ANOTHER viewer’s row and not on the viewer’s own', async () => {
     const { shared } = fakeShared({
       seed: [combo('theirs', OTHER_ID, 'Someone else’s combo'), combo('mine', VIEWER_ID, 'My combo')],
     });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
 
-    const cards = await screen.findAllByTestId('combo-card');
+    const cards = await screen.findAllByTestId('matchup-card');
     expect(cards).toHaveLength(2);
 
     const theirs = cards.find((c) => c.textContent?.includes('Someone else’s combo'))!;
     const mine = cards.find((c) => c.textContent?.includes('My combo'))!;
 
     // Their row: report offered, remove NOT (it is not the viewer's to withdraw).
-    expect(within(theirs).getByTestId('combo-report')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('combo-withdraw')).toBeNull();
+    expect(within(theirs).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
     // Own row: remove offered, report NOT.
-    expect(within(mine).getByTestId('combo-withdraw')).toBeInTheDocument();
-    expect(within(mine).queryByTestId('combo-report')).toBeNull();
+    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
+    expect(within(mine).queryByTestId('matchup-report')).toBeNull();
   });
 
   it('🔴 offers NO report affordance to a signed-out viewer (the host rejects those)', async () => {
     const { shared } = fakeShared({ seed: [combo('theirs', OTHER_ID, 'Someone else’s combo')] });
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, null);
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, null);
 
-    const card = await screen.findByTestId('combo-card');
-    expect(within(card).queryByTestId('combo-report')).toBeNull();
+    const card = await screen.findByTestId('matchup-card');
+    expect(within(card).queryByTestId('matchup-report')).toBeNull();
 
     // 🔴 POSITIVE CONTROL, in-band. A missing testid is indistinguishable from a
     // row that never rendered its action group at all, and that is exactly how
@@ -109,7 +123,7 @@ describe('report — the board’s abuse seam', () => {
     // disabled and routes to the sign-in prompt.
     //
     // (The signed-IN half of the control is the sibling case above, which finds
-    // `combo-report` on this same row. It cannot be re-mounted inside this test:
+    // `matchup-report` on this same row. It cannot be re-mounted inside this test:
     // `Harness` installs a process-global mock host from a `useEffect(…, [])`,
     // so a second mount keeps talking to the anonymous host — verified, it fails
     // with the source correct.)
@@ -117,19 +131,19 @@ describe('report — the board’s abuse seam', () => {
     // Note it is NOT html-`disabled`: the vote control stays clickable signed-out
     // on purpose, so the click can raise the sign-in prompt instead of doing
     // nothing. Presence is the control here; the enabled-ness is not the claim.
-    expect(within(card).getByTestId('combo-vote')).toBeInTheDocument();
+    expect(within(card).getByTestId('matchup-vote')).toBeInTheDocument();
   });
 
   it('files the report against the row’s key, and LEAVES THE ROW on the board', async () => {
     const { shared, reports } = fakeShared({ seed: [combo('theirs', OTHER_ID, 'Someone else’s combo')] });
     const track = vi.fn();
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-report'));
-    await userEvent.click(screen.getByTestId('combo-report-confirm'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-report'));
+    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
 
-    await waitFor(() => expect(screen.getByTestId('combo-report-done')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
     expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
     expect(track).toHaveBeenCalledWith('report');
 
@@ -137,8 +151,8 @@ describe('report — the board’s abuse seam', () => {
     // still on the public board. An app that optimistically removed it would
     // feel tidier and would be lying: the row is visible to everyone else, and
     // to this viewer again on the next load.
-    expect(screen.getByTestId('combo-card')).toBeInTheDocument();
-    expect(screen.getByTestId('combo-card')).toHaveTextContent('Someone else’s combo');
+    expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
+    expect(screen.getByTestId('matchup-card')).toHaveTextContent('Someone else’s combo');
   });
 
   it('🔴 a host rejection surfaces instead of settling as filed', async () => {
@@ -147,16 +161,16 @@ describe('report — the board’s abuse seam', () => {
       reportRejects: true,
     });
     const track = vi.fn();
-    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
-    const card = await screen.findByTestId('combo-card');
-    await userEvent.click(within(card).getByTestId('combo-report'));
-    await userEvent.click(screen.getByTestId('combo-report-confirm'));
+    const card = await screen.findByTestId('matchup-card');
+    await userEvent.click(within(card).getByTestId('matchup-report'));
+    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
 
     await waitFor(() =>
-      expect(screen.getByTestId('combo-report-prompt')).toHaveTextContent(/could not send/i),
+      expect(screen.getByTestId('matchup-report-prompt')).toHaveTextContent(/could not send/i),
     );
-    expect(screen.queryByTestId('combo-report-done')).toBeNull();
+    expect(screen.queryByTestId('matchup-report-done')).toBeNull();
     // The app TRIED — this is what separates a refused report from one never
     // sent, and it is why the fake records attempts rather than successes.
     expect(reports).toHaveLength(1);

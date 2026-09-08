@@ -1,49 +1,61 @@
-// PURE, node-testable core of the DRAFT ↔ SUBMIT boundary (spec §4 of
-// `docs/matchups.md`). No React, no SDK hooks, no network.
+// The MATCHUP half of the unpublished → published boundary (spec §4, restated by
+// §11.1 of `docs/matchups.md`). The rule itself lives in ./unpublished.ts and is
+// shared with prompts; this file contributes only the matchup-shaped record and
+// its historical storage prefix.
 //
-// 🔴 THE BOUNDARY THIS FILE EXISTS TO HOLD: a draft lives in the PER-VIEWER KV
-// (`useAppStorage`, keys chosen by the app, quota-bounded, anonymous viewers
-// rejected), and SUBMIT is the copy of that draft into the app-scoped PUBLIC
-// board (`useSharedStorage.append`). Those are two different stores, and which
-// store a record is in is the ONLY thing that makes it private. There is no
-// `visibility` field to set: a shared row is world-readable the instant it is
-// appended, and its `data` blob is not even moderated. So nothing in this file
-// may ever reach shared storage, and nothing here builds a privacy flag.
+// 🔴 THE PREFIX KEEPS ITS HISTORICAL NAME. Real viewers hold records under
+// `draft:v1:` today, and the app cannot migrate another viewer's per-viewer KV —
+// renaming it orphans them permanently. So the STORAGE keeps the word "draft"
+// forever while the rendered vocabulary does not (§11.1): an unpublished matchup
+// now appears in the My Matchups tab carrying a Publish action, and the word
+// "draft" appears in no user-visible string.
 //
-// The shared payload for a submit is built by `buildCombinationPayload` in
-// ./benchmark.ts — unchanged, so a submitted draft is byte-identical to a row
+// The shared payload for a publish is built by `buildCombinationPayload` in
+// ./benchmark.ts — unchanged, so a published record is byte-identical to a row
 // submitted directly. 🔴 `data.kind: 'combination'` is a PERSISTED WIRE VALUE
 // that discriminates every row already on the board; it is never renamed.
 
 import type { AppStorageQuota } from '@civitai/blocks-react';
 
 import type { DraftPointer, DraftRecord, DraftUnsubmitted, ModelConfig } from '../types.js';
-import { newId, type CombinationInput } from './benchmark.js';
+import { type CombinationInput } from './benchmark.js';
+import {
+  formatQuota as formatQuotaShared,
+  isPublished,
+  newLocalId,
+  parseUnpublished,
+  publishedPointer,
+  sortUnpublished,
+  unpublishedKey,
+} from './unpublished.js';
 
 /**
- * The per-viewer KV key PREFIX every draft lives under. The app chooses its own
- * keys in THIS store, so `list({prefix})` genuinely narrows here — which is the
- * whole reason drafts live in it and not on the shared board, where keys are
- * host-minted and a prefix filter can never work (spec §2.3 C1).
+ * The per-viewer KV key PREFIX every unpublished matchup lives under. The app
+ * chooses its own keys in THIS store, so `list({prefix})` genuinely narrows here
+ * — which is the whole reason unpublished records live in it and not on the
+ * shared board, where keys are host-minted and a prefix filter can never work
+ * (spec §2.3 C1).
+ *
+ * 🔴 NEVER RENAMED — see the file header. Pinned by `renameWireCompat.test.ts`.
  */
 export const DRAFT_PREFIX = 'draft:v1:';
 
-/** The storage key for one draft. */
+/** The storage key for one unpublished matchup. */
 export function draftKey(localId: string): string {
-  return `${DRAFT_PREFIX}${localId}`;
+  return unpublishedKey(DRAFT_PREFIX, localId);
 }
 
-/** A fresh local id for a new draft (per-viewer and app-chosen — NOT a shared key). */
+/** A fresh local id (per-viewer and app-chosen — NOT a shared key). */
 export function newDraftLocalId(): string {
-  return newId('draft');
+  return newLocalId('draft');
 }
 
-/** Has this draft been submitted? (i.e. is it now a pointer at a shared row?) */
+/** Has this record been published? (i.e. is it now a pointer at a shared row?) */
 export function isSubmitted(draft: DraftRecord): draft is DraftPointer {
-  return typeof (draft as DraftPointer).sharedKey === 'string' && !!(draft as DraftPointer).sharedKey;
+  return isPublished(draft);
 }
 
-/** Build the stored shape of an UNSUBMITTED draft from the form input. */
+/** Build the stored shape of an UNPUBLISHED matchup from the form input. */
 export function buildDraft(
   localId: string,
   input: CombinationInput,
@@ -65,23 +77,30 @@ export function buildDraft(
 }
 
 /**
- * Rewrite a draft to the POINTER it becomes after submit: `{ localId, sharedKey,
- * submittedAt }`, exactly as spec §4 specifies. The draft is KEPT rather than
- * deleted because it is the only PER-VIEWER handle on the row — the shared list
- * carries no "mine" index, and a shared key cannot be predicted or prefixed.
- * The editable body is dropped: once the row is public, `shared.update` (which
- * preserves the key and the vote total) is the single source of truth for it,
- * and a stale private copy would be a second one.
+ * Rewrite a record to the POINTER it becomes after publish (see the shared core).
+ *
+ * ⚠ TEST-ONLY — SAME CLASS AS `recordKind` IN `benchmark.ts`, and labelled for
+ * the same reason: an exported helper that reads like a live path and is not one.
+ * It lost its last production import when `App.tsx`'s three publish paths were
+ * consolidated into `publishRecord`, which calls `publishedPointer` from
+ * `unpublished.ts` directly. The only caller left is `drafts.test.ts`, so it is
+ * dropped from the built bundle entirely.
+ *
+ * Kept rather than inlined for the one thing it still does: it states, in the
+ * matchup object's own module, that a matchup's pointer is the SHARED shape and
+ * not a per-object one — the boundary `unpublished.ts` exists to hold. Do not
+ * read it as coverage of the publish path; `src/publishPointerFailure.test.tsx`
+ * covers that, through the real `App`.
  */
 export function submittedPointer(
   localId: string,
   sharedKey: string,
   now: Date = new Date(),
 ): DraftPointer {
-  return { v: 1, localId, sharedKey, submittedAt: now.toISOString() };
+  return publishedPointer(localId, sharedKey, now);
 }
 
-/** Turn an unsubmitted draft back into a form input (for edit-in-place). */
+/** Turn an unpublished matchup back into a form input (for edit-in-place). */
 export function draftToInput(draft: DraftUnsubmitted): CombinationInput {
   return {
     name: draft.name,
@@ -96,95 +115,38 @@ export function draftToInput(draft: DraftUnsubmitted): CombinationInput {
 }
 
 /**
- * Defensive parse of one stored KV value into a draft. The store is per-viewer
- * and app-owned, but a value can still be from an older/newer build, so an
- * unusable row is dropped rather than crashing the list.
- *
- * A row carrying a `sharedKey` parses as a POINTER even if it also carries a
- * stale body — the pointer is the newer shape and wins.
+ * Defensive parse of one stored KV value into a matchup record. A row carrying a
+ * `sharedKey` parses as a POINTER even if it also carries a stale body — the
+ * pointer is the newer shape and wins (that branch lives in the shared core).
+ * A body with no usable config is dropped rather than crashing the list.
  */
 export function parseDraft(raw: unknown): DraftRecord | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const d = raw as Partial<DraftUnsubmitted & DraftPointer>;
-  if (d.v !== 1) return null;
-  if (typeof d.localId !== 'string' || !d.localId) return null;
-
-  if (typeof d.sharedKey === 'string' && d.sharedKey) {
+  return parseUnpublished<DraftUnsubmitted>(raw, (d, localId) => {
+    const configs = Array.isArray(d.configs)
+      ? (d.configs.filter(
+          (cfg) => !!cfg && !!(cfg as ModelConfig).checkpoint && typeof (cfg as ModelConfig).id === 'string',
+        ) as ModelConfig[])
+      : [];
+    if (configs.length === 0) return null;
     return {
       v: 1,
-      localId: d.localId,
-      sharedKey: d.sharedKey,
-      submittedAt: typeof d.submittedAt === 'string' ? d.submittedAt : '',
+      localId,
+      name: typeof d.name === 'string' ? d.name : '',
+      description: typeof d.description === 'string' ? d.description : '',
+      configs,
+      updatedAt: typeof d.updatedAt === 'string' ? d.updatedAt : '',
     };
-  }
-
-  const configs = Array.isArray(d.configs)
-    ? (d.configs.filter(
-        (cfg) => !!cfg && !!(cfg as ModelConfig).checkpoint && typeof (cfg as ModelConfig).id === 'string',
-      ) as ModelConfig[])
-    : [];
-  if (configs.length === 0) return null;
-  return {
-    v: 1,
-    localId: d.localId,
-    name: typeof d.name === 'string' ? d.name : '',
-    description: typeof d.description === 'string' ? d.description : '',
-    configs,
-    updatedAt: typeof d.updatedAt === 'string' ? d.updatedAt : '',
-  };
+  });
 }
 
 /** Newest-edited first, then by localId so the order is deterministic. */
 export function sortDrafts(drafts: DraftRecord[]): DraftRecord[] {
-  const stamp = (d: DraftRecord): string => (isSubmitted(d) ? d.submittedAt : d.updatedAt) || '';
-  return [...drafts].sort(
-    (a, b) =>
-      (stamp(b) < stamp(a) ? -1 : stamp(b) > stamp(a) ? 1 : 0) ||
-      (a.localId < b.localId ? -1 : a.localId > b.localId ? 1 : 0),
-  );
+  return sortUnpublished(drafts);
 }
 
-/** A short human size (the host reports bytes; nobody reads bytes). */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-}
+export { formatBytes } from './unpublished.js';
 
-/**
- * The storage line shown above the drafts list.
- *
- * 🔴 EVERY NUMBER IN IT COMES FROM `getQuota()` — the ceilings are host-enforced
- * and host-reported, so a hard-coded "50 MB" is a claim this block is not
- * entitled to make and would go silently stale the day the host moves it
- * (acceptance criterion 6). `null` means the quota has not been read yet (or the
- * viewer is anonymous), and the caller renders nothing rather than a guess.
- *
- * 🔴 THE PRIVACY CLAIM AND THE NUMBERS ARE DELIBERATELY IN SEPARATE CLAUSES,
- * and that separation is the whole point of this string. The two halves have
- * DIFFERENT SCOPES and the SDK contract says so explicitly
- * (`@civitai/blocks-react` `useAppStorage`):
- *
- *   - the DATA is per-viewer  — `get()` reads "the current (block instance,
- *     viewer) tuple", so a draft really is invisible to everyone else;
- *   - the QUOTA is PER-APP    — `set()` rejects "when the per-app 50MB quota
- *     would be crossed", and the hook doc reads "50 MB + ~1M rows per app".
- *
- * So `usedBytes`/`rowCount` are APP-WIDE totals summed over every viewer. This
- * line used to open `Private to you — ${usedBytes} of ${limitBytes} used…`,
- * which fused the two and told the viewer those were their own figures. It was
- * measured false on 2026-08-31: two different viewers (ids 8753561 and
- * 11025902) saw byte-identical quota lines, including a row count that had just
- * moved 27 -> 28 because of the FIRST viewer's draft. Never re-fuse them.
- */
+/** The host-reported storage line (see the shared core for the scope split). */
 export function formatQuota(quota: AppStorageQuota | null): string | null {
-  if (!quota) return null;
-  return (
-    'Drafts are private to you. Storage is app-wide, shared with every other viewer: ' +
-    `${formatBytes(quota.usedBytes)} of ${formatBytes(quota.limitBytes)} used, ` +
-    `${quota.rowCount.toLocaleString('en-US')} of ${quota.limitRows.toLocaleString('en-US')} rows.`
-  );
+  return formatQuotaShared(quota);
 }
