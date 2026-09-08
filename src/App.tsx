@@ -61,6 +61,8 @@ import type {
   DraftUnsubmitted,
   InflightRun,
   PromptRow,
+  UnpublishedPrompt,
+  UnpublishedPromptRecord,
 } from './types.js';
 import {
   buildCellWorkflowBody,
@@ -95,10 +97,21 @@ import {
   sortDrafts,
   submittedPointer,
 } from './lib/drafts.js';
+import {
+  buildUnpubPrompt,
+  isPublishedPrompt,
+  newUnpubPromptLocalId,
+  parseUnpubPrompt,
+  sortUnpubPrompts,
+  UNPUB_PROMPT_PREFIX,
+  unpubPromptKey,
+  unpubPromptToInput,
+} from './lib/unpubPrompts.js';
+import { parsePointer, publishedPointer, unpublishedKey } from './lib/unpublished.js';
+import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
 import { MatchupsView } from './components/MatchupsView.js';
-import { DraftsPanel } from './components/DraftsPanel.js';
 import { PromptsView } from './components/PromptsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
 import { MatchupForm } from './components/MatchupForm.js';
@@ -153,17 +166,19 @@ type ClaimOutcome =
   | { ok: false; reason: 'rejected' | 'no-viewer' };
 
 /**
- * The submit modal: closed, or a combo/prompt form in CREATE or EDIT mode, or
- * the DRAFT form — the same combination form saving to the PER-VIEWER store
- * instead of the public board. `draft` is a distinct kind rather than a flag on
- * `combo` because the two write to different stores, and a single branch deciding
- * which store a save lands in is exactly the branch that gets got wrong later.
+ * The submit modal: closed, a combo/prompt form in CREATE or EDIT mode, or one of
+ * the two UNPUBLISHED forms — the same combination/prompt form saving to the
+ * PER-VIEWER store instead of the public board. Each private kind is distinct
+ * rather than a flag on its public sibling because the two write to different
+ * stores, and a single branch deciding which store a save lands in is exactly the
+ * branch that gets got wrong later.
  */
 type ModalState =
   | { kind: 'none' }
   | { kind: 'combo'; edit?: CombinationRow }
   | { kind: 'prompt'; edit?: PromptRow }
-  | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean };
+  | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
+  | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -515,14 +530,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, viewer?.id]);
 
-  // ---- drafts (the PRIVATE half of the create → submit boundary) ----
+  // ---- the PRIVATE half of the create → publish boundary ----
   //
-  // 🔴 Everything in this block reads and writes `appStorage` ONLY. A draft is
-  // private because it lives in the per-viewer store, not because of any field
-  // on it — a `visibility` flag inside a shared row's `data` would be cosmetic
-  // (the row is world-readable the instant it is appended, and `data` is not
-  // moderated). Submit — and only submit — copies a draft onto the public board.
+  // 🔴 Everything in this block reads and writes `appStorage` ONLY. An
+  // unpublished record is private because it lives in the per-viewer store, not
+  // because of any field on it — a `visibility` flag inside a shared row's `data`
+  // would be cosmetic (the row is world-readable the instant it is appended, and
+  // `data` is not moderated). Publish — and only publish — copies it onto the
+  // public board.
+  //
+  // TWO PREFIXES, ONE RULE: unpublished matchups keep the historical `draft:v1:`
+  // prefix (live viewers hold records under it — §11.1) and unpublished prompts
+  // use `unpub:prompt:v1:`. The shared logic lives in `lib/unpublished.ts`.
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
+  const [unpubPrompts, setUnpubPrompts] = useState<UnpublishedPromptRecord[]>([]);
+  /** Shared keys this viewer archived — an AUTHOR-SIDE HIDE of their own My list
+   * and nothing more (§11.3). Never sent to the shared board. */
+  const [archived, setArchived] = useState<string[]>([]);
   const [quota, setQuota] = useState<AppStorageQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
@@ -533,6 +557,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // Anonymous: the host rejects every per-viewer write and reads back null,
       // so there is nothing to show and nothing to guess at.
       setDrafts([]);
+      setUnpubPrompts([]);
+      setArchived([]);
       setQuota(null);
       return;
     }
@@ -560,6 +586,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         if (!cancelled) setDrafts(sortDrafts(found));
       } catch {
         /* best-effort — a KV failure must not take the public board down with it */
+      }
+      try {
+        const foundPrompts: UnpublishedPromptRecord[] = [];
+        await forEachStoredKey(
+          store,
+          UNPUB_PROMPT_PREFIX,
+          async (key) => {
+            if (cancelled) return 'stop';
+            const parsed = parseUnpubPrompt(await store.get(key));
+            if (cancelled) return 'stop';
+            if (parsed) foundPrompts.push(parsed);
+          },
+          { shouldStop: () => cancelled },
+        );
+        if (!cancelled) setUnpubPrompts(sortUnpubPrompts(foundPrompts));
+      } catch {
+        /* best-effort — same reasoning as the matchup scan above */
+      }
+      try {
+        // 🔴 ONE key, not a prefix scan: the archive is a single `string[]`
+        // (§11.3), so a failed read degrades to "nothing archived" — which shows
+        // MORE of the viewer's own rows, never fewer.
+        const raw = await store.get<unknown>(ARCHIVE_KEY);
+        if (!cancelled) setArchived(parseArchive(raw));
+      } catch {
+        if (!cancelled) setArchived([]);
       }
       try {
         // 🔴 The storage ceilings are HOST-reported. Read them; never hard-code
@@ -671,30 +723,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // Mirrors the submit path: host mutation → optimistic reconcile → track →
   // reload.
   /**
-   * Drop the per-viewer draft POINTER at a shared row that no longer exists.
+   * Drop the per-viewer POINTER at a shared row that no longer exists, under the
+   * given object's storage prefix.
    *
-   * 🔴 A submitted draft is rewritten to `{localId, sharedKey, submittedAt}` and
-   * its `configs` are DROPPED (see `submittedPointer`). So once the row it
+   * 🔴 A published record is rewritten to `{localId, sharedKey, submittedAt}` and
+   * its editable body is DROPPED (see `publishedPointer`). So once the row it
    * points at is withdrawn there is nothing left to restore and nothing left to
-   * act on: the drafts panel rendered a card claiming "Live on the board" for a
-   * row that is gone, with NO buttons at all (its only action, "Edit the live
-   * one", is gated on the row being loaded), and it still consumed a quota row.
-   * An unremovable card asserting a live board entry that does not exist is
-   * worse than no card, so the pointer goes.
+   * act on — the pointer is a per-viewer row asserting a board entry that does
+   * not exist, and it still consumes a quota row. So the pointer goes.
    *
    * Scope, deliberately narrow, and narrow in TWO independent ways:
    *
-   *   1. Only the COMBINATIONS surface reaches this function at all. ⚠️ This
-   *      paragraph used to say prompts reached it and harmlessly found nothing;
-   *      that stopped being true when `withdrawPrompt` was split out below, and
-   *      the sentence survived because it sits outside that diff. A reader who
-   *      believes the old text concludes the prompt path still scans — which is
-   *      exactly what the "NEVER EVEN STARTS the pointer scan" case asserts
-   *      against. Prompts are never created from a draft, so the scan there
-   *      could only ever run to completion and find nothing; it is skipped.
-   *   2. Even on the combinations surface the ONLY pointer touched is one whose
-   *      `sharedKey` equals the withdrawn key — another of the viewer's own
-   *      combinations keeps its pointer, which is a separate guard.
+   *   1. Only the withdrawn row's OWN prefix is scanned. ⚠️ This used to be
+   *      hard-wired to `DRAFT_PREFIX` with a comment explaining that prompts
+   *      could never have a pointer — TRUE until 527 gave prompts an unpublished
+   *      form of their own. It is now a parameter, and the prompt surface passes
+   *      `UNPUB_PROMPT_PREFIX` rather than skipping the scan: skipping it would
+   *      orphan exactly the pointers the new prompt publish path writes.
+   *   2. Even within one prefix the ONLY pointer touched is one whose
+   *      `sharedKey` equals the withdrawn key — another of the viewer's own rows
+   *      keeps its pointer, which is a separate guard.
    *
    * 🔴 THE LOOKUP GOES TO THE STORE, NOT TO RENDER STATE, and that is not a
    * style choice. Reading the `drafts` state (or a ref mirroring it) makes the
@@ -702,23 +750,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * NOTHING TO DO WITH THE POINTER — and there are three such reasons, all
    * reachable: the KV list effect has not resolved yet (withdraw first and the
    * list is still `[]`), `list()` threw and was swallowed so the board could
-   * stay up, or the viewer has more drafts than `KV_MAX_PAGES` pages. In
+   * stay up, or the viewer has more records than `KV_MAX_PAGES` pages. In
    * every one of those the pointer is real, the scan against render state
    * misses it, and nothing ever re-checks — the exact orphan this function
    * exists to remove, persisting with no error anywhere. Measured before the
    * fix: withdrawing before the list resolved left `deletes: []` and the
    * buttonless card on screen.
    */
-  const clearDraftPointerFor = useCallback(
-    async (sharedKey: string) => {
+  const clearPointerFor = useCallback(
+    async (prefix: string, sharedKey: string) => {
       const store = depsRef.current.appStorage;
       try {
-        await forEachStoredKey(store, DRAFT_PREFIX, async (key) => {
-          const parsed = parseDraft(await store.get(key));
-          if (!parsed || !isSubmitted(parsed) || parsed.sharedKey !== sharedKey) return;
+        await forEachStoredKey(store, prefix, async (key) => {
+          const parsed = parsePointer(await store.get(key));
+          if (!parsed || parsed.sharedKey !== sharedKey) return;
           // Idempotent per the SDK: deleting a key that isn't set resolves
           // `{deleted: false}` rather than throwing.
-          await store.delete(draftKey(parsed.localId));
+          await store.delete(unpublishedKey(prefix, parsed.localId));
           refreshDrafts();
           return 'stop';
         });
@@ -731,11 +779,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const withdrawRow = useCallback(
     /**
-     * @param clearPointer whether to look for (and drop) a draft pointer at this
-     *   key afterwards. TRUE only on the combinations surface — see the call
-     *   sites and `clearDraftPointerFor`'s cost note.
+     * @param pointerPrefix the per-viewer storage prefix to sweep for a pointer
+     *   at this key afterwards. Each surface passes ITS OWN prefix; the two are
+     *   disjoint, so a matchup withdraw can never reach a prompt's pointer.
      */
-    async (key: string, clearPointer: boolean) => {
+    async (key: string, pointerPrefix: string) => {
       // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
       // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
       //
@@ -763,32 +811,34 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       const res = await depsRef.current.shared.withdraw(key);
       if (!res.ok) return;
       optimisticDelete(key);
-      if (clearPointer) await clearDraftPointerFor(key);
+      await clearPointerFor(pointerPrefix, key);
       depsRef.current.track('withdraw');
       reload();
     },
-    [optimisticDelete, reload, clearDraftPointerFor],
+    [optimisticDelete, reload, clearPointerFor],
   );
 
-  /**
-   * Withdraw a COMBINATION. This is the only surface where a draft pointer can
-   * exist, so it is the only one that pays for the lookup.
-   */
+  /** Withdraw a COMBINATION — sweeping the matchup prefix for its pointer. */
   const withdrawCombination = useCallback(
-    (key: string) => withdrawRow(key, true),
+    (key: string) => withdrawRow(key, DRAFT_PREFIX),
     [withdrawRow],
   );
 
   /**
-   * Withdraw a PROMPT. 🔴 No pointer scan: prompts are never created from a
-   * draft, so a prompt's host-minted key CANNOT match a pointer — the scan could
-   * only ever run to completion and find nothing. Skipping it is not an
-   * optimisation of a rare path, it is declining a guaranteed-fruitless one:
-   * `clearDraftPointerFor` is a paged KV walk (one `list` per page plus one
-   * `get` per key, serially over the postMessage bridge) with the withdraw
-   * button held in `loading` for its whole duration.
+   * Withdraw a PROMPT — sweeping the PROMPT prefix for its pointer.
+   *
+   * 🔴 THIS USED TO SWEEP NOTHING, and the reasoning was sound at the time:
+   * prompts had no unpublished form, so a prompt's host-minted key could not
+   * match any pointer and the walk was guaranteed fruitless. 527 gave prompts
+   * their own unpublished store (`unpub:prompt:v1:`), which retired that premise
+   * — a published-then-withdrawn prompt now leaves exactly the orphan the matchup
+   * sweep exists to remove. The prefixes are disjoint, so this scans only prompt
+   * pointers and the matchup sweep only matchup pointers.
    */
-  const withdrawPrompt = useCallback((key: string) => withdrawRow(key, false), [withdrawRow]);
+  const withdrawPrompt = useCallback(
+    (key: string) => withdrawRow(key, UNPUB_PROMPT_PREFIX),
+    [withdrawRow],
+  );
 
   /**
    * Report ANOTHER viewer's row for platform moderator review — the board's only
@@ -808,13 +858,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     depsRef.current.track('report');
   }, []);
 
-  // ---- draft write paths (the PRIVATE half; see the drafts block above) ----
+  // ---- private write paths (see the per-viewer block above) ----
 
   /**
-   * Save a draft. 🔴 PRIVATE PATH — `appStorage.set` and nothing else. This is
-   * the path acceptance criterion 7 pins: it must never reach `shared.append`,
-   * because that call is the moment the record becomes public and there is no
-   * other boundary in the platform that makes it not so.
+   * Save an unpublished MATCHUP. 🔴 PRIVATE PATH — `appStorage.set` and nothing
+   * else. This is the path acceptance criterion 7 pins: it must never reach
+   * `shared.append`, because that call is the moment the record becomes public
+   * and there is no other boundary in the platform that makes it not so.
    */
   const saveDraft = useCallback(
     async (localId: string, input: CombinationInput) => {
@@ -826,7 +876,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [closeModal, refreshDrafts],
   );
 
-  /** Discard a draft. 🔴 PRIVATE PATH — per-viewer delete only. */
+  /** Discard an unpublished matchup. 🔴 PRIVATE PATH — per-viewer delete only. */
   const deleteDraft = useCallback(
     async (localId: string) => {
       await depsRef.current.appStorage.delete(draftKey(localId));
@@ -835,14 +885,69 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [refreshDrafts],
   );
 
+  /** Save an unpublished PROMPT. 🔴 PRIVATE PATH — the exact mirror of
+   * `saveDraft`, against the disjoint `unpub:prompt:v1:` prefix. */
+  const saveUnpubPrompt = useCallback(
+    async (localId: string, input: PromptInput) => {
+      await depsRef.current.appStorage.set(unpubPromptKey(localId), buildUnpubPrompt(localId, input));
+      depsRef.current.track('save_unpublished_prompt');
+      closeModal();
+      refreshDrafts();
+    },
+    [closeModal, refreshDrafts],
+  );
+
+  /** Discard an unpublished prompt. 🔴 PRIVATE PATH — per-viewer delete only. */
+  const deleteUnpubPrompt = useCallback(
+    async (localId: string) => {
+      await depsRef.current.appStorage.delete(unpubPromptKey(localId));
+      refreshDrafts();
+    },
+    [refreshDrafts],
+  );
+
+  // ---- archive (an AUTHOR-SIDE HIDE, and NOT a suppression — §11.3) ----
+  //
+  // 🔴 IT WRITES ONE PER-VIEWER KEY AND TOUCHES THE SHARED BOARD NOWHERE. The row
+  // stays appended, keeps its votes, and stays in Community for every viewer
+  // including this one — the app HAS no power to do otherwise (`update`/`withdraw`
+  // are author-scoped, `report()` does not hide), which is exactly why the UI says
+  // so in words next to the control (`ARCHIVE_NOTE`).
+  const writeArchive = useCallback(
+    async (next: string[]) => {
+      if (!viewer) return;
+      setArchived(next);
+      try {
+        await depsRef.current.appStorage.set(ARCHIVE_KEY, next);
+      } catch (e) {
+        // The host's own error string — developer-facing, never viewer copy.
+        console.debug('[model-benchmarking] archive write rejected:', e);
+        // Re-read on the next refresh rather than leaving the optimistic value
+        // as the only record of a write that did not land.
+        refreshDrafts();
+      }
+    },
+    [viewer, refreshDrafts],
+  );
+
+  const archiveRow = useCallback(
+    (key: string) => writeArchive(withArchived(archived, key)),
+    [archived, writeArchive],
+  );
+  const unarchiveRow = useCallback(
+    (key: string) => writeArchive(withoutArchived(archived, key)),
+    [archived, writeArchive],
+  );
+
   // Synchronous claim set, mirroring the runner's: a second submit for the same
   // draft returns here, so a double-tap can never mint two public rows (and
   // `append` has no idempotency key — a duplicate is permanent and unmergeable).
   const submittingRef = useRef<Set<string>>(new Set());
 
   /**
-   * SUBMIT — the one place a draft crosses into the public board, and the only
-   * moment the record becomes visible to anyone else. `buildCombinationPayload`
+   * PUBLISH — the one place an unpublished matchup crosses into the public board,
+   * and the only moment the record becomes visible to anyone else.
+   * `buildCombinationPayload`
    * is reused verbatim so a submitted draft is byte-identical to a row submitted
    * directly, including `data.kind: 'combination'` (a persisted wire value that
    * discriminates every row already on the board — never renamed) and including
@@ -874,6 +979,40 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         reload();
       } finally {
         submittingRef.current.delete(draft.localId);
+      }
+    },
+    [optimisticInsert, refreshDrafts, reload],
+  );
+
+  /**
+   * PUBLISH a PROMPT — the exact mirror of `submitDraft`, and for the same
+   * reasons: `buildPromptPayload` is reused verbatim so a published record is
+   * byte-identical to a prompt submitted directly (including `data.kind:
+   * 'prompt'` and the moderation split), the same synchronous claim set prevents
+   * a double-tap minting two rows, and the record is KEPT as the pointer at the
+   * row it became.
+   */
+  const publishUnpubPrompt = useCallback(
+    async (rec: UnpublishedPrompt) => {
+      if (submittingRef.current.has(rec.localId)) return;
+      submittingRef.current.add(rec.localId);
+      try {
+        const input = unpubPromptToInput(rec);
+        const payload = buildPromptPayload(input) as SharedAppendValue;
+        const { key } = await depsRef.current.shared.append(payload);
+        await depsRef.current.appStorage.set(
+          unpubPromptKey(rec.localId),
+          publishedPointer(rec.localId, key),
+        );
+        optimisticInsert(key, payload);
+        depsRef.current.track('submit_prompt', {
+          overrideCount: Object.keys(input.overrides ?? {}).length,
+          fromUnpublished: true,
+        });
+        refreshDrafts();
+        reload();
+      } finally {
+        submittingRef.current.delete(rec.localId);
       }
     },
     [optimisticInsert, refreshDrafts, reload],
@@ -1253,46 +1392,60 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const buzzTotal =
     buzz.balance != null ? buzz.balance.blue + buzz.balance.green + buzz.balance.yellow : null;
 
-  // ---- drafts render wiring ----
-  // The shared keys currently loaded, so a submitted POINTER only offers "Edit
-  // the live one" when its row is actually in hand to edit.
-  const loadedSharedKeys = useMemo(() => new Set(combinations.map((r) => r.key)), [combinations]);
-
-  /**
-   * Edit the PUBLIC row a submitted draft points at. 🔴 This routes into the
-   * existing `shared.update` path — which is author-scoped and preserves BOTH
-   * the host-minted key and the row's vote total. It is the only post-submit
-   * mutation the app offers: there is deliberately no un-submit (spec §9 Q2,
-   * decided 2026-08-30), because `withdraw` destroys the vote total and orphans
-   * every `result` row other viewers spent Buzz on, and nobody can clean those up.
-   */
-  const editSubmittedDraft = useCallback(
-    (sharedKey: string) => {
-      const row = combinations.find((r) => r.key === sharedKey);
-      if (row) setModal({ kind: 'combo', edit: row });
-    },
-    [combinations],
+  // ---- My-tab render wiring (the PRIVATE half, now inside each object's view) ----
+  //
+  // 🔴 POINTERS ARE NOT RENDERED, and that is the §11.1 partition rather than an
+  // omission. A published row reaches the My tab through `isOwnRow` over the board
+  // scan — the client-side "mine" index the spec settles on — so rendering the
+  // pointer too would show the same row twice, once as a card with Edit/Remove and
+  // once as a stub that can do neither. The pointer keeps its STORAGE role: it is
+  // the per-viewer handle a withdraw sweeps (`clearPointerFor`) and the reason a
+  // published record is not left behind as an editable private copy.
+  const unpublishedMatchups = useMemo(
+    () => drafts.filter((d): d is DraftUnsubmitted => !isSubmitted(d)),
+    [drafts],
   );
+  const unpublishedPrompts = useMemo(
+    () => unpubPrompts.filter((p): p is UnpublishedPrompt => !isPublishedPrompt(p)),
+    [unpubPrompts],
+  );
+  const archivedKeys = useMemo(() => new Set(archived), [archived]);
+  const quotaLine = formatQuota(quota);
 
-  const draftsSlot = (
-    <DraftsPanel
-      drafts={drafts}
-      quotaLine={formatQuota(quota)}
-      loadedSharedKeys={loadedSharedKeys}
-      canDraft={!!viewer}
-      onNewDraft={() => setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })}
-      onEditDraft={(draft) =>
+  const publishMatchupById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedMatchups.find((d) => d.localId === localId);
+      if (rec) await submitDraft(rec);
+    },
+    [unpublishedMatchups, submitDraft],
+  );
+  const publishPromptById = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedPrompts.find((p) => p.localId === localId);
+      if (rec) await publishUnpubPrompt(rec);
+    },
+    [unpublishedPrompts, publishUnpubPrompt],
+  );
+  const editMatchupById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedMatchups.find((d) => d.localId === localId);
+      if (rec)
+        setModal({ kind: 'draft', localId: rec.localId, initial: draftToInput(rec), existing: true });
+    },
+    [unpublishedMatchups],
+  );
+  const editPromptById = useCallback(
+    (localId: string) => {
+      const rec = unpublishedPrompts.find((p) => p.localId === localId);
+      if (rec)
         setModal({
-          kind: 'draft',
-          localId: draft.localId,
-          initial: draftToInput(draft),
+          kind: 'unpub-prompt',
+          localId: rec.localId,
+          initial: unpubPromptToInput(rec),
           existing: true,
-        })
-      }
-      onSubmitDraft={submitDraft}
-      onDeleteDraft={deleteDraft}
-      onEditSubmitted={editSubmittedDraft}
-    />
+        });
+    },
+    [unpublishedPrompts],
   );
 
   // ---- render ----
@@ -1458,7 +1611,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
             onWithdraw={withdrawCombination}
             onReport={reportRow}
-            draftsSlot={draftsSlot}
+            unpublished={unpublishedMatchups}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
+            }
+            onEditUnpublished={editMatchupById}
+            onDiscardUnpublished={deleteDraft}
+            onPublishUnpublished={publishMatchupById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
           />
         )}
 
@@ -1477,6 +1640,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
             onWithdraw={withdrawPrompt}
             onReport={reportRow}
+            unpublished={unpublishedPrompts}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
+            }
+            onEditUnpublished={editPromptById}
+            onDiscardUnpublished={deleteUnpubPrompt}
+            onPublishUnpublished={publishPromptById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
           />
         )}
 
@@ -1557,13 +1731,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             />
           )}
         </Modal>
-        {/* The DRAFT form — the same combination form, saving to the PER-VIEWER
-            store. Its submit button says "Save draft" precisely because saving
-            is not submitting: nothing here reaches the public board. */}
+        {/* The PRIVATE matchup form — the same combination form, saving to the
+            PER-VIEWER store. Its submit button says "Save privately" precisely
+            because saving is not publishing: nothing here reaches the public
+            board. (The word "draft" left the rendered vocabulary in 527; the
+            STORAGE prefix keeps it forever — see lib/drafts.ts.) */}
         <Modal
           opened={modal.kind === 'draft'}
           onClose={closeModal}
-          title={modal.kind === 'draft' && modal.existing ? 'Edit draft' : 'New draft'}
+          title={
+            modal.kind === 'draft' && modal.existing
+              ? 'Edit your unpublished matchup'
+              : 'New matchup (not published yet)'
+          }
           size="lg"
         >
           {modal.kind === 'draft' && (
@@ -1571,8 +1751,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               key={modal.localId}
               pickResource={deps.pickResource}
               initial={modal.initial}
-              submitLabel="Save draft"
+              submitLabel="Save privately"
               onSubmit={(input) => saveDraft(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* The PRIVATE prompt form — the mirror of the matchup one, against the
+            `unpub:prompt:v1:` prefix. Same rule: saving is not publishing. */}
+        <Modal
+          opened={modal.kind === 'unpub-prompt'}
+          onClose={closeModal}
+          title={
+            modal.kind === 'unpub-prompt' && modal.existing
+              ? 'Edit your unpublished prompt'
+              : 'New prompt (not published yet)'
+          }
+          size="lg"
+        >
+          {modal.kind === 'unpub-prompt' && (
+            <PromptForm
+              key={modal.localId}
+              initial={modal.initial}
+              submitLabel="Save privately"
+              onSubmit={(input) => saveUnpubPrompt(modal.localId, input)}
               onCancel={closeModal}
             />
           )}

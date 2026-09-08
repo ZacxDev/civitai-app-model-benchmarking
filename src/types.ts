@@ -230,17 +230,24 @@ export interface ResultRow {
 }
 
 // ---------------------------------------------------------------------------
-// Draft — a matchup being built PRIVATELY, before (and after) it is submitted.
+// Unpublished records — an object being built PRIVATELY, before (and after) it
+// is published.
 //
-// 🔴 A draft lives in the PER-VIEWER KV (`useAppStorage`, prefix `draft:v1:`),
-// which is the only store in the platform with a real per-viewer boundary. It is
-// NOT a shared row with a flag on it: a `visibility` field inside a shared row's
-// `data` would be cosmetic — the row is world-readable the instant it is
-// appended and `data` is not moderated. Privacy here is *which store the record
-// is in*, and submit is the copy from one into the other (spec §4).
+// 🔴 An unpublished record lives in the PER-VIEWER KV (`useAppStorage`, prefix
+// `draft:v1:` for matchups and `unpub:prompt:v1:` for prompts), which is the only
+// store in the platform with a real per-viewer boundary. It is NOT a shared row
+// with a flag on it: a `visibility` field inside a shared row's `data` would be
+// cosmetic — the row is world-readable the instant it is appended and `data` is
+// not moderated. Privacy here is *which store the record is in*, and publish is
+// the copy from one into the other (spec §4, restated by §11.1).
+//
+// ⚠️ The matchup prefix keeps the historical word "draft" forever (live viewers
+// hold records under it and the app cannot migrate another viewer's KV), while
+// the RENDERED vocabulary dropped it in 527. The type names below follow the
+// storage, not the UI.
 // ---------------------------------------------------------------------------
 
-/** A draft that has NOT been submitted — the whole editable matchup, private. */
+/** A matchup that has NOT been published — the whole editable matchup, private. */
 export interface DraftUnsubmitted {
   v: 1;
   /** App-chosen, per-viewer id. NOT a shared key (those are host-minted). */
@@ -253,13 +260,17 @@ export interface DraftUnsubmitted {
 }
 
 /**
- * A draft that HAS been submitted, rewritten to a pointer at its shared row.
+ * A record that HAS been published, rewritten to a pointer at its shared row.
  * Kept rather than deleted: it is the only per-viewer handle on that row (the
  * shared list has no "mine" index and its keys are host-minted, so they can
  * neither be predicted nor prefix-filtered). The editable body is dropped —
  * once public, `shared.update` owns the record.
+ *
+ * 🔴 ONE shape for every publishable object. Matchups and prompts write the
+ * identical pointer under their own prefixes, so the pointer branch of the parse
+ * — and the publish that writes it — lives once in `lib/unpublished.ts`.
  */
-export interface DraftPointer {
+export interface PublishedPointer {
   v: 1;
   localId: string;
   /** The host-minted shared key `append()` resolved. */
@@ -267,7 +278,33 @@ export interface DraftPointer {
   submittedAt: string;
 }
 
+/** Historical, matchup-flavoured alias of {@link PublishedPointer}. */
+export type DraftPointer = PublishedPointer;
+
 export type DraftRecord = DraftUnsubmitted | DraftPointer;
+
+/**
+ * A prompt that has NOT been published — the whole editable prompt, private.
+ * Structurally the `PromptData` body plus the per-viewer bookkeeping; it is a
+ * separate type rather than a reuse of `PromptData` because the stored shape is
+ * app-private and versioned independently of the WIRE shape (`PromptData.v: 3`),
+ * which is carried by rows already on the shared board and cannot move.
+ */
+export interface UnpublishedPrompt {
+  v: 1;
+  /** App-chosen, per-viewer id. NOT a shared key (those are host-minted). */
+  localId: string;
+  name: string;
+  description: string;
+  /** The default prompt + params, applied to ALL ecosystems. Always present. */
+  default: PromptDefault;
+  /** Optional, sparse per-ecosystem overrides (keyed by ecosystem group key). */
+  overrides?: Record<string, PromptOverride>;
+  /** ISO timestamp of the last local edit (ordering only). */
+  updatedAt: string;
+}
+
+export type UnpublishedPromptRecord = UnpublishedPrompt | PublishedPointer;
 
 // ---------------------------------------------------------------------------
 // Runner queue (the estimate → confirm → submit → poll → publish lifecycle).

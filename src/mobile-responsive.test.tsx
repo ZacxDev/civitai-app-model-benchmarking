@@ -229,9 +229,13 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
     renderApp();
     await screen.findByTestId('view-switch');
 
+    // 3 view tabs (matchups / prompts / grid) + the 2 sub-tabs the mounted
+    // Matchups view adds (My / Community — 527, §11.1). A literal rather than a
+    // `>= 3`: this is the reachability ledger, so a segment appearing or
+    // disappearing should be a decision someone takes on purpose.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui-segment]`),
-    ).toHaveLength(3); // combos / prompts / grid
+    ).toHaveLength(5);
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui='button']`).length,
     ).toBeGreaterThan(0);
