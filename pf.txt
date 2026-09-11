@@ -1,0 +1,4 @@
+  ok   version lockstep (0.4.5)
+  ok   builder/lockfile agree (pnpm)
+  ok   above submit floor (0.4.4)
+preflight passed — safe to submit

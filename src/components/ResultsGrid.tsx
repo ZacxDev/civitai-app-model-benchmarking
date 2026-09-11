@@ -30,7 +30,6 @@ export interface ResultsGridProps {
   results: ResultRow[];
   runs: Record<string, CellRun>;
   c: Palette;
-  canRun: boolean;
   /** The viewer's total spendable Buzz (blue+green+yellow), or `null` when the
    * balance is unknown. Confirm is disabled unless the estimated cost fits. */
   buzzTotal: number | null;
@@ -72,7 +71,6 @@ export function ResultsGrid({
   results,
   runs,
   c,
-  canRun,
   buzzTotal,
   GatedCell,
   onRunCell,
@@ -171,7 +169,6 @@ export function ResultsGrid({
             byCell={byCell}
             runs={runs}
             c={c}
-            canRun={canRun}
             buzzTotal={buzzTotal}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
@@ -216,7 +213,6 @@ interface RowProps {
   byCell: Map<string, ResultRow>;
   runs: Record<string, CellRun>;
   c: Palette;
-  canRun: boolean;
   buzzTotal: number | null;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
@@ -232,7 +228,6 @@ function RowFragment({
   byCell,
   runs,
   c,
-  canRun,
   buzzTotal,
   GatedCell,
   onRunCell,
@@ -286,7 +281,6 @@ function RowFragment({
           run={runs[cellKey(row.comboKey, row.config.id, prompt.key)]}
           topBorder={topBorder}
           c={c}
-          canRun={canRun}
           buzzTotal={buzzTotal}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
@@ -306,7 +300,6 @@ interface CellProps {
   run: CellRun | undefined;
   topBorder: string;
   c: Palette;
-  canRun: boolean;
   buzzTotal: number | null;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
@@ -322,7 +315,6 @@ function Cell({
   run,
   topBorder,
   c,
-  canRun,
   buzzTotal,
   GatedCell,
   onRunCell,
@@ -374,7 +366,14 @@ function Cell({
           size="sm"
           variant="light"
           data-testid="run-cell"
-          disabled={!canRun}
+          // 🔴 DELIBERATELY NOT DISABLED on missing auth/consent. This button is the
+          // ONLY entry to `onRunCell` → `beginRun`, whose first two branches request
+          // sign-in and request consent. Disabling it for exactly those two states made
+          // both branches unreachable — the app then needed a separate always-visible
+          // consent banner to do the asking, duplicating the host's own permissions bar.
+          // An unauthorized press is ROUTED, not blocked: same contract as the vote
+          // control. What legitimately removes this button is the cell's own state —
+          // a result exists (state 1) or a run is in flight (state 2) — not a prop.
           onClick={() => onRunCell(row, prompt)}
           aria-label={`Run ${label}`}
           leftSection={<span aria-hidden="true">▶</span>}

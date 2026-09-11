@@ -346,7 +346,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
 
-  const canGenerate = hasGenerateScope(token.scopes);
+  // 🔴 THERE IS NO RENDER-TIME `canGenerate` GATE ANY MORE. Consent is decided at
+  // PRESS time, inside `beginRun` (`hasGenerateScope(token.scopes)` → `requestConsent`).
+  // Holding it here as well is what made this app ask for consent TWICE — once in a
+  // persistent banner, once in the host's own "missing permissions" bar, which is now
+  // canonical — while simultaneously DISABLING the run affordance, so the press-time
+  // branch could never execute. Same shape for the signed-out case (`requestSignIn`).
+  // The app's own convention for an unauthorized press is the vote control's: keep the
+  // affordance PRESENT and readable, and route the press. See `beginRun`.
 
   // ---- view + modal state ----
   // 🔴 GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance criterion 9). The app's
@@ -2003,20 +2010,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           // default content-based minimum would re-introduce the blowout one
           // level below the containment in `contentStyle`.
           <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
-            {!canGenerate && viewer && (
-              <Alert color="info" data-testid="grid-consent">
-                <Group justify="space-between" align="center" gap={10}>
-                  <span>Grant generation access to run cells and contribute outputs.</span>
-                  <Button
-                    size="sm"
-                    onClick={() => deps.requestConsent({ scopes: [AI_WRITE_BUDGETED] })}
-                    data-testid="grid-grant"
-                  >
-                    Enable generation
-                  </Button>
-                </Group>
-              </Alert>
-            )}
             <GridsView
               grids={grids}
               combinations={combinations}
@@ -2061,7 +2054,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   results={results}
                   runs={runs}
                   c={c}
-                  canRun={canGenerate && !!viewer}
                   buzzTotal={buzzTotal}
                   GatedCell={deps.GatedCell}
                   onRunCell={beginRun}

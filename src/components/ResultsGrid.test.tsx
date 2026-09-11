@@ -72,7 +72,7 @@ const result: ResultRow = {
   data: { v: 2, kind: 'result', comboKey: 'c1', configId: 'cfgA', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [501, 777] },
 };
 
-function renderGrid(canRun = true) {
+function renderGrid() {
   const onRunCell = vi.fn();
   const configs = flattenConfigs([comboSdxl, comboFlux]); // 3 config rows
   render(
@@ -82,7 +82,6 @@ function renderGrid(canRun = true) {
       results={[result]}
       runs={{}}
       c={c}
-      canRun={canRun}
       buzzTotal={5000}
       GatedCell={fakeGatedCell({ visibleIds: [501], hiddenIds: [777] })}
       onRunCell={onRunCell}
@@ -122,7 +121,6 @@ function renderGridWithRun(run: CellRun, opts: { buzzTotal?: number | null } = {
       results={[]}
       runs={{ [cellKey('c1', 'cfgA', 'p1')]: run }}
       c={c}
-      canRun
       buzzTotal={opts.buzzTotal === undefined ? 5000 : opts.buzzTotal}
       GatedCell={fakeGatedCell()}
       onRunCell={vi.fn()}
@@ -199,10 +197,42 @@ describe('ResultsGrid render (config rows)', () => {
     expect(within(empties[empties.length - 1]).getByTestId('run-cell')).not.toBeDisabled();
   });
 
-  it('disables the run affordance when the viewer cannot generate', () => {
-    renderGrid(false);
-    const empty = screen.getAllByTestId('grid-cell').find((el) => el.getAttribute('data-state') === 'empty')!;
-    expect(within(empty).getByTestId('run-cell')).toBeDisabled();
+  // 🔴 THIS TEST USED TO ASSERT THE OPPOSITE ("disables the run affordance when the
+  // viewer cannot generate"), and that assertion was the defect. The grid has no
+  // auth/consent knowledge at all any more: `ResultsGrid` never learns whether the
+  // viewer is signed in or holds `ai:write:budgeted`, because disabling the button for
+  // those states made `beginRun`'s `requestSignIn` / `requestConsent` branches
+  // unreachable — which is what forced the app to carry a duplicate consent banner.
+  // An unauthorized press is now ROUTED by the owner, not pre-empted by the view.
+  it('🔴 never disables the run affordance — the press is always allowed to land', () => {
+    renderGrid();
+    const empties = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'empty');
+    expect(empties.length).toBeGreaterThan(0);
+    for (const empty of empties) {
+      expect(within(empty).getByTestId('run-cell')).not.toBeDisabled();
+    }
+  });
+
+  // What DOES legitimately remove the affordance is the cell's own state machine —
+  // not a permission prop. Both surviving cases are pinned here.
+  it('removes the run affordance when the cell already holds a RESULT (generate-once)', () => {
+    renderGrid();
+    const resultCells = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'result');
+    expect(resultCells).toHaveLength(1);
+    expect(within(resultCells[0]).queryByTestId('run-cell')).toBeNull();
+  });
+
+  it('removes the run affordance while a run for that cell is IN FLIGHT', () => {
+    renderGridWithRun({
+      comboKey: 'c1',
+      configId: 'cfgA',
+      promptKey: 'p1',
+      ecosystem: 'SDXL',
+      status: 'processing',
+    });
+    const running = screen.getAllByTestId('grid-cell').filter((el) => el.getAttribute('data-state') === 'running');
+    expect(running).toHaveLength(1);
+    expect(within(running[0]).queryByTestId('run-cell')).toBeNull();
   });
 
   it('a11y: the matrix has an accessible name and each run affordance is labelled', () => {
@@ -236,7 +266,6 @@ describe('ResultsGrid render (config rows)', () => {
           },
         }}
         c={c}
-        canRun
         buzzTotal={5000}
         GatedCell={fakeGatedCell()}
         onRunCell={vi.fn()}
@@ -336,7 +365,6 @@ describe('ResultsGrid render (config rows)', () => {
         results={[]}
         runs={{}}
         c={c}
-        canRun
         buzzTotal={5000}
         GatedCell={fakeGatedCell()}
         onRunCell={vi.fn()}
@@ -356,7 +384,6 @@ describe('ResultsGrid render (config rows)', () => {
       results: [],
       runs: {},
       c,
-      canRun: true,
       buzzTotal: 5000,
       GatedCell: fakeGatedCell(),
       onRunCell: vi.fn(),
