@@ -1,7 +1,10 @@
 // Default gated-image grid cell. Reads per-viewer gated display data for a set
 // of published image ids via the SDK's `useGatedImages()` hook and renders ONLY
-// what the host says this viewer may see — a `visible` image shows its
-// host-provided url; a `hidden` image (NO url ever) shows a withheld-hint tile.
+// what the host says this viewer may see. THREE states, not two: a `visible`
+// image shows its host-provided url; a `hidden` image (NO url ever) shows a
+// withheld-hint tile; and a `visible` image carrying `ratingPending` is the
+// VIEWER'S OWN output that nothing has rated yet — it shows the url with an
+// "awaiting rating" affordance, asserting neither a rating nor a gate.
 // The app NEVER holds or renders a raw url itself; the gated read is the
 // per-viewer moderation boundary (correct-by-construction: an over-ceiling viewer
 // receives status:'hidden' with no url).
@@ -43,6 +46,16 @@ const WITHHELD_TITLE = 'Hidden — rated mature';
 /** The actionable settings hint (also the tooltip + the accessible-name tail). */
 const WITHHELD_HINT =
   'This output is rated above your current browsing level. Adjust your content settings on Civitai to view it.';
+
+/** Headline for the viewer's OWN not-yet-rated output. 🔴 It must assert NEITHER
+ * a rating nor a gate: an absent `nsfwLevel` is "nothing has decided", not "rated
+ * G" and not "rated mature". Naming the third state is the whole point of the
+ * `ratingPending` wire field (@civitai/blocks-react >= 0.51.0). */
+const PENDING_TITLE = 'Awaiting rating';
+/** The accessible-name tail — says why the slot looks different and that nothing
+ * is wrong, so it never reads as a failed or withheld cell. */
+const PENDING_HINT =
+  'Only you can see this output until its rating finishes processing. Nothing has rated it yet.';
 
 export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: string }): React.JSX.Element {
   const { getImages } = useGatedImages();
@@ -128,7 +141,45 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
       style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: 4 }}
     >
       {state.images.map((img) =>
-        img.status === 'visible' ? (
+        img.status === 'visible' && img.ratingPending ? (
+          // The viewer's OWN image, which nothing has rated yet. The host gives us
+          // the url and DELIBERATELY no rating claim, so we must assert neither:
+          // rendering it as an ordinary result would imply a rating exists, and
+          // rendering the withheld tile would claim it is over the ceiling — the
+          // bug this branch exists to stop (an author's unscanned output read as
+          // "Hidden — rated mature"). Show the image, say the rating is pending.
+          // NOT `data-testid="result-image"`: a pending entry is not a rated one,
+          // and a test that counts result-image must not silently include it.
+          <span
+            key={img.imageId}
+            data-testid="result-pending"
+            role="img"
+            aria-label={`${PENDING_TITLE}. ${PENDING_HINT}`}
+            style={{ display: 'grid', gap: 2, width: '100%' }}
+          >
+            <Image
+              data-testid="result-pending-image"
+              src={img.url}
+              alt={label ?? `output ${img.imageId}`}
+              loading="lazy"
+              fit="cover"
+              fallback={<span style={{ fontSize: 10, color: token.dimmed }}>unavailable</span>}
+              wrapperStyle={{
+                width: '100%',
+                borderRadius: 6,
+                overflow: 'hidden',
+                border: `1px dashed ${token.border}`,
+                aspectRatio: img.width && img.height ? `${img.width} / ${img.height}` : '1 / 1',
+              }}
+            />
+            <span
+              data-testid="result-pending-hint"
+              style={{ fontSize: 10, lineHeight: 1.3, textAlign: 'center', color: token.dimmed }}
+            >
+              {PENDING_TITLE}
+            </span>
+          </span>
+        ) : img.status === 'visible' ? (
           <Image
             key={img.imageId}
             data-testid="result-image"
