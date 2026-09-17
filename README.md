@@ -125,10 +125,13 @@ A few notes worth calling out:
   arrives only as a fresh token on `TOKEN_REFRESH`. **Resuming is therefore the
   block's job.** The pressed `(matchup config, prompt)` is held in a single slot
   and replayed once when the scope appears — re-entering the same run path, so it
-  stops at the Confirm gate and spends nothing on its own. A later press
-  supersedes an earlier held one, a viewer swap drops it, and a grant arriving
-  more than `CONSENT_RESUME_TTL_MS` after the press is not treated as an answer
-  to it ([`consentResume.test.tsx`](src/consentResume.test.tsx)).
+  stops at the **Confirm gate** and spends nothing on its own. *Resume* here means
+  the cell advances itself to Confirm, not that the run completes: the viewer
+  still presses Confirm once, and that press is the only thing that spends. The
+  gate is kept deliberately — a consent grant authorises spending up to a cap,
+  not this particular spend. A later press supersedes an earlier held one, and a
+  viewer swap or unmount drops it
+  ([`consentResume.test.tsx`](src/consentResume.test.tsx)).
 - **Publishing a result is confirmed by the host, and the block shows what is
   being confirmed.** `publish()` opens civitai's own "Publish to the shared
   grid?" dialog and resolves only when the viewer answers it. That dialog is

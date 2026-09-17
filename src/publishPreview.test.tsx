@@ -30,9 +30,38 @@
 //      never broken by a missing preview.
 //   4. a url the browser cannot load leaves the rest of the cell intact (the
 //      design-system <Image> fallback, not a blank frame).
-//   5. the strip is capped, and says so when it is a subset — `publish()` sends
-//      no `imageIndexes`, so EVERY output is published whether or not it is
+//   5/5b. the strip is capped, and says so when it is a subset — `publish()`
+//      sends no `imageIndexes`, so EVERY output is published whether or not it is
 //      shown, and a silent subset would understate what is being agreed to.
+//      ⚠️ BOTH ARE FED SYNTHETIC URL LISTS, AND CASE 5's IS NOT REACHABLE IN
+//      PRODUCTION — read them as a component contract, not as evidence that a
+//      viewer ever sees "+N more".
+//
+// 🔴 CAN A CELL RUN EVER PRODUCE MORE THAN ONE URL? NO — traced statically, and
+// recorded here so the next reader does not re-derive it. (It cannot be settled
+// by telemetry: `track()` posts `TRACK_EVENT`, which civitai's own
+// `src/components/AppBlocks/hostHandlerParity.ts` records as bridged by NEITHER
+// host — there is no sink and therefore nothing to query.) The chain, in the
+// civitai monorepo:
+//   - `buildCellWorkflowBody` (`src/lib/benchmark.ts`) builds `params` from a
+//     closed whitelist — prompt, negativePrompt, cfgScale, sampler, steps, seed,
+//     width, height, clipSkip — plus LoRAs. No `quantity`, no source images, no
+//     controlnets, and `kind: 'textToImage'` is the only `kind:` in this block.
+//   - CAP 1, steps: the host's block→orchestrator translator
+//     (`blocks.router.ts`, `createBlockTextToImageStep`) THROWS unless
+//     `steps.length === 1`. That fail-closed check kills every multi-step route
+//     — snippet fan-out, controlnet preprocess, and `img2img:upscale`.
+//   - CAP 2, images per step: the host's zod schema
+//     (`src/server/schema/blocks/workflow.schema.ts`) defaults `quantity` to 1
+//     (max 4), and the value is passed through verbatim.
+//   - So `imageUrls` — which the SDK documents as flattened from
+//     `steps[].output.images[].url` — holds 0 or 1 entry. `hidden` is 0, and even
+//     if `quantity` were added later the ceiling of 4 still leaves it 0.
+// THE ONE UNCLOSED LINK: the orchestrator is an external service in neither
+// repo, and the host's flatten is uncapped, so "one step at quantity 1 returns
+// one image" is verified as SENT, not as honoured. That is why the `hidden`
+// branch is kept rather than deleted — in exactly the case the static argument
+// is wrong, it is the line that stops the viewer under-counting.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

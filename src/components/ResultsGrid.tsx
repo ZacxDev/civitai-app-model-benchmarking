@@ -86,6 +86,24 @@ export const PUBLISH_CONFIRM_MESSAGE =
  * every output is published whether or not it is one of the ones shown. The
  * count is capped rather than the strip being scrollable because a horizontal
  * scroller inside a grid cell is a worse answer than "the first few".
+ *
+ * 🔴 THE CAP IS NOT REACHED TODAY — KEPT ON PURPOSE, DON'T "CLEAN IT UP". Traced
+ * statically (see the header of `src/publishPreview.test.tsx` for the full
+ * chain): a cell run yields at most ONE url, so `hidden` below is always 0 and
+ * the `cell-publish-more` line never renders in production. TWO independent host
+ * caps put it there — the block workflow translator rejects anything that is not
+ * exactly one step, and `quantity` is absent from `buildCellWorkflowBody` so the
+ * host's schema defaults it to 1 (ceiling 4 even if it were passed, which would
+ * still leave `hidden` at 0). Reaching this branch needs a change in
+ * `civitai/civitai`, not here.
+ *
+ * It stays because the ONE link in that chain that is not closed by a static
+ * guard is the orchestrator itself — an external service in neither repo — and
+ * the host's flattening of `steps[].output.images[]` is uncapped. If it ever
+ * over-delivers, this branch is exactly the disclosure that keeps the viewer
+ * from under-counting what they are agreeing to publish; deleting it would make
+ * that case silent. Unreachable-and-harmless beats a deletion resting on an
+ * external contract nobody in this repo can assert.
  */
 export const PUBLISH_PREVIEW_MAX = 4;
 
@@ -518,7 +536,9 @@ function CellRunState({
     const urls = all.slice(0, PUBLISH_PREVIEW_MAX);
     // 🔴 SAY SO WHEN THE STRIP IS A SUBSET. `publish()` sends no `imageIndexes`,
     // so the host publishes EVERY output — a preview that silently showed four
-    // of six would understate what the viewer is agreeing to.
+    // of six would understate what the viewer is agreeing to. Always 0 on every
+    // path this block can currently take (one url per run — see the note on
+    // `PUBLISH_PREVIEW_MAX`); kept as the fail-safe for a host that returns more.
     const hidden = all.length - urls.length;
     return (
       <div style={{ display: 'grid', gap: 6, fontSize: 11 }} data-testid="cell-publishing">

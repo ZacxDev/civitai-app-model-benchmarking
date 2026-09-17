@@ -1,5 +1,13 @@
-// 🔴 CONSENT AUTO-RESUME — the run a viewer pressed for must COMPLETE on the
+// 🔴 CONSENT AUTO-RESUME — the run a viewer pressed for must RESUME on the
 // grant, not be silently dropped.
+//
+// 🔴 WHAT "RESUME" MEANS HERE, EXACTLY — it is NOT "the run completes". The
+// replay re-enters `beginRun`, which estimates and stops at the Confirm gate;
+// the viewer still presses Confirm once, and only that press spends. The win is
+// two presses plus hunting for the cell again → one press, on a cell that has
+// already advanced itself. The Confirm gate is kept DELIBERATELY: the consent
+// grant authorises spending up to a cap, not this particular spend, and this
+// repo's `CLAUDE.md` treats the confirm gate as load-bearing on the money path.
 //
 // THE DEFECT. `beginRun` checked `hasGenerateScope(token.scopes)`, called
 // `requestConsent(...)` and `return`ed — discarding the `(row, prompt)` it had
@@ -17,22 +25,36 @@
 //
 // WHAT EACH CASE PINS, and which are the ones to watch RED against the
 // pre-change tree:
-//   1. 🔴 RED PRE-CHANGE — a grant completes the pressed action with no second
-//      press (both through the REAL mock-host consent round-trip and through a
-//      driven token).
+//   1. 🔴 RED PRE-CHANGE — a grant advances the pressed cell to its Confirm gate
+//      with no second press (both through the REAL mock-host consent round-trip
+//      and through a driven token). 1a also pins the no-spend half: it is the
+//      case that declares `submit` and asserts it was never called.
 //   2. 🔴 RED ON A DOUBLE-FIRE — a token refresh landing while the replay is
 //      still in flight must not start a second one. This is the case a
 //      `useEffect(…, [token.scopes])` keyed on the ARRAY fails: the token
 //      re-mints roughly every two minutes, handing down a new array each time.
-//   3. the replay STOPS at the confirm gate — it estimates, it does not spend.
+//      (There is no separate case 3: "the replay stops at the confirm gate, it
+//      does not spend" is what 1a's two assertions say, and a second case
+//      asserting the same absence with no `submit` in scope would assert
+//      nothing. Only ONE of these cases pins no-spend — do not describe it as
+//      "every case".)
 //   4. a later press SUPERSEDES an earlier held one: two presses, one grant, ONE
 //      run, and it is the second cell.
-//   5. a grant that arrives after `CONSENT_RESUME_TTL_MS` is not a reply to the
-//      press, and does not replay it.
 //   6. a viewer swap drops the held action (a different account's grant must not
 //      complete the previous viewer's press).
 //   7. POSITIVE CONTROL — with no press held, a grant replays nothing. Without
-//      it a zero in (5)/(6) is indistinguishable from a probe wired to nothing.
+//      it the zero in (6) is indistinguishable from a probe wired to nothing.
+//
+// (There is no case 5. It pinned a five-minute TTL on the held action; the TTL
+// was deleted — see the "WHY THERE IS NO TTL" note on the auto-resume effect in
+// `src/App.tsx`. The numbering of 6 and 7 is left alone so the names in this
+// file keep matching the ones quoted elsewhere.)
+//
+// ⚠️ ONE THING THIS FILE DOES NOT PIN, despite an earlier claim that it did: the
+// auto-resume effect's dependency being the BOOLEAN `hasGenerate` rather than
+// `token.scopes`. Mutating that dep leaves all 546 tests green. It is render
+// hygiene, not a correctness property — consume-before-replay already makes an
+// extra effect pass a no-op — and no behavioural case can distinguish the two.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -73,7 +95,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
   };
 });
 
-const { App, CONSENT_RESUME_TTL_MS } = await import('./App.js');
+const { App } = await import('./App.js');
 
 const GRANTED = () => ['apps:storage:shared:read', 'ai:write:budgeted'];
 const UNGRANTED = () => ['apps:storage:shared:read'];
@@ -169,8 +191,8 @@ async function runButtons(): Promise<HTMLElement[]> {
   return within(grid).getAllByTestId('run-cell');
 }
 
-describe('🔴 a grant completes the action that asked for it', () => {
-  it('1a. END TO END through the real consent round-trip: press → grant → estimating, no second press', async () => {
+describe('🔴 a grant resumes the action that asked for it, up to the Confirm gate', () => {
+  it('1a. END TO END through the real consent round-trip: press → grant → Confirm gate, no second press', async () => {
     // The REAL token drives this one (`scopesBox` untouched): the app's own
     // `useRequestConsent()` posts REQUEST_CONSENT to the mock host, which grants
     // and pushes a host-initiated TOKEN_REFRESH carrying the new scope — the
@@ -187,9 +209,13 @@ describe('🔴 a grant completes the action that asked for it', () => {
 
     // 🔴 THE REGRESSION. Pre-change this never arrives: the press requested
     // consent and dropped the action, so the cell sat empty until pressed again.
+    // What arrives is the CONFIRM GATE, not a finished run — the viewer still
+    // presses Confirm once, and that press is the only thing that spends.
     await screen.findByTestId('cell-confirm-run');
-    expect(estimate, 'the granted scope did not complete the pressed run').toHaveBeenCalledTimes(1);
-    // …and it stopped at the gate. A resume must never be a spend.
+    expect(estimate, 'the granted scope did not resume the pressed run').toHaveBeenCalledTimes(1);
+    // …and it stopped at the gate. A resume must never be a spend. 🔴 THIS IS
+    // THE ONLY CASE IN THIS FILE THAT PINS THAT — it is the only one that
+    // declares `submit` at all.
     expect(submit).not.toHaveBeenCalled();
   });
 
@@ -302,40 +328,6 @@ describe('🔴 at most ONE run per grant', () => {
 });
 
 describe('a held action is not replayed once it stops being a reply to the press', () => {
-  it('5. a grant arriving after the TTL does not replay it', async () => {
-    scopesBox.current = UNGRANTED();
-    const { shared } = fakeShared({ seed: seedOneCell() });
-    const { appStorage } = fakeAppStorage();
-    const estimate = vi.fn(async () => estimateSnap);
-    const deps = { shared, appStorage, estimate };
-
-    const view = render(block(deps, { consentGranted: false }));
-    const [runBtn] = await runButtons();
-
-    // 🔴 FREEZE THE CLOCK ACROSS THE PRESS, don't merely read it before. The
-    // press is several milliseconds of `userEvent` work, so an offset measured
-    // from BEFORE it lands that many ms SHORT of the boundary — the first draft
-    // of this case did exactly that, sat just inside the TTL, and failed for a
-    // reason that had nothing to do with the behaviour under test.
-    const t0 = Date.now();
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(t0);
-    await userEvent.click(runBtn);
-
-    // The viewer ignores the dialog and grants the scope somewhere else on
-    // civitai, much later. Their next token carries it — but it is no longer an
-    // answer to this press. One millisecond past the bound, so the case pins the
-    // bound rather than some comfortable distance from it.
-    nowSpy.mockReturnValue(t0 + CONSENT_RESUME_TTL_MS + 1);
-    scopesBox.current = GRANTED();
-    view.rerender(block(deps, { consentGranted: false }));
-
-    await waitFor(() => expect(screen.queryByTestId('cell-progress')).toBeNull());
-    expect(estimate, 'replayed a press the viewer had long abandoned').not.toHaveBeenCalled();
-    // The cell is still there to press, which is the correct fallback.
-    const grid = await screen.findByTestId('results-grid');
-    expect(within(grid).getAllByTestId('run-cell')).toHaveLength(1);
-  });
-
   it('6. a VIEWER SWAP drops the held action', async () => {
     scopesBox.current = UNGRANTED();
     const { shared } = fakeShared({ seed: seedOneCell() });

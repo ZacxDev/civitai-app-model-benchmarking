@@ -159,7 +159,20 @@ export interface AppDeps {
    * carried only the aggregate `count`; the list now reports `viewerVoted` per
    * row, which is host-derived and therefore correct across devices. */
   appStorage: UseAppStorage;
-  /** Fire-and-forget analytics — the host forwards events to its pipeline. */
+  /**
+   * Fire-and-forget analytics.
+   *
+   * ⚠️ NOTHING CONSUMES THESE TODAY — do not reason from them. `track()` posts a
+   * `TRACK_EVENT` message, and neither real host bridges it: civitai's own
+   * `src/components/AppBlocks/hostHandlerParity.ts` records it as *"currently NOT
+   * bridged by EITHER host (no host-side analytics sink wired). Unhandled ⇒
+   * silently dropped, never a hang."* — and no `onMessage('TRACK_EVENT')` handler
+   * exists in `IframeHost.tsx` or `PageBlockHost.tsx`. (The SDK's
+   * `useBlockAnalytics` docstring says the host forwards to a pipeline; that
+   * docstring is wrong.) The calls are kept so the events exist the day a sink is
+   * wired, but NO question about production behaviour can be answered by querying
+   * them, because there is nothing to query.
+   */
   track: (eventName: string, properties?: Record<string, unknown>) => void;
   /** Test seams for the poll loop. */
   pollIntervalMs?: number;
@@ -242,31 +255,6 @@ export const CLAIM_FAILED_MESSAGE =
   "Couldn't start this run: the app's storage is full or unavailable, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Please try again later.";
 export const CLAIM_NO_VIEWER_MESSAGE =
   "Couldn't start this run: you're signed out, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Sign in and try again.";
-
-/**
- * How long a run held back for consent stays replayable, in ms.
- *
- * 🔴 IT EXISTS BECAUSE A DISMISSAL IS UNOBSERVABLE. `REQUEST_CONSENT` carries no
- * `requestId` and the host never replies to it — on a grant the ONLY signal is a
- * new token arriving on a `TOKEN_REFRESH` push, and on a dismissal there is no
- * signal at all (documented on the SDK's `useRequestConsent`; the host's
- * `CONSENT_UNAVAILABLE` push covers "can NEVER be granted here", which is a
- * different state and one that by construction never produces a replay, since
- * the scope never arrives). So "the viewer closed the dialog" cannot be detected
- * and can only be aged out.
- *
- * The hazard being bounded is a LATE grant: a viewer presses Run, ignores the
- * dialog, and grants `ai:write:budgeted` somewhere else on civitai twenty
- * minutes later. Their next token then carries the scope and, without this
- * bound, a cell they have long forgotten would start estimating on its own.
- *
- * Five minutes is deliberately longer than a consent dialog takes and far
- * shorter than a session: it covers "grant, then get distracted for a minute",
- * and nothing beyond that. Nothing here spends — a replay lands on the SAME
- * confirm gate a manual press does — so the cost of the bound being slightly
- * wrong is one extra press, in either direction.
- */
-export const CONSENT_RESUME_TTL_MS = 5 * 60 * 1000;
 
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
@@ -441,9 +429,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * One slot, because a viewer has one in-flight intent: a later press overwrites
    * it (see `beginRun`).
    */
-  const pendingConsentRunRef = useRef<{ row: BenchConfig; prompt: PromptRow; at: number } | null>(
-    null,
-  );
+  const pendingConsentRunRef = useRef<{ row: BenchConfig; prompt: PromptRow } | null>(null);
   // 🔴 MONEY SAFETY: true whenever the in-flight rehydrate's view of the
   // per-viewer store is not known to be COMPLETE — it hit its page bound, the
   // listing threw, or it simply has not finished yet. The rehydrate is the only
@@ -1579,7 +1565,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // the scope PRESENT the effect below has already consumed it. It killed
         // no mutant. Case 4 of `src/consentResume.test.tsx` pins supersede
         // against THIS line instead.
-        pendingConsentRunRef.current = { row, prompt, at: Date.now() };
+        pendingConsentRunRef.current = { row, prompt };
         depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
         return;
       }
@@ -1606,16 +1592,28 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   /**
    * 🔴 THE CONSENT AUTO-RESUME. `beginRun` parks the `(row, prompt)` it was
-   * pressed with and asks for consent; this completes that exact action the
-   * moment the granted scope shows up on the token, so a viewer who says yes
-   * does not have to press Run again.
+   * pressed with and asks for consent; this RESUMES that exact action the moment
+   * the granted scope shows up on the token, so a viewer who says yes does not
+   * have to find the cell and press Run again.
    *
-   * WHY THE DEPENDENCY IS A BOOLEAN, and not `token.scopes`: the token
-   * auto-refreshes (the SDK re-mints ~2 min before expiry), and each refresh
-   * hands down a NEW `scopes` array. An effect keyed on that array re-runs on
-   * every refresh for the life of the page — re-evaluating a replay decision
-   * long after the press it belongs to. `hasGenerate` only changes when the
-   * ANSWER changes, so the effect body runs on the grant and not on the churn.
+   * 🔴 IT DOES NOT COMPLETE THE RUN, AND IS NOT MEANT TO. The replay re-enters
+   * `beginRun`, so the cell advances itself to `estimating` → `confirming` and
+   * STOPS. The viewer still presses Confirm once; that press is the only thing
+   * that spends. Two presses plus re-locating the cell become one press on a
+   * cell that has already moved. Keeping the gate is deliberate: the consent
+   * grant authorises spending up to a cap, not this particular spend.
+   *
+   * WHY THE DEPENDENCY IS A BOOLEAN, and not `token.scopes` — ⚠️ RENDER HYGIENE,
+   * NOT A PINNED CORRECTNESS PROPERTY, and this docblock used to overclaim it.
+   * The token auto-refreshes (the SDK re-mints ~2 min before expiry) and each
+   * refresh hands down a NEW `scopes` array, so an effect keyed on that array
+   * re-runs on every refresh for the life of the page; `hasGenerate` changes only
+   * when the ANSWER changes. That is worth having — but it buys no behaviour,
+   * because the consume-before-replay line below already makes every extra pass a
+   * no-op. MEASURED on this tree: mutating this dep to `[token.scopes]` leaves
+   * the ENTIRE suite green (546/546), so nothing pins it and nothing can — the
+   * two spellings are behaviourally indistinguishable by construction. Treat it
+   * as a cheap preference, and do not cite it as a guard.
    *
    * WHY THE SLOT IS CONSUMED BEFORE THE REPLAY, and not after it resolves:
    * `pendingConsentRunRef.current` is read and nulled in one synchronous step, so
@@ -1628,6 +1626,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * `cellHasResult` (a cell that filled in while the dialog was open is not
    * re-run) and stops at `estimating` → `confirming`. Buzz moves only when the
    * viewer presses Confirm, exactly as on the manual path.
+   *
+   * 🔴 WHY THERE IS NO TTL ON THE HELD ACTION. An earlier revision aged the slot
+   * out after five minutes. It was DELETED, deliberately: it was standing in for
+   * a consent-DISMISSED signal that does not exist, and a timer is not that
+   * signal — it cannot tell "dismissed the dialog" from "read it slowly". The
+   * bound it was reaching for belongs upstream, as a `CONSENT_DECLINED`-shaped
+   * host push mirroring the existing `CONSENT_UNAVAILABLE`; per this repo's
+   * `CLAUDE.md`, a missing host hook is a PR there, not a workaround here. The
+   * cost of having no bound is small and does not involve money: the worst case
+   * is a viewer who grants `ai:write:budgeted` elsewhere on civitai much later
+   * and finds one cell sitting at its Confirm gate, which they can dismiss. The
+   * bounds that DO matter — one slot, consume-before-replay, drop on viewer swap
+   * or unmount, and a replay that cannot spend — are all still pinned by
+   * `src/consentResume.test.tsx`.
    */
   const hasGenerate = hasGenerateScope(token.scopes);
   useEffect(() => {
@@ -1635,8 +1647,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     const pending = pendingConsentRunRef.current;
     if (!pending) return;
     pendingConsentRunRef.current = null; // consume FIRST — see the docblock
-    // A grant that arrives long after the press is not a reply to it.
-    if (Date.now() - pending.at > CONSENT_RESUME_TTL_MS) return;
     depsRef.current.track('consent_resume');
     void beginRunRef.current(pending.row, pending.prompt);
   }, [hasGenerate]);
