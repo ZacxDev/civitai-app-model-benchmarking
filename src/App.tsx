@@ -243,6 +243,31 @@ export const CLAIM_FAILED_MESSAGE =
 export const CLAIM_NO_VIEWER_MESSAGE =
   "Couldn't start this run: you're signed out, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Sign in and try again.";
 
+/**
+ * How long a run held back for consent stays replayable, in ms.
+ *
+ * 🔴 IT EXISTS BECAUSE A DISMISSAL IS UNOBSERVABLE. `REQUEST_CONSENT` carries no
+ * `requestId` and the host never replies to it — on a grant the ONLY signal is a
+ * new token arriving on a `TOKEN_REFRESH` push, and on a dismissal there is no
+ * signal at all (documented on the SDK's `useRequestConsent`; the host's
+ * `CONSENT_UNAVAILABLE` push covers "can NEVER be granted here", which is a
+ * different state and one that by construction never produces a replay, since
+ * the scope never arrives). So "the viewer closed the dialog" cannot be detected
+ * and can only be aged out.
+ *
+ * The hazard being bounded is a LATE grant: a viewer presses Run, ignores the
+ * dialog, and grants `ai:write:budgeted` somewhere else on civitai twenty
+ * minutes later. Their next token then carries the scope and, without this
+ * bound, a cell they have long forgotten would start estimating on its own.
+ *
+ * Five minutes is deliberately longer than a consent dialog takes and far
+ * shorter than a session: it covers "grant, then get distracted for a minute",
+ * and nothing beyond that. Nothing here spends — a replay lands on the SAME
+ * confirm gate a manual press does — so the cost of the bound being slightly
+ * wrong is one extra press, in either direction.
+ */
+export const CONSENT_RESUME_TTL_MS = 5 * 60 * 1000;
+
 const LIST_PAGE = 50;
 const MAX_PAGES = 40; // safety cap when paging the whole shared list
 // 🔴 `voted:v1` (a per-viewer KV array of shared keys) IS DELIBERATELY GONE. It
@@ -403,6 +428,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // fire (ghost tap, batched re-render before the confirm button unmounts) can
   // NEVER spend Buzz twice. Deterministic, not render-timing-dependent.
   const inFlightRef = useRef<Set<string>>(new Set());
+  /**
+   * The run a viewer pressed for while the token was still missing
+   * `ai:write:budgeted` — held so the grant can complete the action they already
+   * asked for, instead of making them find the cell and press Run again.
+   *
+   * 🔴 A REF, NOT STATE, AND AT MOST ONE SLOT. The consume-then-act order in the
+   * auto-resume effect below is what makes the replay fire once; a state value
+   * would not be readable-and-cleared in the same synchronous step, so a second
+   * effect pass (a token refresh, a StrictMode double-invoke, a re-render between
+   * the read and the commit) could see the stale value and replay a second time.
+   * One slot, because a viewer has one in-flight intent: a later press overwrites
+   * it (see `beginRun`).
+   */
+  const pendingConsentRunRef = useRef<{ row: BenchConfig; prompt: PromptRow; at: number } | null>(
+    null,
+  );
   // 🔴 MONEY SAFETY: true whenever the in-flight rehydrate's view of the
   // per-viewer store is not known to be COMPLETE — it hit its page bound, the
   // listing threw, or it simply has not finished yet. The rehydrate is the only
@@ -1467,7 +1508,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         reload();
         return;
       }
-      setRun(ck, { status: 'publishing' });
+      // 🔴 CARRY THE OUTPUTS INTO THE PUBLISHING WINDOW. `publish()` opens the
+      // HOST's "Publish to the shared grid?" confirm and does not resolve until
+      // the viewer answers it — and that dialog is text-only (host chrome:
+      // `civitai/civitai` `PageBlockHost.tsx`, the `PUBLISH_GENERATION_OUTPUTS`
+      // handler). Until this line the block rendered a bare "Publishing…"
+      // spinner behind it, so the viewer was asked to publish images they had
+      // never seen. The snapshot already carries their urls, so showing them here
+      // is the part of that question THIS repo can answer; putting an image
+      // inside the dialog itself is a host change, and deliberately not one a
+      // block can make (the host's sibling CREATE_POST_FROM_APP gate spells out
+      // why it will not render block-supplied thumbnails). See the field docs on
+      // `CellRun.previewUrls` and the header of `src/publishPreview.test.tsx`.
+      setRun(ck, { status: 'publishing', previewUrls: terminal.imageUrls });
       const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
       depsRef.current.track('publish', { imageCount: imageIds.length });
       const matched = resolveCell(row.config, prompt);
@@ -1501,6 +1554,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         return;
       }
       if (!hasGenerateScope(token.scopes)) {
+        // 🔴 HOLD THE ACTION, then ask. `REQUEST_CONSENT` is FIRE-AND-FORGET and
+        // carries no `requestId` (SDK `useRequestConsent`, host
+        // `PageBlockHost.tsx`), so the host structurally CANNOT reply "the viewer
+        // granted, here is the submit you were in the middle of". The grant
+        // arrives only as a fresh token on a `TOKEN_REFRESH` push. Retrying is
+        // therefore the BLOCK's job, and it needs the `(row, prompt)` this call
+        // was given — which this function used to drop on the floor, so a viewer
+        // who consented had to find the cell and press Run a second time.
+        //
+        // The replay is the auto-resume effect below. It is NOT a spend: it
+        // re-enters `beginRun`, which only estimates — Confirm is still required
+        // before any Buzz moves.
+        //
+        // 🔴 ONE SLOT, OVERWRITTEN — that is the whole supersede rule, and it
+        // needs no second line to enforce it. A viewer who presses cell A, thinks
+        // again and presses cell B before answering the dialog has ONE intent, so
+        // the grant must complete B and not both. Every path that can reach this
+        // line is a press, and a press is exactly what supersedes.
+        //
+        // An explicit `= null` at the top of this function was written first and
+        // then REMOVED as unreachable: the only slot it could have cleared is one
+        // set while the scope was absent, and by the time any press can observe
+        // the scope PRESENT the effect below has already consumed it. It killed
+        // no mutant. Case 4 of `src/consentResume.test.tsx` pins supersede
+        // against THIS line instead.
+        pendingConsentRunRef.current = { row, prompt, at: Date.now() };
         depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
         return;
       }
@@ -1515,6 +1594,62 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       }
     },
     [results, viewer, token.scopes, setRun],
+  );
+  // Read by the consent auto-resume effect below so that effect does NOT have to
+  // list `beginRun` as a dependency. `beginRun`'s identity changes on every board
+  // re-fetch (it closes over `results`), and an effect that re-ran on those would
+  // be re-evaluating the replay decision at moments that have nothing to do with
+  // consent. Assigned during render, like `depsRef`/`runsRef`, so the effect that
+  // runs after the scope-granting render calls the closure from THAT render.
+  const beginRunRef = useRef(beginRun);
+  beginRunRef.current = beginRun;
+
+  /**
+   * 🔴 THE CONSENT AUTO-RESUME. `beginRun` parks the `(row, prompt)` it was
+   * pressed with and asks for consent; this completes that exact action the
+   * moment the granted scope shows up on the token, so a viewer who says yes
+   * does not have to press Run again.
+   *
+   * WHY THE DEPENDENCY IS A BOOLEAN, and not `token.scopes`: the token
+   * auto-refreshes (the SDK re-mints ~2 min before expiry), and each refresh
+   * hands down a NEW `scopes` array. An effect keyed on that array re-runs on
+   * every refresh for the life of the page — re-evaluating a replay decision
+   * long after the press it belongs to. `hasGenerate` only changes when the
+   * ANSWER changes, so the effect body runs on the grant and not on the churn.
+   *
+   * WHY THE SLOT IS CONSUMED BEFORE THE REPLAY, and not after it resolves:
+   * `pendingConsentRunRef.current` is read and nulled in one synchronous step, so
+   * a second pass over this effect — a re-render, a StrictMode double-invoke, a
+   * token whose scope flaps off and back on — finds nothing to replay. That one
+   * line IS the at-most-once property; deleting it makes case 2 of
+   * `src/consentResume.test.tsx` report two runs where one was pressed for.
+   *
+   * WHAT IT DOES NOT DO: spend. The replay re-enters `beginRun`, which re-checks
+   * `cellHasResult` (a cell that filled in while the dialog was open is not
+   * re-run) and stops at `estimating` → `confirming`. Buzz moves only when the
+   * viewer presses Confirm, exactly as on the manual path.
+   */
+  const hasGenerate = hasGenerateScope(token.scopes);
+  useEffect(() => {
+    if (!hasGenerate) return;
+    const pending = pendingConsentRunRef.current;
+    if (!pending) return;
+    pendingConsentRunRef.current = null; // consume FIRST — see the docblock
+    // A grant that arrives long after the press is not a reply to it.
+    if (Date.now() - pending.at > CONSENT_RESUME_TTL_MS) return;
+    depsRef.current.track('consent_resume');
+    void beginRunRef.current(pending.row, pending.prompt);
+  }, [hasGenerate]);
+
+  // A held action belongs to the viewer who pressed for it. The cleanup runs on a
+  // viewer swap (the host can change viewer without remounting — see
+  // `src/viewer-change.test.tsx`) AND on unmount, so neither a different account's
+  // grant nor a remount can complete a press that is no longer anyone's.
+  useEffect(
+    () => () => {
+      pendingConsentRunRef.current = null;
+    },
+    [viewer?.id],
   );
 
   const confirmRun = useCallback(

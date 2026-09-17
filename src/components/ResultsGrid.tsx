@@ -9,6 +9,7 @@
 // the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
 
 import { Button, Loader } from '@civitai/blocks-react/ui';
+import { Image } from '@civitai/components-react';
 
 import type { Palette } from '../theme.js';
 import { token, radius, metaText } from '../theme.js';
@@ -64,6 +65,29 @@ const ROW_H_HEADER = 56;
  */
 export const RUN_UNKNOWN_MESSAGE =
   'Unknown — this run may already have started. Check your generations before re-running.';
+
+/**
+ * Viewer-facing copy for the `'publishing'` cell state — shown next to the
+ * outputs while the HOST's own confirm dialog is open.
+ *
+ * 🔴 IT NAMES THE HOST'S DIALOG IN THE HOST'S OWN WORDS. The confirm is titled
+ * "Publish to the shared grid?" (civitai `PageBlockHost.tsx`, the
+ * `PUBLISH_GENERATION_OUTPUTS` handler) and is rendered OUTSIDE this iframe, so
+ * the only way the block can connect the images it is showing to the question
+ * being asked over them is to quote the title. Reword the host and this line is
+ * wrong — which is why the guard pins the whole string rather than a keyword.
+ */
+export const PUBLISH_CONFIRM_MESSAGE =
+  'These are your outputs. Confirm the “Publish to the shared grid?” prompt to add them.';
+
+/**
+ * How many outputs the pre-publish preview renders. A grid CELL is small and the
+ * point is recognition, not review — and `publish()` sends no `imageIndexes`, so
+ * every output is published whether or not it is one of the ones shown. The
+ * count is capped rather than the strip being scrollable because a horizontal
+ * scroller inside a grid cell is a worse answer than "the first few".
+ */
+export const PUBLISH_PREVIEW_MAX = 4;
 
 export function ResultsGrid({
   configs,
@@ -481,11 +505,86 @@ function CellRunState({
       </div>
     );
   }
+  // 🔴 PUBLISHING — the one state where the viewer is being ASKED something by a
+  // dialog this app does not own. `publish()` resolves only when the viewer
+  // answers the host's "Publish to the shared grid?" confirm, which is text-only
+  // host chrome; before this branch the cell behind it showed nothing but a
+  // spinner, so the answer was being given blind. The generated outputs are in
+  // the snapshot the app already holds — render them here, where they are the
+  // subject of the question. Everything else about this state is unchanged: the
+  // same `cell-progress` status region, the same copy.
+  if (run.status === 'publishing') {
+    const all = run.previewUrls ?? [];
+    const urls = all.slice(0, PUBLISH_PREVIEW_MAX);
+    // 🔴 SAY SO WHEN THE STRIP IS A SUBSET. `publish()` sends no `imageIndexes`,
+    // so the host publishes EVERY output — a preview that silently showed four
+    // of six would understate what the viewer is agreeing to.
+    const hidden = all.length - urls.length;
+    return (
+      <div style={{ display: 'grid', gap: 6, fontSize: 11 }} data-testid="cell-publishing">
+        {/* Absent urls are ORDINARY, not an error: the host may report a succeeded
+            workflow without them, and a resumed run from a previous session
+            often has none. The state degrades to exactly what it rendered
+            before — progress + copy — rather than to an empty frame. */}
+        {urls.length > 0 && (
+          <div
+            data-testid="cell-publish-preview"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.min(urls.length, 2)}, 1fr)`,
+              gap: 4,
+            }}
+          >
+            {urls.map((url, i) => (
+              <Image
+                key={url}
+                data-testid="cell-publish-image"
+                src={url}
+                alt={`Generated output ${i + 1}, about to be published to the shared grid`}
+                fit="cover"
+                // A url the browser cannot load must not blank the prompt it is
+                // attached to — the pack's own fallback keeps the tile, and the
+                // copy + controls below are untouched either way.
+                fallback={<span style={{ fontSize: 10, color: token.dimmed }}>preview unavailable</span>}
+                wrapperStyle={{
+                  width: '100%',
+                  aspectRatio: '1 / 1',
+                  borderRadius: radius.sm,
+                  overflow: 'hidden',
+                  border: `1px solid ${token.border}`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, ...metaText }}
+          data-testid="cell-progress"
+          data-status="publishing"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader size="sm" />
+          <span>Publishing…</span>
+        </div>
+        <span style={{ color: token.dimmed }} data-testid="cell-publish-notice">
+          {PUBLISH_CONFIRM_MESSAGE}
+          {hidden > 0 && (
+            <>
+              {' '}
+              <span data-testid="cell-publish-more">
+                {`+${hidden} more output${hidden === 1 ? '' : 's'} will be published too.`}
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+    );
+  }
   const labels: Record<string, string> = {
     estimating: 'Estimating…',
     submitting: 'Submitting…',
     processing: 'Generating…',
-    publishing: 'Publishing…',
     succeeded: 'Done',
     canceled: 'Canceled',
   };
