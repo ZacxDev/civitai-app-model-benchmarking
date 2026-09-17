@@ -359,6 +359,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
 
+  /**
+   * Latest `useBuzzBalance()` handle, readable from a callback/effect that must
+   * NOT list it as a dependency. Assigned during render like `depsRef`.
+   *
+   * 🔴 WHY A REF RATHER THAN `buzz.refetch` DIRECTLY. `refetch` is a stable
+   * `useCallback([], …)` in the SDK today, so closing over it would work — but
+   * the one thing this change must not ship is a refetch that re-fires on an
+   * identity change, and depending on an upstream identity staying stable is
+   * exactly how that arrives later without anyone touching this file. The ref
+   * makes the effect below depend on `hasGenerate` and nothing else, by
+   * construction. See the refetch-budget cases in `src/buzzBalance.test.tsx`.
+   */
+  const buzzRef = useRef(buzz);
+  buzzRef.current = buzz;
+
   // 🔴 THERE IS NO RENDER-TIME `canGenerate` GATE ANY MORE. Consent is decided at
   // PRESS time, inside `beginRun` (`hasGenerateScope(token.scopes)` → `requestConsent`).
   // Holding it here as well is what made this app ask for consent TWICE — once in a
@@ -430,6 +445,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * it (see `beginRun`).
    */
   const pendingConsentRunRef = useRef<{ row: BenchConfig; prompt: PromptRow } | null>(null);
+  /**
+   * True once this session has ASKED for consent. Set beside the held action in
+   * `beginRun`; read by the balance-refetch effect below.
+   *
+   * 🔴 IT IS WHAT SEPARATES A GRANT FROM MERE TOKEN HYDRATION. `hasGenerate`
+   * goes false→true on an ordinary page load too — the token arrives
+   * asynchronously after BLOCK_INIT — so an effect keyed on that transition
+   * alone would bill every already-consented viewer an extra balance read for
+   * nothing. This flag narrows it to the transition we actually caused.
+   */
+  const consentAskedRef = useRef(false);
+  /**
+   * 🔴 THE AT-MOST-ONCE SLOT for the balance re-read, mirroring
+   * `pendingConsentRunRef`'s consume-before-acting discipline. Set in one
+   * synchronous step BEFORE the refetch, so a second effect pass — a re-render,
+   * a StrictMode double-invoke, a scope that flaps off and back on — finds
+   * nothing left to do. The token re-mints roughly every two minutes; without
+   * this, anything the token can move becomes a request every two minutes for
+   * the life of the page.
+   */
+  const balanceRefetchedOnGrantRef = useRef(false);
   // 🔴 MONEY SAFETY: true whenever the in-flight rehydrate's view of the
   // per-viewer store is not known to be COMPLETE — it hit its page bound, the
   // listing threw, or it simply has not finished yet. The rehydrate is the only
@@ -1566,6 +1602,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // no mutant. Case 4 of `src/consentResume.test.tsx` pins supersede
         // against THIS line instead.
         pendingConsentRunRef.current = { row, prompt };
+        // Record that WE asked, so the grant that follows can be told apart from
+        // the token merely hydrating — see `consentAskedRef`. Deliberately NOT
+        // cleared on supersede: a second press is still a session that asked.
+        consentAskedRef.current = true;
         depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
         return;
       }
@@ -1649,6 +1689,41 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     pendingConsentRunRef.current = null; // consume FIRST — see the docblock
     depsRef.current.track('consent_resume');
     void beginRunRef.current(pending.row, pending.prompt);
+  }, [hasGenerate]);
+
+  /**
+   * 🔴 RE-READ THE BALANCE WHEN THE GRANT LANDS — the other half of the
+   * operator's report, and a SEPARATE effect from the replay above on purpose.
+   *
+   * `useBuzzBalance()` fetches exactly ONCE, from a mount effect over a
+   * `useCallback([], …)` whose identity never changes, and does not re-fetch on
+   * `TOKEN_REFRESH`. So the number this app gated Confirm against was whatever
+   * came back in the first few hundred milliseconds of the page, forever. A
+   * viewer who granted consent mid-session — very often arriving from a top-up
+   * flow, and in any case now holding a different token — was still being
+   * measured against that first read. When the first read had failed there was
+   * no number at all, and until the `confirmGate` fix that rendered as
+   * "Insufficient Buzz balance": the app asserting a shortfall it had never
+   * observed. A full page reload "fixed" it because a reload is the only other
+   * thing that re-runs a mount effect.
+   *
+   * WHY NOT FOLDED INTO THE REPLAY EFFECT ABOVE: that one returns early when no
+   * action is held, and a grant is a balance-changing event whether or not the
+   * held action survived (it can be superseded, or dropped on a viewer swap).
+   * These are two different questions about the same signal.
+   *
+   * WHY IT CANNOT LOOP, which is the whole risk of adding a refetch at all:
+   * `consentAskedRef` means an ordinary token hydration does not qualify, and
+   * the consume-before-acting slot means the ~2-minute re-mints that follow find
+   * nothing to do. Pinned as an EXACT count, not an at-least, by cases 1–3 of
+   * `src/buzzBalance.test.tsx` — an at-least would be satisfied by the loop.
+   */
+  useEffect(() => {
+    if (!hasGenerate) return;
+    if (!consentAskedRef.current) return;
+    if (balanceRefetchedOnGrantRef.current) return;
+    balanceRefetchedOnGrantRef.current = true; // consume FIRST, like the replay
+    buzzRef.current.refetch();
   }, [hasGenerate]);
 
   // A held action belongs to the viewer who pressed for it. The cleanup runs on a
@@ -1761,6 +1836,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         inFlightRef.current.delete(ck);
         return;
       }
+
+      // 🔴 THE SPEND LANDED — RE-READ THE BALANCE. This is the case the SDK's own
+      // docstring names ("`refetch` for on-demand refreshes (e.g. after a
+      // generation debits the balance)") and the app ignored: every later cell in
+      // the session was gated against the PRE-spend number, so the grid stayed
+      // willing to confirm runs the viewer could no longer afford and the refusal
+      // arrived from the server instead of the gate.
+      //
+      // Placed after the submit RESOLVED, not before it and not in the catch: a
+      // throw leaves the outcome genuinely unknown (see above), and re-reading
+      // there would replace one unknown with a number that may or may not include
+      // the charge. Unconditional across `first.status` on purpose — a host
+      // failure-snapshot can still have moved money and then refunded it, and
+      // `first.status === 'failed'` returns before any other refetch site.
+      //
+      // Not awaited: the balance is advisory for the NEXT run, never a gate on
+      // this one, and blocking the poll on it would make a slow balance read look
+      // like a slow generation.
+      buzzRef.current.refetch();
 
       try {
         if (first.status === 'failed') {
@@ -2200,6 +2294,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   runs={runs}
                   c={c}
                   buzzTotal={buzzTotal}
+                  /* 🔴 THE TWO PROPS THAT MAKE AN UNKNOWN BALANCE RECOVERABLE.
+                     `buzzTotal === null` alone cannot tell "still loading" from
+                     "the read failed", and the grid has to say different things
+                     about those. `refetch` is the hook's own escape hatch — the
+                     app used neither it nor `error`, which is why a single
+                     failed mount read was permanent until a page reload. */
+                  buzzBalanceLoading={buzz.loading}
+                  onRetryBalance={buzz.refetch}
                   GatedCell={deps.GatedCell}
                   onRunCell={beginRun}
                   onConfirmRun={confirmRun}

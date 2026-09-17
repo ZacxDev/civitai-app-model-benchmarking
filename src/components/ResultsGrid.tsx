@@ -34,6 +34,21 @@ export interface ResultsGridProps {
   /** The viewer's total spendable Buzz (blue+green+yellow), or `null` when the
    * balance is unknown. Confirm is disabled unless the estimated cost fits. */
   buzzTotal: number | null;
+  /**
+   * `true` while a balance read is in flight. Splits the `null` above into "not
+   * back yet" and "came back with nothing", which are different sentences — and
+   * it is what keeps the retry affordance from appearing before there is
+   * anything to retry.
+   */
+  buzzBalanceLoading?: boolean;
+  /**
+   * Re-request the viewer's balance (`useBuzzBalance().refetch`). The balance
+   * hook fetches ONCE on mount, so without this a single failed or raced read is
+   * permanent until a full page reload — the operator's actual cure. Optional so
+   * the component still renders in tests/fixtures that do not wire it; the
+   * affordance simply does not appear.
+   */
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -107,6 +122,51 @@ export const PUBLISH_CONFIRM_MESSAGE =
  */
 export const PUBLISH_PREVIEW_MAX = 4;
 
+/**
+ * Viewer-facing copy for a balance the app COULD NOT READ, as distinct from one
+ * it read and found too small.
+ *
+ * 🔴 THIS COPY EXISTS BECAUSE THE APP USED TO ASSERT THE OTHER ONE. The confirm
+ * cell's warning was a two-way ternary on `costKnown`, so an unknown BALANCE
+ * against a known cost rendered "Insufficient Buzz balance" — a statement about
+ * a number the app did not have. That is the operator's report ("on re-submit it
+ * said 'insufficient buzz', after full page reload it worked"): the reload was
+ * not topping anything up, it was re-running the balance hook's one mount fetch.
+ * A claim the app cannot support is worse than no claim, because it sends the
+ * viewer to a top-up page to fix a problem they do not have.
+ *
+ * It names the ACTION, not the failure, because the failure is not the viewer's
+ * to interpret — and the retry beside it is what makes the sentence true.
+ */
+export const BALANCE_UNKNOWN_MESSAGE = 'Your Buzz balance could not be read, so this run is held.';
+
+/** Viewer-facing copy while a balance read is still in flight — not a failure yet. */
+export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
+
+/**
+ * The confirm gate, as ONE three-valued decision instead of a boolean plus a
+ * ternary that disagreed with it.
+ *
+ * 🔴 THE DEFECT THIS REPLACES WAS THE DISAGREEMENT, not either half. `affordable`
+ * correctly required BOTH a known cost and a known balance (fail-closed); the
+ * copy beside it branched on the cost alone, so the two states the boolean
+ * distinguishes were collapsed into one sentence — and the sentence chosen was
+ * the one the app had no evidence for. Deriving the copy AND the disabled state
+ * from a single discriminant makes that disagreement unrepresentable.
+ *
+ * ORDER IS LOAD-BEARING: an unknown cost outranks an unknown balance, because
+ * with no price the balance cannot settle anything. Both-unknown therefore reads
+ * "Cost unavailable" — which is also what shipped before, so this is not a
+ * behaviour change for that case.
+ */
+export type ConfirmGate = 'ok' | 'cost-unknown' | 'balance-unknown' | 'insufficient';
+
+export function confirmGate(cost: number | undefined, buzzTotal: number | null): ConfirmGate {
+  if (typeof cost !== 'number') return 'cost-unknown';
+  if (buzzTotal == null) return 'balance-unknown';
+  return cost <= buzzTotal ? 'ok' : 'insufficient';
+}
+
 export function ResultsGrid({
   configs,
   prompts,
@@ -114,6 +174,8 @@ export function ResultsGrid({
   runs,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -212,6 +274,8 @@ export function ResultsGrid({
             runs={runs}
             c={c}
             buzzTotal={buzzTotal}
+            buzzBalanceLoading={buzzBalanceLoading}
+            onRetryBalance={onRetryBalance}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
             onConfirmRun={onConfirmRun}
@@ -256,6 +320,8 @@ interface RowProps {
   runs: Record<string, CellRun>;
   c: Palette;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -271,6 +337,8 @@ function RowFragment({
   runs,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -324,6 +392,8 @@ function RowFragment({
           topBorder={topBorder}
           c={c}
           buzzTotal={buzzTotal}
+          buzzBalanceLoading={buzzBalanceLoading}
+          onRetryBalance={onRetryBalance}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
           onConfirmRun={onConfirmRun}
@@ -343,6 +413,8 @@ interface CellProps {
   topBorder: string;
   c: Palette;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -358,6 +430,8 @@ function Cell({
   topBorder,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -391,6 +465,8 @@ function Cell({
         <CellRunState
           run={run}
           buzzTotal={buzzTotal}
+          buzzBalanceLoading={buzzBalanceLoading}
+          onRetryBalance={onRetryBalance}
           onConfirm={() => onConfirmRun(row, prompt)}
           onResume={() => onResumeRun(row, prompt)}
           onCancel={() => onCancelRun(row, prompt)}
@@ -430,12 +506,16 @@ function Cell({
 function CellRunState({
   run,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   onConfirm,
   onResume,
   onCancel,
 }: {
   run: CellRun;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   onConfirm: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -444,8 +524,19 @@ function CellRunState({
     const cost = run.estimatedCost;
     // Money honesty: only allow Confirm when the estimate is known AND fits the
     // viewer's balance. Unknown cost or unknown balance → disabled (fail-closed).
-    const costKnown = typeof cost === 'number';
-    const affordable = costKnown && buzzTotal != null && cost <= buzzTotal;
+    //
+    // 🔴 THE DISABLED STATE AND THE COPY NOW COME FROM THE SAME DECISION. They
+    // used to be computed separately — `affordable` on three conditions, the
+    // warning on a ternary over ONE of them — and the pair disagreed exactly
+    // where it mattered: a known cost against an unreadable balance was DISABLED
+    // (right) and labelled "Insufficient Buzz balance" (a claim about a number
+    // the app never received). See {@link confirmGate}.
+    const gate = confirmGate(cost, buzzTotal);
+    const affordable = gate === 'ok';
+    // `loading` is only meaningful while the balance is genuinely unresolved; a
+    // retry is offered only once there is a failed read to retry, so a read still
+    // in flight gets the waiting sentence and no button.
+    const balanceReadFailed = gate === 'balance-unknown' && !buzzBalanceLoading;
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-confirm">
         <span style={{ color: token.text }}>
@@ -455,10 +546,30 @@ function CellRunState({
           This generates images that will be added to the <strong>public</strong> benchmark grid, visible to
           all viewers.
         </span>
-        {!affordable && (
+        {(gate === 'insufficient' || gate === 'cost-unknown') && (
           <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
-            {costKnown ? 'Insufficient Buzz balance' : 'Cost unavailable'}
+            {gate === 'insufficient' ? 'Insufficient Buzz balance' : 'Cost unavailable'}
           </span>
+        )}
+        {gate === 'balance-unknown' && (
+          <div
+            data-testid="cell-balance-unknown"
+            style={{ display: 'grid', gap: 4, color: token.dimmed, fontSize: 11 }}
+          >
+            <span>{balanceReadFailed ? BALANCE_UNKNOWN_MESSAGE : BALANCE_LOADING_MESSAGE}</span>
+            {/* 🔴 THE WAY OUT. Without it this is a disabled button under a
+                sentence that explains nothing the viewer can act on — which is
+                what sent the operator to a full page reload, the only other
+                thing that re-runs the balance hook's single mount fetch. One
+                press, one read: no automatic retry, bounded by the viewer. */}
+            {balanceReadFailed && onRetryBalance && (
+              <div>
+                <Button size="sm" variant="subtle" data-testid="cell-balance-retry" onClick={onRetryBalance}>
+                  Retry balance check
+                </Button>
+              </div>
+            )}
+          </div>
         )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Button size="sm" data-testid="cell-confirm-run" disabled={!affordable} onClick={onConfirm}>

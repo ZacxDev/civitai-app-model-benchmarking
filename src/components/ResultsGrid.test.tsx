@@ -9,7 +9,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ResultsGrid } from './ResultsGrid.js';
+import { ResultsGrid, BALANCE_UNKNOWN_MESSAGE, BALANCE_LOADING_MESSAGE } from './ResultsGrid.js';
 import { palette } from '../theme.js';
 import { fakeGatedCell } from '../test-helpers.js';
 import { flattenConfigs, cellKey } from '../lib/benchmark.js';
@@ -109,10 +109,14 @@ const comboOne: CombinationRow = {
 };
 
 /** Render the grid with a single run in a given state on the c1/cfgA × p1 cell. */
-function renderGridWithRun(run: CellRun, opts: { buzzTotal?: number | null } = {}) {
+function renderGridWithRun(
+  run: CellRun,
+  opts: { buzzTotal?: number | null; buzzBalanceLoading?: boolean; onRetryBalance?: () => void } = {},
+) {
   const onConfirmRun = vi.fn();
   const onResumeRun = vi.fn();
   const onCancelRun = vi.fn();
+  const onRetryBalance = opts.onRetryBalance ?? vi.fn();
   const configs = flattenConfigs([comboOne]);
   render(
     <ResultsGrid
@@ -122,6 +126,8 @@ function renderGridWithRun(run: CellRun, opts: { buzzTotal?: number | null } = {
       runs={{ [cellKey('c1', 'cfgA', 'p1')]: run }}
       c={c}
       buzzTotal={opts.buzzTotal === undefined ? 5000 : opts.buzzTotal}
+      buzzBalanceLoading={opts.buzzBalanceLoading ?? false}
+      onRetryBalance={onRetryBalance}
       GatedCell={fakeGatedCell()}
       onRunCell={vi.fn()}
       onConfirmRun={onConfirmRun}
@@ -129,7 +135,7 @@ function renderGridWithRun(run: CellRun, opts: { buzzTotal?: number | null } = {
       onCancelRun={onCancelRun}
     />,
   );
-  return { onConfirmRun, onResumeRun, onCancelRun, configs };
+  return { onConfirmRun, onResumeRun, onCancelRun, onRetryBalance, configs };
 }
 
 const confirmingRun = (estimatedCost: number | undefined): CellRun => ({
@@ -310,6 +316,75 @@ describe('ResultsGrid render (config rows)', () => {
       renderGridWithRun(confirmingRun(100), { buzzTotal: null });
       expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE OPERATOR'S "insufficient buzz" REPORT — the app's own false claim.
+  //
+  // The gate is three-valued (cost unknown / balance unknown / genuinely
+  // insufficient) and the copy used to be TWO-valued: a ternary on `costKnown`
+  // alone. So a viewer whose BALANCE could not be read — a known cost against a
+  // `null` balance — was told "Insufficient Buzz balance", a claim about a
+  // number the app did not have. That is what the operator saw on re-submit,
+  // and a full page reload "fixed" it because a reload re-runs the hook's
+  // one-and-only mount fetch.
+  //
+  // Fail-closed is UNCHANGED and deliberately so: Confirm stays disabled while
+  // the balance is unknown. Only the claim changes — plus a way out, since a
+  // dead disabled button with a wrong explanation is what sent the operator to
+  // a reload in the first place.
+  // -------------------------------------------------------------------------
+  describe('🔴 an UNKNOWN balance is never reported as an INSUFFICIENT one', () => {
+    it('does NOT say "Insufficient Buzz balance" when the cost is known but the balance is not', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: null });
+      expect(screen.queryByTestId('cell-insufficient')).toBeNull();
+      expect(screen.getByTestId('cell-confirm')).not.toHaveTextContent(/insufficient/i);
+    });
+
+    it('says the balance is UNREADABLE instead, and keeps Confirm disabled', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: null });
+      expect(screen.getByTestId('cell-balance-unknown')).toHaveTextContent(BALANCE_UNKNOWN_MESSAGE);
+      expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
+    });
+
+    it('offers a RETRY wired to the balance re-read — not a dead disabled button', () => {
+      const { onRetryBalance } = renderGridWithRun(confirmingRun(100), { buzzTotal: null });
+      screen.getByTestId('cell-balance-retry').click();
+      expect(onRetryBalance).toHaveBeenCalledTimes(1);
+    });
+
+    it('while a read is IN FLIGHT it says so, and offers no retry (nothing to retry yet)', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: null, buzzBalanceLoading: true });
+      expect(screen.getByTestId('cell-balance-unknown')).toHaveTextContent(BALANCE_LOADING_MESSAGE);
+      expect(screen.queryByTestId('cell-balance-retry')).toBeNull();
+      // Still fail-closed while we do not know the number.
+      expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
+    });
+
+    it('CONTROL: a GENUINELY insufficient balance still says so, and offers no balance retry', () => {
+      // Without this the assertions above are satisfied by deleting the
+      // insufficient branch outright. 600 > 500 is a real refusal.
+      renderGridWithRun(confirmingRun(600), { buzzTotal: 500 });
+      expect(screen.getByTestId('cell-insufficient')).toHaveTextContent('Insufficient Buzz balance');
+      expect(screen.queryByTestId('cell-balance-unknown')).toBeNull();
+    });
+
+    it('CONTROL: an AFFORDABLE run renders neither claim', () => {
+      renderGridWithRun(confirmingRun(100), { buzzTotal: 500 });
+      expect(screen.queryByTestId('cell-insufficient')).toBeNull();
+      expect(screen.queryByTestId('cell-balance-unknown')).toBeNull();
+    });
+
+    it('CONTROL: an unknown COST still reads "Cost unavailable", not the balance copy', () => {
+      // Both-unknown resolves to the cost claim: with no price, the balance
+      // cannot help. This pins the PRIORITY, which a reordered guard would flip.
+      renderGridWithRun(confirmingRun(undefined), { buzzTotal: null });
+      expect(screen.getByTestId('cell-insufficient')).toHaveTextContent('Cost unavailable');
+      expect(screen.queryByTestId('cell-balance-unknown')).toBeNull();
+    });
+  });
+
+  describe('money honesty: the rest of the balance gate', () => {
 
     it('DISABLES Confirm (fail-closed) when the cost is unknown', () => {
       renderGridWithRun(confirmingRun(undefined), { buzzTotal: 5000 });
