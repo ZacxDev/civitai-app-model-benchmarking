@@ -9,6 +9,7 @@
 // the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
 
 import { Button, Loader } from '@civitai/blocks-react/ui';
+import { Image } from '@civitai/components-react';
 
 import type { Palette } from '../theme.js';
 import { token, radius, metaText } from '../theme.js';
@@ -33,6 +34,21 @@ export interface ResultsGridProps {
   /** The viewer's total spendable Buzz (blue+green+yellow), or `null` when the
    * balance is unknown. Confirm is disabled unless the estimated cost fits. */
   buzzTotal: number | null;
+  /**
+   * `true` while a balance read is in flight. Splits the `null` above into "not
+   * back yet" and "came back with nothing", which are different sentences — and
+   * it is what keeps the retry affordance from appearing before there is
+   * anything to retry.
+   */
+  buzzBalanceLoading?: boolean;
+  /**
+   * Re-request the viewer's balance (`useBuzzBalance().refetch`). The balance
+   * hook fetches ONCE on mount, so without this a single failed or raced read is
+   * permanent until a full page reload — the operator's actual cure. Optional so
+   * the component still renders in tests/fixtures that do not wire it; the
+   * affordance simply does not appear.
+   */
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -65,6 +81,92 @@ const ROW_H_HEADER = 56;
 export const RUN_UNKNOWN_MESSAGE =
   'Unknown — this run may already have started. Check your generations before re-running.';
 
+/**
+ * Viewer-facing copy for the `'publishing'` cell state — shown next to the
+ * outputs while the HOST's own confirm dialog is open.
+ *
+ * 🔴 IT NAMES THE HOST'S DIALOG IN THE HOST'S OWN WORDS. The confirm is titled
+ * "Publish to the shared grid?" (civitai `PageBlockHost.tsx`, the
+ * `PUBLISH_GENERATION_OUTPUTS` handler) and is rendered OUTSIDE this iframe, so
+ * the only way the block can connect the images it is showing to the question
+ * being asked over them is to quote the title. Reword the host and this line is
+ * wrong — which is why the guard pins the whole string rather than a keyword.
+ */
+export const PUBLISH_CONFIRM_MESSAGE =
+  'These are your outputs. Confirm the “Publish to the shared grid?” prompt to add them.';
+
+/**
+ * How many outputs the pre-publish preview renders. A grid CELL is small and the
+ * point is recognition, not review — and `publish()` sends no `imageIndexes`, so
+ * every output is published whether or not it is one of the ones shown. The
+ * count is capped rather than the strip being scrollable because a horizontal
+ * scroller inside a grid cell is a worse answer than "the first few".
+ *
+ * 🔴 THE CAP IS NOT REACHED TODAY — KEPT ON PURPOSE, DON'T "CLEAN IT UP". Traced
+ * statically (see the header of `src/publishPreview.test.tsx` for the full
+ * chain): a cell run yields at most ONE url, so `hidden` below is always 0 and
+ * the `cell-publish-more` line never renders in production. TWO independent host
+ * caps put it there — the block workflow translator rejects anything that is not
+ * exactly one step, and `quantity` is absent from `buildCellWorkflowBody` so the
+ * host's schema defaults it to 1 (ceiling 4 even if it were passed, which would
+ * still leave `hidden` at 0). Reaching this branch needs a change in
+ * `civitai/civitai`, not here.
+ *
+ * It stays because the ONE link in that chain that is not closed by a static
+ * guard is the orchestrator itself — an external service in neither repo — and
+ * the host's flattening of `steps[].output.images[]` is uncapped. If it ever
+ * over-delivers, this branch is exactly the disclosure that keeps the viewer
+ * from under-counting what they are agreeing to publish; deleting it would make
+ * that case silent. Unreachable-and-harmless beats a deletion resting on an
+ * external contract nobody in this repo can assert.
+ */
+export const PUBLISH_PREVIEW_MAX = 4;
+
+/**
+ * Viewer-facing copy for a balance the app COULD NOT READ, as distinct from one
+ * it read and found too small.
+ *
+ * 🔴 THIS COPY EXISTS BECAUSE THE APP USED TO ASSERT THE OTHER ONE. The confirm
+ * cell's warning was a two-way ternary on `costKnown`, so an unknown BALANCE
+ * against a known cost rendered "Insufficient Buzz balance" — a statement about
+ * a number the app did not have. That is the operator's report ("on re-submit it
+ * said 'insufficient buzz', after full page reload it worked"): the reload was
+ * not topping anything up, it was re-running the balance hook's one mount fetch.
+ * A claim the app cannot support is worse than no claim, because it sends the
+ * viewer to a top-up page to fix a problem they do not have.
+ *
+ * It names the ACTION, not the failure, because the failure is not the viewer's
+ * to interpret — and the retry beside it is what makes the sentence true.
+ */
+export const BALANCE_UNKNOWN_MESSAGE = 'Your Buzz balance could not be read, so this run is held.';
+
+/** Viewer-facing copy while a balance read is still in flight — not a failure yet. */
+export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
+
+/**
+ * The confirm gate, as ONE three-valued decision instead of a boolean plus a
+ * ternary that disagreed with it.
+ *
+ * 🔴 THE DEFECT THIS REPLACES WAS THE DISAGREEMENT, not either half. `affordable`
+ * correctly required BOTH a known cost and a known balance (fail-closed); the
+ * copy beside it branched on the cost alone, so the two states the boolean
+ * distinguishes were collapsed into one sentence — and the sentence chosen was
+ * the one the app had no evidence for. Deriving the copy AND the disabled state
+ * from a single discriminant makes that disagreement unrepresentable.
+ *
+ * ORDER IS LOAD-BEARING: an unknown cost outranks an unknown balance, because
+ * with no price the balance cannot settle anything. Both-unknown therefore reads
+ * "Cost unavailable" — which is also what shipped before, so this is not a
+ * behaviour change for that case.
+ */
+export type ConfirmGate = 'ok' | 'cost-unknown' | 'balance-unknown' | 'insufficient';
+
+export function confirmGate(cost: number | undefined, buzzTotal: number | null): ConfirmGate {
+  if (typeof cost !== 'number') return 'cost-unknown';
+  if (buzzTotal == null) return 'balance-unknown';
+  return cost <= buzzTotal ? 'ok' : 'insufficient';
+}
+
 export function ResultsGrid({
   configs,
   prompts,
@@ -72,6 +174,8 @@ export function ResultsGrid({
   runs,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -170,6 +274,8 @@ export function ResultsGrid({
             runs={runs}
             c={c}
             buzzTotal={buzzTotal}
+            buzzBalanceLoading={buzzBalanceLoading}
+            onRetryBalance={onRetryBalance}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
             onConfirmRun={onConfirmRun}
@@ -214,6 +320,8 @@ interface RowProps {
   runs: Record<string, CellRun>;
   c: Palette;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -229,6 +337,8 @@ function RowFragment({
   runs,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -282,6 +392,8 @@ function RowFragment({
           topBorder={topBorder}
           c={c}
           buzzTotal={buzzTotal}
+          buzzBalanceLoading={buzzBalanceLoading}
+          onRetryBalance={onRetryBalance}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
           onConfirmRun={onConfirmRun}
@@ -301,6 +413,8 @@ interface CellProps {
   topBorder: string;
   c: Palette;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -316,6 +430,8 @@ function Cell({
   topBorder,
   c,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -349,6 +465,8 @@ function Cell({
         <CellRunState
           run={run}
           buzzTotal={buzzTotal}
+          buzzBalanceLoading={buzzBalanceLoading}
+          onRetryBalance={onRetryBalance}
           onConfirm={() => onConfirmRun(row, prompt)}
           onResume={() => onResumeRun(row, prompt)}
           onCancel={() => onCancelRun(row, prompt)}
@@ -388,12 +506,16 @@ function Cell({
 function CellRunState({
   run,
   buzzTotal,
+  buzzBalanceLoading,
+  onRetryBalance,
   onConfirm,
   onResume,
   onCancel,
 }: {
   run: CellRun;
   buzzTotal: number | null;
+  buzzBalanceLoading?: boolean;
+  onRetryBalance?: () => void;
   onConfirm: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -402,8 +524,19 @@ function CellRunState({
     const cost = run.estimatedCost;
     // Money honesty: only allow Confirm when the estimate is known AND fits the
     // viewer's balance. Unknown cost or unknown balance → disabled (fail-closed).
-    const costKnown = typeof cost === 'number';
-    const affordable = costKnown && buzzTotal != null && cost <= buzzTotal;
+    //
+    // 🔴 THE DISABLED STATE AND THE COPY NOW COME FROM THE SAME DECISION. They
+    // used to be computed separately — `affordable` on three conditions, the
+    // warning on a ternary over ONE of them — and the pair disagreed exactly
+    // where it mattered: a known cost against an unreadable balance was DISABLED
+    // (right) and labelled "Insufficient Buzz balance" (a claim about a number
+    // the app never received). See {@link confirmGate}.
+    const gate = confirmGate(cost, buzzTotal);
+    const affordable = gate === 'ok';
+    // `loading` is only meaningful while the balance is genuinely unresolved; a
+    // retry is offered only once there is a failed read to retry, so a read still
+    // in flight gets the waiting sentence and no button.
+    const balanceReadFailed = gate === 'balance-unknown' && !buzzBalanceLoading;
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-confirm">
         <span style={{ color: token.text }}>
@@ -413,10 +546,30 @@ function CellRunState({
           This generates images that will be added to the <strong>public</strong> benchmark grid, visible to
           all viewers.
         </span>
-        {!affordable && (
+        {(gate === 'insufficient' || gate === 'cost-unknown') && (
           <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
-            {costKnown ? 'Insufficient Buzz balance' : 'Cost unavailable'}
+            {gate === 'insufficient' ? 'Insufficient Buzz balance' : 'Cost unavailable'}
           </span>
+        )}
+        {gate === 'balance-unknown' && (
+          <div
+            data-testid="cell-balance-unknown"
+            style={{ display: 'grid', gap: 4, color: token.dimmed, fontSize: 11 }}
+          >
+            <span>{balanceReadFailed ? BALANCE_UNKNOWN_MESSAGE : BALANCE_LOADING_MESSAGE}</span>
+            {/* 🔴 THE WAY OUT. Without it this is a disabled button under a
+                sentence that explains nothing the viewer can act on — which is
+                what sent the operator to a full page reload, the only other
+                thing that re-runs the balance hook's single mount fetch. One
+                press, one read: no automatic retry, bounded by the viewer. */}
+            {balanceReadFailed && onRetryBalance && (
+              <div>
+                <Button size="sm" variant="subtle" data-testid="cell-balance-retry" onClick={onRetryBalance}>
+                  Retry balance check
+                </Button>
+              </div>
+            )}
+          </div>
         )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Button size="sm" data-testid="cell-confirm-run" disabled={!affordable} onClick={onConfirm}>
@@ -481,11 +634,88 @@ function CellRunState({
       </div>
     );
   }
+  // 🔴 PUBLISHING — the one state where the viewer is being ASKED something by a
+  // dialog this app does not own. `publish()` resolves only when the viewer
+  // answers the host's "Publish to the shared grid?" confirm, which is text-only
+  // host chrome; before this branch the cell behind it showed nothing but a
+  // spinner, so the answer was being given blind. The generated outputs are in
+  // the snapshot the app already holds — render them here, where they are the
+  // subject of the question. Everything else about this state is unchanged: the
+  // same `cell-progress` status region, the same copy.
+  if (run.status === 'publishing') {
+    const all = run.previewUrls ?? [];
+    const urls = all.slice(0, PUBLISH_PREVIEW_MAX);
+    // 🔴 SAY SO WHEN THE STRIP IS A SUBSET. `publish()` sends no `imageIndexes`,
+    // so the host publishes EVERY output — a preview that silently showed four
+    // of six would understate what the viewer is agreeing to. Always 0 on every
+    // path this block can currently take (one url per run — see the note on
+    // `PUBLISH_PREVIEW_MAX`); kept as the fail-safe for a host that returns more.
+    const hidden = all.length - urls.length;
+    return (
+      <div style={{ display: 'grid', gap: 6, fontSize: 11 }} data-testid="cell-publishing">
+        {/* Absent urls are ORDINARY, not an error: the host may report a succeeded
+            workflow without them, and a resumed run from a previous session
+            often has none. The state degrades to exactly what it rendered
+            before — progress + copy — rather than to an empty frame. */}
+        {urls.length > 0 && (
+          <div
+            data-testid="cell-publish-preview"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.min(urls.length, 2)}, 1fr)`,
+              gap: 4,
+            }}
+          >
+            {urls.map((url, i) => (
+              <Image
+                key={url}
+                data-testid="cell-publish-image"
+                src={url}
+                alt={`Generated output ${i + 1}, about to be published to the shared grid`}
+                fit="cover"
+                // A url the browser cannot load must not blank the prompt it is
+                // attached to — the pack's own fallback keeps the tile, and the
+                // copy + controls below are untouched either way.
+                fallback={<span style={{ fontSize: 10, color: token.dimmed }}>preview unavailable</span>}
+                wrapperStyle={{
+                  width: '100%',
+                  aspectRatio: '1 / 1',
+                  borderRadius: radius.sm,
+                  overflow: 'hidden',
+                  border: `1px solid ${token.border}`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 8, ...metaText }}
+          data-testid="cell-progress"
+          data-status="publishing"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader size="sm" />
+          <span>Publishing…</span>
+        </div>
+        <span style={{ color: token.dimmed }} data-testid="cell-publish-notice">
+          {PUBLISH_CONFIRM_MESSAGE}
+          {hidden > 0 && (
+            <>
+              {' '}
+              <span data-testid="cell-publish-more">
+                {`+${hidden} more output${hidden === 1 ? '' : 's'} will be published too.`}
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+    );
+  }
   const labels: Record<string, string> = {
     estimating: 'Estimating…',
     submitting: 'Submitting…',
     processing: 'Generating…',
-    publishing: 'Publishing…',
     succeeded: 'Done',
     canceled: 'Canceled',
   };

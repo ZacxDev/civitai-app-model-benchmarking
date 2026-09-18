@@ -159,7 +159,20 @@ export interface AppDeps {
    * carried only the aggregate `count`; the list now reports `viewerVoted` per
    * row, which is host-derived and therefore correct across devices. */
   appStorage: UseAppStorage;
-  /** Fire-and-forget analytics — the host forwards events to its pipeline. */
+  /**
+   * Fire-and-forget analytics.
+   *
+   * ⚠️ NOTHING CONSUMES THESE TODAY — do not reason from them. `track()` posts a
+   * `TRACK_EVENT` message, and neither real host bridges it: civitai's own
+   * `src/components/AppBlocks/hostHandlerParity.ts` records it as *"currently NOT
+   * bridged by EITHER host (no host-side analytics sink wired). Unhandled ⇒
+   * silently dropped, never a hang."* — and no `onMessage('TRACK_EVENT')` handler
+   * exists in `IframeHost.tsx` or `PageBlockHost.tsx`. (The SDK's
+   * `useBlockAnalytics` docstring says the host forwards to a pipeline; that
+   * docstring is wrong.) The calls are kept so the events exist the day a sink is
+   * wired, but NO question about production behaviour can be answered by querying
+   * them, because there is nothing to query.
+   */
   track: (eventName: string, properties?: Record<string, unknown>) => void;
   /** Test seams for the poll loop. */
   pollIntervalMs?: number;
@@ -346,6 +359,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const depsRef = useRef(deps);
   depsRef.current = deps;
 
+  /**
+   * Latest `useBuzzBalance()` handle, readable from a callback/effect that must
+   * NOT list it as a dependency. Assigned during render like `depsRef`.
+   *
+   * 🔴 WHY A REF RATHER THAN `buzz.refetch` DIRECTLY. `refetch` is a stable
+   * `useCallback([], …)` in the SDK today, so closing over it would work — but
+   * the one thing this change must not ship is a refetch that re-fires on an
+   * identity change, and depending on an upstream identity staying stable is
+   * exactly how that arrives later without anyone touching this file. The ref
+   * makes the effect below depend on `hasGenerate` and nothing else, by
+   * construction. See the refetch-budget cases in `src/buzzBalance.test.tsx`.
+   */
+  const buzzRef = useRef(buzz);
+  buzzRef.current = buzz;
+
   // 🔴 THERE IS NO RENDER-TIME `canGenerate` GATE ANY MORE. Consent is decided at
   // PRESS time, inside `beginRun` (`hasGenerateScope(token.scopes)` → `requestConsent`).
   // Holding it here as well is what made this app ask for consent TWICE — once in a
@@ -403,6 +431,41 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // fire (ghost tap, batched re-render before the confirm button unmounts) can
   // NEVER spend Buzz twice. Deterministic, not render-timing-dependent.
   const inFlightRef = useRef<Set<string>>(new Set());
+  /**
+   * The run a viewer pressed for while the token was still missing
+   * `ai:write:budgeted` — held so the grant can complete the action they already
+   * asked for, instead of making them find the cell and press Run again.
+   *
+   * 🔴 A REF, NOT STATE, AND AT MOST ONE SLOT. The consume-then-act order in the
+   * auto-resume effect below is what makes the replay fire once; a state value
+   * would not be readable-and-cleared in the same synchronous step, so a second
+   * effect pass (a token refresh, a StrictMode double-invoke, a re-render between
+   * the read and the commit) could see the stale value and replay a second time.
+   * One slot, because a viewer has one in-flight intent: a later press overwrites
+   * it (see `beginRun`).
+   */
+  const pendingConsentRunRef = useRef<{ row: BenchConfig; prompt: PromptRow } | null>(null);
+  /**
+   * True once this session has ASKED for consent. Set beside the held action in
+   * `beginRun`; read by the balance-refetch effect below.
+   *
+   * 🔴 IT IS WHAT SEPARATES A GRANT FROM MERE TOKEN HYDRATION. `hasGenerate`
+   * goes false→true on an ordinary page load too — the token arrives
+   * asynchronously after BLOCK_INIT — so an effect keyed on that transition
+   * alone would bill every already-consented viewer an extra balance read for
+   * nothing. This flag narrows it to the transition we actually caused.
+   */
+  const consentAskedRef = useRef(false);
+  /**
+   * 🔴 THE AT-MOST-ONCE SLOT for the balance re-read, mirroring
+   * `pendingConsentRunRef`'s consume-before-acting discipline. Set in one
+   * synchronous step BEFORE the refetch, so a second effect pass — a re-render,
+   * a StrictMode double-invoke, a scope that flaps off and back on — finds
+   * nothing left to do. The token re-mints roughly every two minutes; without
+   * this, anything the token can move becomes a request every two minutes for
+   * the life of the page.
+   */
+  const balanceRefetchedOnGrantRef = useRef(false);
   // 🔴 MONEY SAFETY: true whenever the in-flight rehydrate's view of the
   // per-viewer store is not known to be COMPLETE — it hit its page bound, the
   // listing threw, or it simply has not finished yet. The rehydrate is the only
@@ -1467,7 +1530,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         reload();
         return;
       }
-      setRun(ck, { status: 'publishing' });
+      // 🔴 CARRY THE OUTPUTS INTO THE PUBLISHING WINDOW. `publish()` opens the
+      // HOST's "Publish to the shared grid?" confirm and does not resolve until
+      // the viewer answers it — and that dialog is text-only (host chrome:
+      // `civitai/civitai` `PageBlockHost.tsx`, the `PUBLISH_GENERATION_OUTPUTS`
+      // handler). Until this line the block rendered a bare "Publishing…"
+      // spinner behind it, so the viewer was asked to publish images they had
+      // never seen. The snapshot already carries their urls, so showing them here
+      // is the part of that question THIS repo can answer; putting an image
+      // inside the dialog itself is a host change, and deliberately not one a
+      // block can make (the host's sibling CREATE_POST_FROM_APP gate spells out
+      // why it will not render block-supplied thumbnails). See the field docs on
+      // `CellRun.previewUrls` and the header of `src/publishPreview.test.tsx`.
+      setRun(ck, { status: 'publishing', previewUrls: terminal.imageUrls });
       const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
       depsRef.current.track('publish', { imageCount: imageIds.length });
       const matched = resolveCell(row.config, prompt);
@@ -1501,6 +1576,36 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         return;
       }
       if (!hasGenerateScope(token.scopes)) {
+        // 🔴 HOLD THE ACTION, then ask. `REQUEST_CONSENT` is FIRE-AND-FORGET and
+        // carries no `requestId` (SDK `useRequestConsent`, host
+        // `PageBlockHost.tsx`), so the host structurally CANNOT reply "the viewer
+        // granted, here is the submit you were in the middle of". The grant
+        // arrives only as a fresh token on a `TOKEN_REFRESH` push. Retrying is
+        // therefore the BLOCK's job, and it needs the `(row, prompt)` this call
+        // was given — which this function used to drop on the floor, so a viewer
+        // who consented had to find the cell and press Run a second time.
+        //
+        // The replay is the auto-resume effect below. It is NOT a spend: it
+        // re-enters `beginRun`, which only estimates — Confirm is still required
+        // before any Buzz moves.
+        //
+        // 🔴 ONE SLOT, OVERWRITTEN — that is the whole supersede rule, and it
+        // needs no second line to enforce it. A viewer who presses cell A, thinks
+        // again and presses cell B before answering the dialog has ONE intent, so
+        // the grant must complete B and not both. Every path that can reach this
+        // line is a press, and a press is exactly what supersedes.
+        //
+        // An explicit `= null` at the top of this function was written first and
+        // then REMOVED as unreachable: the only slot it could have cleared is one
+        // set while the scope was absent, and by the time any press can observe
+        // the scope PRESENT the effect below has already consumed it. It killed
+        // no mutant. Case 4 of `src/consentResume.test.tsx` pins supersede
+        // against THIS line instead.
+        pendingConsentRunRef.current = { row, prompt };
+        // Record that WE asked, so the grant that follows can be told apart from
+        // the token merely hydrating — see `consentAskedRef`. Deliberately NOT
+        // cleared on supersede: a second press is still a session that asked.
+        consentAskedRef.current = true;
         depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
         return;
       }
@@ -1515,6 +1620,121 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       }
     },
     [results, viewer, token.scopes, setRun],
+  );
+  // Read by the consent auto-resume effect below so that effect does NOT have to
+  // list `beginRun` as a dependency. `beginRun`'s identity changes on every board
+  // re-fetch (it closes over `results`), and an effect that re-ran on those would
+  // be re-evaluating the replay decision at moments that have nothing to do with
+  // consent. Assigned during render, like `depsRef`/`runsRef`, so the effect that
+  // runs after the scope-granting render calls the closure from THAT render.
+  const beginRunRef = useRef(beginRun);
+  beginRunRef.current = beginRun;
+
+  /**
+   * 🔴 THE CONSENT AUTO-RESUME. `beginRun` parks the `(row, prompt)` it was
+   * pressed with and asks for consent; this RESUMES that exact action the moment
+   * the granted scope shows up on the token, so a viewer who says yes does not
+   * have to find the cell and press Run again.
+   *
+   * 🔴 IT DOES NOT COMPLETE THE RUN, AND IS NOT MEANT TO. The replay re-enters
+   * `beginRun`, so the cell advances itself to `estimating` → `confirming` and
+   * STOPS. The viewer still presses Confirm once; that press is the only thing
+   * that spends. Two presses plus re-locating the cell become one press on a
+   * cell that has already moved. Keeping the gate is deliberate: the consent
+   * grant authorises spending up to a cap, not this particular spend.
+   *
+   * WHY THE DEPENDENCY IS A BOOLEAN, and not `token.scopes` — ⚠️ RENDER HYGIENE,
+   * NOT A PINNED CORRECTNESS PROPERTY, and this docblock used to overclaim it.
+   * The token auto-refreshes (the SDK re-mints ~2 min before expiry) and each
+   * refresh hands down a NEW `scopes` array, so an effect keyed on that array
+   * re-runs on every refresh for the life of the page; `hasGenerate` changes only
+   * when the ANSWER changes. That is worth having — but it buys no behaviour,
+   * because the consume-before-replay line below already makes every extra pass a
+   * no-op. MEASURED on this tree: mutating this dep to `[token.scopes]` leaves
+   * the ENTIRE suite green (546/546), so nothing pins it and nothing can — the
+   * two spellings are behaviourally indistinguishable by construction. Treat it
+   * as a cheap preference, and do not cite it as a guard.
+   *
+   * WHY THE SLOT IS CONSUMED BEFORE THE REPLAY, and not after it resolves:
+   * `pendingConsentRunRef.current` is read and nulled in one synchronous step, so
+   * a second pass over this effect — a re-render, a StrictMode double-invoke, a
+   * token whose scope flaps off and back on — finds nothing to replay. That one
+   * line IS the at-most-once property; deleting it makes case 2 of
+   * `src/consentResume.test.tsx` report two runs where one was pressed for.
+   *
+   * WHAT IT DOES NOT DO: spend. The replay re-enters `beginRun`, which re-checks
+   * `cellHasResult` (a cell that filled in while the dialog was open is not
+   * re-run) and stops at `estimating` → `confirming`. Buzz moves only when the
+   * viewer presses Confirm, exactly as on the manual path.
+   *
+   * 🔴 WHY THERE IS NO TTL ON THE HELD ACTION. An earlier revision aged the slot
+   * out after five minutes. It was DELETED, deliberately: it was standing in for
+   * a consent-DISMISSED signal that does not exist, and a timer is not that
+   * signal — it cannot tell "dismissed the dialog" from "read it slowly". The
+   * bound it was reaching for belongs upstream, as a `CONSENT_DECLINED`-shaped
+   * host push mirroring the existing `CONSENT_UNAVAILABLE`; per this repo's
+   * `CLAUDE.md`, a missing host hook is a PR there, not a workaround here. The
+   * cost of having no bound is small and does not involve money: the worst case
+   * is a viewer who grants `ai:write:budgeted` elsewhere on civitai much later
+   * and finds one cell sitting at its Confirm gate, which they can dismiss. The
+   * bounds that DO matter — one slot, consume-before-replay, drop on viewer swap
+   * or unmount, and a replay that cannot spend — are all still pinned by
+   * `src/consentResume.test.tsx`.
+   */
+  const hasGenerate = hasGenerateScope(token.scopes);
+  useEffect(() => {
+    if (!hasGenerate) return;
+    const pending = pendingConsentRunRef.current;
+    if (!pending) return;
+    pendingConsentRunRef.current = null; // consume FIRST — see the docblock
+    depsRef.current.track('consent_resume');
+    void beginRunRef.current(pending.row, pending.prompt);
+  }, [hasGenerate]);
+
+  /**
+   * 🔴 RE-READ THE BALANCE WHEN THE GRANT LANDS — the other half of the
+   * operator's report, and a SEPARATE effect from the replay above on purpose.
+   *
+   * `useBuzzBalance()` fetches exactly ONCE, from a mount effect over a
+   * `useCallback([], …)` whose identity never changes, and does not re-fetch on
+   * `TOKEN_REFRESH`. So the number this app gated Confirm against was whatever
+   * came back in the first few hundred milliseconds of the page, forever. A
+   * viewer who granted consent mid-session — very often arriving from a top-up
+   * flow, and in any case now holding a different token — was still being
+   * measured against that first read. When the first read had failed there was
+   * no number at all, and until the `confirmGate` fix that rendered as
+   * "Insufficient Buzz balance": the app asserting a shortfall it had never
+   * observed. A full page reload "fixed" it because a reload is the only other
+   * thing that re-runs a mount effect.
+   *
+   * WHY NOT FOLDED INTO THE REPLAY EFFECT ABOVE: that one returns early when no
+   * action is held, and a grant is a balance-changing event whether or not the
+   * held action survived (it can be superseded, or dropped on a viewer swap).
+   * These are two different questions about the same signal.
+   *
+   * WHY IT CANNOT LOOP, which is the whole risk of adding a refetch at all:
+   * `consentAskedRef` means an ordinary token hydration does not qualify, and
+   * the consume-before-acting slot means the ~2-minute re-mints that follow find
+   * nothing to do. Pinned as an EXACT count, not an at-least, by cases 1–3 of
+   * `src/buzzBalance.test.tsx` — an at-least would be satisfied by the loop.
+   */
+  useEffect(() => {
+    if (!hasGenerate) return;
+    if (!consentAskedRef.current) return;
+    if (balanceRefetchedOnGrantRef.current) return;
+    balanceRefetchedOnGrantRef.current = true; // consume FIRST, like the replay
+    buzzRef.current.refetch();
+  }, [hasGenerate]);
+
+  // A held action belongs to the viewer who pressed for it. The cleanup runs on a
+  // viewer swap (the host can change viewer without remounting — see
+  // `src/viewer-change.test.tsx`) AND on unmount, so neither a different account's
+  // grant nor a remount can complete a press that is no longer anyone's.
+  useEffect(
+    () => () => {
+      pendingConsentRunRef.current = null;
+    },
+    [viewer?.id],
   );
 
   const confirmRun = useCallback(
@@ -1616,6 +1836,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         inFlightRef.current.delete(ck);
         return;
       }
+
+      // 🔴 THE SPEND LANDED — RE-READ THE BALANCE. This is the case the SDK's own
+      // docstring names ("`refetch` for on-demand refreshes (e.g. after a
+      // generation debits the balance)") and the app ignored: every later cell in
+      // the session was gated against the PRE-spend number, so the grid stayed
+      // willing to confirm runs the viewer could no longer afford and the refusal
+      // arrived from the server instead of the gate.
+      //
+      // Placed after the submit RESOLVED, not before it and not in the catch: a
+      // throw leaves the outcome genuinely unknown (see above), and re-reading
+      // there would replace one unknown with a number that may or may not include
+      // the charge. Unconditional across `first.status` on purpose — a host
+      // failure-snapshot can still have moved money and then refunded it, and
+      // `first.status === 'failed'` returns before any other refetch site.
+      //
+      // Not awaited: the balance is advisory for the NEXT run, never a gate on
+      // this one, and blocking the poll on it would make a slow balance read look
+      // like a slow generation.
+      buzzRef.current.refetch();
 
       try {
         if (first.status === 'failed') {
@@ -2055,6 +2294,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   runs={runs}
                   c={c}
                   buzzTotal={buzzTotal}
+                  /* 🔴 THE TWO PROPS THAT MAKE AN UNKNOWN BALANCE RECOVERABLE.
+                     `buzzTotal === null` alone cannot tell "still loading" from
+                     "the read failed", and the grid has to say different things
+                     about those. `refetch` is the hook's own escape hatch — the
+                     app used neither it nor `error`, which is why a single
+                     failed mount read was permanent until a page reload. */
+                  buzzBalanceLoading={buzz.loading}
+                  onRetryBalance={buzz.refetch}
                   GatedCell={deps.GatedCell}
                   onRunCell={beginRun}
                   onConfirmRun={confirmRun}
