@@ -309,14 +309,39 @@ export function GridsView({
         {/* 🔴 THE INLINE PREVIEW — real thumbnails, through the gated read, ONE
             batched call per card. `GatedCell` is what issues it; omit the
             component and the card simply has no strip (the standalone fixtures),
-            never a second read path. */}
-        {GatedCell && (
+            never a second read path.
+
+            🔴 `!isOpen` IS A READ-BUDGET GUARD, NOT A LAYOUT CHOICE, and it shipped
+            missing. The OPEN grid renders its full matrix in the panel above this
+            list, and every cell of that matrix reads its outputs through the SAME
+            `GatedCell`. Without this condition the open grid's card ALSO read the
+            SAME image ids — so the one grid the viewer is actually looking at
+            issued its gated read TWICE on every page load: twice the 45s-timeout /
+            auto-retry / `gated_read_error` machinery from 0.4.6, and twice the
+            weight on the host's 150-per-10s-per-`blockInstanceId` limiter. It was
+            redundant UI as well: a thumbnail strip previewing cells displayed
+            full-size a few hundred pixels above it.
+
+            ⚠️ THE PER-CARD BUDGET TESTS CANNOT SEE THIS. `gridPreview.test.tsx`
+            asserts one batched call per CARD and is correct; the duplication lives
+            in the SEAM between a card and the matrix, which no card-scoped fixture
+            builds. `gridPreviewSeam.test.tsx` pins that relationship instead —
+            open card ⇒ no strip AND the matrix shows the images; closed card ⇒
+            strip. Both arms in one render, by exact count. */}
+        {GatedCell && !isOpen && (
           <GridPreview
             imageIds={preview.ids}
             totalCount={preview.total}
             label={name}
             GatedCell={GatedCell}
           />
+        )}
+        {/* The open card would otherwise look emptier than its neighbours for no
+            stated reason. Says where its images are instead of showing them twice. */}
+        {GatedCell && isOpen && (
+          <span style={metaText} data-testid="grid-preview-shown-above">
+            Shown in full above.
+          </span>
         )}
         </Stack>
       </Card>

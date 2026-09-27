@@ -104,21 +104,37 @@ const result = (comboKey: string, configId: string, promptKey: string, imageIds:
 });
 
 /**
- * One published grid naming a SINGLE cell (mk-b × qk-2).
+ * TWO published grids, and the Top Grid card carries NO strip.
  *
- * 🔴 IT IS DELIBERATELY NOT THE SAME SET AS THE TOP GRID. The list always renders
- * the system Top Grid first, and the Top Grid is the top-voted matchups × the
- * top-voted prompts — i.e. all four cells here. If this grid named the same members
- * the two cards would issue IDENTICAL id arrays, and no assertion could tell "one
- * call per card" from "two calls for one card": the two are indistinguishable when
- * the arguments match. A one-cell subset makes every call attributable to exactly
- * one card, which is what lets the counts below be equalities.
+ * 🔴 EVERY CLAIM IN THIS FILE IS ABOUT A **CLOSED** CARD, because a closed card is
+ * the only kind that previews. The open grid's card renders no strip at all — its
+ * cells are displayed full-size by the matrix above the list, and previewing them
+ * again made the one grid the viewer is looking at read its images TWICE (see
+ * `gridPreviewSeam.test.tsx`, which pins that relationship). The system Top Grid is
+ * open by construction (`openKey === null`), so the cards under test here are the
+ * two published ones.
+ *
+ * 🔴 THEIR MEMBER SETS ARE DELIBERATELY DIFFERENT. If both named the same members
+ * they would issue IDENTICAL id arrays, and no assertion could tell "one call per
+ * card" from "two calls for one card" — indistinguishable when the arguments match.
+ * `gk-all` spans all four cells, `gk-one` a single one, so every call is
+ * attributable to exactly one card and the counts below can be equalities.
+ *
+ * Vote counts order them after the pinned Top Grid: `__system__`, `gk-all`, `gk-one`.
  */
-const GRID: GridRow = {
-  key: 'gk-1',
+const GRID_ALL: GridRow = {
+  key: 'gk-all',
+  count: 5,
+  authorUserId: VIEWER_ID,
+  name: 'Every cell',
+  description: '',
+  data: { v: 1, kind: 'grid', matchupKeys: ['mk-a', 'mk-b'], promptKeys: ['qk-1', 'qk-2'] },
+};
+const GRID_ONE: GridRow = {
+  key: 'gk-one',
   count: 3,
   authorUserId: VIEWER_ID,
-  name: 'A grid',
+  name: 'One cell',
   description: '',
   data: { v: 1, kind: 'grid', matchupKeys: ['mk-b'], promptKeys: ['qk-2'] },
 };
@@ -183,7 +199,7 @@ afterEach(() => {
 function renderGrids(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
   render(
     <GridsView
-      grids={opts.grids ?? [GRID]}
+      grids={opts.grids ?? [GRID_ALL, GRID_ONE]}
       combinations={MATCHUPS}
       prompts={PROMPTS}
       results={opts.results ?? []}
@@ -226,21 +242,24 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
       ],
     });
 
-    // TWO cards are on screen: the Top Grid (all four cells) and gk-1 (one cell).
+    // THREE cards are on screen; exactly TWO carry a strip — the open Top Grid
+    // card carries none, which is the seam guard's business and asserted there.
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(3));
     await waitFor(() => expect(screen.getAllByTestId('grid-preview')).toHaveLength(2));
     await new Promise((r) => setTimeout(r, 0));
 
-    // 🔴 TWO CALLS TOTAL — one per CARD. Per-cell would be five (4 + 1). The
-    // equality is the whole assertion; a `>= 2` is satisfied by the defect.
+    // 🔴 TWO CALLS TOTAL — one per STRIP-BEARING CARD. Per-cell would be five
+    // (4 + 1). The equality is the whole assertion; a `>= 2` is satisfied by the
+    // defect this file exists to prevent.
     expect(mockGetImages).toHaveBeenCalledTimes(2);
     // …and the ids are BATCHED, in row-major cell order, attributable per card
     // because the two grids name different members (see GRID).
     expect(readIdSets()).toEqual(expect.arrayContaining([[11, 12, 21, 22], [22]]));
-    expect(within(card('__system__')).getByTestId('grid-preview')).toHaveAttribute(
+    expect(within(card('gk-all')).getByTestId('grid-preview')).toHaveAttribute(
       'data-preview-count',
       '4',
     );
-    expect(within(card('gk-1')).getByTestId('grid-preview')).toHaveAttribute(
+    expect(within(card('gk-one')).getByTestId('grid-preview')).toHaveAttribute(
       'data-preview-count',
       '1',
     );
@@ -256,7 +275,7 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     // assertion the case is named for was never reached, and the mutant died for
     // the wrong reason. Anchor on the cards being rendered (which does not depend
     // on the claim under test), flush, then COUNT.
-    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(3));
     // Let any effect that wanted to fire, fire.
     await new Promise((r) => setTimeout(r, 0));
 
@@ -265,9 +284,14 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     // zero is a fact about the component and not about a mock wired to nothing.
     expect(mockGetImages).toHaveBeenCalledTimes(0);
     // …and only then the DOM: no strip at all, an honest "nothing yet" instead.
-    expect(within(card('gk-1')).queryByTestId('grid-preview')).toBeNull();
-    expect(within(card('gk-1')).getByTestId('grid-preview-empty')).toBeInTheDocument();
-    expect(within(card('__system__')).getByTestId('grid-preview-empty')).toBeInTheDocument();
+    expect(within(card('gk-one')).queryByTestId('grid-preview')).toBeNull();
+    expect(within(card('gk-one')).getByTestId('grid-preview-empty')).toBeInTheDocument();
+    expect(within(card('gk-all')).getByTestId('grid-preview-empty')).toBeInTheDocument();
+    // …and the OPEN card has neither — no strip and no "nothing yet" line, because
+    // it says where its (absent) images would be instead. Asserted so this case
+    // cannot be read as a claim about the open card.
+    expect(within(card('__system__')).queryByTestId('grid-preview')).toBeNull();
+    expect(within(card('__system__')).getByTestId('grid-preview-shown-above')).toBeInTheDocument();
   });
 
   it('skips the UNRUN cells: one filled cell of four means one id and one call', async () => {
@@ -277,16 +301,16 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
 
     // The Top Grid's four cells hold ONE result between them…
     await waitFor(() =>
-      expect(within(card('__system__')).getByTestId('grid-preview')).toBeInTheDocument(),
+      expect(within(card('gk-all')).getByTestId('grid-preview')).toBeInTheDocument(),
     );
     await new Promise((r) => setTimeout(r, 0));
     // …so exactly one id is read, and exactly once. Three unrun cells cost nothing.
     expect(mockGetImages).toHaveBeenCalledTimes(1);
     expect(readIdSets()).toEqual([[11]]);
-    // 🔴 AND THE OTHER CARD, whose single cell is unrun, contributes ZERO — the
-    // zero and the non-zero in one frame, against one mock.
-    expect(within(card('gk-1')).getByTestId('grid-preview-empty')).toBeInTheDocument();
-    expect(within(card('gk-1')).queryByTestId('grid-preview')).toBeNull();
+    // 🔴 AND THE OTHER STRIP-BEARING CARD, whose single cell is unrun, contributes
+    // ZERO — the zero and the non-zero in one frame, against one mock.
+    expect(within(card('gk-one')).getByTestId('grid-preview-empty')).toBeInTheDocument();
+    expect(within(card('gk-one')).queryByTestId('grid-preview')).toBeNull();
   });
 
   it(`caps the strip at ${GRID_PREVIEW_MAX} tiles and DISCLOSES the remainder`, async () => {
@@ -304,7 +328,7 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
       ],
     });
 
-    const preview = await waitFor(() => within(card('__system__')).getByTestId('grid-preview'));
+    const preview = await waitFor(() => within(card('gk-all')).getByTestId('grid-preview'));
     expect(preview).toHaveAttribute('data-preview-count', String(GRID_PREVIEW_MAX));
     const capped = readIdSets().filter((ids) => ids.length === GRID_PREVIEW_MAX);
     expect(capped).toHaveLength(1);
@@ -320,7 +344,7 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     installObserver('never');
     renderGrids({ results: [result('mk-a', 'cfg-a', 'qk-1', [11])] });
 
-    const preview = await waitFor(() => within(card('__system__')).getByTestId('grid-preview'));
+    const preview = await waitFor(() => within(card('gk-all')).getByTestId('grid-preview'));
     // The slot is reserved and inert — no spinner, because nothing is loading.
     expect(within(preview).getByTestId('grid-preview-deferred')).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 0));
@@ -340,7 +364,7 @@ describe('🔴 the preview inherits GatedCell’s hardened read, rather than for
       mockGetImages.mockRejectedValue(new Error('gated read failed'));
       renderGrids({ results: [result('mk-a', 'cfg-a', 'qk-1', [11])] });
 
-      const preview = await waitFor(() => within(card('__system__')).getByTestId('grid-preview'));
+      const preview = await waitFor(() => within(card('gk-all')).getByTestId('grid-preview'));
 
       // ONE bounded auto-retry first: the read is retried once and SAYS so, so a
       // transient stall self-heals without the viewer seeing an error.
@@ -356,8 +380,9 @@ describe('🔴 the preview inherits GatedCell’s hardened read, rather than for
       expect(mockTrack).toHaveBeenCalledWith('gated_read_error', { message: 'gated read failed' });
 
       // Exactly two attempts: the read plus its ONE auto-retry. A third would be
-      // an unbounded loop against a rate-limited host. Only ONE card has a strip
-      // here (gk-1's single cell is unrun), so the global count is per-card.
+      // an unbounded loop against a rate-limited host. Only ONE card issues a read
+      // here (gk-one's single cell is unrun, and the open Top Grid card has no
+      // strip at all), so the global count is that one card's.
       expect(mockGetImages).toHaveBeenCalledTimes(2);
       expect(readIdSets()).toEqual([[11], [11]]);
     } finally {
@@ -369,7 +394,7 @@ describe('🔴 the preview inherits GatedCell’s hardened read, rather than for
     installObserver('intersecting');
     mockGetImages.mockRejectedValue(new Error('gated read failed'));
     renderGrids({ results: [result('mk-a', 'cfg-a', 'qk-1', [11])] });
-    const preview = await waitFor(() => within(card('__system__')).getByTestId('grid-preview'));
+    const preview = await waitFor(() => within(card('gk-all')).getByTestId('grid-preview'));
     const err = await waitFor(() => within(preview).getByTestId('gated-error'), { timeout: 5_000 });
     expect(err).toBeInTheDocument();
 
@@ -386,7 +411,7 @@ describe('🔴 the preview inherits GatedCell’s hardened read, rather than for
     mockGetImages.mockResolvedValue([visible(11), visible(12)]);
     renderGrids({ results: [result('mk-a', 'cfg-a', 'qk-1', [11, 12])] });
 
-    const preview = await waitFor(() => within(card('__system__')).getByTestId('grid-preview'));
+    const preview = await waitFor(() => within(card('gk-all')).getByTestId('grid-preview'));
     await waitFor(() => expect(within(preview).getAllByTestId('result-image')).toHaveLength(2));
     expect(within(preview).getAllByTestId('result-image')[0]).toHaveAttribute(
       'src',
