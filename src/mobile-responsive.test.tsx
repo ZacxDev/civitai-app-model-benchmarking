@@ -555,6 +555,66 @@ describe('420 — the 44px figure itself', () => {
     }
   });
 
+  // 🔴 THE SECOND TAP TARGET THIS APP BUILDS ITSELF, AND IT ALSO SHIPPED UNDER THE
+  // FLOOR — the same defect as the option rows above, one surface later.
+  //
+  // `ContributeMenu` is the page's single Contribute affordance (the control that
+  // replaced the top-level tab strip in the IA refactor), and its three items are
+  // hand-built `<button role="menuitem">` carrying `padding: '8px 10px'` around a
+  // 13px line at `lineHeight` normal — about 34px against the 44 every other
+  // control in the rule is held to. It was missed for EXACTLY the reason the
+  // option rows were: the rule's other selectors
+  // (`[data-civitai-ui='button']`, `[data-civitai-ui-segment]`,
+  // `[data-civitai-ui-range]`) all reach PACK-rendered controls, and the pack emits
+  // no `role="menuitem"` anywhere. `compact.ts`'s own header says an app-built tap
+  // target has slipped this selector list before; this is the third instance, and
+  // it is why the list is now audited by role rather than by memory.
+  //
+  // ⚠️ WHY THE SELECTOR IS `[role='menuitem']` AND NOT A TESTID, and why that
+  // choice is what makes this guard survive the upstream menu migration: the role
+  // pins the STATE (this element is an item in a menu), not a word a future
+  // component could spell differently. MEASURED against the upstream replacement
+  // that a later change may adopt — `@civitai/components@0.8.1`'s
+  // `<civitai-menu-item>` — `connectedCallback()` runs
+  // `this.setAttribute('role', 'menuitem')` on its own HOST, in LIGHT DOM. So this
+  // selector reaches the upstream element too, and a document-level `min-height`
+  // beats its `:host` rule (outer-tree styles win over `:host` regardless of
+  // specificity). Which matters, because the upstream element is NOT above the
+  // floor on its own: its `:host` is `padding: 7px 14px; font-size: 14px;
+  // line-height: 1.4` = 14 × 1.4 + 14 = **33.6px**. The floor is this app's job
+  // either way — the migration does not inherit it.
+  //
+  // ⚠ jsdom does NO layout, so this asserts the CASCADE (computed `min-height` on
+  // the real rendered items), never the geometry — same ceiling as every case here.
+  it('SELECTOR REACHABILITY: the menuitem rule matches the live Contribute items', async () => {
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('section-grids');
+
+    // The items only exist while the menu is open — it is a popover, not a
+    // permanently mounted list, so the click is part of the reachability claim.
+    await userEvent.click(await screen.findByTestId('contribute-trigger'));
+    await screen.findByTestId('contribute-menu-items');
+
+    const items = document.querySelectorAll(`[${COMPACT_ATTR}='true'] [role='menuitem']`);
+    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the
+    // case passes vacuously — the failure mode this whole family exists to prevent.
+    // A literal 3 rather than `> 0`, because the menu's item count is a ledgered
+    // decision (`CONTRIBUTE_ITEMS` in ContributeMenu.tsx asserts the same set).
+    expect(items, 'the menuitem selector reached no live node').toHaveLength(3);
+    for (const i of items) {
+      expect(minHeightPx(i)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
+
+  it('the emitted stylesheet floors the Contribute items with the IMPORTED constant', () => {
+    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some
+    // future refactor of the case above stops opening the menu. Interpolated from
+    // the constant, never a second `44px` literal.
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] [role='menuitem']`);
+    expect(compactTapTargetCss()).toContain(`min-height: ${MIN_TAP_TARGET_PX}px`);
+  });
+
   it('the emitted stylesheet floors the option rows with the IMPORTED constant', () => {
     // The rule TEXT, so a selector deleted from `compact.ts` fails even if some
     // future refactor of the case above stops mounting a picker.
