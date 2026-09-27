@@ -120,6 +120,27 @@ A few notes worth calling out:
 - **The generation scope (`ai:write:budgeted`) is consent-gated.** The first token
   is minted without it; the runner checks the live token scopes
   ([`hasGenerateScope`](src/scopes.ts)) and requests consent before spending.
+  `REQUEST_CONSENT` is fire-and-forget and carries no request id, so the host
+  cannot reply "granted — here is the action you were mid-way through": the grant
+  arrives only as a fresh token on `TOKEN_REFRESH`. **Resuming is therefore the
+  block's job.** The pressed `(matchup config, prompt)` is held in a single slot
+  and replayed once when the scope appears — re-entering the same run path, so it
+  stops at the **Confirm gate** and spends nothing on its own. *Resume* here means
+  the cell advances itself to Confirm, not that the run completes: the viewer
+  still presses Confirm once, and that press is the only thing that spends. The
+  gate is kept deliberately — a consent grant authorises spending up to a cap,
+  not this particular spend. A later press supersedes an earlier held one, and a
+  viewer swap or unmount drops it
+  ([`consentResume.test.tsx`](src/consentResume.test.tsx)).
+- **Publishing a result is confirmed by the host, and the block shows what is
+  being confirmed.** `publish()` opens civitai's own "Publish to the shared
+  grid?" dialog and resolves only when the viewer answers it. That dialog is
+  host chrome and text-only, so the cell underneath renders the finished
+  outputs — from the succeeded snapshot's `imageUrls` — for the whole window it
+  is open ([`publishPreview.test.tsx`](src/publishPreview.test.tsx)). These are
+  the viewer's OWN outputs shown only to them; anything already **published** is
+  read back per-viewer through the gated bridge, never from a url the block
+  holds ([`GatedCell.tsx`](src/components/GatedCell.tsx)).
 
 ## Architecture
 

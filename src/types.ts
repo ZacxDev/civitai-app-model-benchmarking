@@ -377,6 +377,26 @@ export interface CellRun {
   estimatedCost?: number;
   workflowId?: string;
   error?: string;
+  /**
+   * The host-provided urls of THIS viewer's own just-finished outputs
+   * (`BlockWorkflowSnapshot.imageUrls`), carried only for the `publishing`
+   * window so the cell can show what is about to be published.
+   *
+   * 🔴 THIS IS NOT THE GATED READ, AND MUST NEVER BECOME ONE. `GatedCell` exists
+   * because a PUBLISHED row is read by OTHER viewers, whose browsing ceiling only
+   * the host can apply — so a published image is fetched through
+   * `useGatedImages()` and the app never holds a url for it. These urls are the
+   * opposite case: the viewer's own generation, returned to their own block,
+   * rendered only to them, and only before it becomes anyone else's business.
+   * Nothing here is ever appended to a shared row (the row carries the `Image`
+   * ids the HOST minted from `publish()`), so this field never crosses the
+   * per-viewer boundary.
+   *
+   * Optional because it is: the host may report a succeeded workflow with no
+   * urls, and a `resumeRun` on a workflow from a previous session can legitimately
+   * arrive without them. The cell renders its ordinary progress state then.
+   */
+  previewUrls?: string[];
 }
 
 /**

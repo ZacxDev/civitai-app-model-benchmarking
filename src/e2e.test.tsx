@@ -240,13 +240,27 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     await userEvent.click(confirm);
 
     // The real usePublishGenerationOutputs().publish resolves the mock host's
-    // default published ids [9001, 9002]; the real useGatedImages().getImages
-    // then projects 9001 → visible (url) and 9002 → hidden (no url).
+    // default published ids; the real useGatedImages().getImages then projects
+    // the THREE shapes @civitai/blocks-react >= 0.51.0's mock host emits
+    // (`DEFAULT_GATED_IMAGES`): 9001 → visible + rated, 9002 → hidden (no url
+    // ever), 9003 → visible + `ratingPending` (the author's OWN output that
+    // nothing has rated yet: url, and deliberately no rating claim).
+    // 🔴 All three must render DIFFERENTLY. The pending entry is deliberately
+    // NOT a `result-image` and NOT a `result-hidden`: counting it as the first
+    // asserts a rating that does not exist, and as the second asserts it is over
+    // the viewer's ceiling — the "an unrated output reads as rated mature" bug
+    // this release exists to stop.
     await waitFor(() => expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result'), { timeout: 3000 });
     const resultImgs = await screen.findAllByTestId('result-image', {}, { timeout: 3000 });
-    expect(resultImgs).toHaveLength(1); // 9001 visible
+    expect(resultImgs).toHaveLength(1); // 9001 only — visible AND rated
     expect(resultImgs[0]).toHaveAttribute('src', expect.stringContaining('gated-9001'));
-    expect(screen.getByTestId('result-hidden')).toBeInTheDocument(); // 9002 gated-hidden
+    expect(screen.getByTestId('result-hidden')).toBeInTheDocument(); // 9002 withheld
+    // 9003: shown to its author, marked as awaiting a rating, not withheld.
+    expect(screen.getByTestId('result-pending')).toBeInTheDocument();
+    expect(screen.getByTestId('result-pending-image')).toHaveAttribute(
+      'src',
+      expect.stringContaining('gated-9003'),
+    );
   });
 
   it('surfaces a gated-read error (real useGatedImages error path)', async () => {
