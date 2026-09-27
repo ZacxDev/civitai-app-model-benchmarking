@@ -8,7 +8,7 @@ cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
 reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ## State now
-- **`main` = `b413500`.** Base clone synced, tree clean, no worktrees, no open PRs, no
+- **`main` = `067d7b2`** (plus this doc commit). Base clone synced, tree clean, no worktrees, no open PRs, no
   claims held.
 - **Live = 0.4.6** (`app_state.py model-benchmarking 0.4.6` → `approved/live`, rc 0),
   serving `assets/index-CL_wLzp7.js`. **`main` is AHEAD of live**: the whole IA refactor
@@ -34,32 +34,74 @@ reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. **Release 0.4.7 — BUT the store screenshots break first.** Bump both version fields,
-   `civitai app validate`, submit from a clean detached worktree off `origin/main`,
-   moderator approve, verify by served-bundle grep. 🔴 **Do not submit before step 2**:
-   the listing screenshots are captured by a recipe that cannot run against this IA, so a
-   release now ships a listing whose images describe an app that no longer exists.
+
+🔴 **RELEASE FIRST. An earlier version of this doc said the opposite — "do not submit
+before the capture recipe is re-measured" — and that instruction CANNOT CLEAR AS WRITTEN.**
+Measured 2026-09-27: the re-measure is blocked *on the release*, so the two steps were
+deadlocked. Three reasons, each independently sufficient:
+- **The recipe currently WORKS and re-pointing it now would BREAK it.** Against the live
+  0.4.6 bundle, `view-switch-matchups`/`-prompts`/`-grid` are present ×1 each while
+  `data-mb-section`, `section-grids`/`-matchups`/`-prompts` and `contribute-trigger` are
+  **0** (counted with an absent-sentinel control returning 0). The recipe is correct for
+  the only version anyone can capture; a re-point serves a version nobody can reach.
+- **Nothing can be measured pre-release.** `capture.sh` has **no `--url` override**.
+  `dev-tunnel` serves `/apps/dev/<blockId>` — a different route behind a different iframe
+  host, so it needs BOTH `url` and `frameHost` changed (`resolve_frame` matches host
+  exactly), it is invite-only behind a server kill-switch, and geometry measured on a
+  different route is a poor basis for an `/apps/run` rect.
+- **Listing media is NOT version-scoped.** Screenshots attach per-listing by slug
+  (`civitai app listing add-screenshot`, its own shadow revision + `--changelog`), so
+  shipping 0.4.7 does not touch them — it leaves them **stale until re-shot**. Bounded,
+  cosmetic, reversible. That is a far smaller cost than a deadlock.
+
+1. **Release 0.4.7.** Bump both version fields, `civitai app validate`, submit from a clean
+   detached worktree off `origin/main`, moderator approve, confirm live by served-bundle
+   grep. Accept that the three listing screenshots are stale from that moment until step 2
+   completes.
    forcing: gate — moderator approval.
-2. **Re-measure the talos capture recipe** (`civitai/talos-infra`, locally
-   `datapacket-talos`, `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json`).
-   🔴 **This is a RE-MEASURE, not a re-point** — three independent breakages, and the two
-   that matter are not the obvious one:
+2. **Re-measure the capture recipe — AFTER 0.4.7 is live.**
+   🔴 **It lives in `civitai/civitai`, NOT talos-infra.** An earlier version of this doc
+   sent you to the wrong repo. It was **moved**, not never-merged: talos `273f01802`
+   ("stub app-taste, listing-media and app-capture to their new home", 2026-09-25,
+   −10,425 lines) → landed as `civitai/civitai` `d70913b359` (#5158). `talos-infra`'s
+   `trunk` now carries only a **pointer stub** at `.claude/skills/app-capture/SKILL.md`.
+   Canonical path: `civitai/civitai` `origin/main`
+   `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json`. ⚠ Stale copies
+   still sit on old talos **feature branches**, where an edit would be invisible — and the
+   `$DATAPACKET` base clone is **234 commits behind** with the full pre-move tree present,
+   62 dirty paths and 89 stash entries of someone else's work. Do not edit there.
+   The blocked state is already annotated on the recipe itself as `_iaRefactorBlocked`
+   (`civitai/civitai` **PR #5176**, doc-only, no selector/geometry/action changed).
+   The three breakages:
    - `ready.testid: "view-switch"` is the **boot gate**, so the capture stalls 45s and
      fails *before any click*, not on its first step;
-   - all three `waitForText` discriminators (`"Submit and vote on checkpoint"`,
-     `"Submit and vote on prompts"`, `"Top Grid"`) now render **simultaneously**, so the
-     recipe's own stated defence — "the only thing standing between a drifted selector and
-     a successful capture of the wrong screen" — is **structurally inert**, and the three
-     states would come out as three identical screenshots;
-   - `crop.rect` is dead: it was measured when one view mounted at a time
-     ("ONE RECT SERVES ALL THREE STATES … grid y=170..983, matchups y=170..608"), and three
-     stacked sections make the page ~3× taller.
-   The verb becomes **scroll to a section**, not click a tab. New landmarks are pinned by
-   `src/capture-landmarks.test.tsx`. Checked: of the four talos consumers
-   `docs/matchups.md:311` records, only this one breaks (two couple on `matchup-card` /
-   `submit-matchup` / `matchups-list` or a state name; one carries a stale `view-switch`
-   fixture nothing asserts on).
-   forcing: check — the recipe runs exit 0 with all three states visibly distinct.
+   - all three `waitForText` discriminators now render **simultaneously**, so the recipe's
+     own stated defence — "the only thing standing between a drifted selector and a
+     successful capture of the wrong screen" — is **structurally inert**, and the three
+     states would come out as three identical screenshots. This is the one that matters;
+   - `crop.rect` is dead: measured when one view mounted at a time, and three stacked
+     sections make the page ~3× taller. No replacement exists — geometry is live-only and
+     must be **re-derived, never copied**.
+   🔴 **"Scroll to a section" is NOT implementable — a third thing this doc got wrong.**
+   Refused twice over: there is no `scroll` verb in `KNOWN_ACTIONS` (proved by feeding one
+   to `validate_recipe` and watching it refuse), and the app calls `useBlockResize`, so the
+   host fits the iframe to content and there is **no in-iframe scroll** — reaching lower
+   sections scrolls the HOST page, which `frame.py` refuses as `crop_rect_outside` ("a
+   negative app-frame top gap … the page is scrolled"). `crop` is also recipe-level with
+   **no per-state override**, so three stacked sections cannot each get a rect.
+   **The candidate route, recorded and NOT measured:** the three click→**overlay**
+   landmarks this refactor pinned — `contribute-trigger`→`contribute-menu-items`,
+   `grid-group-matchup`→`matchup-detail`, `grid-col-header`→`prompt-detail`. Overlays need
+   no scroll, keep `yFrom: appFrame`, and each carries its own discriminator, fixing the
+   second breakage *structurally* rather than by wording. New clicks must be added to the
+   recipe's `clickable` ledger (an unledgered click is refused — confirmed by control).
+   The open question is pure **layout**: does a modal land in the visible viewport when the
+   iframe is ~3× viewport tall? jsdom performs no layout, so nothing in this repo can
+   answer it.
+   Consumer scope checked: of the four talos consumers `docs/matchups.md:311` records, only
+   this recipe breaks (two couple on `matchup-card`/`submit-matchup`/`matchups-list` or a
+   state name; one carries a stale `view-switch` fixture nothing asserts on).
+   forcing: check — the recipe runs exit 0 with all three states **visibly distinct**.
 3. **Real-host verification, human-required.** Turnstile + auth gated; no local, harness
    or test run covers it. The consent → Allow → Confirm path spends exactly once; an
    unreadable balance offers **Retry balance check** and never claims a shortfall; the
