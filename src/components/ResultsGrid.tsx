@@ -12,7 +12,7 @@ import { Button, Loader } from '@civitai/blocks-react/ui';
 import { Image } from '@civitai/components-react';
 
 import type { Palette } from '../theme.js';
-import { token, radius, metaText } from '../theme.js';
+import { token, radius, metaText, elevate } from '../theme.js';
 import type { CellRun, PromptRow, ResultRow } from '../types.js';
 import {
   cellKey,
@@ -55,14 +55,63 @@ export interface ResultsGridProps {
   /** Resume-poll a stalled cell's existing workflow (no re-submit, no re-charge). */
   onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
-  /** Jump to the Matchups tab — the next step when the grid has no rows. */
+  /**
+   * Open the matchup submit form — the next step when the grid has no rows.
+   *
+   * 🔴 IT USED TO JUMP TO A TAB. The app had a top-level tab strip and this
+   * called `setView('combos')`, which landed the viewer on a list and left them to
+   * find the Submit button. The strip is gone (one page now), and the tab jump was
+   * only ever a way of reaching the submit modal — so it opens the modal.
+   */
   onAddCombination?: () => void;
-  /** Jump to the Prompts tab — the next step when the grid has no columns. */
+  /** Open the prompt submit form — the next step when the grid has no columns. */
   onAddPrompt?: () => void;
+  /**
+   * Open the MATCHUP DETAIL for a group — fired by the group band, and by nothing
+   * else.
+   *
+   * 🔴 THE BAND, NOT THE ROW HEADER. A config row (`grid-row-header` /
+   * `grid-config-label`) is deliberately INERT: a row is one checkpoint+LoRA setup
+   * inside the matchup, not the matchup, and wiring the whole header would make
+   * every row a link to its parent — which is not what was asked for and reads as
+   * a misfire to anyone aiming at the config label. There is a negative-control
+   * test asserting a config-label click fires NOTHING.
+   *
+   * 🔴 REQUIRED — see `onOpenPrompt` for why both of these stopped being optional.
+   */
+  onOpenMatchup: (comboKey: string) => void;
+  /**
+   * Open the PROMPT DETAIL for a column — fired by the column header.
+   *
+   * 🔴 REQUIRED, AND SO IS `onOpenMatchup`, WHICH DELETED ~40 LINES OF PRODUCTION
+   * BRANCH. `ColumnHeader` and `GroupBand` each used to render a plain `<div>` when
+   * no handler was wired, "so a dead control is never rendered". Production never
+   * reached either branch: `App.tsx` is the single call site and has always passed
+   * both. The branch existed for fixtures that declined to pass a prop, and one test
+   * asserted the inert shape. Making the props required makes "never a dead control"
+   * true BY CONSTRUCTION rather than by a branch nothing exercises — and a fixture
+   * that forgets a handler now fails to compile instead of quietly rendering a
+   * different element than production does.
+   */
+  onOpenPrompt: (promptKey: string) => void;
 }
 
 const CELL_W = 200;
 const ROW_H_HEADER = 56;
+
+/**
+ * The matrix's corner cell — the label that names what the two axes ARE.
+ *
+ * 🔴 PINNED AS A WHOLE NORMALISED STRING BY A TEST, including the multiplication
+ * sign. It read `configs × prompts` until the IA refactor, which is the app's
+ * INTERNAL word: a viewer submits and votes on *matchups*, every other surface
+ * says matchup, and the corner of the primary object said something else. A
+ * keyword guard on the word would be walkable by a reword (this repo has been
+ * bitten by exactly that — see `manifest.test.ts`'s description guard), so the
+ * test pins the whole string and asserts the U+00D7 MULTIPLICATION SIGN
+ * explicitly: a plain ASCII `x` must fail.
+ */
+export const GRID_CORNER_LABEL = 'matchups × prompts';
 
 /**
  * Viewer-facing copy for the `'unknown'` cell state — a persisted in-flight claim
@@ -183,6 +232,8 @@ export function ResultsGrid({
   onCancelRun,
   onAddCombination,
   onAddPrompt,
+  onOpenMatchup,
+  onOpenPrompt,
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
 
@@ -190,8 +241,8 @@ export function ResultsGrid({
   // treatment as every other list: the shared EmptyState template, which the
   // house rule says must always carry a next step rather than a lonely
   // "nothing here" string. It also names WHICH side is missing — rows and
-  // columns come from two different tabs, and the old single sentence made the
-  // reader work out which one to go and fix.
+  // columns are two different objects with two different submit forms, and the
+  // old single sentence made the reader work out which one to go and fix.
   if (configs.length === 0 || prompts.length === 0) {
     const needsCombination = configs.length === 0;
     const needsPrompt = prompts.length === 0;
@@ -201,12 +252,16 @@ export function ResultsGrid({
         ? 'The grid has columns but no rows yet: it needs at least one included matchup with a model config.'
         : 'The grid has rows but no columns yet: it needs at least one included prompt.';
     const action = needsCombination && onAddCombination ? (
+      // 🔴 THE LABELS FOLLOW THE ACTION. These said "Go to Matchups"/"Go to
+      // Prompts" while they switched a top-level tab; they now open the submit
+      // form directly (there are no tabs), so a label promising navigation would
+      // describe something that no longer happens.
       <Button size="sm" onClick={onAddCombination} data-testid="grid-empty-add-matchup">
-        Go to Matchups
+        Submit a matchup
       </Button>
     ) : !needsCombination && needsPrompt && onAddPrompt ? (
       <Button size="sm" onClick={onAddPrompt} data-testid="grid-empty-add-prompt">
-        Go to Prompts
+        Submit a prompt
       </Button>
     ) : undefined;
     return (
@@ -243,24 +298,12 @@ export function ResultsGrid({
         {/* Header row: corner + one column header per prompt */}
         <HeaderCorner c={c} />
         {prompts.map((p) => (
-          <div
+          <ColumnHeader
             key={p.key}
-            data-testid="grid-col-header"
-            style={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 2,
-              background: c.headerBg,
-              borderBottom: `1px solid ${c.border}`,
-              borderLeft: `1px solid ${c.border}`,
-              padding: '8px 10px',
-              minHeight: ROW_H_HEADER,
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 13, color: token.text }}>{p.name || `#${p.key}`}</div>
-            <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>▲ {p.count}</div>
-          </div>
+            prompt={p}
+            c={c}
+            onOpen={() => onOpenPrompt(p.key)}
+          />
         ))}
 
         {/* Body: one row per CONFIG (grouped under its combination) */}
@@ -281,10 +324,154 @@ export function ResultsGrid({
             onConfirmRun={onConfirmRun}
             onResumeRun={onResumeRun}
             onCancelRun={onCancelRun}
+            onOpenMatchup={onOpenMatchup}
           />
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * One prompt COLUMN header — always a real `<button>`, so Enter/Space work and the
+ * accessible name says what the press does.
+ *
+ * 🔴 THERE IS NO INERT `<div>` VARIANT ANY MORE. It existed for a caller that
+ * passed no handler, which production never was, and `onOpen` is required so that
+ * cannot recur. "Never a dead control" is now a property of the type rather than of
+ * a branch no production render reaches.
+ */
+function ColumnHeader({
+  prompt,
+  c,
+  onOpen,
+}: {
+  prompt: PromptRow;
+  c: Palette;
+  onOpen: () => void;
+}): React.JSX.Element {
+  const name = prompt.name || `#${prompt.key}`;
+  const style: React.CSSProperties = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    background: c.headerBg,
+    borderBottom: `1px solid ${c.border}`,
+    borderLeft: `1px solid ${c.border}`,
+    padding: '8px 10px',
+    minHeight: ROW_H_HEADER,
+    boxSizing: 'border-box',
+  };
+  const inner = (
+    <>
+      <div style={{ fontWeight: 600, fontSize: 13, color: token.text }}>{name}</div>
+      <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>▲ {prompt.count}</div>
+    </>
+  );
+  return (
+    <button
+      type="button"
+      data-testid="grid-col-header"
+      data-prompt-key={prompt.key}
+      onClick={onOpen}
+      aria-label={`Open prompt: ${name}`}
+      style={{
+        ...style,
+        appearance: 'none',
+        textAlign: 'left',
+        font: 'inherit',
+        width: '100%',
+        cursor: 'pointer',
+        border: 'none',
+        borderBottom: `1px solid ${c.border}`,
+        borderLeft: `1px solid ${c.border}`,
+      }}
+    >
+      {inner}
+    </button>
+  );
+}
+
+/**
+ * The matchup GROUP BAND — a real table section header spanning the whole row,
+ * and the ONLY drill-in control on a config row.
+ *
+ * 🔴 IT IS A `<button>`, NOT A `<div onClick>`. It carries an accessible name that
+ * NAMES THE MATCHUP, so a keyboard viewer and a screen reader both get the same
+ * affordance a mouse viewer does — and an a11y assertion pins that. Note for
+ * anyone porting a query from the old tab strip: those controls exposed
+ * `role="tab"`; this one is a `button`.
+ *
+ * 🔴 `gridColumn: '1 / -1'` IS WHAT MAKES IT A BAND. It used to be a small dimmed
+ * line INSIDE the first column's sticky row header, which read as a label on one
+ * config rather than a heading over the whole group — the operator's "so it's
+ * intuitive" ask. Spanning every track is the structural half of that; the
+ * background, the disclosure glyph and the hover/focus states are the visual half.
+ *
+ * 🔴 AND IT IS ALWAYS A BUTTON. There used to be an inert `<div>` variant for a
+ * caller that passed no `onOpen`; `onOpen` is required now, so the only shape this
+ * renders is the wired one — the same shape production has always rendered.
+ *
+ * ⚠️ jsdom performs no layout, so no test in this repo can assert that this
+ * actually READS as a band. The span, the element type, the name and the states
+ * are asserted; the appearance is not.
+ */
+function GroupBand({
+  row,
+  c,
+  onOpen,
+}: {
+  row: BenchConfig;
+  c: Palette;
+  onOpen: (comboKey: string) => void;
+}): React.JSX.Element {
+  const name = row.comboName || `#${row.comboKey}`;
+  const base: React.CSSProperties = {
+    gridColumn: '1 / -1',
+    position: 'sticky',
+    left: 0,
+    zIndex: 2,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '6px 10px',
+    borderTop: `2px solid ${c.border}`,
+    background: elevate(7),
+    color: token.text,
+    font: 'inherit',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    textAlign: 'left',
+  };
+  const content = (
+    <>
+      <span aria-hidden="true" style={{ color: token.dimmed, fontSize: 10 }}>
+        ▸
+      </span>
+      <span>{name}</span>
+      <span style={{ color: token.dimmed, fontWeight: 600 }}>▲ {row.comboCount}</span>
+    </>
+  );
+  return (
+    <button
+      type="button"
+      data-testid="grid-group-matchup"
+      data-combo-key={row.comboKey}
+      onClick={() => onOpen(row.comboKey)}
+      aria-label={`Open matchup: ${name}`}
+      style={{ ...base, border: 'none', borderTop: `2px solid ${c.border}`, cursor: 'pointer' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = elevate(12);
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = elevate(7);
+      }}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -305,8 +492,9 @@ function HeaderCorner({ c }: { c: Palette }): React.JSX.Element {
         color: token.dimmed,
         boxSizing: 'border-box',
       }}
+      data-testid="grid-corner"
     >
-      configs × prompts
+      {GRID_CORNER_LABEL}
     </div>
   );
 }
@@ -327,6 +515,7 @@ interface RowProps {
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
   onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
+  onOpenMatchup: (comboKey: string) => void;
 }
 
 function RowFragment({
@@ -344,13 +533,22 @@ function RowFragment({
   onConfirmRun,
   onResumeRun,
   onCancelRun,
+  onOpenMatchup,
 }: RowProps): React.JSX.Element {
   const eco = ecosystemForBaseModel(row.config.checkpoint.baseModel);
-  // A heavier top border opens each combination group; a light one between its configs.
-  const topBorder = groupStart ? `2px solid ${c.border}` : `1px solid ${c.border}`;
+  // A light separator between the configs of one group; the group's own band
+  // supplies the heavier rule that opens it (see GroupBand).
+  const topBorder = `1px solid ${c.border}`;
   return (
     <>
-      {/* Sticky row header (the config, labeled under its combination) */}
+      {/* 🔴 THE GROUP BAND IS ITS OWN FULL-WIDTH GRID ITEM, emitted BEFORE the
+          row header rather than nested inside it. That is what lets it span every
+          column (`1 / -1`) and read as a table section header instead of a label
+          on the first config. It is also the only clickable landmark on a config
+          row — the header below stays inert. */}
+      {groupStart && <GroupBand row={row} c={c} onOpen={onOpenMatchup} />}
+      {/* Sticky row header (the config, labeled under its combination). INERT by
+          design: see `ResultsGridProps.onOpenMatchup`. */}
       <div
         data-testid="grid-row-header"
         data-combo-key={row.comboKey}
@@ -365,14 +563,6 @@ function RowFragment({
           boxSizing: 'border-box',
         }}
       >
-        {groupStart && (
-          <div
-            style={{ fontSize: 11, color: token.dimmed, fontWeight: 600, marginBottom: 2 }}
-            data-testid="grid-group-matchup"
-          >
-            {row.comboName || `#${row.comboKey}`} · ▲ {row.comboCount}
-          </div>
-        )}
         <div style={{ fontWeight: 600, fontSize: 13, color: token.text }} data-testid="grid-config-label">
           {configLabel(row)}
         </div>

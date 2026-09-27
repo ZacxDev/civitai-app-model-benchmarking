@@ -19,13 +19,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { CombinationRow, GridRow, PromptRow } from '../types.js';
-import { DEFAULT_TOP_N } from './benchmark.js';
+import type { CombinationRow, GridRow, PromptRow, ResultRow } from '../types.js';
+import { DEFAULT_TOP_N, indexResultsByCell } from './benchmark.js';
 import {
   buildTopGrid,
   communityGridEntries,
   entryKeys,
   gridMemberSummary,
+  gridPreviewIds,
+  GRID_PREVIEW_MAX,
   missingMembersNotice,
   orderGridsByVotes,
   resolveGridRows,
@@ -388,5 +390,151 @@ describe('the disclosure copy', () => {
 
   it('names the Top Grid the same way everywhere', () => {
     expect(TOP_GRID_NAME).toBe('Top Grid');
+  });
+});
+
+// ===========================================================================
+// The card preview READ BUDGET — in the NODE tier, where `lib/` logic belongs
+// ===========================================================================
+
+/**
+ * 🔴 `gridPreviewIds` IS THE READ BUDGET, AND IT WAS ONLY EVER VERIFIED THROUGH
+ * jsdom. `src/gridPreview.test.tsx` drives it through a rendered `GridsView` with a
+ * mocked `useGatedImages`, which makes every claim about it also a claim about the
+ * component, the hook mock and the DOM. `CLAUDE.md` names the node tier as where
+ * `lib/` logic is verified, and a two-tier suite must be read in both tiers — a
+ * defect in one can be structurally invisible in the other. These are the pure
+ * cases: what goes into the one batched call, and how many were left out.
+ *
+ * FIXTURE DISCIPLINE, on top of this file's own rules:
+ *
+ *   - Image ids are pairwise distinct AND none of them equals `GRID_PREVIEW_MAX`
+ *     (6) or any other constant an assertion names, so a mutant that hardcoded a
+ *     literal cannot survive by coinciding with a fixture value.
+ *   - The over-cap case carries EIGHT ids against a cap of six. Deliberately not a
+ *     multiple of the cap, and deliberately not exactly on it: a fixture landing on
+ *     the boundary cannot see an off-by-one in the slice, and one at 2× cannot tell
+ *     `slice(0, cap)` from a halving.
+ *   - Three points on the cap dimension — UNDER it, exactly ON it, and OVER it —
+ *     because a single measurement is not a claim about the function.
+ *   - The authored member order is NOT the vote order (mk-bravo 22 before mk-alpha
+ *     91, qk-whisky 42 before qk-tango 76), so "row-major in AUTHORED order" is
+ *     distinguishable from "row-major in whatever order the board happens to be in".
+ */
+describe('gridPreviewIds — the one batched read per card, in the node tier', () => {
+  /** A published result row for one cell. `combo()` names its config `<key>-cfg`. */
+  function result(comboKey: string, promptKey: string, imageIds: number[]): ResultRow {
+    return {
+      key: `r-${comboKey}-${promptKey}`,
+      authorUserId: 53,
+      data: {
+        v: 2,
+        kind: 'result',
+        comboKey,
+        configId: `${comboKey}-cfg`,
+        promptKey,
+        ecosystem: 'SDXL',
+        imageIds,
+      },
+    };
+  }
+
+  /** 2 × 2, authored AGAINST the vote order on both axes. */
+  const TWO_BY_TWO = grid('gk-preview', 9, ['mk-bravo', 'mk-alpha'], ['qk-whisky', 'qk-tango']);
+  const resolved = resolveGridRows(
+    { system: false, row: TWO_BY_TWO },
+    MANY_MATCHUPS,
+    MANY_PROMPTS,
+  );
+
+  const idsFor = (results: ResultRow[]) => gridPreviewIds(resolved, indexResultsByCell(results));
+
+  it('the cap is six — stated here so a silent change of the budget fails', () => {
+    // A literal, not a re-export of the constant into its own expectation. The
+    // cases below are written against SIX; if that moves, they must be re-read
+    // rather than silently re-scaled.
+    expect(GRID_PREVIEW_MAX).toBe(6);
+  });
+
+  it('collects every cell’s ids in ROW-MAJOR AUTHORED order, and caps at six of eight', () => {
+    const { ids, total } = idsFor([
+      result('mk-bravo', 'qk-whisky', [71, 72]),
+      result('mk-bravo', 'qk-tango', [73, 74]),
+      result('mk-alpha', 'qk-whisky', [75, 76]),
+      result('mk-alpha', 'qk-tango', [77, 78]),
+    ]);
+
+    // 🔴 THE ORDER IS THE CLAIM AS MUCH AS THE COUNT. Row-major over authored
+    // members: bravo's row first (its two columns, whisky then tango), then
+    // alpha's. A resolver that walked the board in VOTE order would return
+    // `[75, 76, 77, 78, 71, 72]` — same length, same cap, different ids.
+    expect(ids).toEqual([71, 72, 73, 74, 75, 76]);
+    // …and the UNCAPPED total, which is what the "+2 more" disclosure is built
+    // from. Folding it into `ids.length` is the silent-understatement bug.
+    expect(total).toBe(8);
+    expect(total - ids.length).toBe(2);
+  });
+
+  it('EXACTLY ON the cap: six ids, six read, nothing to disclose', () => {
+    // The boundary point. `slice(0, 6)` and an off-by-one `slice(0, 7)` agree here
+    // and disagree in the case above, which is why both are measured.
+    const { ids, total } = idsFor([
+      result('mk-bravo', 'qk-whisky', [81, 82, 83]),
+      result('mk-bravo', 'qk-tango', [84, 85, 86]),
+    ]);
+    expect(ids).toEqual([81, 82, 83, 84, 85, 86]);
+    expect(total).toBe(6);
+    expect(total - ids.length).toBe(0);
+  });
+
+  it('UNDER the cap: nothing is padded and nothing is dropped', () => {
+    const { ids, total } = idsFor([result('mk-alpha', 'qk-tango', [91, 92])]);
+    expect(ids).toEqual([91, 92]);
+    expect(total).toBe(2);
+  });
+
+  it('🔴 an UNRUN cell contributes NOTHING — three of four cells cost zero ids', () => {
+    // This is what makes a grid of empty cells cost ZERO gated reads rather than
+    // one per cell: no result row, no image id, no read.
+    const { ids, total } = idsFor([result('mk-bravo', 'qk-tango', [73, 74])]);
+    expect(ids).toEqual([73, 74]);
+    expect(total).toBe(2);
+  });
+
+  it('🔴 a grid with NO results yields an EMPTY id list — the zero the component needs', () => {
+    // `GridPreview` renders no `GatedCell` at all for an empty list, which is how
+    // the zero-read case is structural rather than the hook short-circuiting.
+    expect(idsFor([])).toEqual({ ids: [], total: 0 });
+  });
+
+  it('a result for a cell OUTSIDE the grid is not read', () => {
+    // POSITIVE CONTROL for the zero above, in the same describe and against the
+    // same helper: the board can hold results this grid must not pull in. mk-echo
+    // is on the board and is NOT a member of `TWO_BY_TWO`.
+    const { ids, total } = idsFor([
+      result('mk-echo', 'qk-tango', [61, 62]),
+      result('mk-alpha', 'qk-tango', [91, 92]),
+    ]);
+    expect(ids).toEqual([91, 92]);
+    expect(total).toBe(2);
+  });
+
+  it('a DANGLING member contributes nothing, and the survivors still do', () => {
+    // A grid naming a withdrawn row resolves to fewer members; its cells simply
+    // are not among the ones walked. Never a throw, never a shifted order.
+    const dangling = resolveGridRows(
+      { system: false, row: grid('gk-d', 2, ['mk-gone', 'mk-alpha'], ['qk-tango']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    const { ids, total } = gridPreviewIds(
+      dangling,
+      indexResultsByCell([
+        result('mk-gone', 'qk-tango', [51, 52]),
+        result('mk-alpha', 'qk-tango', [91, 92]),
+      ]),
+    );
+    expect(ids).toEqual([91, 92]);
+    expect(total).toBe(2);
   });
 });

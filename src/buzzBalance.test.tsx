@@ -115,7 +115,7 @@ function balanceReads(log: Array<{ type: string }>): number {
 
 /** Open Grids and press the single empty cell's Run button. */
 async function pressRunCell() {
-  await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+  await screen.findByTestId('grid-view');
   const grid = await screen.findByTestId('results-grid');
   await userEvent.click(within(grid).getByTestId('run-cell'));
 }
@@ -161,7 +161,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     const { appStorage } = fakeAppStorage();
 
     render(block({ shared, appStorage }, { consentGranted: false, onOutbound: (m) => log.push(m) }));
-    await screen.findByRole('tab', { name: /^Grids$/ });
+    await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
     // The real round-trip: the press asks for consent, the mock host grants and
@@ -184,7 +184,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     const opts = { consentGranted: false, onOutbound: (m: { type: string }) => log.push(m) };
 
     const view = render(block(deps, opts));
-    await screen.findByRole('tab', { name: /^Grids$/ });
+    await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
     await pressRunCell();
@@ -233,7 +233,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     const opts = { consentGranted: true, onOutbound: (m: { type: string }) => log.push(m) };
 
     const view = render(block(deps, opts));
-    await screen.findByRole('tab', { name: /^Grids$/ });
+    await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
     for (let i = 0; i < 3; i++) {
@@ -266,7 +266,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
         { consentGranted: true, onOutbound: (m) => log.push(m) },
       ),
     );
-    await screen.findByRole('tab', { name: /^Grids$/ });
+    await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
     await pressRunCell();
@@ -288,7 +288,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     render(
       block({ shared, appStorage, submit }, { consentGranted: true, onOutbound: (m) => log.push(m) }),
     );
-    await screen.findByRole('tab', { name: /^Grids$/ });
+    await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
     await pressRunCell();

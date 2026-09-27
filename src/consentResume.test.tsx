@@ -185,7 +185,7 @@ function block(deps: Record<string, unknown>, opts: { consentGranted: boolean })
 
 /** Open Grids and return the run buttons of every empty cell, in column order. */
 async function runButtons(): Promise<HTMLElement[]> {
-  await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+  await screen.findByTestId('grid-view');
   const grid = await screen.findByTestId('results-grid');
   await within(grid).findAllByTestId('run-cell');
   return within(grid).getAllByTestId('run-cell');

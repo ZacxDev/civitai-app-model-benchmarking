@@ -14,7 +14,6 @@
 // (2) is the one that matters: (1) alone is satisfied by deleting the hook.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from '@civitai/blocks-react/testing';
@@ -62,30 +61,43 @@ function renderApp(balance: { blue: number; green: number; yellow: number } | nu
   );
 }
 
-async function tabs() {
-  const strip = await screen.findByTestId('view-switch');
-  // The strip's controls expose role="tab", NOT role="button" — asking for
-  // "button" here fails with "unable to find an accessible element", which
-  // reads exactly like the app not rendering. It renders; the role differs.
-  return within(strip).getAllByRole('tab');
+/**
+ * The page's three top-level sections, in DOM order.
+ *
+ * 🔴 IT USED TO CLICK A TAB PER VIEW. There was a `view-switch` strip whose
+ * controls exposed `role="tab"`, and "in all three views" meant three clicks. The
+ * IA refactor deleted the strip: the three sections are mounted TOGETHER, so the
+ * "absent in every view" claim is now checked in ONE frame — which is a stronger
+ * assertion than the walk it replaced, not a weaker one (a badge that appeared in
+ * only one section would still be on screen here).
+ */
+async function sections() {
+  await screen.findByTestId('section-grids');
+  return [
+    screen.getByTestId('section-grids'),
+    screen.getByTestId('section-matchups'),
+    screen.getByTestId('section-prompts'),
+  ];
 }
 
 describe('419 criterion 1 — the header Buzz badge does not render, in any view', () => {
   it('is absent on first paint even though the host DOES report a balance', async () => {
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-grids');
     expect(screen.queryByTestId('buzz-balance')).toBeNull();
   });
 
-  it('is absent in all three views', async () => {
+  it('is absent with all three sections mounted', async () => {
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    const buttons = await tabs();
-    // The strip is the app's only navigation: combos / prompts / grid.
-    expect(buttons).toHaveLength(3);
-    for (const b of buttons) {
-      await userEvent.click(b);
-      await waitFor(() => expect(screen.queryByTestId('buzz-balance')).toBeNull());
+    const mounted = await sections();
+    // 🔴 THE PREMISE, asserted rather than assumed: all three really are on screen,
+    // so the absence below is an absence across the whole page and not an absence
+    // from whichever section happened to be rendered.
+    expect(mounted).toHaveLength(3);
+    for (const section of mounted) {
+      expect(within(section).queryByTestId('buzz-balance')).toBeNull();
     }
+    await waitFor(() => expect(screen.queryByTestId('buzz-balance')).toBeNull());
   });
 
   it('renders no node whose text still advertises a Buzz balance', async () => {
@@ -93,7 +105,7 @@ describe('419 criterion 1 — the header Buzz badge does not render, in any view
     // under a different testid, so pin the rendered STRING too. 5,000 is the
     // host balance above; `toLocaleString()` is what the old badge printed.
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-grids');
     expect(screen.queryByText(/5,000\s*Buzz/i)).toBeNull();
   });
 });
@@ -102,8 +114,7 @@ describe('419 criterion 2 — the balance still reaches the money path', () => {
   it('passes the host balance through to ResultsGrid after the badge is gone', async () => {
     gridProps.length = 0;
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    const buttons = await tabs();
-    await userEvent.click(buttons[2]); // Grid
+    await sections();
     await screen.findByTestId('results-grid-stub');
     await waitFor(() => expect(gridProps.length).toBeGreaterThan(0));
     expect(gridProps.at(-1)!.buzzTotal).toBe(5000);
@@ -118,8 +129,7 @@ describe('419 criterion 2 — the balance still reaches the money path', () => {
     // balance is the value the default cannot equal.
     gridProps.length = 0;
     renderApp({ blue: 0, green: 0, yellow: 0 });
-    const buttons = await tabs();
-    await userEvent.click(buttons[2]);
+    await sections();
     await screen.findByTestId('results-grid-stub');
     await waitFor(() => expect(gridProps.length).toBeGreaterThan(0));
     expect(gridProps.at(-1)!.buzzTotal).toBe(0);
@@ -128,8 +138,7 @@ describe('419 criterion 2 — the balance still reaches the money path', () => {
   it('CONTROL: a different balance produces a different captured value', async () => {
     gridProps.length = 0;
     renderApp({ blue: 1, green: 2, yellow: 4 });
-    const buttons = await tabs();
-    await userEvent.click(buttons[2]);
+    await sections();
     await screen.findByTestId('results-grid-stub');
     await waitFor(() => expect(gridProps.length).toBeGreaterThan(0));
     expect(gridProps.at(-1)!.buzzTotal).toBe(7);
