@@ -181,6 +181,8 @@ function renderPublishingCell(run: CellRun) {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      onOpenMatchup={vi.fn()}
+      onOpenPrompt={vi.fn()}
     />,
   );
 }

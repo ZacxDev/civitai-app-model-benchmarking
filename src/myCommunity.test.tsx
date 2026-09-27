@@ -504,17 +504,26 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 
       // ---- GRIDS: the first section ----
       await screen.findByTestId('grid-view');
-      // The create affordance IS gated here — asserted, so "no write" cannot be
-      // credited to a button the walk simply failed to find.
-      expect(screen.queryByTestId('grid-new')).toBeNull();
-      // 🔴 THE GRIDS ARM NO LONGER HAS A SIGN-IN BUTTON TO CLICK, and that is a
-      // deliberate consequence of the IA refactor rather than a dropped
-      // assertion: the grids section lost its My/Community sub-tabs, so the
-      // signed-out `MyTabSignedOut` panel — the thing that carried `my-sign-in`
-      // — is not rendered there at all. What the arm still asserts is the part
-      // that matters for THIS case: the section is reachable while signed out,
-      // and it offers no write affordance. The sign-in ledger below is therefore
-      // TWO, and the two surfaces that own it are named.
+      // 🔴 BOTH ROUTES TO A NEW GRID ARE PRESSED HERE, and both used to be missing
+      // from this walk in opposite ways. `grid-new` was HIDDEN for an anonymous
+      // viewer, so the walk asserted its absence and pressed nothing; `Contribute ▸
+      // Build a grid` was rendered and completely UNGATED, and the walk never opened
+      // the menu — so this case's zero-write ledger held VACUOUSLY over the one
+      // route that could reach a private-store write. (Measured pre-fix: an
+      // anonymous viewer reached `grid-form` through the menu and had the save
+      // refused at `appStorage.set`.) Both now go through App's one `openNewGrid`
+      // and nudge sign-in, which is what the vote control already does.
+      await userEvent.click(await screen.findByTestId('grid-new'));
+      expect(screen.queryByTestId('grid-form'), 'the New grid button opened a form').toBeNull();
+      await userEvent.click(screen.getByTestId('contribute-trigger'));
+      await userEvent.click(await screen.findByTestId('contribute-item-grid'));
+      expect(screen.queryByTestId('grid-form'), 'the Contribute item opened a form').toBeNull();
+      // ⚠️ AN INVARIANT GUARD, NOT COVERAGE. The grids section lost its My/Community
+      // sub-tabs in the IA refactor, and `SubTabNoun` no longer has a `'grid'`
+      // variant at all — so no component in this repo can emit `my-sign-in-grid` and
+      // this query is vacuous BY CONSTRUCTION. Kept as a tripwire against a grids
+      // sub-tab coming back; it is not evidence about an anonymous viewer, and the
+      // two presses above are what this arm actually contributes.
       expect(screen.queryByTestId('my-sign-in-grid')).toBeNull();
 
       // ---- MATCHUPS ----
@@ -539,14 +548,18 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       await screen.findByTestId('prompt-form');
       await userEvent.click(screen.getByTestId('prompt-cancel'));
 
-      // POSITIVE CONTROL on the walk: the sign-in button really was clicked on
-      // BOTH surfaces that have one — matchups and prompts — so the empty write
-      // ledgers below are about surfaces that were exercised. A literal, not a
-      // `>=`: this is the walk's ledger, so a surface appearing or disappearing
-      // should be a decision someone takes. It was 3 while the grids view had
-      // sub-tabs of its own; the IA refactor removed them, and the arm above
-      // asserts the absence rather than leaving the count unexplained.
-      expect(signInRequests, 'the anonymous surface was never actually clicked').toBe(2);
+      // POSITIVE CONTROL on the walk: every unauthorised press really did reach the
+      // host's sign-in request, so the empty write ledgers below are about surfaces
+      // that were exercised rather than surfaces nobody touched. A literal, not a
+      // `>=`: this is the walk's ledger, so a route appearing or disappearing should
+      // be a decision someone takes.
+      //
+      // FOUR, and each one named: `my-sign-in-matchup`, `my-sign-in-prompt`,
+      // `grid-new` and `Contribute ▸ Build a grid`. It was 3 while the grids view had
+      // sub-tabs of its own, then 2 when the IA refactor removed them and `grid-new`
+      // was hidden from anonymous viewers; it is 4 now that both grid routes render
+      // and nudge instead of one hiding and one dead-ending.
+      expect(signInRequests, 'an unauthorised press did not reach sign-in').toBe(4);
 
       // 🔴 NOT ONE write was attempted, on either store. `setAttempts` records
       // even a REJECTED `set`, which `sets` would not — so this cannot be

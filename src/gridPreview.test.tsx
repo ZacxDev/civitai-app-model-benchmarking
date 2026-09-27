@@ -146,7 +146,23 @@ const GRID_ONE: GridRow = {
 type Mode = 'intersecting' | 'never';
 
 /**
- * Install a stub `IntersectionObserver`.
+ * What the stub observer was actually ASKED to do.
+ *
+ * 🔴 THE ONLY WINDOW ONTO THE ARMING STEP. Under `'never'` the DOM is IDENTICAL
+ * whether or not an observer exists — both states show the inert
+ * `grid-preview-deferred` placeholder — so a DOM assertion cannot tell "deferred,
+ * waiting on the observer" from "no observer was ever constructed, and this
+ * placeholder is permanent". The construction count and the observed elements can.
+ */
+interface ObserverLog {
+  /** One entry per `new IntersectionObserver(...)`. */
+  constructed: number;
+  /** Every element handed to `observe()`, in call order. */
+  observed: Element[];
+}
+
+/**
+ * Install a stub `IntersectionObserver`, and return a log of what it was asked.
  *
  * 🔴 BOTH MODES ARE NEEDED, AND NEITHER IS THE jsdom DEFAULT. jsdom implements no
  * `IntersectionObserver` at all, and the component treats "no observer" as "mount
@@ -155,13 +171,17 @@ type Mode = 'intersecting' | 'never';
  * observer", so it is what the deferral case uses; `'intersecting'` reports the
  * element as visible on `observe()` and is what the budget cases use.
  */
-function installObserver(mode: Mode): void {
+function installObserver(mode: Mode): ObserverLog {
+  const log: ObserverLog = { constructed: 0, observed: [] };
   class Stub implements IntersectionObserver {
     readonly root = null;
     readonly rootMargin = '';
     readonly thresholds: ReadonlyArray<number> = [];
-    constructor(private cb: IntersectionObserverCallback) {}
+    constructor(private cb: IntersectionObserverCallback) {
+      log.constructed += 1;
+    }
     observe(target: Element): void {
+      log.observed.push(target);
       if (mode === 'never') return;
       this.cb(
         [{ isIntersecting: true, target } as unknown as IntersectionObserverEntry],
@@ -175,6 +195,7 @@ function installObserver(mode: Mode): void {
     }
   }
   (globalThis as unknown as { IntersectionObserver?: unknown }).IntersectionObserver = Stub;
+  return log;
 }
 
 beforeEach(() => {
@@ -196,8 +217,8 @@ afterEach(() => {
  * `renderMatrix` is a placeholder: the matrix is the App's business and would drag
  * the money path into a browse-surface test for nothing.
  */
-function renderGrids(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
-  render(
+function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
+  return (
     <GridsView
       grids={opts.grids ?? [GRID_ALL, GRID_ONE]}
       combinations={MATCHUPS}
@@ -214,8 +235,14 @@ function renderGrids(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
       onWithdraw={vi.fn()}
       onReport={vi.fn()}
       renderMatrix={() => <div data-testid="matrix-stub" />}
-    />,
+    />
   );
+}
+
+/** Returns the render result, so a case can RE-RENDER the same mounted cards
+ * with new props — which is how the late-arriving-ids transition is driven. */
+function renderGrids(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
+  return render(gridsElement(opts));
 }
 
 /** The card for one grid key (`__system__` for the Top Grid). */
@@ -349,6 +376,97 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     expect(within(preview).getByTestId('grid-preview-deferred')).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 0));
     expect(mockGetImages).toHaveBeenCalledTimes(0);
+  });
+});
+
+// ===========================================================================
+// The lazy mount, when the ids are NOT there on the first render
+// ===========================================================================
+
+/**
+ * 🔴 THE CASE 604 GREEN TESTS COULD NOT SEE, AND WHY.
+ *
+ * `useNearViewport` starts `near === true` when `IntersectionObserver` is
+ * undefined, and jsdom implements none — so almost every case in this repo bypasses
+ * the deferral path entirely. `gridPreviewSeam.test.tsx` deletes the global
+ * outright; the deferral case above installs a stub but with the ids ALREADY
+ * PRESENT on the first render. The suite was config-blind on the one dimension that
+ * exists in every real browser.
+ *
+ * What that hid: the host div carrying the ref is inside the id-bearing branch, so a
+ * grid with nothing to preview renders `grid-preview-empty` and there IS no element
+ * to observe. When a shared cell is later run and published the ids arrive on the
+ * SAME mounted card — the card's React key is the grid key, so the component
+ * instance survives the transition — the host div mounts, and the effect keyed on a
+ * REF OBJECT never re-ran, because neither `near` nor the ref's identity had
+ * changed. No observer was ever constructed and the card kept an inert dashed
+ * placeholder forever: no read, no spinner, no error, no Retry.
+ *
+ * Both cases below drive that exact transition on a mounted card. They are RED on
+ * the pre-fix code — the first at `constructed: 0`, the second at `getImages: 0`
+ * calls with the placeholder still on screen.
+ */
+describe('🔴 ids arriving AFTER the first render still arm the lazy mount', () => {
+  it('🔴 arms the observer on a host that mounts LATE — zero ids → non-zero ids', async () => {
+    // `'never'`, per the deferral contract: the placeholder is on screen in BOTH
+    // the broken and the fixed state, so the log is the only discriminator.
+    const log = installObserver('never');
+    const view = renderGrids({ results: [] });
+
+    // ---- PREMISE: nothing to preview, so no host element and nothing observed.
+    //      Also the POSITIVE half of the log's own control: it must be able to
+    //      stay at zero for an honest reason before a non-zero means anything.
+    await waitFor(() => expect(screen.getAllByTestId('grid-preview-empty')).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.constructed, 'an observer was armed with no host to observe').toBe(0);
+    expect(log.observed).toEqual([]);
+
+    // ---- THE TRANSITION: a shared cell is run and published, so ids arrive on
+    //      the cards that are already mounted. `rerender` keeps those instances.
+    view.rerender(gridsElement({ results: [result('mk-b', 'cfg-b', 'qk-2', [22])] }));
+
+    // The host div is now on screen, with the deferred placeholder inside it —
+    // both strip-bearing cards contain the mk-b × qk-2 cell.
+    await waitFor(() => expect(screen.getAllByTestId('grid-preview')).toHaveLength(2));
+    const hosts = screen.getAllByTestId('grid-preview');
+    for (const host of hosts) {
+      expect(within(host).getByTestId('grid-preview-deferred')).toBeInTheDocument();
+    }
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 🔴 THE CLAIM, as an EQUALITY: exactly one observer per late-mounted host.
+    // Pre-fix this is 0. A `>= 1` would be satisfied by one card arming and the
+    // other not, which is the same defect on half the list.
+    expect(log.constructed, 'the lazy mount was never armed for the late host').toBe(hosts.length);
+    // …and it is armed on THE HOSTS THEMSELVES, not on some other element that
+    // happened to be observed. A count alone cannot tell those apart.
+    expect(log.observed).toEqual(expect.arrayContaining(hosts));
+  });
+
+  it('🔴 and then READS, once the late host is reported visible', async () => {
+    // The behavioural half: what a viewer actually gets. With `'intersecting'` the
+    // stub reports the element visible the moment it is observed, so an armed
+    // observer becomes a real read and a real thumbnail.
+    installObserver('intersecting');
+    mockGetImages.mockResolvedValue([visible(22)]);
+    const view = renderGrids({ results: [] });
+
+    await waitFor(() => expect(screen.getAllByTestId('grid-preview-empty')).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 0));
+    // PREMISE: an empty grid reads nothing — the zero this file already owns.
+    expect(mockGetImages).toHaveBeenCalledTimes(0);
+
+    view.rerender(gridsElement({ results: [result('mk-b', 'cfg-b', 'qk-2', [22])] }));
+
+    // 🔴 THE READ HAPPENS, and the placeholder is REPLACED rather than kept
+    // alongside. Pre-fix: `grid-preview-deferred` is still here, `getImages` was
+    // never called, and the card shows an inert dashed box with no way out of it.
+    await waitFor(() => expect(mockGetImages).toHaveBeenCalledTimes(2));
+    expect(readIdSets()).toEqual([[22], [22]]);
+    await waitFor(() =>
+      expect(within(card('gk-one')).getByTestId('result-image')).toBeInTheDocument(),
+    );
+    expect(screen.queryAllByTestId('grid-preview-deferred')).toEqual([]);
   });
 });
 

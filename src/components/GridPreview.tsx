@@ -27,7 +27,7 @@
 // The component is INJECTED (the same seam `ResultsGrid` uses) so a test can
 // drive the real one against a counted `getImages`.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { metaText, radius, token } from '../theme.js';
 import type { GatedCellComponent } from './GatedCell.js';
@@ -43,20 +43,40 @@ export interface GridPreviewProps {
 }
 
 /**
- * Has this element come near the viewport yet?
+ * Has the host element come near the viewport yet? Returns `[near, setHost]`,
+ * where `setHost` is a CALLBACK REF to put on the element to watch.
  *
  * Starts `true` when the environment has no `IntersectionObserver` — jsdom does
  * not implement one, and a preview that never mounted there would make every
  * read-budget assertion vacuously zero. A test that wants to pin the DEFERRAL
  * installs a stub observer that never fires, which is the only way to tell "not
  * yet visible" from "no observer".
+ *
+ * 🔴 THE ELEMENT IS HELD IN STATE, NOT IN A `useRef`, AND THAT IS THE FIX FOR A
+ * SHIPPED DEFECT — the case it covers is "the host element mounts on a LATER
+ * render than the first". A ref object never changes identity, so an effect keyed
+ * on it runs once and can never see the element ARRIVE. Concretely: the host div
+ * below is inside the id-bearing branch, so a grid with no previewable outputs
+ * renders `grid-preview-empty` and there is no element to observe. When a shared
+ * cell is later run and published the ids arrive on the SAME mounted card (the
+ * card's React key is the grid key, so this component instance survives the
+ * transition) — and with deps `[near, ref]`, neither of which had changed, the
+ * effect never re-ran. No `IntersectionObserver` was ever constructed, `near`
+ * stayed `false`, and the card kept the inert dashed placeholder below FOREVER:
+ * no read, no spinner, no error, no Retry, and nothing a viewer could press.
+ *
+ * Holding the element in state makes the dependency the thing the effect actually
+ * uses, so the arming re-runs whenever the host appears, disappears or is replaced
+ * — by construction, rather than by remembering to list a proxy for it (an
+ * `imageIds.length` dep would work today and reads as removable to the next
+ * person, because the hook does not use it). Pinned by `gridPreview.test.tsx`'s
+ * "ids arriving AFTER the first render" cases, which are RED without this.
  */
-function useNearViewport(ref: React.RefObject<HTMLElement | null>): boolean {
+function useNearViewport(): [boolean, (el: HTMLElement | null) => void] {
   const [near, setNear] = useState(() => typeof IntersectionObserver === 'undefined');
+  const [host, setHost] = useState<HTMLElement | null>(null);
   useEffect(() => {
-    if (near) return;
-    const el = ref.current;
-    if (!el) return;
+    if (near || !host) return;
     const obs = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
@@ -68,10 +88,10 @@ function useNearViewport(ref: React.RefObject<HTMLElement | null>): boolean {
       // time the card is scrolled to.
       { rootMargin: '200px' },
     );
-    obs.observe(el);
+    obs.observe(host);
     return () => obs.disconnect();
-  }, [near, ref]);
-  return near;
+  }, [near, host]);
+  return [near, setHost];
 }
 
 export function GridPreview({
@@ -80,8 +100,7 @@ export function GridPreview({
   label,
   GatedCell,
 }: GridPreviewProps): React.JSX.Element {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const near = useNearViewport(hostRef);
+  const [near, setHost] = useNearViewport();
 
   // 🔴 NOTHING TO READ — and therefore NOTHING READ. Rendered instead of an empty
   // `GatedCell` so the zero-read case is structural: there is no id array here
@@ -100,7 +119,7 @@ export function GridPreview({
 
   return (
     <div
-      ref={hostRef}
+      ref={setHost}
       data-testid="grid-preview"
       data-preview-count={imageIds.length}
       style={{ display: 'grid', gap: 4, minWidth: 0 }}

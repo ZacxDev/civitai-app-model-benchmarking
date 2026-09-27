@@ -27,8 +27,19 @@ import { EmptyState } from './EmptyState.js';
 
 export type SubTab = 'my' | 'community';
 
-/** The object a sub-tab strip belongs to — the discriminant in its testids. */
-export type SubTabNoun = 'matchup' | 'prompt' | 'grid';
+/**
+ * The object a sub-tab strip belongs to — the discriminant in its testids.
+ *
+ * 🔴 TWO NOUNS, NOT THREE. `'grid'` was here until the IA refactor deleted the
+ * grids section's sub-tabs, and it outlived its only caller: `GridsView` renders
+ * neither `SubTabs` nor `MyTabSignedOut`, so nothing could pass it and the type
+ * permitted a state no code path can reach. An unreachable variant is not free —
+ * `gridsView.test.tsx`'s `queryByTestId('my-signed-out-grid')` and
+ * `myCommunity.test.tsx`'s `my-sign-in-grid` were counted as anon-walk coverage
+ * while being VACUOUS BY CONSTRUCTION: no component can emit those testids. They
+ * are relabelled as invariant guards over there, not as coverage.
+ */
+export type SubTabNoun = 'matchup' | 'prompt';
 
 export interface SubTabsProps {
   value: SubTab;

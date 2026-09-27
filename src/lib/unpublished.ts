@@ -64,6 +64,47 @@ export function publishedPointer(
 }
 
 /**
+ * The three objects that travel the unpublished → published boundary.
+ *
+ * 🔴 A UNION AND NOT `string`, so {@link WHERE_THE_PUBLIC_ROW_IS} is exhaustive:
+ * a fourth publishable object cannot reach the notice below without someone
+ * deciding, at compile time, where its published row is now findable. It used to
+ * be `string`, which is how one sentence came to be used for all three.
+ */
+export type PublishableNoun = 'matchup' | 'prompt' | 'grid';
+
+/**
+ * Where a viewer now FINDS the row that just went public, per noun — the tail of
+ * the half-published notice.
+ *
+ * 🔴 IT IS PER-NOUN BECAUSE THE SURFACES ARE DIFFERENT, and a single sentence for
+ * all three shipped stale. The notice used to end "Find it under Published by you
+ * to edit or remove it." for every noun. The IA refactor deleted the grids
+ * section's My/Community sub-tabs: "Published by you" is a real heading in
+ * `MatchupsView` and `PromptsView` and nothing else, while a published grid now
+ * appears in the one flat "All grids" list carrying a `grid-own-badge` reading
+ * "Yours". So the grid arm was directing a viewer to a heading that no longer
+ * exists — on the ONE path the unpublished panel's latch exists to keep visible,
+ * i.e. the sentence a viewer reads at the worst possible moment.
+ *
+ * 🔴 AND THE GRID ARM DOES NOT PROMISE AN EDIT, because there is none. `App.tsx`
+ * has `updateCombination` and `updatePrompt`; it has no `updateGrid`, and
+ * `GridsView`'s own card offers Withdraw, Archive, Vote and Report and no Edit. A
+ * published grid can be withdrawn and rebuilt, not edited — so saying "to edit or
+ * remove it" here would send the viewer looking for a control this app does not
+ * have.
+ *
+ * Every sentence is pinned as a whole normalised string by
+ * `src/publishPointerFailure.test.tsx`, per noun, against literals typed out
+ * there — see the note on the builder below.
+ */
+const WHERE_THE_PUBLIC_ROW_IS: Record<PublishableNoun, string> = {
+  matchup: 'Find it under Published by you to edit or remove it.',
+  prompt: 'Find it under Published by you to edit or remove it.',
+  grid: 'Find it in All grids, badged Yours. A published grid can be withdrawn, not edited.',
+};
+
+/**
  * The honest copy for a publish whose `shared.append` SUCCEEDED but whose
  * pointer write did not.
  *
@@ -94,8 +135,10 @@ export function publishedPointer(
  *
  * The caller now tries to close that for real by DELETING the private record
  * (the record's only remaining purpose was to become the pointer, and the row is
- * reachable without it — "Published by you" filters on `isOwnRow`, i.e. on
- * `authorUserId`, never on pointer presence). But that delete can itself be
+ * reachable without it — every surface that says "this is yours" filters on
+ * `isOwnRow`, i.e. on `authorUserId`, never on pointer presence: "Published by
+ * you" in `MatchupsView`/`PromptsView`, and the `grid-own-badge` on the one flat
+ * grids list). But that delete can itself be
  * refused, so replacing one absolute claim with another would just move the lie.
  * `privateCopyRemoved` is the CALLER'S OBSERVED OUTCOME of that delete, and each
  * branch states only what holds in it:
@@ -125,14 +168,14 @@ export function publishedPointer(
  * says a true thing about the store for the branch it sits in.
  */
 export function publishPointerFailedNotice(
-  noun: string,
+  noun: PublishableNoun,
   hostError: string,
   privateCopyRemoved: boolean,
 ): string {
   const head =
     `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
     `updated with its key (${hostError}), `;
-  const tail = 'Find it under Published by you to edit or remove it.';
+  const tail = WHERE_THE_PUBLIC_ROW_IS[noun];
   return privateCopyRemoved
     ? `${head}so the private copy has been discarded and this list will not offer to ` +
         `publish it again. ${tail}`

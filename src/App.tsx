@@ -200,17 +200,6 @@ export interface AppProps {
 }
 
 /**
- * The page's top-level sections, in render order.
- *
- * 🔴 A LEDGER LIVES OFF THIS ARRAY and asserts that the DOM carries exactly these
- * `data-mb-section` values — failing when the set GROWS as loudly as when it
- * shrinks. It replaced a three-way `view` state whose tab strip was selected BY
- * POSITION downstream; naming the sections is what makes a fourth one a loud
- * failure instead of a silent re-point.
- */
-export const PAGE_SECTIONS = ['grids', 'matchups', 'prompts'] as const;
-
-/**
  * The outcome of a PHASE-1 in-flight claim write. 🔴 Deliberately a THREE-way
  * result rather than a boolean or `void`: "did not write" (no viewer) is not
  * "wrote", and collapsing the two is how a guard comes to pass while the hazard
@@ -864,6 +853,33 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     if (!viewer) depsRef.current.requestSignIn();
   }, [viewer]);
 
+  /**
+   * Start a NEW unpublished grid.
+   *
+   * 🔴 ONE PREDICATE, TWO ROUTES — and the second copy of the check is exactly
+   * what went wrong. The page reaches this action from two places: `Contribute ▸
+   * Build a grid` (always rendered, because `ContributeMenu`'s item ledger is
+   * fixed at three) and the grids section's own `grid-new` button. The menu route
+   * had NO auth condition at all while the button was gated on `signedIn &&
+   * onNewUnpublished`, so an anonymous viewer could open `grid-form` through the
+   * menu, fill it in, and have the save rejected at `appStorage.set` — honest, but
+   * a dead end, and unreachable from the sibling route ten pixels away.
+   *
+   * Both routes now call THIS, and the auth decision lives here only. An
+   * unauthorised press routes to sign-in, which is what the vote control already
+   * does (`onRequireAuth`) — the app's existing answer for "this needs an account".
+   * `GridsView` deliberately no longer re-tests `signedIn` for its button: a
+   * predicate open-coded at two call sites is how these two came to disagree, and
+   * re-adding it there would just restore the disagreement in a new shape.
+   */
+  const openNewGrid = useCallback(() => {
+    if (!viewer) {
+      depsRef.current.requestSignIn();
+      return;
+    }
+    setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false });
+  }, [viewer]);
+
   // ---- submit + edit wiring ----
   // Record an optimistic INSERT so a just-appended row shows immediately (item 1)
   // and survives a lagged list() (see reconcileOptimistic).
@@ -1237,11 +1253,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *     on top of a success, not a reason to pretend the publish did not happen.
    *  4. On that failure the private record is DELETED, best-effort. Its only
    *     remaining purpose was to become the pointer, and the row is reachable
-   *     without it ("Published by you" filters on `isOwnRow`, i.e. on
-   *     `authorUserId`, never on pointer presence). This is what makes the
-   *     retirement survive a RELOAD instead of only a re-render: `publishedLocalIds`
-   *     is React state, so without the delete the next load re-reads the store —
-   *     the very store that could not be written — and offers Publish again.
+   *     without it (every "this is yours" surface filters on `isOwnRow`, i.e. on
+   *     `authorUserId`, never on pointer presence — "Published by you" for
+   *     matchups and prompts, the `grid-own-badge` on the flat grids list). This
+   *     is what makes the retirement survive a RELOAD instead of only a
+   *     re-render: `publishedLocalIds` is React state, so without the delete the
+   *     next load re-reads the store — the very store that could not be written
+   *     — and offers Publish again.
    *     The delete can itself be refused, so its outcome is OBSERVED and handed
    *     to the copy rather than assumed.
    *  5. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
@@ -2223,9 +2241,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 <ContributeMenu
                   onSubmitMatchup={() => setModal({ kind: 'combo' })}
                   onSubmitPrompt={() => setModal({ kind: 'prompt' })}
-                  onBuildGrid={() =>
-                    setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false })
-                  }
+                  /* 🔴 The SAME callback `onNewUnpublished` gets — see
+                     `openNewGrid` for why one predicate rather than two. */
+                  onBuildGrid={openNewGrid}
                 />
               }
               votedKeys={votedKeys}
@@ -2246,9 +2264,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               unpublished={unpublishedGrids}
               quotaLine={quotaLine}
               archivedKeys={archivedKeys}
-              onNewUnpublished={() =>
-                setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false })
-              }
+              onNewUnpublished={openNewGrid}
               onEditUnpublished={editGridById}
               onDiscardUnpublished={deleteUnpubGrid}
               onPublishUnpublished={publishGridById}

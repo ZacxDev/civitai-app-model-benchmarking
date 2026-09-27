@@ -250,11 +250,16 @@ export const GRID_PREVIEW_MAX = 6;
  *
  * Pure, so the budget is node-testable without a DOM: the component it feeds only
  * decides *when* to issue the one read, never *how many* ids are in it.
+ *
+ * ⚠️ NO `cap` PARAMETER — {@link GRID_PREVIEW_MAX} is read directly. It took one
+ * with a default and a `Math.max(cap, 0)` clamp against a negative that no caller
+ * could supply: there is one call site, it passes two arguments, and no test ever
+ * passed a third. An overridable budget reads as a knob someone is entitled to turn,
+ * and the clamp read as a guard against a reachable input. Neither was true.
  */
 export function gridPreviewIds(
   resolved: ResolvedGridRows,
   byCell: Map<string, ResultRow>,
-  cap: number = GRID_PREVIEW_MAX,
 ): { ids: number[]; total: number } {
   const all: number[] = [];
   for (const row of flattenConfigs(resolved.matchups)) {
@@ -264,7 +269,7 @@ export function gridPreviewIds(
       all.push(...result.data.imageIds);
     }
   }
-  return { ids: all.slice(0, Math.max(cap, 0)), total: all.length };
+  return { ids: all.slice(0, GRID_PREVIEW_MAX), total: all.length };
 }
 
 /** The one-line structural summary of a grid, as listed. */

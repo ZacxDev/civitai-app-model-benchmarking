@@ -77,10 +77,22 @@ export interface GridsViewProps {
    * 🔴 Passed in rather than read here: this component issues no host call of its
    * own, and the preview's gated read goes through the injected `GatedCell` so it
    * inherits 0.4.6's timeout/retry/telemetry hardening rather than forking it.
+   *
+   * 🔴 REQUIRED, AND IT USED TO DEFAULT TO `[]` "for the standalone fixtures". That
+   * default degraded SILENTLY: a caller that forgot it got empty previews on every
+   * card with no error and no failing test — the same "no outputs yet" a genuinely
+   * empty board produces, which is the one state a reader cannot tell it from.
    */
-  results?: ResultRow[];
-  /** The gated grid-cell renderer, injected so the preview's read is countable. */
-  GatedCell?: GatedCellComponent;
+  results: ResultRow[];
+  /**
+   * The gated grid-cell renderer, injected so the preview's read is countable.
+   *
+   * 🔴 REQUIRED for the same reason, and its silent failure was worse: omitting it
+   * made EVERY preview strip vanish — no strip, no "shown above" note, no error.
+   * There is exactly one production call site (`App.tsx`) and it has always passed
+   * it, so the optionality only ever bought a fixture the right to be wrong.
+   */
+  GatedCell: GatedCellComponent;
   /**
    * A control rendered beside the open grid's title — the page's Contribute menu.
    * Optional so the view still renders standalone in a test.
@@ -134,7 +146,7 @@ export function GridsView({
   grids,
   combinations,
   prompts,
-  results = [],
+  results,
   GatedCell,
   headerAction,
   votedKeys,
@@ -176,28 +188,75 @@ export function GridsView({
   );
 
   /**
-   * The viewer's OWN grids they have archived.
+   * Is this row HIDDEN FROM THIS ONE LIST by its owner's archive flag?
    *
    * 🔴 ARCHIVE STILL MEANS "hide from MY OWN view", and with the My tab gone that
    * is this one list. It is NOT a suppression: the row stays appended, keeps its
    * votes, and stays visible to every other viewer — the app HAS no power to do
    * otherwise (`update`/`withdraw` are author-scoped, `report()` does not hide),
    * which is why `ARCHIVE_NOTE` says so in words next to the control.
+   *
+   * 🔴 ONE PREDICATE, AND IT USED TO BE TWO THAT DISAGREED. The list filter tested
+   * `archived.has(key)` alone — ownership-blind — while `myArchived` tested
+   * `isOwnRow(...) && archived.has(key)`. A key in `archived` that the viewer does
+   * NOT own was therefore hidden from the one list AND absent from `myArchived`, so
+   * no `archived-toggle` rendered and the row had no recovery path on this surface
+   * at all. That state is reachable transiently on a viewer swap, because the
+   * private-store effect only reaches `setArchived` after three serial prefix
+   * scans, so a moment exists where the incoming viewer holds the OUTGOING
+   * viewer's archive set against the incoming viewer's rows. At base it could not
+   * happen — the Community list was unfiltered.
+   *
+   * The ownership half is what makes the failure direction right. `App.tsx`'s
+   * archive read already reasons that a failure must degrade to showing MORE of the
+   * viewer's own rows, never fewer ("a failed read degrades to 'nothing archived'");
+   * an ownership-blind filter escaped that by hiding rows the flag was never about.
    */
-  const myArchived = grids.filter((g) => isOwnRow(g, viewerId) && archived.has(g.key));
+  const isHiddenByArchive = (row: GridRow): boolean =>
+    isOwnRow(row, viewerId) && archived.has(row.key);
+
+  /** The viewer's OWN grids they have archived — the same predicate, listed. */
+  const myArchived = grids.filter(isHiddenByArchive);
 
   /** Cell → result index, built once per render for every card's preview. */
   const byCell = useMemo(() => indexResultsByCell(results), [results]);
 
   /**
-   * Has the viewer had an unpublished grid at any point this session?
+   * Has THIS viewer had an unpublished grid at any point since they became the
+   * viewer?
    *
    * A one-way latch (never falls back to `false`), because the private panel must
    * not disappear from under an interaction it is in the middle of reporting — see
    * where it is rendered for the publish-failure case that makes this load-bearing
    * rather than cosmetic.
+   *
+   * 🔴 ONE-WAY WITHIN ONE VIEWER, RESET ON A VIEWER CHANGE — and it used to be
+   * one-way full stop, which leaked one viewer's private state to the next. The
+   * host can swap the signed-in viewer WITHOUT remounting this component (that is
+   * the documented route `src/viewer-change.test.tsx` exists for). Measured on the
+   * one-way version: viewer A with one unpublished grid mounted the panel; swapping
+   * to viewer B with an empty store cleared A's CARD but left
+   * `my-grids-unpublished` mounted for B. And because `UnpublishedList` holds its
+   * publish `error` in local state — cleared only by the next `publish()` — the
+   * same persisted mount could show B the notice from A's failed publish, which is
+   * actively wrong AND actionable for B ("Your grid WAS published … Do NOT publish
+   * it again").
+   *
+   * The latch's own justification does not survive the reset: "do not unmount a
+   * panel mid-report" is a claim about ONE viewer's session, and a change of viewer
+   * ends that session. Sign-out was already safe (the `signedIn &&` below plus
+   * `App.tsx`'s synchronous clears); it is the A→B swap that leaked.
+   *
+   * The `key` on `UnpublishedList` closes the residual half: when B ALSO has
+   * unpublished grids the panel legitimately stays mounted across the swap, and
+   * only a fresh instance guarantees A's local `error` does not come with it.
    */
   const hadUnpublishedRef = useRef(false);
+  const latchedForViewerRef = useRef<number | null>(viewerId);
+  if (latchedForViewerRef.current !== viewerId) {
+    latchedForViewerRef.current = viewerId;
+    hadUnpublishedRef.current = false;
+  }
   if (unpublished.length > 0) hadUnpublishedRef.current = true;
   const hadUnpublished = hadUnpublishedRef.current;
 
@@ -307,28 +366,47 @@ export function GridsView({
           </Group>
         </Group>
         {/* 🔴 THE INLINE PREVIEW — real thumbnails, through the gated read, ONE
-            batched call per card. `GatedCell` is what issues it; omit the
-            component and the card simply has no strip (the standalone fixtures),
-            never a second read path.
+            batched call per card. `GatedCell` is what issues it, and it is a
+            REQUIRED prop: the card can no longer end up with no strip because a
+            caller forgot to pass one, which used to fail silently.
 
-            🔴 `!isOpen` IS A READ-BUDGET GUARD, NOT A LAYOUT CHOICE, and it shipped
-            missing. The OPEN grid renders its full matrix in the panel above this
-            list, and every cell of that matrix reads its outputs through the SAME
-            `GatedCell`. Without this condition the open grid's card ALSO read the
-            SAME image ids — so the one grid the viewer is actually looking at
-            issued its gated read TWICE on every page load: twice the 45s-timeout /
-            auto-retry / `gated_read_error` machinery from 0.4.6, and twice the
-            weight on the host's 150-per-10s-per-`blockInstanceId` limiter. It was
-            redundant UI as well: a thumbnail strip previewing cells displayed
-            full-size a few hundred pixels above it.
+            🔴 `!isOpen` IS A UI/PARTITION GUARD: do not preview a grid whose full
+            matrix is already on the same page. The OPEN grid renders that matrix in
+            the panel above this list, and every cell of it reads its outputs
+            through the SAME `GatedCell`. Without this condition the open card
+            previewed exactly the cells shown full-size a few hundred pixels above
+            it — redundant UI, and the one grid the viewer is looking at ran the
+            0.4.6 timeout / auto-retry / `gated_read_error` machinery twice over the
+            same ids.
 
-            ⚠️ THE PER-CARD BUDGET TESTS CANNOT SEE THIS. `gridPreview.test.tsx`
-            asserts one batched call per CARD and is correct; the duplication lives
-            in the SEAM between a card and the matrix, which no card-scoped fixture
-            builds. `gridPreviewSeam.test.tsx` pins that relationship instead —
-            open card ⇒ no strip AND the matrix shows the images; closed card ⇒
-            strip. Both arms in one render, by exact count. */}
-        {GatedCell && !isOpen && (
+            ⚠️ WHAT IT SAVES, MEASURED AND NOT ROUNDED UP: exactly ONE `getImages`
+            call per page load. The matrix issues one call per FILLED CELL and the
+            card strip issues ONE BATCHED call, so removing the open card's strip
+            removes one call — `gridPreviewSeam.test.tsx` measures 4 → 3. On a
+            ~22-card list that is 1 of ~23. An earlier version of this comment said
+            "twice the weight on the host's 150-per-10s-per-`blockInstanceId`
+            limiter", which overstated it by about an order of magnitude: the
+            DOUBLING is per-output for the open grid, not per-page for the limiter.
+
+            🔴 AND THERE IS NO ID-LEVEL DEDUPE ANYWHERE — an ACCEPTED open item, not
+            an oversight. Two surfaces that share a cell each read it: the seam
+            test's own ledger is `['[11]','[22]','[22]']`, i.e. image 22 read twice,
+            by the matrix and by another card's strip. Overlap is the EXPECTED case
+            rather than an edge one, because the Top Grid is the top-voted members
+            and community grids are built from those same popular ones. It is left
+            in because the host's limit is on CALLS: each card still costs exactly
+            one call whatever its ids, so the per-card budget this file and
+            `GridPreview` defend is unaffected by the duplication. A dedupe cache
+            would be a second read path to keep correct across retry and invalidation
+            for a saving nobody has measured a need for.
+
+            ⚠️ THE PER-CARD BUDGET TESTS CANNOT SEE THE OPEN-CARD DUPLICATION.
+            `gridPreview.test.tsx` asserts one batched call per CARD and is correct;
+            the duplication lives in the SEAM between a card and the matrix, which no
+            card-scoped fixture builds. `gridPreviewSeam.test.tsx` pins that
+            relationship instead — open card ⇒ no strip AND the matrix shows the
+            images; closed card ⇒ strip. Both arms in one render, by exact count. */}
+        {!isOpen && (
           <GridPreview
             imageIds={preview.ids}
             totalCount={preview.total}
@@ -338,7 +416,7 @@ export function GridsView({
         )}
         {/* The open card would otherwise look emptier than its neighbours for no
             stated reason. Says where its images are instead of showing them twice. */}
-        {GatedCell && isOpen && (
+        {isOpen && (
           <span style={metaText} data-testid="grid-preview-shown-above">
             Shown in full above.
           </span>
@@ -355,7 +433,14 @@ export function GridsView({
           A grid is a named set of matchups × prompts. Run an empty cell to contribute its outputs to
           the shared board — a cell is shared by every grid that contains it.
         </span>
-        {signedIn && onNewUnpublished && (
+        {/* 🔴 NO `signedIn` HERE, DELIBERATELY — the auth decision belongs to the
+            ONE callback (`App`'s `openNewGrid`), which routes an anonymous press
+            to sign-in exactly as the vote control does. This button used to
+            re-test `signedIn` itself while the page's `Contribute ▸ Build a grid`
+            route tested nothing, so the two disagreed: the menu opened a form an
+            anonymous viewer could not save. Re-adding the predicate here is how
+            that comes back. */}
+        {onNewUnpublished && (
           <Button size="sm" onClick={onNewUnpublished} data-testid="grid-new">
             New grid
           </Button>
@@ -411,8 +496,9 @@ export function GridsView({
             data-testid="grids-empty"
             title="No published grids yet"
             body="The Top Grid above is always here. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
+            /* Same one predicate as `grid-new` above: the callback decides. */
             action={
-              signedIn && onNewUnpublished ? (
+              onNewUnpublished ? (
                 <Button size="sm" onClick={onNewUnpublished}>
                   New grid
                 </Button>
@@ -423,11 +509,12 @@ export function GridsView({
 
         {/* 🔴 The Top Grid is entry 0 by construction (communityGridEntries), not
             by a sort that happens to put it there. Own-and-archived rows are
-            filtered out HERE and nowhere else, so "archived" cannot come to mean
-            two things on two lists. */}
+            filtered out HERE and nowhere else, through `isHiddenByArchive` — the
+            SAME predicate `myArchived` is built from, so what this list hides and
+            what "Show archived" can bring back cannot come apart. */}
         <Stack gap={10} data-testid="grids-list">
           {communityEntries
-            .filter((entry) => entry.system || !archived.has(entry.row.key))
+            .filter((entry) => entry.system || !isHiddenByArchive(entry.row))
             .map((entry) =>
               entryCard(
                 entry,
@@ -512,6 +599,11 @@ export function GridsView({
       {signedIn && hadUnpublished && (
         <Stack gap={10} data-testid="my-grids-unpublished" style={{ minWidth: 0 }}>
           <UnpublishedList
+            /* 🔴 KEYED ON THE VIEWER, so a viewer swap gets a FRESH instance
+               rather than inheriting the previous viewer's publish `error` —
+               which is local state cleared only by the next `publish()`. See the
+               latch above for the swap this closes. */
+            key={viewerId ?? 'anon'}
             items={unpublished.map((rec) => ({
               localId: rec.localId,
               name: rec.name,

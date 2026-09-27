@@ -76,10 +76,24 @@ export interface ResultsGridProps {
    * every row a link to its parent — which is not what was asked for and reads as
    * a misfire to anyone aiming at the config label. There is a negative-control
    * test asserting a config-label click fires NOTHING.
+   *
+   * 🔴 REQUIRED — see `onOpenPrompt` for why both of these stopped being optional.
    */
-  onOpenMatchup?: (comboKey: string) => void;
-  /** Open the PROMPT DETAIL for a column — fired by the column header. */
-  onOpenPrompt?: (promptKey: string) => void;
+  onOpenMatchup: (comboKey: string) => void;
+  /**
+   * Open the PROMPT DETAIL for a column — fired by the column header.
+   *
+   * 🔴 REQUIRED, AND SO IS `onOpenMatchup`, WHICH DELETED ~40 LINES OF PRODUCTION
+   * BRANCH. `ColumnHeader` and `GroupBand` each used to render a plain `<div>` when
+   * no handler was wired, "so a dead control is never rendered". Production never
+   * reached either branch: `App.tsx` is the single call site and has always passed
+   * both. The branch existed for fixtures that declined to pass a prop, and one test
+   * asserted the inert shape. Making the props required makes "never a dead control"
+   * true BY CONSTRUCTION rather than by a branch nothing exercises — and a fixture
+   * that forgets a handler now fails to compile instead of quietly rendering a
+   * different element than production does.
+   */
+  onOpenPrompt: (promptKey: string) => void;
 }
 
 const CELL_W = 200;
@@ -288,7 +302,7 @@ export function ResultsGrid({
             key={p.key}
             prompt={p}
             c={c}
-            onOpen={onOpenPrompt ? () => onOpenPrompt(p.key) : undefined}
+            onOpen={() => onOpenPrompt(p.key)}
           />
         ))}
 
@@ -319,10 +333,13 @@ export function ResultsGrid({
 }
 
 /**
- * One prompt COLUMN header. A real `<button>` when the column is openable, so
- * Enter/Space work and the accessible name says what the press does; a plain
- * `<div>` when no handler is wired (the standalone `ResultsGrid` fixtures), so a
- * dead control is never rendered.
+ * One prompt COLUMN header — always a real `<button>`, so Enter/Space work and the
+ * accessible name says what the press does.
+ *
+ * 🔴 THERE IS NO INERT `<div>` VARIANT ANY MORE. It existed for a caller that
+ * passed no handler, which production never was, and `onOpen` is required so that
+ * cannot recur. "Never a dead control" is now a property of the type rather than of
+ * a branch no production render reaches.
  */
 function ColumnHeader({
   prompt,
@@ -331,7 +348,7 @@ function ColumnHeader({
 }: {
   prompt: PromptRow;
   c: Palette;
-  onOpen?: () => void;
+  onOpen: () => void;
 }): React.JSX.Element {
   const name = prompt.name || `#${prompt.key}`;
   const style: React.CSSProperties = {
@@ -351,13 +368,6 @@ function ColumnHeader({
       <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>▲ {prompt.count}</div>
     </>
   );
-  if (!onOpen) {
-    return (
-      <div data-testid="grid-col-header" style={style}>
-        {inner}
-      </div>
-    );
-  }
   return (
     <button
       type="button"
@@ -398,6 +408,10 @@ function ColumnHeader({
  * intuitive" ask. Spanning every track is the structural half of that; the
  * background, the disclosure glyph and the hover/focus states are the visual half.
  *
+ * 🔴 AND IT IS ALWAYS A BUTTON. There used to be an inert `<div>` variant for a
+ * caller that passed no `onOpen`; `onOpen` is required now, so the only shape this
+ * renders is the wired one — the same shape production has always rendered.
+ *
  * ⚠️ jsdom performs no layout, so no test in this repo can assert that this
  * actually READS as a band. The span, the element type, the name and the states
  * are asserted; the appearance is not.
@@ -409,7 +423,7 @@ function GroupBand({
 }: {
   row: BenchConfig;
   c: Palette;
-  onOpen?: (comboKey: string) => void;
+  onOpen: (comboKey: string) => void;
 }): React.JSX.Element {
   const name = row.comboName || `#${row.comboKey}`;
   const base: React.CSSProperties = {
@@ -441,13 +455,6 @@ function GroupBand({
       <span style={{ color: token.dimmed, fontWeight: 600 }}>▲ {row.comboCount}</span>
     </>
   );
-  if (!onOpen) {
-    return (
-      <div data-testid="grid-group-matchup" data-combo-key={row.comboKey} style={base}>
-        {content}
-      </div>
-    );
-  }
   return (
     <button
       type="button"
@@ -508,7 +515,7 @@ interface RowProps {
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
   onResumeRun: (config: BenchConfig, prompt: PromptRow) => void;
   onCancelRun: (config: BenchConfig, prompt: PromptRow) => void;
-  onOpenMatchup?: (comboKey: string) => void;
+  onOpenMatchup: (comboKey: string) => void;
 }
 
 function RowFragment({

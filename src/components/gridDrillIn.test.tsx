@@ -96,8 +96,15 @@ const promptTwo: PromptRow = {
   data: { v: 3, kind: 'prompt', default: { prompt: 'b', params: {} } },
 };
 
-function renderGrid(opts: { wired?: boolean } = {}) {
-  const wired = opts.wired ?? true;
+/**
+ * 🔴 NO `wired: false` VARIANT ANY MORE, and that is the point. `onOpenMatchup` and
+ * `onOpenPrompt` are REQUIRED props now, so a fixture cannot decline them and the
+ * inert `<div>` shape they used to produce does not exist. Production never rendered
+ * it — `App.tsx` is the one call site and has always passed both — so the old
+ * "renders an INERT band when no handler is wired" case was covering a branch that
+ * only this file could reach. "Never a dead control" is a property of the type now.
+ */
+function renderGrid() {
   const onOpenMatchup = vi.fn();
   const onOpenPrompt = vi.fn();
   render(
@@ -113,7 +120,8 @@ function renderGrid(opts: { wired?: boolean } = {}) {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
-      {...(wired ? { onOpenMatchup, onOpenPrompt } : {})}
+      onOpenMatchup={onOpenMatchup}
+      onOpenPrompt={onOpenPrompt}
     />,
   );
   return { onOpenMatchup, onOpenPrompt };
@@ -211,11 +219,13 @@ describe('the matchup group band opens the matchup', () => {
     expect(onOpenMatchup).toHaveBeenLastCalledWith('mk-bravo');
   });
 
-  it('renders an INERT band when no handler is wired — never a dead button', () => {
-    renderGrid({ wired: false });
-    const band = screen.getAllByTestId('grid-group-matchup')[0]!;
-    expect(band.tagName).toBe('DIV');
-  });
+  // ⚠️ DELETED: "renders an INERT band when no handler is wired — never a dead
+  // button". It asserted `band.tagName === 'DIV'` for a fixture that omitted
+  // `onOpenMatchup`. Both drill-in props are required now, so that state is
+  // unconstructable and the branch that produced it is gone from `ResultsGrid`. The
+  // claim it stood for — the band is never a dead control — is carried by the
+  // `tagName === 'BUTTON'` + accessible-name case above, which now holds for EVERY
+  // render rather than for the wired ones.
 });
 
 // ---------------------------------------------------------------------------

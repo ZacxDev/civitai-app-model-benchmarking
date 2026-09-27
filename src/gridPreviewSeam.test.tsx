@@ -1,5 +1,21 @@
-// 🔴 THE SEAM BETWEEN THE MATRIX AND THE GRID CARDS — one gated read per output,
-// never two.
+// 🔴 THE SEAM BETWEEN THE MATRIX AND THE GRID CARDS — a card previews IF AND ONLY
+// IF it is closed.
+//
+// 🔴 READ THE HEADLINE CAREFULLY, BECAUSE IT USED TO CLAIM SOMETHING THIS FILE DOES
+// NOT ASSERT. It said "one gated read per output, never two" — and the expected
+// ledger in the first case below is `['[11]','[22]','[22]']`, in which image 22 is
+// plainly read TWICE, by the matrix cell and by another card's strip that contains
+// the same cell. There is no id-level dedupe anywhere in this app, so "an output is
+// read once" is FALSE AND ENFORCED NOWHERE. What is enforced is the CARD-LEVEL
+// PARTITION named above, and the assertions were always about that.
+//
+// The overlap double-read is a KNOWN, ACCEPTED budget assumption rather than an
+// open defect: the host's limit is on CALLS, and each card costs exactly one
+// batched call whatever ids are in it, so the per-card budget that
+// `gridPreview.test.tsx` and `GridPreview` defend is untouched by the duplication.
+// Overlap is also the EXPECTED case, not an edge one — the Top Grid is the
+// top-voted members and community grids are built from those same popular ones. If
+// that assumption ever has to change, a dedupe belongs at the read path, not here.
 //
 // ── THE DEFECT THIS FILE EXISTS TO PREVENT ──────────────────────────────────
 //
@@ -7,10 +23,17 @@
 // list of cards each carrying an inline thumbnail strip. Both read their images
 // through the SAME `GatedCell`. The strip shipped with no `isOpen` condition, so
 // the open grid's card previewed exactly the cells the matrix was already showing
-// full-size a few hundred pixels above — and the ONE GRID THE VIEWER IS LOOKING AT
-// issued its gated read TWICE on every page load. Twice the 45s timeout, twice the
-// bounded auto-retry, twice the `gated_read_error` surface, and twice the weight on
-// the host's 150-reads-per-10s-per-`blockInstanceId` limiter.
+// full-size a few hundred pixels above — redundant UI, and the ONE GRID THE VIEWER
+// IS LOOKING AT ran the 45s timeout, the bounded auto-retry and the
+// `gated_read_error` surface twice over the same ids on every page load.
+//
+// ⚠️ THE CALL SAVING IS ONE, AND THIS FILE MEASURES IT. The matrix issues one read
+// per filled cell and a card strip issues ONE BATCHED read, so the gate removes
+// exactly one call per page load — 4 → 3 in the first case below. On a ~22-card
+// list that is 1 of ~23. An earlier version of this header said "twice the weight
+// on the host's 150-reads-per-10s-per-`blockInstanceId` limiter", which overstated
+// it by roughly an order of magnitude: the doubling was per-output for the open
+// grid, never per-page for the limiter.
 //
 // ── WHY IT NEEDED A FILE OF ITS OWN ─────────────────────────────────────────
 //
@@ -195,7 +218,7 @@ const readLedger = (): string[] =>
 
 // ===========================================================================
 
-describe('🔴 the matrix/card seam: an output is read ONCE, not once per surface', () => {
+describe('🔴 the matrix/card seam: a card previews IF AND ONLY IF it is closed', () => {
   it('the OPEN card shows no strip while the matrix shows its images — one render, exact counts', async () => {
     renderApp();
     const matrix = await screen.findByTestId('results-grid');
@@ -231,6 +254,11 @@ describe('🔴 the matrix/card seam: an output is read ONCE, not once per surfac
     // costs. Three calls: one per run matrix cell, one for the closed card's strip.
     // The defect added a fourth for `[11,22]` — the open card's own strip.
     expect(mockGetImages).toHaveBeenCalledTimes(3);
+    // 🔴 AND NOTE WHAT THIS LEDGER ADMITS: `[22]` appears TWICE — the matrix cell
+    // and the closed card's strip both read image 22, because they share that cell.
+    // There is no id-level dedupe and this file never claimed one should exist; the
+    // invariant is the card-level partition. Written out as a literal so the
+    // duplication is visible in the expectation rather than implied by a count.
     expect(readLedger()).toEqual(['[11]', '[22]', '[22]']);
     // Stated as its own claim, because it is the one a future reader will care
     // about: NO call is the open grid's full preview set.

@@ -25,16 +25,32 @@
 //
 // ── WHAT THIS FILE PINS, AND WHY EACH PART IS HERE ──────────────────────────
 //
-//   1. EXISTENCE — each landmark resolves. The bare claim.
-//   2. A LEDGER — the set of landmarks is EXACTLY this set, so a landmark being
-//      ADDED without being ledgered fails here rather than silently leaving the
-//      recipe half-blind, and so does one being removed or renamed. This is the
-//      half that survives a future fourth section.
+//   1. EXISTENCE — each landmark resolves, exactly once. The bare claim.
+//   2. A LEDGER over the PAGE SECTIONS — the set of section-shaped nodes is
+//      EXACTLY the three ledgered ones, so a fourth section being added without
+//      being ledgered fails here rather than silently leaving the recipe
+//      half-blind, and so does one being removed or renamed.
 //   3. THE NAME→SURFACE MAPPING, asserted BEHAVIOURALLY and against LITERAL
 //      expected values — never derived from the component's own tables. A
 //      structural check alone is walkable by putting the right names on the wrong
 //      elements, which is precisely the defect class ("the capture succeeds, of
 //      the wrong thing") this file removes.
+//
+// ⚠️ WHAT THE LEDGER CLOSES, STATED NARROWLY, BECAUSE IT USED TO BE OVERSTATED.
+// This header said the ledger makes "a landmark being ADDED without being ledgered"
+// fail. That was true only for landmarks added as `<section>` elements: the growth
+// check was `querySelectorAll('section')`, i.e. keyed on the TAG. Measured with two
+// mutants — a new landmark added as `<div data-testid="section-featured">` left all
+// 11 cases GREEN; the identical node as a bare `<section>` turned 1 of 11 RED. The
+// closure below is now tag-independent for the SECTION family (marker attribute,
+// element type, or `section-*` testid — any of the three is caught).
+//
+// It is still NOT a closure over every landmark shape. A new `<button>` or `<nav>`
+// carrying some unrelated testid is not ledgered and cannot be without enumerating
+// every testid on the page, which would fail on every unrelated UI change and stop
+// being read. So: sections are growth-closed; a non-section landmark added to the
+// talos recipe must be added to `LANDMARKS` by whoever writes that step, and this
+// file cannot make them.
 //
 // ⚠ ROLES CHANGED WITH THE REFACTOR. The old strip's controls exposed
 // `role="tab"`. The new landmarks do NOT: the Contribute trigger and the matchup
@@ -43,7 +59,7 @@
 // asking for a tab by a view's name fails in a way that reads exactly like the app
 // not rendering.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -74,7 +90,22 @@ const LANDMARKS = [
   ['section-matchups', 'contains', 'matchups-view'],
   ['section-prompts', 'contains', 'prompts-view'],
   ['grid-group-matchup', 'click', 'matchup-detail'],
+  // 🔴 ADDED: it had a behavioural case at the bottom of this file and was ABSENT
+  // from the table, so a recipe step using it was outside the contract — nothing
+  // stopped it being renamed or re-pointed, and the ledger did not count it.
+  ['grid-col-header', 'click', 'prompt-detail'],
 ] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains', string]>;
+
+/**
+ * How a PAGE SECTION can be spelled — the growth closure's selector.
+ *
+ * 🔴 TAG-INDEPENDENT ON PURPOSE. The closure used to be `querySelectorAll('section')`
+ * and so was walkable by adding the landmark as any other element: measured, a
+ * `<div data-testid="section-featured">` was invisible to all 11 cases while the same
+ * node as a `<section>` turned one red. All three spellings are asked for at once, so
+ * a new section fails the ledger however it is written.
+ */
+const SECTION_SHAPED = '[data-mb-section], section, [data-testid^="section-"]';
 
 /** The testids the old tab strip exposed. NONE of them may come back. */
 const RETIRED_TESTIDS = [
@@ -211,11 +242,19 @@ describe('capture landmarks — criterion 2: the LEDGER', () => {
       'prompts',
     ]);
 
-    // (b) …and there is no `<section>` that ISN'T marked. Without this, (a) is
-    //     walkable by adding a fourth section and simply not giving it the
+    // (b) …and NOTHING ELSE ON THE PAGE IS SECTION-SHAPED. Without this, (a) is
+    //     walkable by adding a fourth section and simply not giving it the marker
     //     attribute — the exact shape of "adding a tab without a testid" that the
     //     original ledger was written to catch.
-    expect(Array.from(content.querySelectorAll('section'))).toEqual(marked);
+    //
+    //     🔴 THE SELECTOR IS TAG-INDEPENDENT, AND IT USED TO BE `'section'`. Keyed
+    //     on the tag, this closed the growth for exactly one spelling: a landmark
+    //     added as `<div data-testid="section-featured">` left all 11 cases GREEN
+    //     (measured), while the identical node as a bare `<section>` turned this
+    //     line red. `SECTION_SHAPED` asks by marker attribute, by element type AND
+    //     by the `section-*` testid convention, so any of the three is caught.
+    const sectionShaped = Array.from(content.querySelectorAll(SECTION_SHAPED));
+    expect(sectionShaped).toEqual(marked);
 
     // (c) The non-section landmarks resolve, and every element the table names
     //     really is a DISTINCT node. Three names stamped on one element would
@@ -259,10 +298,19 @@ describe('capture landmarks — criterion 3: the name→surface mapping', () => 
     );
   });
 
-  it('the prompt column header opens the prompt detail', async () => {
+  // ⚠️ "the prompt column header opens the prompt detail" is GONE from here as a
+  // hand-written case — `grid-col-header → prompt-detail` is a row of `LANDMARKS`
+  // now, so criterion 3 generates exactly that case AND criterion 1 and the ledger
+  // cover it too. It was the one landmark with a behaviour but no ledger entry,
+  // which meant a recipe step using it sat outside the contract this file sells.
+
+  it('the prompt column header names its prompt in its accessible name', async () => {
     renderApp();
     await screen.findByTestId('results-grid');
-    await userEvent.click(screen.getByTestId('grid-col-header'));
-    await waitFor(() => expect(screen.getByTestId('prompt-detail')).toBeInTheDocument());
+    // Literal, same reasoning as the band's: a recipe that clicks "the column
+    // header" has to be able to tell WHICH prompt it opened.
+    expect(screen.getByTestId('grid-col-header')).toHaveAccessibleName(
+      'Open prompt: Cyberpunk portrait',
+    );
   });
 });
