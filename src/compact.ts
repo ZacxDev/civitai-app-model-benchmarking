@@ -51,7 +51,11 @@ export const TOOLTIP_GAP_PX = 6;
  * silently orphans a rule fails the suite rather than shipping 30px buttons):
  *   - `[data-civitai-ui='button']`   → every pack Button (vote, run-cell,
  *     confirm/cancel, withdraw, the modal form actions).
- *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
+ *   - `[data-civitai-ui-segment]`    → the `SegmentedControl` segments. These used
+ *     to be the top-level `view-switch` strip's tabs as well; the IA refactor
+ *     deleted that strip, so the only segments left are the My/Community sub-tabs
+ *     on the matchup and prompt sections (four of them, and the reachability
+ *     ledger in `mobile-responsive.test.tsx` says so as a literal).
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
  *

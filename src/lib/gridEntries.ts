@@ -18,8 +18,8 @@
 // that tried to include it would not type-check rather than silently inventing 0
 // and burying it under every one-vote grid.
 
-import type { CombinationRow, GridRow, PromptRow } from '../types.js';
-import { DEFAULT_TOP_N, topByVotes } from './benchmark.js';
+import type { CombinationRow, GridRow, PromptRow, ResultRow } from '../types.js';
+import { cellKey, DEFAULT_TOP_N, flattenConfigs, topByVotes } from './benchmark.js';
 import { resolveMembers } from './grids.js';
 
 /** The system-owned Top Grid: no shared key, no votes, no author. */
@@ -225,6 +225,46 @@ export function missingMembersNotice(
     : head +
         'are no longer on the board — their authors removed them. ' +
         'Everything else below still renders; nothing was quietly dropped.';
+}
+
+/**
+ * How many thumbnails a grid card's inline preview shows.
+ *
+ * 🔴 IT IS A READ BUDGET, not a layout number. Every id in the strip is part of
+ * ONE batched `getImages` call per card (see `components/GridPreview.tsx`), and
+ * the host rate-limits gated reads at 150 per 10 seconds per block instance. Six
+ * is enough to tell two grids apart at a glance; the count of what is NOT shown
+ * is disclosed rather than dropped.
+ */
+export const GRID_PREVIEW_MAX = 6;
+
+/**
+ * The image ids a grid card's preview strip should read, in row-major cell order
+ * (config rows × prompt columns, the same order the matrix renders).
+ *
+ * 🔴 AN UNRUN CELL CONTRIBUTES NOTHING. There is no result row for it, therefore
+ * no image id, therefore no read — which is what makes a grid of empty cells cost
+ * ZERO gated reads rather than one per cell. Returned alongside the UNCAPPED
+ * total so the caller can disclose that the strip is a subset instead of quietly
+ * showing six of forty.
+ *
+ * Pure, so the budget is node-testable without a DOM: the component it feeds only
+ * decides *when* to issue the one read, never *how many* ids are in it.
+ */
+export function gridPreviewIds(
+  resolved: ResolvedGridRows,
+  byCell: Map<string, ResultRow>,
+  cap: number = GRID_PREVIEW_MAX,
+): { ids: number[]; total: number } {
+  const all: number[] = [];
+  for (const row of flattenConfigs(resolved.matchups)) {
+    for (const prompt of resolved.prompts) {
+      const result = byCell.get(cellKey(row.comboKey, row.config.id, prompt.key));
+      if (!result) continue;
+      all.push(...result.data.imageIds);
+    }
+  }
+  return { ids: all.slice(0, Math.max(cap, 0)), total: all.length };
 }
 
 /** The one-line structural summary of a grid, as listed. */

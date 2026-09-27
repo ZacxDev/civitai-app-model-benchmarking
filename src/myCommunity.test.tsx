@@ -105,12 +105,23 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
 
 const signedIn = { id: VIEWER_ID, username: 'me' };
 
-const openPromptsView = () => userEvent.click(screen.getByRole('tab', { name: /Prompts/ }));
-const openMy = async () => {
-  await userEvent.click(await screen.findByTestId('subtab-my'));
-  return screen.findByTestId('subtabs');
+/**
+ * 🔴 THE SUB-TAB HELPERS TAKE THE OBJECT NOW, and `openPromptsView` no longer
+ * clicks anything. The IA refactor deleted the top-level tab strip: matchups and
+ * prompts are SECTIONS of one page, both mounted at once, so (a) there is no
+ * Prompts tab to click and (b) the sub-tab testids had to become object-scoped
+ * (`subtab-my-prompt`) or every neutral query would resolve twice. A case that
+ * means the prompt surface now SAYS so, instead of relying on which view happens
+ * to be mounted — which is a stronger claim than the old code made.
+ */
+type Surface = 'matchup' | 'prompt';
+const openPromptsView = () => screen.findByTestId('section-prompts');
+const openMy = async (noun: Surface = 'matchup') => {
+  await userEvent.click(await screen.findByTestId(`subtab-my-${noun}`));
+  return screen.findByTestId(`subtabs-${noun}`);
 };
-const openCommunity = async () => userEvent.click(await screen.findByTestId('subtab-community'));
+const openCommunity = async (noun: Surface = 'matchup') =>
+  userEvent.click(await screen.findByTestId(`subtab-community-${noun}`));
 
 /** The `data-key`s of every rendered card of the given testid, in DOM order. */
 const keysOf = (testid: string): string[] =>
@@ -160,11 +171,11 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
     await openPromptsView();
     await waitFor(() => expect(keysOf('prompt-card')).toHaveLength(2));
 
-    await openMy();
+    await openMy('prompt');
     await waitFor(() => expect(keysOf('prompt-card')).toEqual(['p-mine']));
     expect(screen.queryByText('Their prompt')).toBeNull();
 
-    await openCommunity();
+    await openCommunity('prompt');
     await waitFor(() => expect(keysOf('prompt-card').sort()).toEqual(['p-mine', 'p-theirs']));
   });
 
@@ -180,8 +191,10 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
     });
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
 
-    await waitFor(() => expect(screen.getByTestId('subtab-my')).toHaveTextContent('My (1)'));
-    expect(screen.getByTestId('subtab-community')).toHaveTextContent('Community (2)');
+    await waitFor(() =>
+      expect(screen.getByTestId('subtab-my-matchup')).toHaveTextContent('My (1)'),
+    );
+    expect(screen.getByTestId('subtab-community-matchup')).toHaveTextContent('Community (2)');
   });
 });
 
@@ -212,7 +225,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     );
     await screen.findByTestId('matchups-view');
     await openPromptsView();
-    await openMy();
+    await openMy('prompt');
     await fillAndSavePromptPrivately('Private prompt', 'a quiet street at dawn');
 
     // 🔴 IT IS IN THE PER-VIEWER STORE AND NOWHERE ELSE. Asserted BEFORE the card
@@ -236,7 +249,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     await openPromptsView();
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('prompt-card')).toBeNull();
-    await openMy();
+    await openMy('prompt');
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     expect(screen.queryByText('Private prompt')).toBeNull();
     otherView.unmount();
@@ -248,7 +261,7 @@ describe('🔴 criterion 6: an unpublished PROMPT reaches the board only on Publ
     );
     await screen.findByTestId('matchups-view');
     await openPromptsView();
-    await openMy();
+    await openMy('prompt');
     await userEvent.click(await screen.findByTestId('unpublished-publish'));
     await waitFor(() => expect(board.appends).toHaveLength(1));
     expect(board.appends[0].title).toBe('Private prompt');
@@ -409,7 +422,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
 
     await screen.findByTestId('matchups-view');
     await openPromptsView();
-    await openMy();
+    await openMy('prompt');
     await waitFor(() => expect(keysOf('prompt-card').sort()).toEqual(['p-mine', 'p-mine2']));
 
     const target = screen
@@ -423,7 +436,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     expect(withdraws).toEqual([]);
 
     // …and Community still holds all three, the archived one included.
-    await openCommunity();
+    await openCommunity('prompt');
     await waitFor(() =>
       expect(keysOf('prompt-card').sort()).toEqual(['p-mine', 'p-mine2', 'p-theirs']),
     );
@@ -452,7 +465,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 
     // My is a sign-in prompt, and carries NO write affordance.
     await openMy();
-    await screen.findByTestId('my-signed-out');
+    await screen.findByTestId('my-signed-out-matchup');
     expect(screen.queryByTestId('new-unpublished')).toBeNull();
     expect(screen.queryByTestId('unpublished-publish')).toBeNull();
     expect(screen.queryByTestId('archive-action')).toBeNull();
@@ -489,20 +502,26 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       // walk never visited.
       mountApp({ shared, appStorage, requestSignIn: () => (signInRequests += 1) }, null);
 
-      // ---- GRIDS: the default view (§11.5, criterion 9) ----
+      // ---- GRIDS: the first section ----
       await screen.findByTestId('grid-view');
       // The create affordance IS gated here — asserted, so "no write" cannot be
       // credited to a button the walk simply failed to find.
       expect(screen.queryByTestId('grid-new')).toBeNull();
-      await openMy();
-      await userEvent.click(await screen.findByTestId('my-sign-in'));
-      await openCommunity();
+      // 🔴 THE GRIDS ARM NO LONGER HAS A SIGN-IN BUTTON TO CLICK, and that is a
+      // deliberate consequence of the IA refactor rather than a dropped
+      // assertion: the grids section lost its My/Community sub-tabs, so the
+      // signed-out `MyTabSignedOut` panel — the thing that carried `my-sign-in`
+      // — is not rendered there at all. What the arm still asserts is the part
+      // that matters for THIS case: the section is reachable while signed out,
+      // and it offers no write affordance. The sign-in ledger below is therefore
+      // TWO, and the two surfaces that own it are named.
+      expect(screen.queryByTestId('my-sign-in-grid')).toBeNull();
 
       // ---- MATCHUPS ----
       await openView('Matchups');
       await screen.findByTestId('matchups-view');
       await openMy();
-      await userEvent.click(await screen.findByTestId('my-sign-in'));
+      await userEvent.click(await screen.findByTestId('my-sign-in-matchup'));
       await openCommunity();
       // 🔴 UNGATED FOR ANON: `submit-matchup` renders for everyone. Open the form
       // it raises and dismiss it — this is the path the old walk never entered.
@@ -512,19 +531,22 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 
       // ---- PROMPTS ----
       await openPromptsView();
-      await openMy();
-      await userEvent.click(await screen.findByTestId('my-sign-in'));
-      await openCommunity();
+      await openMy('prompt');
+      await userEvent.click(await screen.findByTestId('my-sign-in-prompt'));
+      await openCommunity('prompt');
       // 🔴 Also ungated for anon.
       await userEvent.click(await screen.findByTestId('submit-prompt'));
       await screen.findByTestId('prompt-form');
       await userEvent.click(screen.getByTestId('prompt-cancel'));
 
       // POSITIVE CONTROL on the walk: the sign-in button really was clicked on
-      // all THREE views, so the empty write ledgers below are about a surface
-      // that was exercised. A literal, not a `>=`: this is the walk's ledger, so
-      // a view appearing or disappearing should be a decision someone takes.
-      expect(signInRequests, 'the anonymous surface was never actually clicked').toBe(3);
+      // BOTH surfaces that have one — matchups and prompts — so the empty write
+      // ledgers below are about surfaces that were exercised. A literal, not a
+      // `>=`: this is the walk's ledger, so a surface appearing or disappearing
+      // should be a decision someone takes. It was 3 while the grids view had
+      // sub-tabs of its own; the IA refactor removed them, and the arm above
+      // asserts the absence rather than leaving the count unexplained.
+      expect(signInRequests, 'the anonymous surface was never actually clicked').toBe(2);
 
       // 🔴 NOT ONE write was attempted, on either store. `setAttempts` records
       // even a REJECTED `set`, which `sets` would not — so this cannot be
@@ -590,7 +612,11 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     noDraft('Matchups / Community');
 
     await openMy();
-    await screen.findByTestId('unpublished-card');
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('section-matchups')).getByTestId('unpublished-card'),
+      ).toBeInTheDocument(),
+    );
     // 🔴 POSITIVE CONTROL ON THE SCAN: it can see this surface's own copy. Without
     // it, a scan reading an empty or unmounted DOM would report "no draft" and
     // prove nothing.
@@ -599,19 +625,26 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     noDraft('Matchups / My');
 
     // The private matchup form (the old "New draft" / "Save draft" modal).
-    await userEvent.click(screen.getByTestId('unpublished-edit'));
+    // 🔴 SCOPED TO THE SECTION. Both private panels can be mounted at once now
+    // (one page, no view switch), so an unscoped `unpublished-edit` resolves twice.
+    await userEvent.click(
+      within(screen.getByTestId('section-matchups')).getByTestId('unpublished-edit'),
+    );
     await screen.findByTestId('matchup-form');
     noDraft('the private matchup form');
     await userEvent.click(screen.getByTestId('matchup-cancel'));
 
     await openPromptsView();
     noDraft('Prompts / Community');
-    await openMy();
-    await screen.findByTestId('unpublished-card');
+    await openMy('prompt');
+    const promptsSection = screen.getByTestId('section-prompts');
+    await waitFor(() =>
+      expect(within(promptsSection).getByTestId('unpublished-card')).toBeInTheDocument(),
+    );
     expect(bodyText()).toContain('An unpublished prompt');
     noDraft('Prompts / My');
 
-    await userEvent.click(screen.getByTestId('unpublished-edit'));
+    await userEvent.click(within(promptsSection).getByTestId('unpublished-edit'));
     await screen.findByTestId('prompt-form');
     noDraft('the private prompt form');
   });

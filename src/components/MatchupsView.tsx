@@ -16,37 +16,28 @@
 // is still `CombinationRow` — renaming either would be a data migration this app
 // cannot perform, since `shared.update` is author-scoped.
 
-import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
-import { Tooltip } from '@civitai/components-react';
+import { Alert, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 
-import { Fragment, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import type { CombinationRow, DraftUnsubmitted } from '../types.js';
 import { includedSummary, isOwnRow } from '../lib/benchmark.js';
 import { ARCHIVE_NOTE } from '../lib/archive.js';
-import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
-import { VoteButton } from './VoteButton.js';
-import { ReportButton } from '@civitai/blocks-react/ui';
-import { WithdrawButton } from './WithdrawButton.js';
+import { MatchupBody } from './MatchupBody.js';
 import { SubTabs, MyTabSignedOut, type SubTab } from './SubTabs.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
 /**
  * The "Included" badge's tooltip.
  *
- * 🔴 EXPORTED SO A TEST CAN PIN THE WHOLE STRING. It is a CLAIM about what the
- * badge means, and this claim has already been wrong once: it read "Change how
- * many in the Grid tab", naming the per-viewer `Slider` that 527 deletes (§11.5).
- * A keyword guard would have stayed green through that reword; the whole
- * normalised string is what makes the claim machine-readable, and a cosmetic
- * reword failing the test is the price of that.
+ * 🔴 RE-EXPORTED, NOT DEFINED HERE. It moved to `MatchupBody` with the card body
+ * it annotates — the detail modal renders the same badge and must make the same
+ * claim. The re-export keeps every existing importer (and the whole-string guard
+ * in `IncludedSummary.test.tsx`) pointing at one definition.
  */
-export const INCLUDED_ROW_TOOLTIP =
-  'Included: currently in the top by votes, so its model configs are rows of the ' +
-  'system-owned Top Grid — ranked over the entries this app has loaded. To pick ' +
-  'your own rows, build a grid in the Grids tab.';
+export { INCLUDED_ROW_TOOLTIP } from './MatchupBody.js';
 
 export interface MatchupsViewProps {
   combinations: CombinationRow[];
@@ -116,91 +107,27 @@ export function MatchupsView({
   const myArchived = own.filter((c) => archived.has(c.key));
   const myCount = myPublished.length + unpublished.length;
 
-  const card = (combo: CombinationRow, extraActions?: ReactNode): React.JSX.Element => {
-    const isOwn = isOwnRow(combo, viewerId);
-    // Distinct ecosystems across the combo's configs (in first-seen order).
-    const ecos: string[] = [];
-    for (const cfg of combo.data.configs) {
-      const e = ecosystemForBaseModel(cfg.checkpoint.baseModel);
-      if (!ecos.includes(e)) ecos.push(e);
-    }
-    return (
-      <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Group gap={8}>
-              <strong>{combo.name || `#${combo.key}`}</strong>
-              {includedKeys.has(combo.key) && (
-                <Tooltip label={INCLUDED_ROW_TOOLTIP}>
-                  <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
-                    <Badge color="success" variant="light" data-testid="matchup-included">
-                      Included
-                    </Badge>
-                  </span>
-                </Tooltip>
-              )}
-              <Badge variant="light" data-testid="matchup-config-count">
-                {combo.data.configs.length} config{combo.data.configs.length === 1 ? '' : 's'}
-              </Badge>
-              {ecos.map((e) => (
-                <Badge key={e} variant="light" size="sm">
-                  {ecosystemMeta(e).label}
-                </Badge>
-              ))}
-            </Group>
-            {combo.description && <span style={mutedText}>{combo.description}</span>}
-            <span style={metaText} data-testid="matchup-config-summary">
-              {combo.data.configs.map((cfg, i) => (
-                <Fragment key={cfg.id}>
-                  {i > 0 && ' · '}
-                  {cfg.label?.trim() ||
-                    cfg.checkpoint.modelName ||
-                    `Checkpoint #${cfg.checkpoint.versionId}`}
-                  {cfg.loras.length > 0 && ` (+${cfg.loras.length} LoRA)`}
-                </Fragment>
-              ))}
-            </span>
-          </Stack>
-          <Group gap={6} align="center">
-            {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
-            {isOwn && (
-              <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="matchup-edit">
-                Edit
-              </Button>
-            )}
-            {extraActions}
-            {isOwn && (
-              <WithdrawButton
-                noun="matchup"
-                onWithdraw={() => onWithdraw(combo.key)}
-                data-testid="matchup-withdraw"
-              />
-            )}
-            {/* Escalation, and the mirror image of the two above: offered only
-                on rows the viewer does NOT own, and only when signed in —
-                the host rejects an anonymous report, and an owner has
-                Remove. Filing does NOT hide the row; see ReportButton. */}
-            {!isOwn && viewerId != null && (
-              <ReportButton
-                noun="matchup"
-                onReport={() => onReport(combo.key)}
-                data-testid="matchup-report"
-              />
-            )}
-            <VoteButton
-              count={combo.count}
-              voted={votedKeys.has(combo.key)}
-              disabled={viewerId == null}
-              onVote={() => onVote(combo.key)}
-              onUnvote={() => onUnvote(combo.key)}
-              onRequireAuth={onRequireAuth}
-              data-testid="matchup-vote"
-            />
-          </Group>
-        </Group>
-      </Card>
-    );
-  };
+  // 🔴 The card BODY is `MatchupBody`, shared verbatim with the matchup DETAIL
+  // MODAL the grid's group band opens. Sharing it is what keeps the ownership
+  // decision (Edit/Withdraw vs Report) in one place — the modal is reached by
+  // every viewer, most of whom do not own the row.
+  const card = (combo: CombinationRow, extraActions?: ReactNode): React.JSX.Element => (
+    <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
+      <MatchupBody
+        combo={combo}
+        included={includedKeys.has(combo.key)}
+        voted={votedKeys.has(combo.key)}
+        viewerId={viewerId}
+        onVote={onVote}
+        onUnvote={onUnvote}
+        onRequireAuth={onRequireAuth}
+        onEdit={onEdit}
+        onWithdraw={onWithdraw}
+        onReport={onReport}
+        extraActions={extraActions}
+      />
+    </Card>
+  );
 
   return (
     <Stack gap={14} data-testid="matchups-view">
@@ -213,7 +140,13 @@ export function MatchupsView({
         </Button>
       </Group>
 
-      <SubTabs value={tab} onChange={setTab} myCount={myCount} communityCount={combinations.length} />
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        noun="matchup"
+        myCount={myCount}
+        communityCount={combinations.length}
+      />
 
       {error && (
         <Alert color="error" data-testid="matchups-error">

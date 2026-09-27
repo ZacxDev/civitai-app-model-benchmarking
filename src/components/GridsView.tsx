@@ -1,35 +1,52 @@
 // Browse, open, build, publish and vote on GRIDS — the fourth row kind on the one
-// shared board (spec §11.2/§11.5), split into MY and COMMUNITY sub-tabs with the
-// same partition the Matchups and Prompts views use (§11.1):
+// shared board (spec §11.2/§11.5), as ONE FLAT LIST.
 //
-//   - MY        = grids where `isOwnRow(row, viewerId)` and NOT archived, plus
-//                 this viewer's unpublished grids from per-viewer storage.
-//   - COMMUNITY = every published grid INCLUDING the viewer's own, ordered by
-//                 vote `count` descending — with the system-owned TOP GRID pinned
-//                 first, OUTSIDE that ordering (see lib/gridEntries.ts).
+// 🔴 THE SUB-TABS ARE GONE FROM THIS VIEW, and only from this view. The IA
+// refactor made the whole app one page; a My/Community split inside a section of
+// that page put the viewer's own grids behind a click for no gain, since every
+// owner-only control already keys off `viewerId` and can simply be rendered on the
+// owner's own card. Ownership is now a BADGE (`grid-own-badge`) on the one list.
+// Matchups and Prompts keep their sub-tabs — their lists are much longer, and the
+// vote ranking they feed is what stops the Top Grid starving.
 //
-// 🔴 THE TWO CLAIMS THIS VIEW OWES THE READER, and neither is decoration:
+// The list's order is unchanged: the system-owned TOP GRID pinned first, then the
+// published grids by vote `count` descending (see lib/gridEntries.ts). What the
+// viewer's own ARCHIVE flag now does is hide their own row from this one list —
+// an author-side hide, still on the shared board for everybody else — reachable
+// again through "Show archived".
+//
+// 🔴 THE THREE CLAIMS THIS VIEW OWES THE READER, and none is decoration:
 //
 //   1. A grid with DANGLING MEMBERS renders what survives AND says how much is
 //      gone (criterion 8). Never a throw, never a quiet shrink.
 //   2. The TOP GRID is labelled system-owned and carries NO vote control,
 //      because it has no shared row to vote on. An inert-looking button, or a
 //      position in the vote order, would both assert something false.
+//   3. A card's inline PREVIEW is a SUBSET and says so — see GridPreview, which
+//      also owns the read budget (one batched gated read per card, none at all
+//      for a grid with no outputs, nothing below the fold).
 //
 // 🔴 NOTHING HERE WRITES TO ANY STORE. Every mutation is a callback the App owns,
 // so the private/public boundary stays in one place.
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 import { ReportButton } from '@civitai/blocks-react/ui';
 
-import type { CombinationRow, GridRow, PromptRow, UnpublishedGrid } from '../types.js';
-import { isOwnRow } from '../lib/benchmark.js';
+import type {
+  CombinationRow,
+  GridRow,
+  PromptRow,
+  ResultRow,
+  UnpublishedGrid,
+} from '../types.js';
+import { indexResultsByCell, isOwnRow } from '../lib/benchmark.js';
 import { ARCHIVE_NOTE } from '../lib/archive.js';
 import {
   buildTopGrid,
   communityGridEntries,
   gridMemberSummary,
+  gridPreviewIds,
   missingMembersNotice,
   resolveGridRows,
   TOP_GRID_NAME,
@@ -39,7 +56,8 @@ import {
 } from '../lib/gridEntries.js';
 import { metaText, mutedText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
-import { SubTabs, MyTabSignedOut, type SubTab } from './SubTabs.js';
+import type { GatedCellComponent } from './GatedCell.js';
+import { GridPreview } from './GridPreview.js';
 import { UnpublishedList } from './UnpublishedList.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
@@ -52,6 +70,22 @@ export interface GridsViewProps {
   combinations: CombinationRow[];
   /** The live prompt rows — same, for COLUMN members. */
   prompts: PromptRow[];
+  /**
+   * Every published RESULT row on the board — the source of each card's inline
+   * preview thumbnails.
+   *
+   * 🔴 Passed in rather than read here: this component issues no host call of its
+   * own, and the preview's gated read goes through the injected `GatedCell` so it
+   * inherits 0.4.6's timeout/retry/telemetry hardening rather than forking it.
+   */
+  results?: ResultRow[];
+  /** The gated grid-cell renderer, injected so the preview's read is countable. */
+  GatedCell?: GatedCellComponent;
+  /**
+   * A control rendered beside the open grid's title — the page's Contribute menu.
+   * Optional so the view still renders standalone in a test.
+   */
+  headerAction?: ReactNode;
   votedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
@@ -100,6 +134,9 @@ export function GridsView({
   grids,
   combinations,
   prompts,
+  results = [],
+  GatedCell,
+  headerAction,
   votedKeys,
   viewerId,
   loading,
@@ -121,7 +158,6 @@ export function GridsView({
   onUnarchive,
   renderMatrix,
 }: GridsViewProps): React.JSX.Element {
-  const [tab, setTab] = useState<SubTab>('community');
   const [showArchived, setShowArchived] = useState(false);
   /**
    * Which grid is OPEN, by shared key. `null` means the Top Grid — the system
@@ -139,10 +175,31 @@ export function GridsView({
     [topGrid, grids],
   );
 
-  const own = grids.filter((g) => isOwnRow(g, viewerId));
-  const myPublished = own.filter((g) => !archived.has(g.key));
-  const myArchived = own.filter((g) => archived.has(g.key));
-  const myCount = myPublished.length + unpublished.length;
+  /**
+   * The viewer's OWN grids they have archived.
+   *
+   * 🔴 ARCHIVE STILL MEANS "hide from MY OWN view", and with the My tab gone that
+   * is this one list. It is NOT a suppression: the row stays appended, keeps its
+   * votes, and stays visible to every other viewer — the app HAS no power to do
+   * otherwise (`update`/`withdraw` are author-scoped, `report()` does not hide),
+   * which is why `ARCHIVE_NOTE` says so in words next to the control.
+   */
+  const myArchived = grids.filter((g) => isOwnRow(g, viewerId) && archived.has(g.key));
+
+  /** Cell → result index, built once per render for every card's preview. */
+  const byCell = useMemo(() => indexResultsByCell(results), [results]);
+
+  /**
+   * Has the viewer had an unpublished grid at any point this session?
+   *
+   * A one-way latch (never falls back to `false`), because the private panel must
+   * not disappear from under an interaction it is in the middle of reporting — see
+   * where it is rendered for the publish-failure case that makes this load-bearing
+   * rather than cosmetic.
+   */
+  const hadUnpublishedRef = useRef(false);
+  if (unpublished.length > 0) hadUnpublishedRef.current = true;
+  const hadUnpublished = hadUnpublishedRef.current;
 
   /** The open entry, falling back to the Top Grid when the opened row is gone —
    * a grid the viewer had open can itself be withdrawn while they look at it. */
@@ -165,17 +222,27 @@ export function GridsView({
     const key = entry.system ? '__system__' : entry.row.key;
     const isOwn = !entry.system && isOwnRow(entry.row, viewerId);
     const isOpen = entry.system ? openKey === null : openKey === entry.row.key;
+    const name = entry.system ? TOP_GRID_NAME : entry.row.name || `#${entry.row.key}`;
+    const preview = gridPreviewIds(resolved, byCell);
     return (
       <Card key={key} withBorder padding="md" data-testid="grid-card" data-key={key}>
+        <Stack gap={10} style={{ minWidth: 0 }}>
         <Group justify="space-between" align="flex-start" gap={10}>
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
-              <strong data-testid="grid-card-name">
-                {entry.system ? TOP_GRID_NAME : entry.row.name || `#${entry.row.key}`}
-              </strong>
+              <strong data-testid="grid-card-name">{name}</strong>
               {entry.system && (
                 <Badge variant="light" data-testid="grid-system-badge">
                   System grid
+                </Badge>
+              )}
+              {/* 🔴 OWNERSHIP AS A BADGE, which is what replaced the My tab. It is
+                  derived from the SAME `isOwnRow` predicate that gates the
+                  owner-only controls beside it, so the label and the affordances
+                  cannot disagree. */}
+              {isOwn && (
+                <Badge color="success" variant="light" data-testid="grid-own-badge">
+                  Yours
                 </Badge>
               )}
               <Badge variant="light" data-testid="grid-card-members">
@@ -239,6 +306,19 @@ export function GridsView({
             )}
           </Group>
         </Group>
+        {/* 🔴 THE INLINE PREVIEW — real thumbnails, through the gated read, ONE
+            batched call per card. `GatedCell` is what issues it; omit the
+            component and the card simply has no strip (the standalone fixtures),
+            never a second read path. */}
+        {GatedCell && (
+          <GridPreview
+            imageIds={preview.ids}
+            totalCount={preview.total}
+            label={name}
+            GatedCell={GatedCell}
+          />
+        )}
+        </Stack>
       </Card>
     );
   };
@@ -259,15 +339,20 @@ export function GridsView({
 
       {/* ---- the OPEN grid ---- */}
       <Stack gap={8} data-testid="grid-open-panel" style={{ minWidth: 0 }}>
-        <Group gap={8} align="center">
-          <strong style={{ fontSize: 15 }} data-testid="grid-open-title">
-            {openName}
-          </strong>
-          {openEntry.system && (
-            <Badge variant="light" data-testid="grid-open-system-badge">
-              System grid
-            </Badge>
-          )}
+        <Group justify="space-between" align="center" gap={12}>
+          <Group gap={8} align="center" style={{ minWidth: 0 }}>
+            <strong style={{ fontSize: 15 }} data-testid="grid-open-title">
+              {openName}
+            </strong>
+            {openEntry.system && (
+              <Badge variant="light" data-testid="grid-open-system-badge">
+                System grid
+              </Badge>
+            )}
+          </Group>
+          {/* The page's Contribute menu sits here — on the primary object's own
+              title row, where the top-level tab strip used to be. */}
+          {headerAction}
         </Group>
         {/* 🔴 Criterion 8, on the OPEN grid: the surviving members render below
             and this sentence carries the honest count of what is not there. */}
@@ -278,8 +363,6 @@ export function GridsView({
         )}
         {renderMatrix(openResolved.matchups, openResolved.prompts)}
       </Stack>
-
-      <SubTabs value={tab} onChange={setTab} myCount={myCount} communityCount={grids.length} />
 
       {error && (
         <Alert color="error" data-testid="grids-error">
@@ -294,10 +377,115 @@ export function GridsView({
         </Stack>
       )}
 
-      {tab === 'my' && !signedIn && <MyTabSignedOut noun="grid" onRequireAuth={onRequireAuth} />}
+      {/* ---- ALL GRIDS: one flat list, no sub-tabs ---- */}
+      <Stack gap={10} data-testid="grids-all-section" style={{ minWidth: 0 }}>
+        <strong style={{ fontSize: 14 }}>All grids</strong>
 
-      {tab === 'my' && signedIn && (
-        <Stack gap={14} data-testid="my-panel">
+        {!loading && grids.length === 0 && (
+          <EmptyState
+            data-testid="grids-empty"
+            title="No published grids yet"
+            body="The Top Grid above is always here. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
+            action={
+              signedIn && onNewUnpublished ? (
+                <Button size="sm" onClick={onNewUnpublished}>
+                  New grid
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
+
+        {/* 🔴 The Top Grid is entry 0 by construction (communityGridEntries), not
+            by a sort that happens to put it there. Own-and-archived rows are
+            filtered out HERE and nowhere else, so "archived" cannot come to mean
+            two things on two lists. */}
+        <Stack gap={10} data-testid="grids-list">
+          {communityEntries
+            .filter((entry) => entry.system || !archived.has(entry.row.key))
+            .map((entry) =>
+              entryCard(
+                entry,
+                !entry.system && isOwnRow(entry.row, viewerId) && onArchive ? (
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    onClick={() => onArchive(entry.row.key)}
+                    data-testid="archive-action"
+                    aria-label="Archive: hide from your own list only"
+                  >
+                    Archive
+                  </Button>
+                ) : undefined,
+              ),
+            )}
+        </Stack>
+
+        {myArchived.length > 0 && (
+          <Stack gap={10}>
+            <Group gap={8} align="center">
+              <Button
+                size="sm"
+                variant="subtle"
+                onClick={() => setShowArchived((v) => !v)}
+                data-testid="archived-toggle"
+              >
+                {showArchived ? 'Hide archived' : `Show archived (${myArchived.length})`}
+              </Button>
+              <span style={metaText}>Still on the shared board, still visible to everyone else.</span>
+            </Group>
+            {showArchived && (
+              <Stack gap={10} data-testid="archived-list">
+                {myArchived.map((row) =>
+                  entryCard(
+                    { system: false, row },
+                    onUnarchive && (
+                      <Button
+                        size="sm"
+                        variant="subtle"
+                        onClick={() => onUnarchive(row.key)}
+                        data-testid="unarchive-action"
+                      >
+                        Unarchive
+                      </Button>
+                    ),
+                  ),
+                )}
+              </Stack>
+            )}
+          </Stack>
+        )}
+
+        {/* 🔴 THE HONEST WORDING, rendered NEXT TO the control rather than behind a
+            tooltip. Archiving hides nothing from anyone else — the app has no such
+            power (§2.2 + §9 Q2). */}
+        {(myArchived.length > 0 || grids.some((g) => isOwnRow(g, viewerId))) && (
+          <span style={metaText} data-testid="archive-note">
+            {ARCHIVE_NOTE}
+          </span>
+        )}
+      </Stack>
+
+      {/* ---- the viewer's UNPUBLISHED grids (per-viewer storage) ----
+           🔴 RENDERED ONLY ONCE THERE IS (OR HAS BEEN) SOMETHING IN IT, which is a
+           change from the My tab it replaced. The panel's own "New grid" button is
+           redundant here — `grid-new` above and the page's Contribute ▸ Build a
+           grid are both routes to the same modal — so an always-present EMPTY
+           panel would add a second copy of every `unpublished-*` testid to a page
+           that also mounts the matchup and prompt panels, for no affordance a
+           viewer does not already have.
+
+           🔴 WHY THE LATCH AND NOT A PLAIN `length > 0`. `UnpublishedList` holds
+           its publish ERROR in local state, so unmounting the panel throws that
+           error away — and the one case where the panel empties WHILE having
+           something to say is exactly a publish whose pointer write was refused:
+           the row went public, the private copy did not retire, and the notice
+           saying so is the only place the viewer learns it. A plain `length > 0`
+           unmounted the panel at that moment and took the notice with it (caught
+           by `publishPointerFailure.test.tsx`'s grid arm). Once the panel has had
+           a record this session it stays mounted. ------------------------------ */}
+      {signedIn && hadUnpublished && (
+        <Stack gap={10} data-testid="my-grids-unpublished" style={{ minWidth: 0 }}>
           <UnpublishedList
             items={unpublished.map((rec) => ({
               localId: rec.localId,
@@ -312,100 +500,7 @@ export function GridsView({
             onDiscard={(localId) => onDiscardUnpublished?.(localId)}
             onPublish={(localId) => onPublishUnpublished?.(localId)}
           />
-
-          <Stack gap={10}>
-            <strong style={{ fontSize: 14 }}>Published by you</strong>
-            {!loading && myPublished.length === 0 ? (
-              <span style={mutedText} data-testid="my-published-empty">
-                You have no published grids on the board right now.
-              </span>
-            ) : (
-              <Stack gap={10} data-testid="grids-list">
-                {myPublished.map((row) =>
-                  entryCard(
-                    { system: false, row },
-                    onArchive && (
-                      <Button
-                        size="sm"
-                        variant="subtle"
-                        onClick={() => onArchive(row.key)}
-                        data-testid="archive-action"
-                        aria-label="Archive: hide from your My list only"
-                      >
-                        Archive
-                      </Button>
-                    ),
-                  ),
-                )}
-              </Stack>
-            )}
-            {myPublished.length > 0 && (
-              <span style={metaText} data-testid="archive-note">
-                {ARCHIVE_NOTE}
-              </span>
-            )}
-          </Stack>
-
-          {myArchived.length > 0 && (
-            <Stack gap={10}>
-              <Group gap={8} align="center">
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  onClick={() => setShowArchived((v) => !v)}
-                  data-testid="archived-toggle"
-                >
-                  {showArchived ? 'Hide archived' : `Show archived (${myArchived.length})`}
-                </Button>
-                <span style={metaText}>Still on the shared board, still in Community.</span>
-              </Group>
-              {showArchived && (
-                <Stack gap={10} data-testid="archived-list">
-                  {myArchived.map((row) =>
-                    entryCard(
-                      { system: false, row },
-                      onUnarchive && (
-                        <Button
-                          size="sm"
-                          variant="subtle"
-                          onClick={() => onUnarchive(row.key)}
-                          data-testid="unarchive-action"
-                        >
-                          Unarchive
-                        </Button>
-                      ),
-                    ),
-                  )}
-                </Stack>
-              )}
-            </Stack>
-          )}
         </Stack>
-      )}
-
-      {tab === 'community' && (
-        <>
-          {!loading && grids.length === 0 && (
-            <EmptyState
-              data-testid="grids-empty"
-              title="No published grids yet"
-              body="The Top Grid above is always here. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
-              action={
-                signedIn && onNewUnpublished ? (
-                  <Button size="sm" onClick={onNewUnpublished}>
-                    New grid
-                  </Button>
-                ) : undefined
-              }
-            />
-          )}
-
-          {/* 🔴 The Top Grid is entry 0 by construction (communityGridEntries),
-              not by a sort that happens to put it there. */}
-          <Stack gap={10} data-testid="grids-list">
-            {communityEntries.map((entry) => entryCard(entry))}
-          </Stack>
-        </>
       )}
     </Stack>
   );

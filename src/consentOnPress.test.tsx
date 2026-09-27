@@ -83,7 +83,7 @@ function renderApp(
 
 /** Open Grids and return the single seeded EMPTY cell's run button. */
 async function runButton(): Promise<HTMLElement> {
-  await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+  await screen.findByTestId('grid-view');
   const grid = await screen.findByTestId('results-grid');
   const cell = within(grid).getByTestId('grid-cell');
   expect(cell).toHaveAttribute('data-state', 'empty');

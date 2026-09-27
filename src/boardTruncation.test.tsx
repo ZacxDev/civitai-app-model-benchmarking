@@ -142,20 +142,31 @@ describe('board scan truncation', () => {
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 
-  // 🔴 CRITERION: the SAME notice reaches the GRIDS view, which is where the
-  // truncated ranking now does the most work — it decides the Top Grid's members
-  // and orders Community Grids. This is deliberately NOT a second notice: it
-  // asserts the ONE existing `board-truncated-notice` is visible on the view the
-  // app opens on, which is what "extend it to the Grids view" has to mean when
-  // the notice is rendered next to the view switch.
-  it('🔴 the SAME notice is visible on the Grids view — the default one', async () => {
+  // 🔴 CRITERION: ONE notice serves the GRIDS section, which is where the
+  // truncated ranking does the most work — it decides the Top Grid's members and
+  // orders the grids list. This is deliberately NOT a second notice.
+  //
+  // ⚠ WHAT THIS CASE USED TO ASSERT, AND WHY IT NO LONGER CAN. It read the grids
+  // view's presence together with `queryByTestId('matchups-view')` being NULL, to
+  // prove Grids was the DEFAULT of three mutually-exclusive tabs. The IA refactor
+  // deleted the tab strip: all three sections are mounted at once, so "the default
+  // view" is not a fact about the app any more and the absence assertion would be
+  // asserting the opposite of the intended design. What survives — and is what the
+  // case was actually for — is that the one notice is rendered ABOVE the grids
+  // section rather than inside any one of them, so every reader of the truncated
+  // ranking sees it. That ordering is asserted structurally below.
+  it('🔴 ONE notice covers the grids section, rendered above all three sections', async () => {
     const { shared, pages } = endlessShared();
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The default view really is Grids (criterion 9) — asserted, not assumed,
-    // because the whole point of this case is WHERE the notice is visible.
     expect(await screen.findByTestId('grid-view')).toBeInTheDocument();
-    expect(screen.queryByTestId('matchups-view')).toBeNull();
+    // Exactly one notice, not one per section.
+    await waitFor(() => expect(screen.getAllByTestId('board-truncated-notice')).toHaveLength(1));
+    // …and it PRECEDES the first section, so it is not scoped to any one of them.
+    const notice0 = screen.getByTestId('board-truncated-notice');
+    const grids = screen.getByTestId('section-grids');
+    expect(notice0.compareDocumentPosition(grids) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(grids.contains(notice0)).toBe(false);
 
     const notice = await screen.findByTestId('board-truncated-notice');
     expect(notice).toHaveTextContent(/only the entries loaded so far/i);

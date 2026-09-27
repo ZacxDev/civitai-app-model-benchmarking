@@ -84,8 +84,10 @@ describe('item 6: one-time "How this works" panel', () => {
 
   it('stays hidden for a viewer who already dismissed it', async () => {
     renderApp({ appStorage: fakeAppStorage({ 'howto-dismissed:v1': true }).appStorage });
-    // The app is ready (tabs rendered) but the one-time panel never appears.
-    await screen.findByTestId('view-switch');
+    // The app is ready (the grids section is rendered) but the one-time panel
+    // never appears. The anchor used to be the top-level tab strip, which the IA
+    // refactor deleted; the grids section is the same claim about the same moment.
+    await screen.findByTestId('section-grids');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('how-this-works')).toBeNull();
   });

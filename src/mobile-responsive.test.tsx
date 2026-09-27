@@ -10,7 +10,9 @@
 //
 //     Grid view, document scrollWidth : 596 → 380   (viewport 380, so 380 = fixed)
 //     Combinations view               : 395 → 380   (a pre-existing tooltip overflow)
-//     view-switch tab height          :  30 → 44    at 380px, and still 30 at 1709px
+//     segmented-control tab height    :  30 → 44    at 380px, and still 30 at 1709px
+//       (measured on the then-live `view-switch` strip, which the IA refactor
+//        deleted; the rule and the numbers belong to the sub-tab segments now)
 //     results-grid scroller           : clientWidth 350, scrollWidth 580, scrollable
 //     grid cells / col hdrs / row hdrs: 8 / 2 / 4 — IDENTICAL at 380px and 1709px
 //
@@ -99,7 +101,7 @@
 // the negative control for the mobile arm: if they ever go red, "compact"
 // became unconditional and the seam stopped deciding anything.
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -186,19 +188,29 @@ function renderApp() {
 }
 
 /**
- * The view-switch controls expose `role="tab"`, NOT `role="button"` — asking for
- * "button" here fails with "unable to find an accessible element", which reads
- * exactly like the app not rendering. It renders; the role differs.
+ * Every `role="tab"` segment on the page.
+ *
+ * 🔴 THESE ARE THE SUB-TABS NOW, AND THERE USED TO BE A TOP-LEVEL STRIP TOO. The
+ * compact stylesheet's tap-target rule is aimed at `[data-civitai-ui-segment]`,
+ * which the pack's `SegmentedControl` emits; the IA refactor deleted the
+ * `view-switch` strip, so the segments that remain are the My/Community sub-tabs
+ * on the matchup and prompt sections. The RULE is unchanged and so is the claim
+ * this file makes about it — what changed is which controls it reaches, and the
+ * ledger below is a literal so that is a decision rather than a drift.
+ *
+ * (Segments expose `role="tab"`, NOT `role="button"` — asking for "button" here
+ * fails with "unable to find an accessible element", which reads exactly like the
+ * app not rendering. It renders; the role differs.)
  */
 async function tabs() {
-  const strip = await screen.findByTestId('view-switch');
-  return within(strip).getAllByRole('tab');
+  await screen.findByTestId('section-matchups');
+  return screen.getAllByRole('tab');
 }
 
-/** Open the Grid view and wait for the matrix to mount. */
+/** Wait for the matrix to mount. The grids section is always rendered now — there
+ * is no view to open. */
 async function openGrid() {
-  const t = await tabs();
-  await userEvent.click(t[2]);
+  await screen.findByTestId('section-grids');
   return screen.findByTestId('results-grid');
 }
 
@@ -215,7 +227,7 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
   it('stamps the compact attribute on the block root and mounts the stylesheet', async () => {
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-grids');
 
     expect(document.querySelector(`[${COMPACT_ATTR}='true']`)).not.toBeNull();
     expect(screen.getByTestId('compact-styles')).toBeInTheDocument();
@@ -228,25 +240,27 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
     // pin that each selector resolves to real, rendered controls.
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-matchups');
 
-    // 3 view tabs (matchups / prompts / grid) + the 2 sub-tabs the mounted
-    // Matchups view adds (My / Community — 527, §11.1). A literal rather than a
-    // `>= 3`: this is the reachability ledger, so a segment appearing or
-    // disappearing should be a decision someone takes on purpose.
+    // 4 segments: the My/Community sub-tabs of the matchup section and of the
+    // prompt section, both mounted at once. It was 5 while a 3-tab `view-switch`
+    // strip sat above a single mounted view; the IA refactor deleted the strip and
+    // mounts both lists together. A literal rather than a `>= 3`: this is the
+    // reachability ledger, so a segment appearing or disappearing should be a
+    // decision someone takes on purpose.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui-segment]`),
-    ).toHaveLength(5);
+    ).toHaveLength(4);
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui='button']`).length,
     ).toBeGreaterThan(0);
   });
 
-  it('gives every view-switch tab a computed min-height of at least 44px', async () => {
+  it('gives every sub-tab segment a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
     const t = await tabs();
-    expect(t).toHaveLength(3);
+    expect(t).toHaveLength(4);
     for (const tab of t) {
       expect(minHeightPx(tab)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
@@ -255,8 +269,7 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
   it('gives the vote control a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
-    // Grids is the default view since 527 (§11.5); the vote control under test
-    // is the MATCHUP one, so navigate to it.
+    // The vote control under test is the MATCHUP one, so scope to its section.
     await openView('Matchups');
     const vote = await screen.findByTestId('matchup-vote');
     expect(minHeightPx(vote)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
@@ -278,13 +291,13 @@ describe('420 — wide viewport: the desktop rendering is untouched', () => {
   it('mounts no compact stylesheet and leaves the root unstamped', async () => {
     setViewport('desktop');
     renderApp();
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-grids');
 
     expect(document.querySelector(`[${COMPACT_ATTR}='true']`)).toBeNull();
     expect(screen.queryByTestId('compact-styles')).toBeNull();
   });
 
-  it('leaves the tab controls on the pack’s own sizing (no tap-target override)', async () => {
+  it('leaves the segment controls on the pack’s own sizing (no tap-target override)', async () => {
     // The mirror of the mobile case, and the reason the mobile one is not
     // vacuous: if this ever also reported >=44px, the "compact" layout would be
     // unconditional and the seam would be doing nothing.
@@ -489,7 +502,7 @@ describe('420 — the 44px figure itself', () => {
     );
 
     await openView('Matchups');
-    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
     await userEvent.click(await screen.findByTestId('matchup-edit'));
 
     const ranges = document.querySelectorAll(
@@ -844,7 +857,7 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // stopped at the string.
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('view-switch');
+    await screen.findByTestId('section-grids');
 
     const mounted = screen.getByTestId('compact-styles').textContent ?? '';
     expect(mounted.replace(/\s+/g, ' ')).toContain(tooltipBlock());

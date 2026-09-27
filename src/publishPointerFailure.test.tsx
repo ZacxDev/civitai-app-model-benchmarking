@@ -73,7 +73,14 @@ import { DRAFT_PREFIX, buildDraft, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, buildUnpubPrompt, unpubPromptKey } from './lib/unpubPrompts.js';
 import { UNPUB_GRID_PREFIX, buildUnpubGrid } from './lib/unpubGrids.js';
 import { unpubGridKey } from './lib/grids.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openView,
+} from './test-helpers.js';
 
 const VIEWER_ID = 99;
 
@@ -248,7 +255,8 @@ describe.each(OBJECTS)(
       );
       mountApp({ shared: s.shared, appStorage: kv.appStorage });
       await openView(view);
-      await userEvent.click(await screen.findByTestId('subtab-my'));
+      // Grids has no sub-tabs any more — see openMyList.
+      await openMyList(noun);
       const card = await screen.findByTestId('unpublished-card');
       await userEvent.click(within(card).getByTestId('unpublished-publish'));
       await waitFor(() => expect(s.appends).toHaveLength(1));
@@ -365,6 +373,7 @@ describe.each(OBJECTS)(
 
 describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
   it.each(OBJECTS)('$noun — no error is shown and the pointer is stored', async ({
+    noun,
     view,
     storageKey,
     record,
@@ -376,7 +385,7 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     const kv = fakeAppStorage({ [storageKey]: record });
     mountApp({ shared: s.shared, appStorage: kv.appStorage });
     await openView(view);
-    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await openMyList(noun);
     const card = await screen.findByTestId('unpublished-card');
     await userEvent.click(within(card).getByTestId('unpublished-publish'));
 

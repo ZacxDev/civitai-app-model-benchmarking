@@ -30,6 +30,7 @@ import { Harness } from '@civitai/blocks-react/testing';
 import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
 
 import { App, type AppDeps } from './App.js';
+import { ARCHIVE_NOTE } from './lib/archive.js';
 import { DEFAULT_TOP_N } from './lib/benchmark.js';
 import { UNPUB_GRID_PREFIX } from './lib/grids.js';
 import { TOP_GRID_NAME } from './lib/gridEntries.js';
@@ -165,23 +166,35 @@ const cardKeys = (): (string | null)[] =>
 // Criterion 9 — Grids is the default view, and the slider is gone
 // ===========================================================================
 
-describe('🔴 criterion 9: Grids is the DEFAULT view and the top-N slider is gone', () => {
-  it('opens on the Grids view without anyone clicking a tab', async () => {
+describe('🔴 criterion 9: the grid is FIRST on the page, and the top-N slider is gone', () => {
+  // ⚠ WHAT THIS CASE USED TO ASSERT. It read "Grids is the DEFAULT view": the
+  // grids panel mounted, the matchup and prompt panels did NOT, and the strip's
+  // selected tab agreed. All three halves rested on there BEING a top-level tab
+  // strip with exactly one live view — which the IA refactor deleted. The
+  // criterion behind it (§11.5: the thing the block is FOR must not be behind a
+  // click) survives and is now satisfied more strongly, so what is asserted is
+  // the stronger fact: every section is mounted, and the grid is the FIRST of
+  // them. The two absence assertions are deliberately inverted rather than
+  // dropped — their subject is now presence.
+  it('renders the grid FIRST, with the matchup and prompt sections below it', async () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
 
     expect(await screen.findByTestId('grid-view')).toBeInTheDocument();
-    // …and ONLY that view: a default that also left a sibling mounted would put
-    // two panels on screen at once.
-    expect(screen.queryByTestId('matchups-view')).toBeNull();
-    expect(screen.queryByTestId('prompts-view')).toBeNull();
+    // Nothing is behind a click: the lists that feed the ranking are on screen too.
+    expect(screen.getByTestId('matchups-view')).toBeInTheDocument();
+    expect(screen.getByTestId('prompts-view')).toBeInTheDocument();
 
-    // The tab a human sees selected agrees with the panel that mounted.
-    const strip = screen.getByTestId('view-switch');
-    const selected = within(strip)
-      .getAllByRole('tab')
-      .filter((t) => t.getAttribute('aria-selected') === 'true');
-    expect(selected).toHaveLength(1);
-    expect(within(selected[0]!).getByTestId('view-switch-grid')).toBeInTheDocument();
+    // …and the grid is FIRST. Asserted by DOM order over the section markers, not
+    // by a testid that a reorder would leave untouched.
+    const order = Array.from(
+      screen.getByTestId('app-content').querySelectorAll('[data-mb-section]'),
+    ).map((el) => el.getAttribute('data-mb-section'));
+    expect(order).toEqual(['grids', 'matchups', 'prompts']);
+
+    // 🔴 AND THE STRIP IS GONE — not merely unused. A shim tab left in the DOM
+    // would satisfy every assertion above.
+    expect(screen.queryByTestId('view-switch')).toBeNull();
+    expect(screen.queryAllByTestId('view-switch-grid')).toEqual([]);
   });
 
   it('🔴 renders NO "Show top N" control, and no such copy, anywhere in the app', async () => {
@@ -203,12 +216,10 @@ describe('🔴 criterion 9: Grids is the DEFAULT view and the top-N slider is go
     expect(html.length).toBeGreaterThan(2000);
     expect(screen.getAllByTestId('grid-card').length).toBeGreaterThan(0);
 
-    // The other two views carry no such control either.
-    await openView('Matchups');
-    expect(screen.queryByTestId('top-n')).toBeNull();
-    expect(document.body.innerHTML).not.toContain('Show top N');
-    await openView('Prompts');
-    expect(screen.queryByTestId('top-n')).toBeNull();
+    // The other two sections carry no such control either — and they are already
+    // mounted, so this is one frame rather than two navigations.
+    expect(within(await openView('Matchups')).queryByTestId('top-n')).toBeNull();
+    expect(within(await openView('Prompts')).queryByTestId('top-n')).toBeNull();
     expect(document.body.innerHTML).not.toContain('Show top N');
   });
 });
@@ -705,7 +716,9 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     renderApp({ shared: s.shared, appStorage });
     await screen.findByTestId('grid-view');
 
-    await userEvent.click(await screen.findByTestId('subtab-my'));
+    // 🔴 NO SUB-TAB CLICK. The grids section dropped its My/Community strip in the
+    // IA refactor; a signed-in viewer's unpublished grids are rendered directly
+    // (and only when there are any — see GridsView).
     const unpublished = await screen.findByTestId('unpublished-card');
     expect(within(unpublished).getByTestId('unpublished-meta')).toHaveTextContent('2 × 1');
     await userEvent.click(within(unpublished).getByTestId('unpublished-publish'));
@@ -760,9 +773,14 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     // a New-grid button here could only ever produce an unhandled rejection.
     expect(screen.queryByTestId('grid-new')).toBeNull();
 
-    await userEvent.click(screen.getByTestId('subtab-my'));
-    expect(await screen.findByTestId('my-signed-out')).toBeInTheDocument();
+    // 🔴 THERE IS NO "My" SUB-TAB TO CLICK HERE ANY MORE, so there is no signed-out
+    // panel either — the grids section lost its sub-tabs in the IA refactor. What
+    // this case is actually about survives and is asserted directly: an anonymous
+    // viewer is offered NO private-storage affordance at all on this surface.
+    expect(screen.queryByTestId('subtab-my-grid')).toBeNull();
+    expect(screen.queryByTestId('my-signed-out-grid')).toBeNull();
     expect(screen.queryByTestId('unpublished-panel')).toBeNull();
+    expect(screen.queryByTestId('new-unpublished')).toBeNull();
 
     // 🔴 NOT ONE WRITE ATTEMPTED, per-viewer or shared, on anything it offered.
     expect(setAttempts).toEqual([]);
@@ -824,26 +842,47 @@ describe('the My / Community partition for grids (§11.1)', () => {
     expect(within(theirsInCommunity).queryByTestId('grid-withdraw')).toBeNull();
     expect(within(theirsInCommunity).getByTestId('grid-report')).toBeInTheDocument();
 
-    // My holds the authored row ONLY.
-    await userEvent.click(screen.getByTestId('subtab-my'));
-    await waitFor(() => expect(cardKeys()).toEqual(['gk-mine']));
+    // 🔴 OWNERSHIP IS A BADGE ON THE ONE LIST NOW, not a second filtered list. The
+    // My sub-tab is gone (IA refactor); what it communicated — which rows are the
+    // viewer's — is asserted here on the same cards, and it is derived from the
+    // same `isOwnRow` predicate that decides Remove-vs-Report above, so the label
+    // and the affordances cannot disagree.
+    expect(screen.queryByTestId('subtab-my-grid')).toBeNull();
+    expect(within(mineInCommunity).getByTestId('grid-own-badge')).toBeInTheDocument();
+    expect(within(theirsInCommunity).queryByTestId('grid-own-badge')).toBeNull();
+    // The system entry is nobody's.
+    const system = screen
+      .getAllByTestId('grid-card')
+      .find((el) => el.getAttribute('data-key') === '__system__')!;
+    expect(within(system).queryByTestId('grid-own-badge')).toBeNull();
   });
 
   it('archives an own grid out of My while it stays in Community, and says so', async () => {
     const { appStorage, sets } = fakeAppStorage();
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, MINE, THEIRS] }).shared, appStorage });
     await screen.findByTestId('grid-view');
-    await userEvent.click(await screen.findByTestId('subtab-my'));
-    await waitFor(() => expect(cardKeys()).toEqual(['gk-mine']));
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-mine', 'gk-theirs']));
 
+    // 🔴 ARCHIVE NOW HIDES FROM THE ONE LIST — which is what "hide from MY view"
+    // has to mean once there is only one list. The row is NOT withdrawn: it stays
+    // on the shared board (nothing is written to it), and the viewer can bring it
+    // back through "Show archived".
     await userEvent.click(screen.getByTestId('archive-action'));
-    await waitFor(() => expect(screen.queryByTestId('grid-card')).toBeNull());
-    // The honest wording is not there to be found once the list is empty, but
-    // the archived row is still on the board and still in Community.
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-theirs']));
     await waitFor(() => expect(sets.some((w) => w.key === 'archive:v1')).toBe(true));
     expect(sets.find((w) => w.key === 'archive:v1')!.value).toEqual(['gk-mine']);
+    // The honest wording, next to the control rather than behind a tooltip.
+    expect(screen.getByTestId('archive-note')).toHaveTextContent(ARCHIVE_NOTE);
 
-    await userEvent.click(screen.getByTestId('subtab-community'));
+    // …and it is REVERSIBLE, which is the half that proves nothing was removed.
+    await userEvent.click(screen.getByTestId('archived-toggle'));
+    const archived = await screen.findByTestId('archived-list');
+    expect(
+      within(archived)
+        .getAllByTestId('grid-card')
+        .map((el) => el.getAttribute('data-key')),
+    ).toEqual(['gk-mine']);
+    await userEvent.click(within(archived).getByTestId('unarchive-action'));
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-mine', 'gk-theirs']));
   });
 

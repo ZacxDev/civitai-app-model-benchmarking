@@ -2,8 +2,22 @@
 //
 // Owns every SDK hook (block context/token, resource picker, generation-resource
 // rehydrate, the Buzz workflow money path + balance, shared storage, consent,
-// and the 0.30 publish/gated bridges) and routes between three tabs — Combos,
-// Prompts, Grid — via a SegmentedControl. Submit flows are modals. The hooks are
+// and the 0.30 publish/gated bridges).
+//
+// 🔴 ONE PAGE, NO TOP-LEVEL TABS. There used to be a `SegmentedControl` routing
+// between three views (Combos / Prompts / Grid) and a `view` state behind it; both
+// are gone. The page now renders three SECTIONS in a fixed order — grids (with the
+// runnable matrix and the flat all-grids list), then matchups, then prompts — each
+// marked with `data-mb-section` so a ledger test fails when the set grows or
+// shrinks. Contribution is one `ContributeMenu` where the strip used to be.
+//
+// The matchup and prompt sections KEEP their own My/Community sub-tabs, drafts,
+// archive and quota machinery: those lists are what the vote ranking is cast on,
+// and the ranking is what decides the Top Grid's members. Folding them away is
+// what would starve it.
+//
+// Submit flows are modals; so are the matchup/prompt DETAIL views the grid's
+// group band and column headers open. The hooks are
 // collapsed into an injectable `deps` bag so component + e2e tests drive the
 // exact same App with canned picks/workflows/publish/gated, OR against the real
 // SDK mock host.
@@ -44,7 +58,6 @@ import {
   Group,
   Loader,
   Modal,
-  SegmentedControl,
   Stack,
 } from '@civitai/blocks-react/ui';
 
@@ -125,7 +138,10 @@ import {
 import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
+import { ContributeMenu } from './components/ContributeMenu.js';
+import { MatchupBody } from './components/MatchupBody.js';
 import { MatchupsView } from './components/MatchupsView.js';
+import { PromptBody } from './components/PromptBody.js';
 import { PromptsView } from './components/PromptsView.js';
 import { GridsView } from './components/GridsView.js';
 import { ResultsGrid } from './components/ResultsGrid.js';
@@ -183,7 +199,16 @@ export interface AppProps {
   deps?: Partial<AppDeps>;
 }
 
-type View = 'combos' | 'prompts' | 'grid';
+/**
+ * The page's top-level sections, in render order.
+ *
+ * 🔴 A LEDGER LIVES OFF THIS ARRAY and asserts that the DOM carries exactly these
+ * `data-mb-section` values — failing when the set GROWS as loudly as when it
+ * shrinks. It replaced a three-way `view` state whose tab strip was selected BY
+ * POSITION downstream; naming the sections is what makes a fourth one a loud
+ * failure instead of a silent re-point.
+ */
+export const PAGE_SECTIONS = ['grids', 'matchups', 'prompts'] as const;
 
 /**
  * The outcome of a PHASE-1 in-flight claim write. 🔴 Deliberately a THREE-way
@@ -196,17 +221,24 @@ type ClaimOutcome =
   | { ok: false; reason: 'rejected' | 'no-viewer' };
 
 /**
- * The submit modal: closed, a combo/prompt form in CREATE or EDIT mode, or one of
- * the two UNPUBLISHED forms — the same combination/prompt form saving to the
- * PER-VIEWER store instead of the public board. Each private kind is distinct
- * rather than a flag on its public sibling because the two write to different
- * stores, and a single branch deciding which store a save lands in is exactly the
- * branch that gets got wrong later.
+ * The one modal slot: closed, a combo/prompt form in CREATE or EDIT mode, one of
+ * the three UNPUBLISHED forms — the same combination/prompt/grid form saving to the
+ * PER-VIEWER store instead of the public board — or a read-mostly DETAIL view.
+ * Each private kind is distinct rather than a flag on its public sibling because
+ * the two write to different stores, and a single branch deciding which store a
+ * save lands in is exactly the branch that gets got wrong later.
+ *
+ * 🔴 THE DETAIL KINDS HOLD A KEY, NOT A ROW. The row is looked up from `items` at
+ * render time, so a matchup that is voted on, edited or WITHDRAWN while its detail
+ * is open reflects that instead of showing a stale snapshot — and a withdrawn row
+ * closes the modal rather than rendering vote controls for something that is gone.
  */
 type ModalState =
   | { kind: 'none' }
   | { kind: 'combo'; edit?: CombinationRow }
   | { kind: 'prompt'; edit?: PromptRow }
+  | { kind: 'matchup-detail'; comboKey: string }
+  | { kind: 'prompt-detail'; promptKey: string }
   | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
   | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean }
   // 🔴 A grid has only the PRIVATE form. Matchups and prompts each have a public
@@ -383,12 +415,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // The app's own convention for an unauthorized press is the vote control's: keep the
   // affordance PRESENT and readable, and route the press. See `beginRun`.
 
-  // ---- view + modal state ----
-  // 🔴 GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance criterion 9). The app's
-  // primary object is the grid — the matchup and prompt lists exist to feed it —
-  // so opening on a submission list put the thing the block is FOR two clicks
-  // away. It also means the Top Grid is on screen before anything is submitted.
-  const [view, setView] = useState<View>('grid');
+  // ---- modal state ----
+  // 🔴 THERE IS NO `view` STATE ANY MORE. Grids used to be the DEFAULT of three
+  // tabs (spec §11.5, acceptance criterion 9) because the app's primary object is
+  // the grid and opening on a submission list put the thing the block is FOR two
+  // clicks away. The IA refactor took that to its conclusion: the grid is FIRST on
+  // a single page and the lists that feed it are below it, so nothing the block is
+  // for is behind a click at all.
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
@@ -2029,6 +2062,25 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [unpublishedPrompts],
   );
 
+  /**
+   * The row the open DETAIL modal is about, resolved against the LIVE board.
+   *
+   * 🔴 RESOLVED AT RENDER, NEVER SNAPSHOTTED INTO THE MODAL STATE. The detail is
+   * reached from the grid, which means it can be open while the row it names is
+   * voted on, edited or WITHDRAWN — by its author in another tab, or by this viewer
+   * in the modal itself. A captured row would keep rendering the old vote count and
+   * would keep offering Withdraw on a row that no longer exists; `undefined` here
+   * closes the modal instead (the `opened` prop branches on it).
+   */
+  const detailMatchup = useMemo(
+    () => (modal.kind === 'matchup-detail' ? combinations.find((r) => r.key === modal.comboKey) : undefined),
+    [modal, combinations],
+  );
+  const detailPrompt = useMemo(
+    () => (modal.kind === 'prompt-detail' ? prompts.find((r) => r.key === modal.promptKey) : undefined),
+    [modal, prompts],
+  );
+
   // ---- render ----
   // 🔴 `data-theme` goes through `paintTheme`, never bare `theme`: before `ready`
   // the SDK's snapshot hardcodes `'light'`, so stamping it here would repaint the
@@ -2055,7 +2107,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           desktop rendering is byte-for-byte what it was. Scoped to this root by
           the COMPACT_ATTR selector, so it can never leak into the host page. */}
       {isMobile && <style data-testid="compact-styles">{compactTapTargetCss()}</style>}
-      <div style={contentStyle}>
+      <div style={contentStyle} data-testid="app-content">
         <Group
           justify="space-between"
           align="center"
@@ -2118,65 +2170,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         )}
 
         {/*
-          🔴 EACH TAB CARRIES ITS OWN `data-testid`, NAMED FOR ITS VIEW — NEVER FOR
-          ITS POSITION. Downstream consumers (the app-capture recipe in
-          `talos-infra`) used to select these tabs as
-          `[data-testid='view-switch'] > button:nth-of-type(N)`, which silently
-          re-points at the wrong panel the moment a tab is reordered or added — and
-          a capture of the wrong view still succeeds. The name is the view key, so
-          it survives both.
-
-          🔴 WHY THE ATTRIBUTE IS ON THE LABEL AND NOT ON THE BUTTON: it cannot be
-          on the button. `SegmentedControl` renders each `role="tab"` button
-          itself, from a fixed attribute set, and `SegmentedControlItem` is
-          `{ value, label, disabled }` — extra item properties are NOT spread onto
-          the button (checked in @civitai/blocks-react 0.43.0, the pinned version,
-          and 0.44.2, the newest published; `dist/ui/SegmentedControl.js` is
-          byte-identical between them). So the only attribute hook the pack gives
-          an app author is inside `label`. A CSS selector resolves the span, and a
-          click at the span's centre lands inside its parent button, which is what
-          both the capture bridge (centre-coordinate CDP click) and
-          `userEvent.click` do.
-        */}
-        <SegmentedControl
-          fullWidth
-          value={view}
-          onChange={(v) => setView(v as View)}
-          data-testid="view-switch"
-          data={[
-            {
-              value: 'combos',
-              label: (
-                <span data-testid="view-switch-matchups">Matchups ({combinations.length})</span>
-              ),
-            },
-            {
-              value: 'prompts',
-              label: <span data-testid="view-switch-prompts">Prompts ({prompts.length})</span>,
-            },
-            { value: 'grid', label: <span data-testid="view-switch-grid">Grids</span> },
-          ]}
-        />
-
-        {/*
           🔴 THE BOARD IS BIGGER THAN WHAT IS RANKED. `list()` is newest-first with
           no server-side sort, so "most-voted" is computed client-side over the
           rows the scan actually read — and the scan stops at a page cap. When it
-          stops early, the counts in the tabs above, the top-N that becomes the
-          grid, and every "Included" badge describe a PREFIX of the board.
+          stops early, the section counts below, the top-N that becomes the grid,
+          and every "Included" badge describe a PREFIX of the board.
 
           Saying so is the whole point: an honest partial beats a confident wrong
           order, and the alternative is a ranking that silently omits row 2001
-          while looking complete. Rendered next to the switch so it is visible in
-          all three views, since all three read the same truncated ranking.
+          while looking complete.
 
-          ⚠ 527 gave it a THIRD reader without changing a line here, and that is
-          why it is placed next to the switch rather than inside a view: the Grids
-          view ranks Community Grids by the same client-side count over the same
-          truncated scan, and the TOP GRID's members come straight out of the
-          matchup and prompt rankings this notice is about. It is now the DEFAULT
-          view, so this disclosure is the first thing a viewer of an over-cap
-          board sees.
+          🔴 IT STAYS ABOVE ALL THREE SECTIONS, and that placement is load-bearing
+          for the same reason it was when there were three tabs: THREE readers
+          depend on the same truncated ranking — the matchup list's order, the
+          prompt list's order, and the grids list (whose Community order is that
+          same client-side count, and whose TOP GRID's members come straight out of
+          the matchup and prompt rankings). One disclosure above all of them is the
+          only placement that is not either duplicated or missing.
         */}
         {boardTruncated && (
           <Alert color="warning" data-testid="board-truncated-notice">
@@ -2185,74 +2195,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           </Alert>
         )}
 
-        {view === 'combos' && (
-          <MatchupsView
-            combinations={combinations}
-            includedKeys={includedComboKeys}
-            votedKeys={votedKeys}
-            viewerId={viewer?.id ?? null}
-            loading={loading}
-            error={error}
-            onSubmitNew={() => setModal({ kind: 'combo' })}
-            onVote={onVote}
-            onUnvote={onUnvote}
-            onRequireAuth={requireAuth}
-            onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
-            onWithdraw={withdrawCombination}
-            onReport={reportRow}
-            unpublished={unpublishedMatchups}
-            quotaLine={quotaLine}
-            archivedKeys={archivedKeys}
-            onNewUnpublished={() =>
-              setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
-            }
-            onEditUnpublished={editMatchupById}
-            onDiscardUnpublished={deleteDraft}
-            onPublishUnpublished={publishMatchupById}
-            onArchive={archiveRow}
-            onUnarchive={unarchiveRow}
-          />
-        )}
+        {/* ---- SECTION 1 of 3: GRIDS (the runnable matrix + the flat all-grids
+             list). FIRST, because it is the app's primary object and everything
+             below exists to feed it.
 
-        {view === 'prompts' && (
-          <PromptsView
-            prompts={prompts}
-            includedKeys={includedPromptKeys}
-            votedKeys={votedKeys}
-            viewerId={viewer?.id ?? null}
-            loading={loading}
-            error={error}
-            onSubmitNew={() => setModal({ kind: 'prompt' })}
-            onVote={onVote}
-            onUnvote={onUnvote}
-            onRequireAuth={requireAuth}
-            onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
-            onWithdraw={withdrawPrompt}
-            onReport={reportRow}
-            unpublished={unpublishedPrompts}
-            quotaLine={quotaLine}
-            archivedKeys={archivedKeys}
-            onNewUnpublished={() =>
-              setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
-            }
-            onEditUnpublished={editPromptById}
-            onDiscardUnpublished={deleteUnpubPrompt}
-            onPublishUnpublished={publishPromptById}
-            onArchive={archiveRow}
-            onUnarchive={unarchiveRow}
-          />
-        )}
-
-        {view === 'grid' && (
-          // `minWidth: 0` for the same reason `contentStyle` carries it: this
-          // Stack is a grid item holding the wide results matrix, and its
-          // default content-based minimum would re-introduce the blowout one
-          // level below the containment in `contentStyle`.
+             `minWidth: 0` for the same reason `contentStyle` carries it: this box
+             is a grid item holding the wide results matrix, and its default
+             content-based minimum would re-introduce the blowout one level below
+             the containment in `contentStyle`. ---- */}
+        <section
+          data-mb-section="grids"
+          data-testid="section-grids"
+          style={{ minWidth: 0, display: 'grid', gap: 14 }}
+        >
           <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
             <GridsView
               grids={grids}
               combinations={combinations}
               prompts={prompts}
+              /* The preview strips' source. One batched gated read per card —
+                 see GridPreview for the budget and why it reuses GatedCell. */
+              results={results}
+              GatedCell={deps.GatedCell}
+              /* The page's one contribution affordance, rendered on the open
+                 grid's title row — where the tab strip used to be. */
+              headerAction={
+                <ContributeMenu
+                  onSubmitMatchup={() => setModal({ kind: 'combo' })}
+                  onSubmitPrompt={() => setModal({ kind: 'prompt' })}
+                  onBuildGrid={() =>
+                    setModal({ kind: 'unpub-grid', localId: newGridLocalId(), existing: false })
+                  }
+                />
+              }
               votedKeys={votedKeys}
               viewerId={viewer?.id ?? null}
               loading={loading}
@@ -2307,13 +2282,150 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   onConfirmRun={confirmRun}
                   onResumeRun={resumeRun}
                   onCancelRun={cancelRun}
-                  onAddCombination={() => setView('combos')}
-                  onAddPrompt={() => setView('prompts')}
+                  /* 🔴 THESE USED TO BE `setView(...)`. There is no view state, and
+                     a tab jump was only ever a way of reaching the submit form —
+                     so they open it. */
+                  onAddCombination={() => setModal({ kind: 'combo' })}
+                  onAddPrompt={() => setModal({ kind: 'prompt' })}
+                  /* Drill-in: the group BAND opens the matchup, a COLUMN header
+                     opens the prompt. Config rows stay inert — see
+                     `ResultsGridProps.onOpenMatchup`. */
+                  onOpenMatchup={(comboKey) => setModal({ kind: 'matchup-detail', comboKey })}
+                  onOpenPrompt={(promptKey) => setModal({ kind: 'prompt-detail', promptKey })}
                 />
               )}
             />
           </Stack>
-        )}
+        </section>
+
+        {/* ---- SECTION 2 of 3: MATCHUPS. Keeps its own My/Community sub-tabs and
+             its whole unpublished/archive/quota machinery: this list is where the
+             votes that decide the Top Grid's ROWS are cast. ---- */}
+        <section
+          data-mb-section="matchups"
+          data-testid="section-matchups"
+          style={{ minWidth: 0, display: 'grid', gap: 14 }}
+        >
+          <MatchupsView
+            combinations={combinations}
+            includedKeys={includedComboKeys}
+            votedKeys={votedKeys}
+            viewerId={viewer?.id ?? null}
+            loading={loading}
+            error={error}
+            onSubmitNew={() => setModal({ kind: 'combo' })}
+            onVote={onVote}
+            onUnvote={onUnvote}
+            onRequireAuth={requireAuth}
+            onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
+            onWithdraw={withdrawCombination}
+            onReport={reportRow}
+            unpublished={unpublishedMatchups}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
+            }
+            onEditUnpublished={editMatchupById}
+            onDiscardUnpublished={deleteDraft}
+            onPublishUnpublished={publishMatchupById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
+          />
+        </section>
+
+        {/* ---- SECTION 3 of 3: PROMPTS — the COLUMN side of the same story. ---- */}
+        <section
+          data-mb-section="prompts"
+          data-testid="section-prompts"
+          style={{ minWidth: 0, display: 'grid', gap: 14 }}
+        >
+          <PromptsView
+            prompts={prompts}
+            includedKeys={includedPromptKeys}
+            votedKeys={votedKeys}
+            viewerId={viewer?.id ?? null}
+            loading={loading}
+            error={error}
+            onSubmitNew={() => setModal({ kind: 'prompt' })}
+            onVote={onVote}
+            onUnvote={onUnvote}
+            onRequireAuth={requireAuth}
+            onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
+            onWithdraw={withdrawPrompt}
+            onReport={reportRow}
+            unpublished={unpublishedPrompts}
+            quotaLine={quotaLine}
+            archivedKeys={archivedKeys}
+            onNewUnpublished={() =>
+              setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
+            }
+            onEditUnpublished={editPromptById}
+            onDiscardUnpublished={deleteUnpubPrompt}
+            onPublishUnpublished={publishPromptById}
+            onArchive={archiveRow}
+            onUnarchive={unarchiveRow}
+          />
+        </section>
+
+        {/* ---- DRILL-IN DETAIL: what the grid's group band and column headers open.
+             🔴 A DETAIL VIEW, NOT AN EDIT FORM. Most viewers do not own the row they
+             just clicked, so the destination has to be something they can DO
+             something with: the full config list / prompt text, vote, report, and
+             Edit/Withdraw only for the author — which is exactly the shared body the
+             list cards render, so the ownership decision is not made twice.
+
+             `detailMatchup`/`detailPrompt` resolve the key against the LIVE board, so
+             a row withdrawn while its detail is open renders nothing rather than vote
+             controls for something that is gone. ---- */}
+        <Modal
+          opened={modal.kind === 'matchup-detail' && !!detailMatchup}
+          onClose={closeModal}
+          title="Matchup"
+          size="lg"
+        >
+          {modal.kind === 'matchup-detail' && detailMatchup && (
+            <div data-testid="matchup-detail">
+              <MatchupBody
+                combo={detailMatchup}
+                detail
+                included={includedComboKeys.has(detailMatchup.key)}
+                voted={votedKeys.has(detailMatchup.key)}
+                viewerId={viewer?.id ?? null}
+                onVote={onVote}
+                onUnvote={onUnvote}
+                onRequireAuth={requireAuth}
+                onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
+                onWithdraw={withdrawCombination}
+                onReport={reportRow}
+              />
+            </div>
+          )}
+        </Modal>
+        <Modal
+          opened={modal.kind === 'prompt-detail' && !!detailPrompt}
+          onClose={closeModal}
+          title="Prompt"
+          size="lg"
+        >
+          {modal.kind === 'prompt-detail' && detailPrompt && (
+            <div data-testid="prompt-detail">
+              <PromptBody
+                prompt={detailPrompt}
+                detail
+                included={includedPromptKeys.has(detailPrompt.key)}
+                voted={votedKeys.has(detailPrompt.key)}
+                viewerId={viewer?.id ?? null}
+                onVote={onVote}
+                onUnvote={onUnvote}
+                onRequireAuth={requireAuth}
+                onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
+                onWithdraw={withdrawPrompt}
+                onReport={reportRow}
+              />
+            </div>
+          )}
+        </Modal>
 
         <Modal
           opened={modal.kind === 'combo'}

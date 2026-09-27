@@ -4,7 +4,7 @@
 // protocol (shared storage, workflow, picker, consent, viewer). NOT a *.test
 // file, so it isn't collected as a suite.
 
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
@@ -18,23 +18,58 @@ import type {
 import type { GatedCellComponent } from './components/GatedCell.js';
 
 /**
- * Open one of the three views by its TAB NAME.
+ * Resolve one of the page's three SECTIONS, waiting for the app to finish booting.
  *
- * 🔴 It exists because GRIDS IS THE DEFAULT VIEW (spec §11.5, acceptance
- * criterion 9): a case that wants the Matchups or Prompts list has to say so, and
- * before 527 it did not have to. One helper rather than ~40 open-coded clicks so
- * the tab's accessible name lives at exactly one site — the previous default
- * changed once already and every call site is a place it can be missed.
+ * 🔴 IT NO LONGER CLICKS ANYTHING, AND THAT IS THE POINT. There was a top-level
+ * tab strip and exactly one view was mounted at a time, so a case that wanted the
+ * Matchups list had to click its tab first. The IA refactor made the app ONE PAGE:
+ * all three sections are mounted simultaneously, so the helper's job changed from
+ * "switch to" to "scope to".
  *
- * ⚠ The accessible name carries a COUNT ("Matchups (3)"), so the match is
- * anchored at the START and not exact. The strip's controls are `role="tab"`, NOT
- * `role="button"` — asking for "button" fails in a way that reads exactly like
- * the app not rendering.
+ * 🔴 SCOPE YOUR QUERIES TO WHAT THIS RETURNS. Because the sections coexist, the
+ * object-neutral testids the sub-tabs use (`subtab-my`, `my-panel`,
+ * `archive-action`, …) now resolve TWICE in the document — once under matchups and
+ * once under prompts. A bare `getByTestId('subtab-my')` throws a
+ * "found multiple elements" that reads nothing like the real cause. Use
+ * `within(await openView('Matchups'))`.
+ *
+ * The name is kept (rather than renamed to `section()`) so the ~20 call sites that
+ * only need the wait keep working, and so the diff of this refactor shows which
+ * cases genuinely needed re-scoping.
  */
 export async function openView(name: 'Matchups' | 'Prompts' | 'Grids'): Promise<HTMLElement> {
-  const strip = await screen.findByTestId('view-switch');
-  await userEvent.click(within(strip).getByRole('tab', { name: new RegExp(`^${name}`) }));
-  return strip;
+  const testid =
+    name === 'Matchups' ? 'section-matchups' : name === 'Prompts' ? 'section-prompts' : 'section-grids';
+  return screen.findByTestId(testid);
+}
+
+/**
+ * Reveal the viewer's OWN records for one object kind.
+ *
+ * 🔴 THE THREE SURFACES NO LONGER AGREE ON HOW, which is why this is a helper and
+ * not an inline click. Matchups and prompts keep their My/Community sub-tabs, so
+ * their own records are behind a click; GRIDS dropped its sub-tabs in the IA
+ * refactor, so its unpublished list is simply always rendered for a signed-in
+ * viewer and there is nothing to click. A parameterised test that clicked
+ * `subtab-my` for all three would fail on the grid arm for a reason that has
+ * nothing to do with what it is testing.
+ */
+export async function openMyList(noun: 'matchup' | 'prompt' | 'grid'): Promise<void> {
+  if (noun === 'grid') return;
+  await userEvent.click(await screen.findByTestId(`subtab-my-${noun}`));
+}
+
+/**
+ * Open the Contribute menu and click one of its three items.
+ *
+ * Exists because the menu is the ONLY route to a submit form now that the views'
+ * own Submit buttons are no longer the page's primary affordance, and because the
+ * open→click sequence is two `userEvent` calls that every caller would otherwise
+ * get subtly different.
+ */
+export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<void> {
+  await userEvent.click(await screen.findByTestId('contribute-trigger'));
+  await userEvent.click(screen.getByTestId(`contribute-item-${item}`));
 }
 
 export const CKPT_SDXL: BlockResourceInfo = {
