@@ -17,16 +17,34 @@
 // ever true.
 //
 // 🔴 THE ACTUAL BLOCKER IS THE TEST ENVIRONMENT, AND IT IS NOT OURS TO FIX HERE.
-// `<civitai-menu>` opens its panel with the native popover API —
-// `panel.showPopover()`, `panel.matches(':popover-open')`. jsdom 25 implements
-// NONE of it: `showPopover`/`hidePopover`/`togglePopover` are `undefined`, the
-// `popover` property reads `false`, and `:popover-open` THROWS
-// `unknown pseudo-class selector` (probed directly, 2026-09-27). The upstream
-// menu therefore cannot be opened by any test in this repo's `dom` project.
+// `<civitai-menu>` uses the native popover API — `panel.showPopover()`,
+// `panel.matches(':popover-open')` — and jsdom implements neither.
+//
+// ⚠ SHARPENED 2026-09-27 against a REAL MOUNT (register the element, set
+// `innerHTML`, await `updateComplete`), which is stronger and differently shaped
+// than the shim-probe an earlier draft of this comment rested on. Two corrections
+// to that draft, both making the blocker WORSE, not better:
+//   - it throws on **MOUNT**, not on open. `open` carries a constructor default,
+//     so `changed.has('open')` is true on the first update and the element
+//     evaluates `:popover-open` immediately: `DOMException: unknown pseudo-class
+//     selector ':popover-open'`. There is no state in which it renders inertly.
+//   - **UPGRADING JSDOM IS NOT AN ESCAPE ROUTE.** Measured at a second point —
+//     jsdom 30.1.1 stops throwing on the selector and the failure simply moves to
+//     `TypeError: panel.showPopover is not a function`.
+// (The draft also said the `popover` property reads `false`; it reads `undefined`.
+// Immaterial to the conclusion, corrected so the next reader trusts the rest.)
+//
 // Second, independent blocker: `contribute-menu-items` is part of a cross-repo
 // capture contract (see `src/capture-landmarks.test.tsx`), and upstream renders
-// the panel inside its own shadow root with no app-settable attribute hook — the
-// trigger and the three slotted items CAN carry their testids; the panel cannot.
+// the panel inside its own shadow root. ⚠ Also sharpened: `part="panel"` DOES
+// exist upstream and `::part(panel)` resolves, so STYLING is not the gap —
+// ADDRESSABILITY is. `document.querySelector('[part="panel"]')` is null, and
+// wrapping the items in a consumer `<div data-testid>` makes upstream's
+// `assignedElements` see `['DIV']`, so its `role="menuitem"` filter yields ZERO
+// items and focus goes nowhere. `shadowRoot.querySelector('.panel')` does work,
+// but rests on an internal class name. So: a real gap, not a hard wall — the
+// trigger and the three slotted items CAN carry their testids; the panel cannot,
+// without coupling to upstream internals.
 //
 // The native site's own Create button is Mantine
 // (`civitai/civitai` src/components/AppLayout/AppHeader/CreateMenu.tsx) and is

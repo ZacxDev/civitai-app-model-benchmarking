@@ -83,18 +83,25 @@ applied cleanly to `b778de4`, reached typecheck rc 0 / build rc 0 / money-path 3
 
 🔴 **Its prize was deleting `src/components/ContributeMenu.tsx` (388 lines), and that is
 impossible either way** — so the bump buys currency and nothing else:
-- `<civitai-menu>` opens via the **native popover API** (`panel.showPopover()`,
-  `panel.matches(':popover-open')`) and **jsdom 25 implements none of it** — probed
-  directly: the three methods `undefined`, the `popover` property `false`, and
-  `:popover-open` **throws** `unknown pseudo-class selector`. The upstream menu cannot be
-  opened by any test in the `dom` project.
+- `<civitai-menu>` uses the **native popover API** (`panel.showPopover()`,
+  `panel.matches(':popover-open')`) and jsdom implements neither. ⚠ **Sharpened against a
+  REAL MOUNT, and both corrections make it worse:** it throws on **MOUNT**, not on open —
+  `open` has a constructor default, so `changed.has('open')` is true on the first update and
+  the element evaluates `:popover-open` immediately (`DOMException: unknown pseudo-class
+  selector`). There is no state in which it renders inertly. And **upgrading jsdom is not an
+  escape route**: measured at jsdom 30.1.1, the selector stops throwing and the failure
+  merely moves to `TypeError: panel.showPopover is not a function`.
 - `contribute-menu-items` is part of the capture contract, and upstream renders the panel
-  inside its own shadow root with **no app-settable attribute hook**. The trigger and the
-  three slotted items can carry testids; the panel cannot.
+  inside its own shadow root. ⚠ Also sharpened: `part="panel"` **does** exist and
+  `::part(panel)` resolves, so **styling is not the gap — addressability is**.
+  `document.querySelector('[part="panel"]')` is null, and wrapping the items in a consumer
+  `<div data-testid>` makes upstream's `assignedElements` see `['DIV']`, so its
+  `role="menuitem"` filter yields **zero** items and focus goes nowhere.
+  `shadowRoot.querySelector('.panel')` works but couples to an internal class name.
 
-**Two upstream asks in `civitai/civitai-app-starters` would close it** — an app-settable
-testid on the menu panel, and an open path a jsdom-based runner can drive. Neither is
-filed yet. The alternative is a real-browser runner for this repo.
+**Filed upstream 2026-09-27** — `civitai/civitai-app-starters` **issue #485** covers both of
+the above as one consumer story (either alone still blocks adoption). Closing it needs a
+maintainer API decision, or a real-browser runner for this repo.
 
 **It is FIVE packages, not four** (measured): `components-react@0.9.0` needs
 `components@^0.8.1`; `blocks-react@0.51.0` **exact-pins** `components@0.4.1`, so bumping
@@ -116,12 +123,29 @@ Costs measured and still owed if it is ever taken:
   `[data-civitai-ui='tooltip']` / `[data-civitai-ui-tooltip-bubble]`. Three surfaces whose
   numbers were obtained in headless Chromium and would have to be **re-measured, not
   re-reasoned**;
-- **`loading="lazy"` is not expressible** on `CivitaiImage` (the element builds its own
-  `<img>` in `renderMedia()` and declares no such property) — a starters gap that partly
-  undoes this PR's lazy-preview work;
+- **`loading="lazy"` was not expressible** on `CivitaiImage` (the element builds its own
+  `<img>` in `renderMedia()` and declared no such property), which partly undoes this PR's
+  lazy-preview work. ✅ **Fixed upstream in `civitai-app-starters` PR #487** — `loading` and
+  `decoding` both pass through, 20/20 CI. Awaiting a maintainer merge and release, so it is
+  a *prerequisite* of the bump rather than a cost of it now;
 - barrel import costs **+128.81 kB (+31%)** because the root registers all 46 elements;
   per-path imports (`@civitai/components-react/elements/civitai-image`) cost **+27.02 kB**.
   The parked patch uses per-path.
+
+## Upstream, filed 2026-09-27 (`civitai/civitai-app-starters`)
+Raised out of this repo's failed adoption attempt; none is ours to close.
+- **issue #485** — the menu is not adoptable by an app block: the mount-time popover throw
+  and the panel's addressability gap, as one consumer story. Needs an API decision.
+- **issue #486** — a **real WCAG 2.5.8 (AA)** finding on shared controls: `<civitai-checkbox>`
+  is 16×16 and `<civitai-switch>` 36×20, passing singly via the spacing exception but failing
+  in the ordinary stacked-form layout (3 checkboxes → 3 violations). 🔴 The repo's own sweep
+  is structurally blind: axe-core 4.12.1 ships `target-size` **disabled**, and its a11y test
+  also sets `resultTypes: ['violations']`, so `incomplete` is never collected.
+  ⚠ Note what this ISN'T: `<civitai-menu-item>` at 33.6px **clears** 2.5.8 (24×24 AA) and is
+  in band with the whole set (button 36, action-button 36, nav-item 28) — 44×44 is 2.5.5
+  **AAA**. An earlier framing of mine called it a violation; it is a deliberate density
+  choice, and filing it would have sent a maintainer to working code.
+- **PR #487** — `loading`/`decoding` passthrough on `CivitaiImage` (above).
 
 ## Gotchas / decisions
 - 🔴 **`money-path.test.tsx` is NOT the right gate for a design-system bump.** It injects
