@@ -250,7 +250,13 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     installObserver('intersecting');
     renderGrids({ results: [] });
 
-    await waitFor(() => expect(within(card('gk-1')).getByTestId('grid-preview-empty')).toBeInTheDocument());
+    // 🔴 THE COUNT ASSERTION COMES FIRST, AND THAT IS NOT A STYLE CHOICE. It was
+    // written after a `waitFor` on `grid-preview-empty`, and a mutation that made
+    // an unrun cell contribute an id killed this case on THAT lookup — so the
+    // assertion the case is named for was never reached, and the mutant died for
+    // the wrong reason. Anchor on the cards being rendered (which does not depend
+    // on the claim under test), flush, then COUNT.
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
     // Let any effect that wanted to fire, fire.
     await new Promise((r) => setTimeout(r, 0));
 
@@ -258,7 +264,10 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     // and against this same mock: it proves `mockGetImages` CAN be called, so this
     // zero is a fact about the component and not about a mock wired to nothing.
     expect(mockGetImages).toHaveBeenCalledTimes(0);
+    // …and only then the DOM: no strip at all, an honest "nothing yet" instead.
     expect(within(card('gk-1')).queryByTestId('grid-preview')).toBeNull();
+    expect(within(card('gk-1')).getByTestId('grid-preview-empty')).toBeInTheDocument();
+    expect(within(card('__system__')).getByTestId('grid-preview-empty')).toBeInTheDocument();
   });
 
   it('skips the UNRUN cells: one filled cell of four means one id and one call', async () => {
