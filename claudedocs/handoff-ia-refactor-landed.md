@@ -8,7 +8,8 @@ cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
 reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ## State now
-- **`main` = `067d7b2`** (plus this doc commit). Base clone synced, tree clean, no worktrees, no open PRs, no
+- **`main` = `b7fba25`** (plus this doc commit). **0.4.7 is LIVE** — `main` and the
+  released version finally agree. Base clone synced, tree clean, no worktrees, no open PRs, no
   claims held.
 - **Live = 0.4.6** (`app_state.py model-benchmarking 0.4.6` → `approved/live`, rc 0),
   serving `assets/index-CL_wLzp7.js`. **`main` is AHEAD of live**: the whole IA refactor
@@ -35,74 +36,68 @@ reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ## Next steps (ranked)
 
-🔴 **RELEASE FIRST. An earlier version of this doc said the opposite — "do not submit
-before the capture recipe is re-measured" — and that instruction CANNOT CLEAR AS WRITTEN.**
-Measured 2026-09-27: the re-measure is blocked *on the release*, so the two steps were
-deadlocked. Three reasons, each independently sufficient:
-- **The recipe currently WORKS and re-pointing it now would BREAK it.** Against the live
-  0.4.6 bundle, `view-switch-matchups`/`-prompts`/`-grid` are present ×1 each while
-  `data-mb-section`, `section-grids`/`-matchups`/`-prompts` and `contribute-trigger` are
-  **0** (counted with an absent-sentinel control returning 0). The recipe is correct for
-  the only version anyone can capture; a re-point serves a version nobody can reach.
-- **Nothing can be measured pre-release.** `capture.sh` has **no `--url` override**.
-  `dev-tunnel` serves `/apps/dev/<blockId>` — a different route behind a different iframe
-  host, so it needs BOTH `url` and `frameHost` changed (`resolve_frame` matches host
-  exactly), it is invite-only behind a server kill-switch, and geometry measured on a
-  different route is a poor basis for an `/apps/run` rect.
-- **Listing media is NOT version-scoped.** Screenshots attach per-listing by slug
-  (`civitai app listing add-screenshot`, its own shadow revision + `--changelog`), so
-  shipping 0.4.7 does not touch them — it leaves them **stale until re-shot**. Bounded,
-  cosmetic, reversible. That is a far smaller cost than a deadlock.
+✅ **CLOSED 2026-09-27/28 — steps 1 and 2 both shipped.** Kept as a record because the
+ORDER was wrong in this doc for a while, and the reason is reusable: the release and the
+capture re-measure were **deadlocked** (the re-measure needs the new IA live; the old
+instruction said not to release first). Releasing was the cheap side because listing media
+is not version-scoped.
 
-1. **Release 0.4.7.** Bump both version fields, `civitai app validate`, submit from a clean
-   detached worktree off `origin/main`, moderator approve, confirm live by served-bundle
-   grep. Accept that the three listing screenshots are stale from that moment until step 2
-   completes.
-   forcing: gate — moderator approval.
-2. **Re-measure the capture recipe — AFTER 0.4.7 is live.**
-   🔴 **It lives in `civitai/civitai`, NOT talos-infra.** An earlier version of this doc
-   sent you to the wrong repo. It was **moved**, not never-merged: talos `273f01802`
-   ("stub app-taste, listing-media and app-capture to their new home", 2026-09-25,
-   −10,425 lines) → landed as `civitai/civitai` `d70913b359` (#5158). `talos-infra`'s
-   `trunk` now carries only a **pointer stub** at `.claude/skills/app-capture/SKILL.md`.
-   Canonical path: `civitai/civitai` `origin/main`
-   `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json`. ⚠ Stale copies
-   still sit on old talos **feature branches**, where an edit would be invisible — and the
-   `$DATAPACKET` base clone is **234 commits behind** with the full pre-move tree present,
-   62 dirty paths and 89 stash entries of someone else's work. Do not edit there.
-   The blocked state is already annotated on the recipe itself as `_iaRefactorBlocked`
-   (`civitai/civitai` **PR #5176**, doc-only, no selector/geometry/action changed).
-   The three breakages:
-   - `ready.testid: "view-switch"` is the **boot gate**, so the capture stalls 45s and
-     fails *before any click*, not on its first step;
-   - all three `waitForText` discriminators now render **simultaneously**, so the recipe's
-     own stated defence — "the only thing standing between a drifted selector and a
-     successful capture of the wrong screen" — is **structurally inert**, and the three
-     states would come out as three identical screenshots. This is the one that matters;
-   - `crop.rect` is dead: measured when one view mounted at a time, and three stacked
-     sections make the page ~3× taller. No replacement exists — geometry is live-only and
-     must be **re-derived, never copied**.
-   🔴 **"Scroll to a section" is NOT implementable — a third thing this doc got wrong.**
-   Refused twice over: there is no `scroll` verb in `KNOWN_ACTIONS` (proved by feeding one
-   to `validate_recipe` and watching it refuse), and the app calls `useBlockResize`, so the
-   host fits the iframe to content and there is **no in-iframe scroll** — reaching lower
-   sections scrolls the HOST page, which `frame.py` refuses as `crop_rect_outside` ("a
-   negative app-frame top gap … the page is scrolled"). `crop` is also recipe-level with
-   **no per-state override**, so three stacked sections cannot each get a rect.
-   **The candidate route, recorded and NOT measured:** the three click→**overlay**
-   landmarks this refactor pinned — `contribute-trigger`→`contribute-menu-items`,
-   `grid-group-matchup`→`matchup-detail`, `grid-col-header`→`prompt-detail`. Overlays need
-   no scroll, keep `yFrom: appFrame`, and each carries its own discriminator, fixing the
-   second breakage *structurally* rather than by wording. New clicks must be added to the
-   recipe's `clickable` ledger (an unledgered click is refused — confirmed by control).
-   The open question is pure **layout**: does a modal land in the visible viewport when the
-   iframe is ~3× viewport tall? jsdom performs no layout, so nothing in this repo can
-   answer it.
-   Consumer scope checked: of the four talos consumers `docs/matchups.md:311` records, only
-   this recipe breaks (two couple on `matchup-card`/`submit-matchup`/`matchups-list` or a
-   state name; one carries a stale `view-switch` fixture nothing asserts on).
-   forcing: check — the recipe runs exit 0 with all three states **visibly distinct**.
-3. **Real-host verification, human-required.** Turnstile + auth gated; no local, harness
+- **0.4.7 is LIVE** — `approved/live`, rc 0, serving `assets/index-nlC3M9Z1.js` (414,348 B,
+  up from 0.4.6's `index-CL_wLzp7.js` at 405,448 B). All new landmarks present in the
+  served bundle; `view-switch-*` at 0 with `grid-view`=1 as the positive control.
+  ⚠ `subtab-my` also reads 0 and is **NOT retired** — the source emits
+  `` `subtab-my-${noun}` ``, and a template-literal testid never appears concatenated in a
+  minified bundle. Only the static prefix (`subtab-my-`) survives. Don't read that zero as
+  a removal.
+- **The capture recipe is re-measured and working** — `civitai/civitai` PR #5183, merged
+  `d9dc5ba`. `capture.sh` exits 0 against live 0.4.7 in ~79s, producing three framed
+  1200×778 assets, store-bounds clean, **all three visibly distinct** (verified by eye and
+  by pairwise RMSE 12.8% / 13.1% / 4.5%).
+- **The store listing is updated and APPROVED** — three new screenshots live; the three
+  that described the tabbed IA are gone.
+
+## 🔴 What the one-page IA cost the listing, and the one way back
+
+**Two of the three sections cannot be photographed at all.** The host sizes the iframe with
+`flex: 1 1 0%` inside an `overflow: hidden` parent — to the **viewport**, not to content —
+and the app renders **2166 CSS px**, so it is clipped. Measured at three viewport heights
+(900/1100/1400 → iframe 752/952/1253): `section-matchups` (y 1175..1482) and
+`section-prompts` (y 1500..2142) are below the iframe edge at **every** one. The community
+boards are unphotographable by this pipeline, which is a real loss against the tabbed IA.
+
+🔴 **BUT THE APP DOES SCROLL INSIDE ITS OWN IFRAME** — `scrollTo(0,800)` moves `scrollY`
+and the host page never moves. An earlier version of this doc claimed scrolling was
+"refused twice over"; the second refusal (host-page scroll → `frame.py` `crop_rect_outside`)
+is **RETIRED**. Only the first stands: **there is no `scroll` verb** in `KNOWN_ACTIONS`, and
+adding one is a change to `plan.py` + `capture.sh` + the bridge op + the mutation battery.
+That is the one route to photographing the boards. Recorded as a real option, **not** as
+licence to build it unasked.
+
+## What the capture states are now
+
+Three **overlay** states, which need no scroll, keep `yFrom: appFrame`, and each carry
+their own testid discriminator — fixing structurally the defect where all three old
+`waitForText` anchors matched simultaneously:
+
+| click | overlay | 
+|---|---|
+| `contribute-trigger` | `contribute-menu-items` |
+| `grid-group-matchup` | `matchup-detail` |
+| `grid-col-header` | `prompt-detail` |
+
+Two defects **no gate caught**, both now guarded:
+- `h=1087` is the tightest *legal* crop height, passes every gate, exits 0 — and puts the
+  **support widget** in all three assets. `h=1040` clears it.
+- `capture.sh` does **not reload before the FIRST state**, so a run can inherit a
+  hand-driven tab and ship an asset with two overlays open. Each state now asserts the
+  other two are closed (watched failing on a contaminated setup, exit 4, no asset).
+
+Weakest remaining link, flagged in-file: `waitForText "Matchup"` is a single word unique
+only **by case** — a future title-case "Matchups" heading would silently make it inert.
+
+## Still open (ranked)
+
+1. **Real-host verification, human-required.** Turnstile + auth gated; no local, harness
    or test run covers it. The consent → Allow → Confirm path spends exactly once; an
    unreadable balance offers **Retry balance check** and never claims a shortfall; the
    publishing cell shows the outputs the host dialog is asking about. Plus the new IA:
@@ -111,9 +106,9 @@ deadlocked. Three reasons, each independently sufficient:
    cheap first look. The no-grant fixture account is in the cairn index for this scope
    (client-confidential — read it there, never copy it into this public repo).
    forcing: none.
-4. **The five-package bump — parked, and NOT gated on a version.** See the section below.
+2. **The five-package bump — parked, and NOT gated on a version.** See the section below.
    forcing: gate — either blocker closing.
-5. Grid edit-in-place tripwire (deferred 2026-09-09, nothing watches it): does any
+3. Grid edit-in-place tripwire (deferred 2026-09-09, nothing watches it): does any
    published grid render a non-zero missing-member count, or is the published-grid count
    near ~10?
    forcing: none.
