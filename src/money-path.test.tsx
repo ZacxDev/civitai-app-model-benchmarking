@@ -13,9 +13,10 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import { WorkflowEstimateError, type SharedListItem } from '@civitai/blocks-react';
+import { WorkflowEstimateError } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
 import {
   App,
@@ -51,7 +52,7 @@ const promptData: PromptData = {
 const CK = 'c1::cfgSeed::p1';
 const INFLIGHT_KEY = `inflight:v1:${CK}`;
 
-function seedRows(): SharedListItem[] {
+function seedRows(): SharedItem[] {
   return [
     { key: 'c1', authorUserId: 7, count: 3, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboData }, createdAt: new Date(0), updatedAt: new Date(0) },
     { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '', data: promptData }, createdAt: new Date(0), updatedAt: new Date(0) },
@@ -280,11 +281,14 @@ describe('in-flight rehydrate: paging, and failing safe when it cannot see every
     // The backstop flag used to start `false` and be set only when the scan
     // FINISHED. Every test in this file passed — because this fake resolves in
     // MICROTASKS, so a 20-page serial scan looks instantaneous and no Confirm
-    // can ever land inside it. The real `useAppStorage` is a cross-origin
-    // `postMessage` bridge, so every call is at minimum a MACROTASK and the
-    // truncated case — up to 20 `list` calls plus a `get` per key, fully serial
-    // — is the slowest of all. In production a Confirm during the scan read the
-    // un-armed flag and SPENT.
+    // can ever land inside it. The real `useAppStorage` is a cross-origin HTTP
+    // call — `POST /api/v1/blocks/app-storage/*` since the SDK port; it was a
+    // `postMessage` to the host before, which the host then served with the SAME
+    // server call, so it was never in-process either way — so every call is at
+    // minimum a MACROTASK, and now a network round trip that may carry its own
+    // CORS preflight. The truncated case — up to 20 `list` calls plus a `get` per
+    // key, fully serial — is the slowest of all. In production a Confirm during
+    // the scan read the un-armed flag and SPENT.
     //
     // `latencyMs` is the whole point of this case: it is the ONLY difference
     // from the page-cap case below. A fake faster than the real transport cannot
@@ -668,8 +672,10 @@ describe('#4 claim before spend: a claim that cannot be written refuses the run'
    * 🔴 EVERY CASE HERE RUNS AT TWO LATENCIES, AND THAT IS NOT REDUNDANCY. This
    * fix is ORDERING-sensitive by its nature — its entire content is "the write
    * completes before the spend starts" — and `fakeAppStorage` resolves in a
-   * MICROTASK by default while the real `useAppStorage` is a cross-origin
-   * `postMessage` bridge, i.e. at minimum a MACROTASK per call. A fake faster
+   * MICROTASK by default while the real `useAppStorage` is a cross-origin HTTP
+   * call (`blocks/app-storage/*` since the SDK port; a `postMessage` the host
+   * served with the same server call before), i.e. at minimum a MACROTASK per
+   * call and in practice a network round trip. A fake faster
    * than the real transport is structurally unable to observe an ordering bug;
    * this repo has already shipped one money-path backstop that was correct but
    * armed too late to ever fire, green the whole way, for exactly that reason.

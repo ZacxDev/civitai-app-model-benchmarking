@@ -16,8 +16,9 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { missingMembersNotice } from './lib/gridEntries.js';
@@ -36,7 +37,7 @@ const comboData: CombinationData = {
   ],
 };
 
-function row(key: string): SharedListItem {
+function row(key: string): SharedItem {
   return {
     key,
     authorUserId: 7,
@@ -54,7 +55,7 @@ function row(key: string): SharedListItem {
  * to the literal 40: a fixture built from the constant it is meant to detect
  * cannot see the constant change.
  */
-function endlessShared(): { shared: UseSharedStorage; pages: () => number } {
+function endlessShared(): { shared: SharedStore; pages: () => number } {
   let calls = 0;
   const shared = {
     async list() {
@@ -84,18 +85,18 @@ function endlessShared(): { shared: UseSharedStorage; pages: () => number } {
     async withdraw() {
       return { ok: true as const, deleted: true };
     },
-  } as unknown as UseSharedStorage;
+  } as unknown as SharedStore;
   return { shared, pages: () => calls };
 }
 
 /** A board that ends — one page, no cursor. The negative control. */
-function finiteShared(): UseSharedStorage {
+function finiteShared(): SharedStore {
   return {
     ...endlessShared().shared,
     async list() {
       return { items: [row('only')] };
     },
-  } as unknown as UseSharedStorage;
+  } as unknown as SharedStore;
 }
 
 function renderApp(deps: Partial<AppDeps>) {
@@ -207,7 +208,7 @@ const gridData: GridData = {
   promptKeys: ['qk-never-read'],
 };
 
-function gridRow(): SharedListItem {
+function gridRow(): SharedItem {
   return {
     key: GRID_KEY,
     authorUserId: 7,
@@ -259,7 +260,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
           nextCursor: `cursor-${calls}`,
         };
       },
-    } as unknown as UseSharedStorage;
+    } as unknown as SharedStore;
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
     // `waitFor` must THROW to retry — a bare `.find()` returning `undefined`
@@ -293,7 +294,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
       async list() {
         return { items: [gridRow()] };
       },
-    } as unknown as UseSharedStorage;
+    } as unknown as SharedStore;
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
     const card = await waitFor(() => {

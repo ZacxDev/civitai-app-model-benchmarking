@@ -17,6 +17,7 @@
     "@civitai/app-sdk": "^0.42.0",
     "@civitai/blocks-react": "^0.51.0",
     "@civitai/components-react": "^0.4.1",
+    "@civitai/sdk": "^0.8.0",
     "@civitai/theme": "^0.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

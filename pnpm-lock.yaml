@@ -17,6 +17,9 @@ importers:
       '@civitai/components-react':
         specifier: ^0.4.1
         version: 0.4.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@civitai/sdk':
+        specifier: ^0.8.0
+        version: 0.8.0
       '@civitai/theme':
         specifier: ^0.3.1
         version: 0.3.1
@@ -108,6 +111,14 @@ packages:
     resolution: {integrity: sha512-w8hcqhBlBGGQviGVweLkSEilARzOyDtKqr00O7u/s4i8CXrNu8s4+lAT5GFJb4lAYU75BXX1s99138dZFhyaqA==}
     engines: {node: '>=20'}
 
+  '@civitai/orchestration-client@0.2.0-beta.101':
+    resolution: {integrity: sha512-z2dCYCnFZCm84F4Oe7bPahTfLZbClInQCeFaz5a1Y3CfRIjHJisG7WbtcpAhaw0Qa+bsQ+plwF+K2MCyCbgZFg==}
+    engines: {git: '>=2.11.0', node: '>=18.0.0', npm: '>=7.19.0', yarn: '>=1.7.0'}
+
+  '@civitai/sdk@0.8.0':
+    resolution: {integrity: sha512-QqLazNAE5mh51cYTrLRRL8gVWMGVZa3QHgca2E8hptb46xdZBpjkoBe3urmvZwJkS476USlT9ue9T0xcsp6E4Q==}
+    engines: {node: '>=20'}
+
   '@civitai/theme@0.3.1':
     resolution: {integrity: sha512-S/ibSOGDkXyskNSqbDxXO2sh3bsa+zhm7qPwM8mr5br218osPwBVmca7WI1uSZDd0ij6CZviOaw8kJ92TYkeog==}
     engines: {node: '>=20'}
@@ -148,6 +159,10 @@ packages:
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
+
+  '@hey-api/client-fetch@0.1.14':
+    resolution: {integrity: sha512-6RoO2prOVrQfx2wClJ7DkeIVWQokiRLIdqiuxvFTfWEQVfOc+hQhAw6/IijYrSM9cA7A7DzmHpzTLc/gbQ7/2Q==}
+    deprecated: Starting with v0.73.0, this package is bundled directly inside @hey-api/openapi-ts.
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
@@ -710,6 +725,9 @@ packages:
     resolution: {integrity: sha512-6tDA8g98We0zd0GvVeMT9arEOnTw9qM03L9cJXaCjrip1OO764RDBLBfrB4cwzNGDj5OA5ioymC9GkizgWJDUg==}
     engines: {node: '>=8'}
 
+  rfc6902@5.3.0:
+    resolution: {integrity: sha512-8x9uqKB5FeC3jhdtmBtI2Z2GR0+VE1VLbQ7Luy5RcnCxUa4+Z1n8w2G1D+GevkRUT33nbbfpAK5O4LhRbnaIPQ==}
+
   rolldown@1.1.5:
     resolution: {integrity: sha512-t9z29cJjXf/vxQ8dyhCSpt6H6aSwHTk8cT5I3iy6SMXuFpk5mB6PL6XfC8PCwrPTx93udwKUm9HRteAlTGBLiA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -963,6 +981,16 @@ snapshots:
     dependencies:
       '@civitai/theme': 0.3.1
 
+  '@civitai/orchestration-client@0.2.0-beta.101':
+    dependencies:
+      '@hey-api/client-fetch': 0.1.14
+      rfc6902: 5.3.0
+      tslib: 2.8.1
+
+  '@civitai/sdk@0.8.0':
+    dependencies:
+      '@civitai/orchestration-client': 0.2.0-beta.101
+
   '@civitai/theme@0.3.1': {}
 
   '@csstools/color-helpers@5.1.0': {}
@@ -1000,6 +1028,8 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@hey-api/client-fetch@0.1.14': {}
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
@@ -1477,6 +1507,8 @@ snapshots:
       indent-string: 4.0.0
       strip-indent: 3.0.0
 
+  rfc6902@5.3.0: {}
+
   rolldown@1.1.5:
     dependencies:
       '@oxc-project/types': 0.139.0
@@ -1549,8 +1581,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  tslib@2.8.1:
-    optional: true
+  tslib@2.8.1: {}
 
   typescript@5.9.3: {}
 

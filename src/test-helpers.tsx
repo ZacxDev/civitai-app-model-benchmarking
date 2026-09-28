@@ -1,19 +1,23 @@
 // Shared test doubles for the component/e2e suites (jsdom). Injected into the
 // App's `deps` bag so the exact production App is driven with canned
-// picks/publish/gated, alongside the real SDK mock host (<Harness>) for the base
-// protocol (shared storage, workflow, picker, consent, viewer). NOT a *.test
-// file, so it isn't collected as a suite.
+// picks/publish/gated, alongside `src/test-harness.tsx` for the base protocol.
+// NOT a *.test file, so it isn't collected as a suite.
+//
+// ⚠ THE MOCK HOST NO LONGER SERVES SHARED STORAGE OR THE BUZZ BALANCE, and this
+// header used to say it did. After the port those two are HTTP and come from
+// `src/dev-rest.ts`; the mock host keeps viewer, consent, the token, the resource
+// picker, the workflow money path, publish and gated reads. The `fakeShared` and
+// `fakeAppStorage` doubles below sit at the `deps` seam and are unaffected either
+// way — which is why most cases in this suite never touch the split at all.
 
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
-import type {
-  SharedAppendValue,
-  SharedListItem,
-  UseAppStorage,
-  UseSharedStorage,
-} from '@civitai/blocks-react';
+import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
+import type { SharedItem, StorageClient } from '@civitai/sdk';
+
+import { hasMore } from './dev-rest.js';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import type { GatedCellComponent } from './components/GatedCell.js';
 
@@ -96,7 +100,7 @@ export const LORA_SDXL: BlockResourceInfo = {
 export const immediateSleep = () => Promise.resolve();
 
 /**
- * An in-memory fake {@link UseSharedStorage} whose `list()` can be made to LAG —
+ * An in-memory fake {@link SharedStore} whose `list()` can be made to LAG —
  * i.e. NOT reflect a just-appended/updated row (`reflectMutations: false`). Used
  * to prove the App's optimistic reconcile makes a new row appear WITHOUT the
  * list() re-fetch returning it (item 1, read-after-write lag).
@@ -104,18 +108,23 @@ export const immediateSleep = () => Promise.resolve();
 export function fakeShared(
   opts: {
     reflectMutations?: boolean;
-    seed?: SharedListItem[];
+    seed?: SharedItem[];
     /**
      * Make `withdraw()` RESOLVE `{ok: false}` instead of removing the row.
      *
-     * 🔴 This models the SDK's non-rejecting failure channel, and it is the one
-     * behaviour this fake could not express before. `UseSharedStorage.withdraw`
-     * is typed `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write
-     * whose `ok` is `boolean` rather than the literal `true` (`appStorage.set`
-     * and `.delete` are both `ok: true`). That asymmetry is a refusal the host
-     * can signal WITHOUT throwing, so a caller that awaits and discards the
-     * result treats it as success. Hardcoding `ok: true` here made that branch
-     * unreachable from any test in the repo, in either direction.
+     * ⚠ WHAT THIS MODELS CHANGED WITH THE PORT, AND THE OLD CLAIM IS RETRACTED.
+     * It used to say `withdraw` is "the ONLY SDK write whose `ok` is `boolean`
+     * rather than the literal `true`", i.e. that the wire itself permits a
+     * resolving refusal. That is FALSE against `@civitai/sdk`, which declares
+     * `withdraw` as `{ ok: true; deleted: boolean }` — the literal — and hardcodes
+     * it. The `boolean` is `SharedStore`'s own widening (see `lib/sdk-runtime.ts`).
+     *
+     * So this option does NOT model a transport behaviour; it drives the INVARIANT
+     * GUARD in `App.tsx`'s `withdrawRow` from the only place that can reach it —
+     * the façade. It is kept because that guard protects an unrecoverable pointer
+     * delete and a guard no test can reach is worse than none; it is NOT evidence
+     * that a host can refuse this way. If the widening is ever narrowed, this
+     * option and its case in `withdraw.test.tsx` go with it.
      */
     withdrawRefuses?: boolean;
     /**
@@ -128,9 +137,9 @@ export function fakeShared(
   } = {},
 ) {
   const reflect = opts.reflectMutations ?? true;
-  const rows: SharedListItem[] = [...(opts.seed ?? [])];
+  const rows: SharedItem[] = [...(opts.seed ?? [])];
   let n = 0;
-  const appends: SharedAppendValue[] = [];
+  const appends: SharedStorageValue[] = [];
   /** Every key passed to `withdraw()`, in call order (a test asserts what the app
    * told the shared store — and, just as importantly, that it told it NOTHING
    * before the viewer confirmed). */
@@ -138,7 +147,7 @@ export function fakeShared(
   /** Every `(key, value)` passed to `update()`, in call order. Lets a test assert
    * that an EDIT of a submitted row went through `update` on the SAME key — i.e.
    * that it did not mint a new row (which would reset the vote total to zero). */
-  const updates: Array<{ key: string; value: SharedAppendValue }> = [];
+  const updates: Array<{ key: string; value: SharedStorageValue }> = [];
   /** Every `report()` ATTEMPT in call order, successful or not — the positive
    * control for the rejecting path, where nothing is filed and only the attempt
    * distinguishes "the app tried and the host refused" from "the app never
@@ -147,14 +156,17 @@ export function fakeShared(
   /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
    * to actually LAND before asserting the optimistic state survived it. */
   const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
-  const shared: UseSharedStorage = {
+  const shared: SharedStore = {
     async list(listOpts) {
       listCalls.push(listOpts);
       return { items: [...rows] };
     },
-    async get(key) {
-      return rows.find((x) => x.key === key) ?? null;
-    },
+    // 🔴 NO `get`/`getCount`/`getCounts`, and their absence is the port's, not a
+    // trim for tidiness. `SharedStore` (`lib/sdk-runtime.ts`) declares the SEVEN
+    // operations this app performs; the three that left had no call site here, and
+    // `@civitai/sdk`'s client carries no counter ops at all — `counts` is one of
+    // the six routes `starters#479` deliberately left app-layer. A fake offering
+    // a method the app cannot call is a fixture nothing can exercise.
     async report(key, reason) {
       reports.push({ key, reason });
       // 🔴 The host does NOT remove or hide the row on a report — a moderator
@@ -162,12 +174,6 @@ export function fakeShared(
       // app leaves the board untouched; a fake that spliced the row here would
       // make the honest behaviour look like a bug and the dishonest one pass.
       if (opts.reportRejects) throw new Error('REPORT_FAILED');
-    },
-    async getCount() {
-      return 0;
-    },
-    async getCounts() {
-      return {};
     },
     async append(value) {
       appends.push(value);
@@ -206,7 +212,7 @@ export function fakeShared(
 }
 
 /**
- * An in-memory fake {@link UseAppStorage} (per-viewer KV) seeded from a plain
+ * An in-memory fake {@link StorageClient} (per-viewer KV) seeded from a plain
  * object. Records every `set` so a test can assert what the app persisted (used
  * for the durable voted-set). Mirrors the host contract: `get` resolves the
  * stored value or `null`; `set`/`delete` resolve ok.
@@ -250,9 +256,12 @@ export function fakeAppStorage(
    *
    * 🔴 `latencyMs` PUTS EVERY KV CALL ON A MACROTASK, and without it this fake is
    * STRUCTURALLY UNABLE to see an ordering bug. The real `useAppStorage` is a
-   * cross-origin `postMessage` bridge, so every call is at minimum a macrotask;
-   * this fake resolves in a MICROTASK, which makes a long serial scan look
-   * instantaneous. That difference hid a live 🔴 money bug: a backstop armed
+   * cross-origin HTTP call — `POST /api/v1/blocks/app-storage/*` since the SDK
+   * port, and before it a `postMessage` the host served with the SAME server
+   * function, so never in-process on either transport — meaning every call is at
+   * minimum a macrotask and in practice a network round trip, now possibly plus a
+   * CORS preflight. This fake resolves in a MICROTASK, which makes a long serial
+   * scan look instantaneous. That difference hid a live 🔴 money bug: a backstop armed
    * only when the in-flight scan FINISHED passed every test here, while in
    * production a Confirm landing during the scan — the truncated case is the
    * slowest, up to 20 `list` calls plus a `get` per key — read the un-armed flag
@@ -269,7 +278,7 @@ export function fakeAppStorage(
      * prefix is omitted), `failSetTimes` times.
      *
      * 🔴 THE ONE SDK FAILURE THIS FAKE COULD NOT EXPRESS, and it is the money
-     * one. `UseAppStorage.set` "Rejects with the host's `error` string when the
+     * one. `StorageClient.set` "Rejects with the host's `error` string when the
      * value exceeds 64KB, when the per-app 50MB quota would be crossed, or when
      * the viewer is anonymous" — and the app persists its in-flight run through
      * exactly that call. With `set` hardcoded to resolve, every test drove the
@@ -334,7 +343,7 @@ export function fakeAppStorage(
     opts.latencyMs === undefined
       ? Promise.resolve()
       : new Promise((r) => setTimeout(r, opts.latencyMs));
-  const appStorage: UseAppStorage = {
+  const appStorage: StorageClient = {
     async get<T = unknown>(key: string) {
       gets.push(key);
       await hop();
@@ -354,7 +363,16 @@ export function fakeAppStorage(
       }
       store.set(key, value);
       sets.push({ key, value });
-      return { ok: true as const };
+      // `sizeBytes` is REQUIRED by `StorageClient` where the bridge hook made it
+      // optional, and the SDK's own client THROWS on a reply without it — so a
+      // fake that omitted it would be modelling a response the real transport
+      // rejects. The wire unit, i.e. `JSON.stringify`'s byte length, which is what
+      // the route returns (it is NOT `getQuota`'s stored unit — the two are not a
+      // fixed multiple).
+      return {
+        ok: true as const,
+        sizeBytes: new TextEncoder().encode(JSON.stringify(value) ?? '').length,
+      };
     },
     async delete(key: string) {
       deleteAttempts.push(key);
@@ -392,7 +410,14 @@ export function fakeAppStorage(
       const from = listOpts?.cursor ? all.indexOf(atob(listOpts.cursor)) + 1 : 0;
       const page = all.slice(from, from + Math.max(size, 1));
       const last = page[page.length - 1];
-      const more = last !== undefined && all.indexOf(last) < all.length - 1;
+      // 🔴 THE SERVER'S RULE, FROM THE ONE PLACE THAT STATES IT — see `hasMore` in
+      // `dev-rest.ts`. A cursor iff the page came back FULL, not `indexOf(last) <
+      // all.length - 1`, which is the fake reading rows the server never fetched; the
+      // optimistic form stands the pre-spend double-charge backstop DOWN at the page
+      // cap. This copy is not independently pinned — nothing reaches that boundary
+      // through `deps`-injected storage — which is exactly why it shares the
+      // predicate instead of restating it.
+      const more = last !== undefined && hasMore(page.length, Math.max(size, 1));
       return {
         keys: page.map((key) => ({ key, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),

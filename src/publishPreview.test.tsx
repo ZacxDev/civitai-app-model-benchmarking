@@ -67,9 +67,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import type { SharedListItem } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App } from './App.js';
 import {
@@ -101,7 +101,7 @@ const promptData: PromptData = {
   default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } },
 };
 
-function seedRows(): SharedListItem[] {
+function seedRows(): SharedItem[] {
   return [
     {
       key: 'c1',
