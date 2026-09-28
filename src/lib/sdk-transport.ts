@@ -55,9 +55,17 @@ import type { BlockTransport as BridgeTransport } from '@civitai/blocks-react';
  * An unmapped type THROWS rather than guessing: picking a plausible reply type
  * would hang the request until its timeout and surface as a dead host.
  */
-const RESPONSE_TYPE: Readonly<Record<string, string>> = Object.freeze({
-  REQUEST_TOKEN: 'TOKEN_REFRESH_RESPONSE',
-});
+// 🔴 `Object.create(null)`, NOT `{}`. A plain object inherits `constructor`,
+// `toString`, `valueOf` … so `RESPONSE_TYPE['toString']` is TRUTHY and would skip
+// the refusal below, handing `sendTypedRequest` a FUNCTION as the reply type. No
+// real host message is named that, so this is unreachable rather than a live hole —
+// but the refusal is the file's load-bearing guard and a guard with a hole in it is
+// not worth arguing about when closing it costs one expression.
+const RESPONSE_TYPE: Readonly<Record<string, string>> = Object.freeze(
+  Object.assign(Object.create(null) as Record<string, string>, {
+    REQUEST_TOKEN: 'TOKEN_REFRESH_RESPONSE',
+  }),
+);
 
 /**
  * The SDK's snapshot is the bridge's plus `hostOrigin`, which the bridge exposes

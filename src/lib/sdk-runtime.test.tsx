@@ -373,6 +373,79 @@ describe('group 3 — per-viewer app storage', () => {
     expect(result.current).toBe(first);
   });
 
+  // 🔴 THE DEADLINE THE PORT HAD TO PUT BACK. Every bridge message carried a 30s
+  // client timeout; `@civitai/sdk` dropped them ("per-message client timeouts →
+  // none; pass an `AbortSignal`") and `fetch` has none, so a façade passing NO SIGNAL
+  // hangs forever. That is money-adjacent here: `confirmRun` adds the cell to
+  // `inFlightRef` BEFORE awaiting the claim write and every matching `delete` sits
+  // AFTER the await with no `finally`, so a never-settling `appStorage.set` leaves
+  // the cell permanently un-runnable AND un-resumable with no refusal shown.
+  //
+  // ⚠ WHAT THIS ASSERTS IS THAT A DEADLINE EXISTS, NOT THAT IT IS 30s. Asserting the
+  // value would need either a 30s wall-clock wait or fake timers, and
+  // `AbortSignal.timeout()` is a platform primitive vitest's fake timers do not
+  // patch — an earlier draft of this case tried it and hung to vitest's own 5s
+  // deadline, proving nothing. The defect is "no signal at all"; that is what this
+  // pins, in every one of the three REST families.
+  it.each([
+    ['app-storage set', () => renderHook(() => useAppStorage()).result.current.set('k', 1)],
+    ['shared-storage list', () => renderHook(() => useSharedStorage()).result.current.list()],
+    ['buzz balance', null],
+  ])('%s sends an unaborted AbortSignal when the caller passes none', async (_name, call) => {
+    const seen: Array<AbortSignal | undefined> = [];
+    configureSdkRuntime({
+      transport: fakeTransport().transport,
+      fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
+        seen.push(init?.signal);
+        // A reply valid for whichever family is under test — the SDK's clients throw
+        // on a missing field, and a throw before the assertion would make this case
+        // pass or fail for the wrong reason.
+        return new Response(
+          JSON.stringify({ value: null, sizeBytes: 1, items: [], metadata: {}, blue: 0, green: 0, yellow: 0 }),
+          { status: 200 },
+        );
+      }) as never,
+    });
+
+    if (call) {
+      await call();
+    } else {
+      const { result } = renderHook(() => useBuzzBalance());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+    }
+
+    expect(seen.length).toBeGreaterThan(0);
+    const signal = seen[0];
+    // A signal at all is the regression guard: `undefined` is the defect.
+    expect(signal).toBeInstanceOf(AbortSignal);
+    // And NOT an already-aborted stub, which would satisfy the line above while
+    // making every request fail instantly.
+    expect(signal?.aborted).toBe(false);
+  });
+
+  // 🔴 AND IT MUST NOT CLOBBER A CALLER'S OWN SIGNAL. `withDeadline` fills a gap; a
+  // caller that passes cancellation owns the deadline. Overwriting would silently
+  // discard the caller's abort — the same defect `sdk-transport.ts` refuses to
+  // introduce by casting.
+  it("honours a CALLER's signal rather than substituting the default deadline", async () => {
+    const seen: Array<AbortSignal | undefined> = [];
+    configureSdkRuntime({
+      transport: fakeTransport().transport,
+      fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
+        seen.push(init?.signal);
+        return new Response(JSON.stringify({ value: null }), { status: 200 });
+      }) as never,
+    });
+    const { result } = renderHook(() => useAppStorage());
+
+    const ac = new AbortController();
+    await result.current.get('k', { signal: ac.signal });
+
+    expect(seen).toHaveLength(1);
+    // The caller's own signal object, not a fresh timeout signal.
+    expect(seen[0]).toBe(ac.signal);
+  });
+
   it('a refused write REJECTS rather than resolving "not written"', async () => {
     // An unknown route is the fake's 404, which is the shape of any refusal here:
     // the SDK's contract is that every failure rejects and nothing resolves to mean
@@ -541,6 +614,45 @@ describe('group 3 — shared storage', () => {
     expect(page.items.map((i) => i.key)).toEqual(['mk-a']);
   });
 
+  // 🔴 PAGING OVER THE NEW WIRE, which nothing exercised until the fake learned to
+  // emit a cursor. `App.tsx`'s `listAll` pages the WHOLE board and reports
+  // `truncated: true` when it exhausts its page budget with a cursor still in hand —
+  // and that flag is what stops the vote ranking and the Top Grid being computed over
+  // a silent PREFIX of the board. Before this, the fake ignored `prefix`/`cursor` and
+  // never sent `metadata.nextCursor`, so the loop was driven only through
+  // `deps.shared` overrides and never over the transport it now uses.
+  it('list pages with prefix + cursor, and the cursor CLEARS on the last page', async () => {
+    const { calls } = install({
+      shared: {
+        seed: [
+          { key: 'mk-1', value: { title: 'A' } },
+          { key: 'mk-2', value: { title: 'B' } },
+          { key: 'mk-3', value: { title: 'C' } },
+          { key: 'other', value: { title: 'X' } },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useSharedStorage());
+
+    const p1 = await result.current.list({ prefix: 'mk-', limit: 2 });
+    expect(p1.items.map((i) => i.key)).toEqual(['mk-1', 'mk-2']);
+    expect(p1.nextCursor).toBeTypeOf('string');
+
+    const p2 = await result.current.list({ prefix: 'mk-', limit: 2, cursor: p1.nextCursor });
+    // `prefix` is honoured across the page boundary — `other` must not appear.
+    expect(p2.items.map((i) => i.key)).toEqual(['mk-3']);
+    // 🔴 THE ABSENCE IS THE PROOF A SCAN COMPLETED. A cursor that never clears makes
+    // `listAll` report `truncated` forever; one that never appears makes it report a
+    // partial board as the whole one.
+    expect(p2.nextCursor).toBeUndefined();
+
+    // Both pages went out as GET with the query on the URL, not as a POST body.
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET blocks/shared-storage/list',
+      'GET blocks/shared-storage/list',
+    ]);
+  });
+
   it('the façade is a stable object across renders', () => {
     install();
     const { result, rerender } = renderHook(() => useSharedStorage());
@@ -562,6 +674,22 @@ describe('group 3 — the Buzz balance', () => {
     expect(calls.filter((c) => c.path === 'blocks/buzz')).toHaveLength(1);
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+  });
+
+  // 🔴 `loading` IS TRUE ON THE FIRST RENDER, as the bridge hook's was. It started
+  // `false` here with the flip moved into the post-paint effect, which painted one
+  // frame of "could not be read" before "Checking…" — `ResultsGrid` derives
+  // `balanceReadFailed = gate === 'balance-unknown' && !buzzBalanceLoading`. Read
+  // SYNCHRONOUSLY, before any await: that is the only moment the two values differ,
+  // and awaiting first dissolves the window and makes the assertion unfalsifiable.
+  it('reports loading on the FIRST render, before the read resolves', () => {
+    install();
+    const seen: boolean[] = [];
+    renderHook(() => {
+      seen.push(useBuzzBalance().loading);
+      return null;
+    });
+    expect(seen[0]).toBe(true);
   });
 
   it('a rerender adds NO read', async () => {
@@ -693,6 +821,45 @@ describe('runtime lifecycle', () => {
     expect(settled).toBe('pending');
   });
 
+  // 🔴 A REJECTED `initialize()` MUST NOT BE CACHED. Watched to FAIL before the fix:
+  // with a plain `appPromise ??= initialize(...)`, a host that misses the SDK's own
+  // 10s deadline poisons the promise permanently, so `refetch()` after the host
+  // finally arrives leaves `balance = null` with the original timeout error still on
+  // screen — the board never loads and the Retry button cannot work, for the life of
+  // the page. The bridge had no such state: each message was independent and simply
+  // started working once the host answered.
+  it('recovers after a LATE BLOCK_INIT — a rejected initialize() is not cached', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const t = fakeTransport(snapshotOf({ ready: false }));
+      configureSdkRuntime({
+        transport: t.transport,
+        fetch: createRestFake({ viewerUserId: 99, buzz: { blue: 0, green: 0, yellow: 4200 } }),
+      });
+
+      const { result } = renderHook(() => useBuzzBalance());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(11_000);
+      });
+      await waitFor(() => expect(result.current.error).not.toBeNull());
+      // Naming the SDK's own deadline pins that this case reached the reject path
+      // rather than some other failure that also leaves `error` set.
+      expect(result.current.error?.message).toMatch(/No Civitai host responded/);
+
+      // The host answers late, and the viewer presses Retry.
+      await act(async () => t.push(snapshotOf({ ready: true })));
+      await act(async () => {
+        result.current.refetch();
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      expect(result.current.balance).toEqual({ blue: 0, green: 0, yellow: 4200 });
+      expect(result.current.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // 🔴 THE TRANSPORT CACHE IS KEYED ON THE BRIDGE'S IDENTITY, and this is the case
   // that reaches that key. `resetTransport()` NULLS the bridge singleton so the next
   // `getTransport()` builds a NEW object; a cache that only checked "have I wrapped
@@ -721,6 +888,51 @@ describe('runtime lifecycle', () => {
       // The new transport has had no BLOCK_INIT, so `ready` is false. Reading `true`
       // here means the runtime is still talking to the object that was thrown away.
       expect(result.current.ready).toBe(false);
+    } finally {
+      uninstall();
+    }
+  });
+
+  // 🔴 AND THE SAME GUARD REACHED THROUGH `app()` ALONE, which the case above does
+  // NOT cover — it drives `useBlockContext`, which calls `transport()` directly, so
+  // it pins the snapshot half and reads as covering the AppClient half. It did not:
+  // `appPromise ??= initialize({ transport: transport(), … })` SHORT-CIRCUITS, so
+  // with the promise already set `transport()` was never evaluated and a swapped
+  // bridge went unnoticed on any path that reached `app()` without a snapshot read
+  // first — the client kept answering from the DISPOSED transport.
+  //
+  // Watched to FAIL: restoring the `??=` form reddens this in 7ms (not a timeout —
+  // the first draft of this probe had no mock host, so `initialize()` could never
+  // resolve and it "failed" at vitest's 5s deadline while proving nothing).
+  it('drops the AppClient too when the bridge transport is replaced, with no snapshot read', async () => {
+    const uninstall = createMockHost({
+      viewer: { id: 99, username: 'me' },
+      theme: 'dark',
+      shared: { seed: [] },
+    }).install();
+    try {
+      configureSdkRuntime({
+        fetch: createRestFake({
+          viewerUserId: 99,
+          shared: { seed: [{ key: 'before', value: { title: 'B' } }] },
+        }),
+      });
+      const { result } = renderHook(() => useSharedStorage());
+      // Prime the AppClient — and deliberately do NOT render anything that reads the
+      // snapshot, so `app()` is the only thing that can notice the swap.
+      await expect(result.current.list()).resolves.toMatchObject({
+        items: [expect.objectContaining({ key: 'before' })],
+      });
+
+      act(() => resetHarnessTransport());
+
+      // The replacement has had no BLOCK_INIT, so a dropped client cannot re-init and
+      // the call stays pending. Resolving with `before` means the stale client served it.
+      const settled = await Promise.race([
+        result.current.list().then((p) => p.items.map((i) => i.key).join(',')),
+        new Promise<'pending'>((r) => setTimeout(() => r('pending'), 80)),
+      ]);
+      expect(settled).toBe('pending');
     } finally {
       uninstall();
     }

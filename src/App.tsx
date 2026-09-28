@@ -539,11 +539,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // review round and the backstop was UNREACHABLE IN PRODUCTION: the flag was
   // only written when the scan FINISHED, so a Confirm landing during the scan
   // read `false` and spent. The truncated case is the slowest one — up to
-  // KV_MAX_PAGES serial `list` calls plus a `get` per key — and every one of
-  // those is a macrotask over the real host's cross-origin `postMessage` bridge,
-  // so that window is wide. It passed every test because the jsdom fake resolves
-  // in microtasks; `latencyMs` in `fakeAppStorage` is what makes it visible, and
-  // there is a permanent LATENCY ARM case pinning it.
+  // KV_MAX_PAGES serial `list` calls plus a `get` per key.
+  //
+  // 🔴 AND THE SDK PORT MADE THAT WINDOW WIDER, NOT MERELY DIFFERENT — this comment
+  // said "a macrotask over the real host's cross-origin `postMessage` bridge", and
+  // that transport is gone from this path. These are cross-origin HTTPS requests to
+  // civitai.com now, and `withBlockScope` sets its CORS headers with NO
+  // `Access-Control-Max-Age`, so each POST can carry its own preflight: up to 2N
+  // round trips where there were N in-process messages. The backstop below is
+  // therefore MORE load-bearing after the port, not less. ⚠ Direction established,
+  // magnitude NOT: nothing in this repo has run against a live host.
+  //
+  // It passed every test because the jsdom fake resolves in microtasks; `latencyMs`
+  // in `fakeAppStorage` is what makes it visible, and there is a permanent LATENCY
+  // ARM case pinning it.
   const inflightScanTruncatedRef = useRef(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

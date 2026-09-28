@@ -24,10 +24,20 @@
 // behaviour keeps pinning it.
 //
 // ⚠ THE THREE ROUTED PROPS ARE NOT FORWARDED TO THE BRIDGE HOST, deliberately.
-// Passing them to both would let a consumer that was accidentally left on the
-// bridge keep working, which is exactly the regression this port must not be
-// able to hide. If something still asks the host for shared storage or the
-// balance, the host now has nothing to say and the test fails.
+// Passing them to both would let a consumer accidentally left on the bridge keep
+// working, which is exactly the regression this port must not be able to hide.
+//
+// 🔴 BUT NOT BECAUSE "THE HOST HAS NOTHING TO SAY" — that was this comment's first
+// version and it is FALSE for the balance. `createMockHost` answers
+// `GET_BUZZ_BALANCE` from its OWN default ({ blue: 1000, green: 0, yellow: 5000 })
+// whenever the option is absent, so a consumer left on the bridge would still get an
+// affordable-looking wallet and every affordability-shaped assertion would still
+// pass. What actually catches it is `buzzBalance.test.tsx`'s REST CALL COUNTS, which
+// assert an exact number of `GET blocks/buzz` calls that a bridge consumer makes
+// zero of. MEASURED both ways: reverting `useBuzzBalance` to the bridge reddens 3
+// files, and reverting the two storage hooks reddens 2 more. So do not delete those
+// counts on the strength of a "the host is silent" argument — for the balance, it is
+// not silent.
 
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';

@@ -250,11 +250,38 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
     if (path.startsWith('blocks/shared-storage/')) {
       const op = path.slice('blocks/shared-storage/'.length);
       if (op === 'list' && method === 'GET') {
-        const limit = url.searchParams.get('limit');
-        const page = limit === null ? rows : rows.slice(0, Number(limit));
-        // `metadata` is where `nextCursor` lives, and the SDK guards its presence
-        // as strictly as `items` — so it is always sent, even when empty.
-        return json({ items: page.map(project), metadata: {} });
+        // 🔴 REAL `prefix` + `cursor` PAGING, and its absence was a coverage hole
+        // rather than a simplification. This fake used to ignore both and never emit
+        // `metadata.nextCursor`, so `App.tsx`'s `listAll` — which pages the whole
+        // board and reports `truncated: true` when it runs out of pages — was
+        // exercised only through `deps.shared` overrides and NEVER over the wire it
+        // now actually uses. That `truncated` flag is what stops the vote ranking and
+        // the Top Grid being computed over a silent prefix of the board.
+        //
+        // The real route emits a cursor exactly when the page it returned was FULL
+        // (`apps-shared.router.ts`: `rows.length === limit ? base64(lastKey) :
+        // undefined`), and the cursor is the base64 of the last key — modelled here,
+        // so a caller that tries to read it as an index breaks here rather than in
+        // production.
+        const prefix = url.searchParams.get('prefix') ?? '';
+        const cursorParam = url.searchParams.get('cursor');
+        const limitParam = url.searchParams.get('limit');
+        const matching = rows.filter((r) => r.key.startsWith(prefix));
+        const after = cursorParam ? atob(cursorParam) : null;
+        const from = after === null ? 0 : matching.findIndex((r) => r.key === after) + 1;
+        const limit = limitParam === null ? matching.length : Number(limitParam);
+        const page = matching.slice(from, from + Math.max(limit, 1));
+        const last = page[page.length - 1];
+        // FULL page ⇒ there may be more. Note this yields a cursor on the exact-fit
+        // case too, which is what the server does: it cannot know the page was the
+        // last one without reading one more row.
+        const more = last !== undefined && page.length === limit;
+        // `metadata` is where `nextCursor` lives, and the SDK guards its presence as
+        // strictly as `items` — so it is always sent, even when empty.
+        return json({
+          items: page.map(project),
+          metadata: more && last ? { nextCursor: btoa(last.key) } : {},
+        });
       }
       if (op === 'item' && method === 'GET') {
         const found = rows.find((r) => r.key === url.searchParams.get('key'));
@@ -282,9 +309,16 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
       }
       if (op === 'withdraw' && method === 'POST') {
         const at = rows.findIndex((r) => r.key === body.key);
-        if (at < 0) return json({ deleted: false });
+        // `{ ok: true, deleted }` — the route's documented shape. The SDK's client
+        // reads only `deleted` and hardcodes `ok`, so omitting `ok` here changed no
+        // test; it is sent because this fake's whole job is the WIRE, and a shape
+        // that differs from the server's is the thing a reader would trust.
+        // `deleted: false` is a legitimate SUCCESS: another author's key, an
+        // already-withdrawn row and one that never existed all answer identically,
+        // so this cannot probe for other viewers' rows.
+        if (at < 0) return json({ ok: true, deleted: false });
         rows.splice(at, 1);
-        return json({ deleted: true });
+        return json({ ok: true, deleted: true });
       }
       if (op === 'vote' && method === 'POST') {
         const row = rows.find((r) => r.key === body.key);

@@ -152,7 +152,25 @@ export interface SdkRuntimeOptions {
    * needed an import change and not a rewrite.
    */
   fetch?: typeof globalThis.fetch;
-  /** Override the site base URL (`/api/v1` by default) — dev harness only. */
+  /**
+   * Override the site base URL — dev harness only.
+   *
+   * ⚠ THE DEFAULT IS ABSOLUTE, AND THIS LINE USED TO SAY IT WAS RELATIVE. Omitted,
+   * `@civitai/sdk` uses `DEFAULT_SITE_URL = 'https://civitai.com/api/v1'`; it is NOT
+   * `/api/v1`, and passing that relative string throws `Invalid URL` from the
+   * client's own `new URL(...)` rather than resolving against the page.
+   *
+   * 🔴 SO THE THREE REST FAMILIES ARE PINNED TO PRODUCTION `civitai.com`, WHERE THE
+   * BRIDGE SPOKE TO WHICHEVER ORIGIN EMBEDDED IT. Confirmed shipped: `civitai.com/api/v1`
+   * is a literal in `dist/assets/*.js`. On a non-production civitai host, generation
+   * keeps working over the bridge while these three 401 or fail CORS against
+   * production — a split-brain a bridge-only block could not produce. The adapter
+   * already composes the allowlist-VALIDATED `hostOrigin` into the snapshot
+   * (`sdk-transport.ts`), so deriving `siteUrl` from it is the obvious fix and is
+   * deliberately NOT taken here: `hostOrigin` is the parent PAGE's origin, which is
+   * not guaranteed to be the API's, and this port has exercised no non-production
+   * host to check. Filed rather than guessed.
+   */
   siteUrl?: string;
 }
 
@@ -223,13 +241,97 @@ function transport(): BlockTransport {
   return transportSingleton;
 }
 
-/** The one AppClient promise, created on first use. */
+/**
+ * How long a REST call may hang before it is abandoned.
+ *
+ * 🔴 THE PORT LOST THE BRIDGE'S DEADLINES AND THIS PUTS ONE BACK. Every bridge
+ * message carried a client timeout — `DEFAULT_REQUEST_TIMEOUT_MS = 30_000` in
+ * `@civitai/blocks-react/dist/internal/requestTimeouts.js`, applied by the iframe
+ * transport to every `sendRequest`. `@civitai/sdk` dropped them deliberately
+ * ("Request deadlines: per-message client timeouts → none; pass an
+ * `AbortSignal`"), and `fetch` has no default, so a façade passing no signal hangs
+ * forever on a stalled connection.
+ *
+ * That is not merely slow — it is money-adjacent. `confirmRun` adds the cell to
+ * `inFlightRef` BEFORE awaiting the claim write, and the matching `delete`s all sit
+ * AFTER the await with no `finally`; a never-settling `appStorage.set` therefore
+ * leaves the cell permanently un-runnable AND un-resumable for the life of the
+ * page, with no `CLAIM_FAILED_MESSAGE` shown. With a deadline it rejects, the claim
+ * is released and the viewer sees the refusal and can retry — which is what the
+ * bridge did.
+ *
+ * 30s to match the bridge's default exactly: this restores a bound the port
+ * removed, and a different number would be an unrelated behaviour change smuggled
+ * in beside it.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * The caller's own options if they carry a signal, else a default deadline.
+ *
+ * 🔴 IT MUST NOT CLOBBER A CALLER'S SIGNAL. Every façade method forwards the `opts`
+ * its `StorageClient`/`SharedStorageClient` signature accepts, so a caller passing
+ * its own cancellation owns the deadline; this only fills the gap where none was
+ * given. Overwriting would silently discard a caller's abort — the same defect
+ * `sdk-transport.ts` refuses to introduce by casting.
+ */
+function withDeadline<T extends { signal?: AbortSignal }>(
+  opts: T | undefined,
+): T | (T & { signal: AbortSignal }) | { signal: AbortSignal } {
+  if (opts?.signal) return opts;
+  return { ...(opts ?? ({} as T)), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) };
+}
+
+/**
+ * The one AppClient promise, created on first use.
+ *
+ * 🔴 A REJECTED `initialize()` MUST NOT BE CACHED, and caching it was a real
+ * availability bug this port introduced. `initialize()` awaits the host's
+ * `BLOCK_INIT` and REJECTS after its own 10s deadline. `<BlockGate>` renders
+ * children immediately — `useDirectLoad` starts false, it is not a ready gate — so
+ * `<App>` mounts on frame 1 and `useBuzzBalance`'s mount effect calls `app()`
+ * before a slow host has answered. With a plain `??=` that rejection became the
+ * permanent value of `appPromise`: every later `useSharedStorage.list`,
+ * `useAppStorage.get/set` and even `refetch()` reused it, so the board never loaded
+ * and the balance's Retry button could not work — for the life of the page,
+ * recoverable only by a full reload.
+ *
+ * MEASURED before the fix, with a `ready: false` transport advanced past 10s and
+ * then flipped ready: `refetch()` left `balance = null` and the original
+ * "No Civitai host responded within 10000ms" error in place. The bridge had no such
+ * state — each message was independent and simply started working once the host
+ * answered — so this restores the bridge's behaviour rather than inventing one.
+ *
+ * ⚠ THE RETRY IS UNBOUNDED, DELIBERATELY. A caller that keeps calling while the
+ * host stays silent keeps re-initialising — but each attempt costs the SDK's own
+ * 10s wait, so it is rate-limited by construction, and this is what the bridge did
+ * per message. A backoff here would be new policy, not restored policy.
+ *
+ * 🔴 `transport()` IS CALLED UNCONDITIONALLY, NOT INSIDE THE `??=`. That is the
+ * other half of the bridge-identity guard documented on `transport()`, and `??=`
+ * short-circuited it: with `appPromise` already set the right-hand side was never
+ * evaluated, so a swapped bridge transport went unnoticed on any path reaching
+ * `app()` without a snapshot-reading render first, and the client kept serving from
+ * the DISPOSED transport. The guard's docblock claimed it covered this; now it does.
+ */
 function app(): Promise<AppClient> {
-  appPromise ??= initialize({
-    transport: transport(),
-    fetch: options.fetch,
-    ...(options.siteUrl === undefined ? {} : { siteUrl: options.siteUrl }),
-  });
+  // Evaluated on EVERY call: this is what runs the bridge-identity check, and it
+  // may null `appPromise` before the check below reads it.
+  const t = transport();
+  if (appPromise === null) {
+    const pending: Promise<AppClient> = initialize({
+      transport: t,
+      fetch: options.fetch,
+      ...(options.siteUrl === undefined ? {} : { siteUrl: options.siteUrl }),
+    }).catch((cause: unknown) => {
+      // Only clear OUR entry: a `configureSdkRuntime` or a bridge swap during the
+      // await has already installed a newer promise, and dropping that one would
+      // discard a client someone else is waiting on.
+      if (appPromise === pending) appPromise = null;
+      throw cause;
+    });
+    appPromise = pending;
+  }
   return appPromise;
 }
 
@@ -398,21 +500,38 @@ export function useRequestConsent(): {
  *   - a `null` would make every call site grow a branch for a state that lasts
  *     milliseconds and that the app already gates on `ready`.
  *
- * ⚠ ONE MIGRATION DELTA THE PORT INHERITS, from `@civitai/sdk`'s `BREAKING.md`
- * § App storage rather than from measurement here: an ANONYMOUS viewer gets
- * **403** where the bridge resolved an anonymous read to `null`. This app
- * already gates every KV path on `viewer` (the per-viewer stores are drafts,
- * in-flight claims and the explainer flag, all signed-in-only), so no call site
- * reads an empty result as "nothing stored" — but a new one must not start.
+ * 🔴 ONE MIGRATION DELTA THE PORT INHERITS, and it is REAL — verified against the
+ * platform, not taken from `BREAKING.md`. An ANONYMOUS viewer gets **403** on every
+ * one of these five routes, where the bridge resolved an anonymous read to `null`.
+ * The refusal is `enforceContextBinding`'s `case 'apps:storage:read': case
+ * 'apps:storage:write':` — `if (claims.sub === ANON_SUBJECT) throw
+ * forbidden(\`\${scope} requires authenticated subject\`)`
+ * (`server/middleware/block-scope.middleware.ts`) — and `get.ts`'s own docblock
+ * states the divergence in terms: "🔴 AN ANONYMOUS VIEWER GETS 403 HERE, NOT THE
+ * BRIDGE'S CLEAN `{ value: null }`, AND THAT DIVERGENCE IS DELIBERATE."
+ *
+ * ⚠ DO NOT "CORRECT" THIS BY READING THE SERVICE — a round-1 audit did, and
+ * concluded the opposite. `app-storage.service.ts` is ONE BODY FOR BOTH TRANSPORTS
+ * and its anon arms are clean: `get` returns `{ value: null }`, `list` returns
+ * `{ keys: [] }`, `quota` returns zeros, and only `set`/`delete` throw (as 401, not
+ * 403). All true, and all UNREACHABLE on the REST transport, because
+ * `withBlockScope` refuses the anon subject BEFORE the handler runs. The middleware
+ * in front of the shared body is the whole delta; the service alone cannot show it.
+ *
+ * This app already gates every KV path on `viewer` (the per-viewer stores are
+ * drafts, in-flight claims and the explainer flag, all signed-in-only), so no call
+ * site reads an empty result as "nothing stored" — but a new one must not start,
+ * and the hazard it must not walk into is the SILENT one: a 403 is loud, an empty
+ * page that means "you are anonymous" is not.
  */
 export function useAppStorage(): StorageClient {
   return useMemo<StorageClient>(
     () => ({
-      get: async (key, opts) => (await app()).storage.get(key, opts),
-      set: async (key, value, opts) => (await app()).storage.set(key, value, opts),
-      delete: async (key, opts) => (await app()).storage.delete(key, opts),
-      list: async (query, opts) => (await app()).storage.list(query, opts),
-      getQuota: async (opts) => (await app()).storage.getQuota(opts),
+      get: async (key, opts) => (await app()).storage.get(key, withDeadline(opts)),
+      set: async (key, value, opts) => (await app()).storage.set(key, value, withDeadline(opts)),
+      delete: async (key, opts) => (await app()).storage.delete(key, withDeadline(opts)),
+      list: async (query, opts) => (await app()).storage.list(query, withDeadline(opts)),
+      getQuota: async (opts) => (await app()).storage.getQuota(withDeadline(opts)),
     }),
     [],
   );
@@ -520,23 +639,25 @@ function requireCount(reply: { count?: unknown } | null, op: string): number {
 export function useSharedStorage(): SharedStore {
   return useMemo<SharedStore>(
     () => ({
-      list: async (query) => (await app()).sharedStorage.list(query),
-      append: async (value) => (await app()).sharedStorage.append(value),
+      list: async (query) => (await app()).sharedStorage.list(query, withDeadline(undefined)),
+      append: async (value) => (await app()).sharedStorage.append(value, withDeadline(undefined)),
       update: async (key, value) => {
         // The SDK resolves `{ ok: true }`; the bridge hook resolved `void` and
         // every call site discards it. Discarded here so the façade keeps the
         // narrower promise rather than exporting a value nobody reads.
-        await (await app()).sharedStorage.update(key, value);
+        await (await app()).sharedStorage.update(key, value, withDeadline(undefined));
       },
-      withdraw: async (key) => (await app()).sharedStorage.withdraw(key),
+      withdraw: async (key) => (await app()).sharedStorage.withdraw(key, withDeadline(undefined)),
       vote: async (key) => {
-        const reply = await (await app()).site.post<{ count?: unknown }>(SHARED_VOTE_ROUTE, { key });
+        const reply = await (await app()).site.post<{ count?: unknown }>(SHARED_VOTE_ROUTE, { key }, withDeadline(undefined));
         return requireCount(reply, 'vote');
       },
       unvote: async (key) => {
-        const reply = await (await app()).site.post<{ count?: unknown }>(SHARED_UNVOTE_ROUTE, {
-          key,
-        });
+        const reply = await (await app()).site.post<{ count?: unknown }>(
+          SHARED_UNVOTE_ROUTE,
+          { key },
+          withDeadline(undefined),
+        );
         return requireCount(reply, 'unvote');
       },
       report: async (key, reason) => {
@@ -547,6 +668,7 @@ export function useSharedStorage(): SharedStore {
           // empty string is a 400 where an absent key takes the router's
           // `'user-report'` default. This app never passes one today.
           reason === undefined ? { key } : { key, reason },
+          withDeadline(undefined),
         );
       },
     }),
@@ -592,7 +714,14 @@ const BUZZ_ROUTE = 'blocks/buzz';
  */
 export function useBuzzBalance(): BuzzBalanceValue {
   const [balance, setBalance] = useState<BuzzPools | null>(null);
-  const [loading, setLoading] = useState(false);
+  // 🔴 `true`, MATCHING THE BRIDGE HOOK, which also started `true`. It started
+  // `false` here and the flip moved into the post-paint effect below, which painted
+  // one frame of "could not be read" before "Checking…" on a Retry press — because
+  // `ResultsGrid` derives `balanceReadFailed = gate === 'balance-unknown' &&
+  // !buzzBalanceLoading`. Not reachable at mount (the confirm gate is not open
+  // then), so this is a flicker rather than a wrong verdict; restored anyway,
+  // because "the port changed it" is not a reason and matching the bridge is.
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [nonce, setNonce] = useState(0);
   const live = useRef(true);
@@ -610,7 +739,7 @@ export function useBuzzBalance(): BuzzBalanceValue {
     setError(null);
     void (async () => {
       try {
-        const pools = await (await app()).site.get<BuzzPools>(BUZZ_ROUTE);
+        const pools = await (await app()).site.get<BuzzPools>(BUZZ_ROUTE, withDeadline(undefined));
         if (!current || !live.current) return;
         setBalance(pools);
       } catch (cause) {
