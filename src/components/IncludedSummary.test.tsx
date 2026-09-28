@@ -63,6 +63,7 @@ function promptRow(key: string, count: number): PromptRow {
 function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
   return render(
     <MatchupsView
+      surface="community"
       combinations={rows}
       includedKeys={includedKeys}
       votedKeys={new Set()}
@@ -83,6 +84,7 @@ function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
 function renderPrompts(rows: PromptRow[], includedKeys: Set<string>) {
   return render(
     <PromptsView
+      surface="community"
       prompts={rows}
       includedKeys={includedKeys}
       votedKeys={new Set()}

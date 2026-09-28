@@ -204,33 +204,52 @@ exercising nothing.
 
 ## Architecture
 
-Three tabs, routed by [`src/App.tsx`](src/App.tsx) through a `SegmentedControl`;
-submit flows are modals:
+A SIDEBAR and one surface at a time, routed by [`src/App.tsx`](src/App.tsx); submit
+flows are modals.
 
-- **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
-  [`MatchupForm.tsx`](src/components/MatchupForm.tsx)), with **My** / **Community**
-  sub-tabs — create privately, **Publish** to the shared board, then vote on a
-  checkpoint (any base model) plus a family-scoped weighted LoRA stack, picked via
-  the resource picker.
-- **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
-  [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt:
-  one **default** raw prompt string + generation params that runs on *every*
-  ecosystem, plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …)
-  that replace the prompt and/or patch the params for one base-model family.
-- **Grids** ([`GridsView.tsx`](src/components/GridsView.tsx) +
-  [`GridForm.tsx`](src/components/GridForm.tsx) +
-  [`GridPicker.tsx`](src/components/GridPicker.tsx)) — the **default** view, with
-  **My** / **Community** sub-tabs. A *grid* is a named, hand-picked set of matchups
-  (rows) × prompts (cols), built privately with a search + multi-select picker and
-  then published; Community Grids sorts by vote count, with a system-owned **Top
-  Grid** (top-voted matchups × top-voted prompts) pinned first — it has no shared
-  key, so it cannot be voted on. Opening a grid renders the matrix
-  ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)): **every** cell can be
-  **run** — the `prompt` v3 reframe gave every prompt a `default`, so there is no
-  N/A state left — and each renders that config's published outputs via the
-  per-viewer gated read ([`GatedCell.tsx`](src/components/GatedCell.tsx)).
-  🔴 A published grid names shared keys **another author can withdraw**, so a grid
-  renders its surviving members plus an honest count of the missing ones.
+> ⚠️ This section described **three tabs behind a `SegmentedControl`** until 0.4.9, and
+> that had already been wrong since 0.4.7 — the IA refactor deleted the tab strip and
+> nobody updated the prose. Recorded rather than quietly replaced, because a stale
+> architecture paragraph on a public mirror is read as the map.
+
+**The sidebar** ([`SideNav.tsx`](src/components/SideNav.tsx)) has two destinations:
+
+- **Home** — the app's primary object, always first and never behind a click: the
+  **open grid** ([`GridOpenPanel.tsx`](src/components/GridOpenPanel.tsx)) and its
+  runnable matrix ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)), then a board
+  subnav ([`BoardNav.tsx`](src/components/BoardNav.tsx)) selecting **one** community
+  board:
+  - **Grids** ([`GridsView.tsx`](src/components/GridsView.tsx)) — a flat list of
+    published grids ordered by vote count, each with an inline thumbnail strip
+    ([`GridPreview.tsx`](src/components/GridPreview.tsx)). A system-owned **Top Grid**
+    (top-voted matchups × top-voted prompts) is pinned first and has no shared key, so
+    it cannot be voted on. The grid that is currently OPEN is not listed — it renders in
+    full above. 🔴 A published grid names shared keys **another author can withdraw**, so
+    it renders its surviving members plus an honest count of the missing ones.
+  - **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
+    [`MatchupForm.tsx`](src/components/MatchupForm.tsx)) — submit + vote on a checkpoint
+    (any base model) plus a family-scoped weighted LoRA stack, picked via the resource
+    picker.
+  - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
+    [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt: one
+    **default** raw prompt string + generation params that runs on *every* ecosystem,
+    plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …) that replace the
+    prompt and/or patch the params for one base-model family.
+- **My Benchmarks** — the viewer's own grids / matchups / prompts: unpublished records
+  ([`UnpublishedList.tsx`](src/components/UnpublishedList.tsx)) with New / Edit /
+  Discard / **Publish**, their published rows with **Remove**, and **Archive** — an
+  author-side hide with a recovery path, described in words next to the control
+  ([`MyPublished.tsx`](src/components/MyPublished.tsx),
+  [`src/lib/archive.ts`](src/lib/archive.ts)). Building a grid lives here
+  ([`GridForm.tsx`](src/components/GridForm.tsx) +
+  [`GridPicker.tsx`](src/components/GridPicker.tsx)): a *grid* is a named, hand-picked
+  set of matchups (rows) × prompts (cols), assembled from other people's rows and
+  therefore private until its author publishes it.
+
+Every cell of the matrix can be **run** — the `prompt` v3 reframe gave every prompt a
+`default`, so there is no N/A state left — and each renders that config's published
+outputs through the per-viewer gated read
+([`GatedCell.tsx`](src/components/GatedCell.tsx)).
 
 <!-- lib-inventory:start — src/readme-inventory.test.ts reads ONLY what sits
      between the END of this comment and the closing marker. So the guard is

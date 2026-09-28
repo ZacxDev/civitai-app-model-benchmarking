@@ -14,14 +14,33 @@
 // pinned them.
 //
 // 🔴 THE IA REFACTOR DELETED THE TABS. `view-switch`, `view-switch-matchups`,
-// `view-switch-prompts` and `view-switch-grid` DO NOT EXIST any more: the app is
-// one page with three sections and one Contribute menu. So:
+// `view-switch-prompts` and `view-switch-grid` DO NOT EXIST: the app became one page
+// with three sections and one Contribute menu.
 //
-//   ⚠️ THE TALOS RECIPE MUST BE RE-POINTED AT THE NAMES BELOW. Until it is, a
-//   capture against this version fails `element_not_found` on its first step.
-//   That PR is deliberately sequenced AFTER this one — the new selector names do
-//   not exist until this lands — and this file is the list it should be written
-//   from. Nothing in `datapacket-talos` is touched here.
+// 🔴 AND THE SIDEBAR CHANGE HAS NOW DELETED THE CONTRIBUTE MENU TOO. `contribute-trigger`
+// and `contribute-menu-items` are GONE; the page's primary navigation is a SIDEBAR
+// (`side-nav`) and its community boards are behind a BOARD SUBNAV (`board-nav`), one
+// board mounted at a time.
+//
+//   ⚠️ THE CAPTURE RECIPE MUST BE RE-POINTED, FOR THE SECOND TIME, AND IT IS NOT OURS
+//   TO EDIT. It lives in `civitai/civitai` at
+//   `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json`, and it pins
+//   BOTH `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — both
+//   of which die with this change. Until that follow-up lands, a capture against this
+//   version fails `element_not_found` on its first step. That PR is deliberately
+//   sequenced AFTER this one (the new selector names do not exist until this lands) and
+//   this file is the list it should be written from. Nothing in another repo is touched
+//   here.
+//
+//   🔵 THE UPSIDE, WORTH STATING BECAUSE IT IS THE REASON THIS MIGHT ADD SCREENSHOTS
+//   RATHER THAN ONLY REPAIR ONE: the one-page IA rendered 2166 CSS px and the host sizes
+//   the iframe to the VIEWPORT inside an `overflow: hidden` parent, so `section-matchups`
+//   (y 1175..1482) and `section-prompts` (y 1500..2142) were below the iframe edge at
+//   EVERY tested viewport height and could not be photographed at all. One board at a
+//   time makes the page far shorter, so those two boards may become photographable.
+//   ⚠️ NOT MEASURED — a capture recipe can only be measured against a RELEASED
+//   artifact, and this is unreleased. It is a hypothesis for that follow-up, not a
+//   result.
 //
 // ── WHAT THIS FILE PINS, AND WHY EACH PART IS HERE ──────────────────────────
 //
@@ -52,12 +71,15 @@
 // talos recipe must be added to `LANDMARKS` by whoever writes that step, and this
 // file cannot make them.
 //
-// ⚠ ROLES CHANGED WITH THE REFACTOR. The old strip's controls exposed
-// `role="tab"`. The new landmarks do NOT: the Contribute trigger and the matchup
-// band are `button`s, the sections are `<section>` elements with no role at all.
-// `getAllByRole('tab')` now finds only the per-section My/Community sub-tabs, and
-// asking for a tab by a view's name fails in a way that reads exactly like the app
-// not rendering.
+// ⚠ ROLES HAVE CHANGED TWICE. The original strip's controls exposed `role="tab"`;
+// the one-page landmarks did not (the Contribute trigger and the matchup band were
+// `button`s, the sections `<section>` elements with no role), so `getAllByRole('tab')`
+// found only the per-section My/Community sub-tabs. Those sub-tabs are now deleted and
+// the BOARD SUBNAV is a `SegmentedControl`, so `role="tab"` is back — and it names
+// `Grids` / `Matchups` / `Prompts`, which is exactly what the retired-strip case used
+// to forbid. That case is rewritten below to assert the STRUCTURE (every tab on the
+// page belongs to `board-nav`) rather than the WORDS, because a word-based guard on a
+// legitimate board name is a guard that has to be deleted the first time it is right.
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -84,17 +106,42 @@ import type { CombinationData, PromptData } from './types.js';
  * `click` means "pressing it must make the named testid appear".
  */
 const LANDMARKS = [
-  ['contribute-trigger', 'click', 'contribute-menu-items'],
-  ['section-grids', 'contains', 'results-grid'],
+  // 🔴 THE NAV LANDMARKS THAT REPLACED `contribute-trigger`. A recipe needs a way to
+  // reach each community board and the viewer's own surface; these are it.
+  ['side-nav', 'contains', 'nav-home'],
+  ['board-nav', 'contains', 'board-nav-grids'],
+  ['nav-my', 'click', 'nav-my-group'],
+  // The OPEN grid and its matrix, which are on Home whichever board is selected.
+  ['section-open-grid', 'contains', 'results-grid'],
+  ['section-grids', 'contains', 'grids-list'],
   ['grids-all-section', 'contains', 'grids-list'],
-  ['section-matchups', 'contains', 'matchups-view'],
-  ['section-prompts', 'contains', 'prompts-view'],
+  ['board-nav-matchups', 'click', 'section-matchups'],
+  ['board-nav-prompts', 'click', 'section-prompts'],
   ['grid-group-matchup', 'click', 'matchup-detail'],
-  // 🔴 ADDED: it had a behavioural case at the bottom of this file and was ABSENT
-  // from the table, so a recipe step using it was outside the contract — nothing
-  // stopped it being renamed or re-pointed, and the ledger did not count it.
+  // 🔴 ADDED EARLIER: it had a behavioural case at the bottom of this file and was
+  // ABSENT from the table, so a recipe step using it was outside the contract —
+  // nothing stopped it being renamed or re-pointed, and the ledger did not count it.
   ['grid-col-header', 'click', 'prompt-detail'],
 ] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains', string]>;
+
+/**
+ * Landmarks the recipe USED to address and which must not silently come back.
+ *
+ * 🔴 `contribute-menu-items` IS THE ONE THAT MATTERS. The recipe's own overlay state
+ * clicks `contribute-trigger` and waits for that panel; both are deleted, so a capture
+ * against this version fails on its first step. Asserting their ABSENCE is what makes
+ * the failure a decision rather than a surprise — and it is what stops a
+ * compatibility shim being quietly added to keep an un-updated recipe green, which
+ * would hide that the recipe still has to be re-pointed.
+ */
+const RETIRED_CONTRIBUTE_TESTIDS = [
+  'contribute-menu',
+  'contribute-trigger',
+  'contribute-menu-items',
+  'contribute-item-grid',
+  'contribute-item-matchup',
+  'contribute-item-prompt',
+] as const;
 
 /**
  * How a PAGE SECTION can be spelled — the growth closure's selector.
@@ -192,14 +239,44 @@ describe('capture landmarks — criterion 1: each one resolves by name', () => {
     renderApp();
     await screen.findByTestId('results-grid');
 
+    // 🔴 EVERY LANDMARK IN THE TABLE RESOLVES ON THE DEFAULT SURFACE, with nothing
+    // pressed — and that is a property of the table rather than an accident. The
+    // OUTCOMES some of them promise do not (`section-matchups` is behind a board click,
+    // `nav-my-group` behind the sidebar group); this case is about the ADDRESSES a
+    // recipe selects, and criterion 3 is where each address is driven to its outcome.
+    //
+    // Stated because it is the thing to preserve: a landmark that needs navigation
+    // before it can even be FOUND makes a recipe's first step order-dependent, which is
+    // precisely the fragility the positional `nth-of-type` selectors had.
     for (const [testid] of LANDMARKS) {
-      // `getAllBy` + a length assertion rather than `getBy`: a landmark that
-      // resolved TWICE would make the recipe's single-node selector ambiguous,
-      // and `getBy`'s own error would report it as a different problem.
+      // `getAllBy` + a length assertion rather than `getBy`: a landmark that resolved
+      // TWICE would make the recipe's single-node selector ambiguous, and `getBy`'s own
+      // error would report it as a different problem.
       expect(screen.getAllByTestId(testid), `${testid} does not resolve exactly once`).toHaveLength(
         1,
       );
     }
+  });
+
+  it('🔴 the retired CONTRIBUTE testids are GONE — not merely unused', async () => {
+    // 🔴 WATCHED FAILING AT THE PRE-CHANGE BASE: `contribute-trigger` and its three
+    // items all resolve there, so every name below goes RED. That is the point — the
+    // external capture recipe still addresses `contribute-trigger` and waits for the
+    // text "Build a grid", and both die with this change. A compatibility shim left in
+    // the DOM to keep an un-updated recipe green would fail here, which is exactly what
+    // must not be possible: the recipe has to be re-pointed, and this is the tripwire
+    // that says so out loud.
+    renderApp();
+    await screen.findByTestId('results-grid');
+
+    for (const testid of RETIRED_CONTRIBUTE_TESTIDS) {
+      expect(screen.queryAllByTestId(testid), `${testid} is still rendered`).toEqual([]);
+    }
+    // …and the recipe's `waitForText` anchor is gone from the rendered page too. A
+    // testid check alone would pass while the words a text-anchored step waits for were
+    // still on screen under a different id.
+    expect(screen.queryByText('Build a grid')).toBeNull();
+    expect(screen.queryByText('Contribute')).toBeNull();
   });
 
   it('🔴 the retired view-switch testids are GONE — not merely unused', async () => {
@@ -214,54 +291,138 @@ describe('capture landmarks — criterion 1: each one resolves by name', () => {
     for (const testid of RETIRED_TESTIDS) {
       expect(screen.queryAllByTestId(testid), `${testid} is still rendered`).toEqual([]);
     }
-    // …and no `role="tab"` names a top-level VIEW any more. The sub-tabs still use
-    // that role, so an absence of tabs altogether would be the wrong assertion —
-    // what must be gone is a tab that names one of the three former views.
-    const tabNames = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
-    expect(tabNames.length, 'no tabs at all — the sub-tabs should still be here').toBeGreaterThan(0);
-    for (const name of tabNames) {
-      expect(name, `a tab still names a former view: ${name}`).not.toMatch(
-        /^(Matchups|Prompts|Grids)\b/,
-      );
+
+    // 🔴 THE TAB CLAIM IS STRUCTURAL NOW, AND IT USED TO BE A WORD CHECK. It asserted
+    // that no `role="tab"` element's text matched `/^(Matchups|Prompts|Grids)\b/`, on
+    // the reasoning that such a tab could only be a resurrected top-level view switch.
+    // The BOARD SUBNAV's three segments are legitimately named exactly that, so the
+    // word check would have to be deleted the first time it fired — which is the
+    // definition of a guard that pins a word rather than a state.
+    //
+    // What replaces it is the relationship: EVERY tab on the page belongs to
+    // `board-nav`. A resurrected top-level strip would be a second tablist and fails
+    // here; a rename of the boards does not.
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.length, 'no tabs at all — the board subnav should be here').toBe(3);
+    const boardNav = screen.getByTestId('board-nav');
+    for (const tab of tabs) {
+      expect(
+        boardNav.contains(tab),
+        `a tab outside the board subnav: ${tab.textContent ?? ''}`,
+      ).toBe(true);
     }
+    // …and it really is the boards it names, by literal, so the structural check above
+    // cannot pass against a tablist of three unrelated things.
+    expect(tabs.map((t) => t.textContent ?? '')).toEqual(['Grids', 'Matchups', 'Prompts']);
   });
 });
 
+/**
+ * Every section this app can mount, and the SET it must mount for a given view.
+ *
+ * 🔴 IT IS A MAP NOW, NOT A LIST, BECAUSE ONE FRAME NO LONGER SHOWS EVERYTHING. The
+ * old ledger was `['grids','matchups','prompts']` in DOM order and could be asserted in
+ * a single render, because all three were mounted together. The board subnav mounts one
+ * community board at a time and the sidebar swaps the whole surface, so the ledger has
+ * to say WHICH sections go with WHICH destination — and the growth closure has to hold
+ * at every one of them, not just the default.
+ *
+ * Literals on both sides. Derived from nothing.
+ */
+const SECTION_LEDGER = [
+  ['home / grids', ['open-grid', 'grids']],
+  ['home / matchups', ['open-grid', 'matchups']],
+  ['home / prompts', ['open-grid', 'prompts']],
+  ['my / grids', ['my-grid']],
+  ['my / matchups', ['my-matchup']],
+  ['my / prompts', ['my-prompt']],
+] as const satisfies ReadonlyArray<readonly [string, readonly string[]]>;
+
 describe('capture landmarks — criterion 2: the LEDGER', () => {
-  it('the page carries EXACTLY the ledgered landmarks, and no unmarked section', async () => {
+  /** Drive the app to one ledgered destination. */
+  async function goTo(where: string): Promise<void> {
+    if (where.startsWith('home')) {
+      await userEvent.click(screen.getByTestId('nav-home'));
+      const board = where.split(' / ')[1]!;
+      await userEvent.click(screen.getByTestId(`board-nav-${board}`));
+      return;
+    }
+    const noun = { grids: 'grid', matchups: 'matchup', prompts: 'prompt' }[where.split(' / ')[1]!]!;
+    const trigger = screen.getByTestId('nav-my');
+    if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+    await userEvent.click(screen.getByTestId(`nav-my-${noun}`));
+  }
+
+  it('every destination mounts EXACTLY its ledgered sections, and nothing unmarked', async () => {
     renderApp();
     const content = await screen.findByTestId('app-content');
 
-    // (a) The SECTION markers are exactly the three sections, IN ORDER. Failing
-    //     when the set grows is the whole point — a fourth section is a loud
-    //     failure here instead of a capture that silently misses it.
-    const marked = Array.from(content.querySelectorAll('[data-mb-section]'));
-    expect(marked.map((el) => el.getAttribute('data-mb-section'))).toEqual([
-      'grids',
-      'matchups',
-      'prompts',
-    ]);
+    for (const [where, expected] of SECTION_LEDGER) {
+      await goTo(where);
 
-    // (b) …and NOTHING ELSE ON THE PAGE IS SECTION-SHAPED. Without this, (a) is
-    //     walkable by adding a fourth section and simply not giving it the marker
-    //     attribute — the exact shape of "adding a tab without a testid" that the
-    //     original ledger was written to catch.
-    //
-    //     🔴 THE SELECTOR IS TAG-INDEPENDENT, AND IT USED TO BE `'section'`. Keyed
-    //     on the tag, this closed the growth for exactly one spelling: a landmark
-    //     added as `<div data-testid="section-featured">` left all 11 cases GREEN
-    //     (measured), while the identical node as a bare `<section>` turned this
-    //     line red. `SECTION_SHAPED` asks by marker attribute, by element type AND
-    //     by the `section-*` testid convention, so any of the three is caught.
-    const sectionShaped = Array.from(content.querySelectorAll(SECTION_SHAPED));
-    expect(sectionShaped).toEqual(marked);
+      // (a) The SECTION markers are exactly the ledgered ones, IN ORDER. Failing when
+      //     the set grows is the whole point — an extra section is a loud failure here
+      //     instead of a capture that silently misses it.
+      const marked = Array.from(content.querySelectorAll('[data-mb-section]'));
+      expect(
+        marked.map((el) => el.getAttribute('data-mb-section')),
+        `wrong section set at ${where}`,
+      ).toEqual([...expected]);
 
-    // (c) The non-section landmarks resolve, and every element the table names
-    //     really is a DISTINCT node. Three names stamped on one element would
-    //     satisfy a plain existence check and leave the recipe coupled to
-    //     whatever that one element happens to be.
-    const nodes = LANDMARKS.map(([testid]) => screen.getByTestId(testid));
-    expect(new Set(nodes).size).toBe(LANDMARKS.length);
+      // (b) …and NOTHING ELSE ON THE PAGE IS SECTION-SHAPED. Without this, (a) is
+      //     walkable by adding a section and simply not giving it the marker attribute
+      //     — the exact shape of "adding a tab without a testid" the original ledger was
+      //     written to catch.
+      //
+      //     🔴 THE SELECTOR IS TAG-INDEPENDENT, AND IT USED TO BE `'section'`. Keyed on
+      //     the tag, this closed the growth for exactly one spelling: a landmark added
+      //     as `<div data-testid="section-featured">` left all 11 cases GREEN
+      //     (measured), while the identical node as a bare `<section>` turned this line
+      //     red. `SECTION_SHAPED` asks by marker attribute, by element type AND by the
+      //     `section-*` testid convention, so any of the three is caught.
+      const sectionShaped = Array.from(content.querySelectorAll(SECTION_SHAPED));
+      expect(sectionShaped, `an unmarked section-shaped node at ${where}`).toEqual(marked);
+    }
+  });
+
+  it('🔴 the UNSELECTED boards are ABSENT from the DOM, not hidden', async () => {
+    // 🔴 THE ASSERTION THAT A VISIBILITY CHECK CANNOT MAKE, and the reason this is its
+    // own case. `display: none` would satisfy "the viewer sees one board", keep every
+    // hidden section's testids resolving for a capture recipe to address by accident,
+    // and keep its gated image reads running — the read budget the preview suites
+    // defend is a claim about what is MOUNTED, not about what is painted.
+    renderApp();
+    await screen.findByTestId('results-grid');
+
+    expect(screen.getByTestId('section-grids')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-matchups')).toBeNull();
+    expect(screen.queryByTestId('section-prompts')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('board-nav-matchups'));
+    expect(await screen.findByTestId('section-matchups')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-grids')).toBeNull();
+    expect(screen.queryByTestId('section-prompts')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('board-nav-prompts'));
+    expect(await screen.findByTestId('section-prompts')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-grids')).toBeNull();
+    expect(screen.queryByTestId('section-matchups')).toBeNull();
+  });
+
+  it('every ledgered landmark is a DISTINCT node', async () => {
+    // Three names stamped on one element would satisfy a plain existence check and
+    // leave the recipe coupled to whatever that one element happens to be. Scoped to
+    // the landmarks the DEFAULT surface mounts, because the rest are on other
+    // destinations and criterion 1 walks to them.
+    renderApp();
+    await screen.findByTestId('results-grid');
+    const onDefault = LANDMARKS.map(([testid]) => testid).filter(
+      (t) => screen.queryAllByTestId(t).length > 0,
+    );
+    // POSITIVE CONTROL: the filter did not empty the list.
+    expect(onDefault.length).toBeGreaterThan(4);
+    const nodes = onDefault.map((testid) => screen.getByTestId(testid));
+    expect(new Set(nodes).size).toBe(onDefault.length);
   });
 });
 

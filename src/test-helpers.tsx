@@ -22,58 +22,82 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 import type { GatedCellComponent } from './components/GatedCell.js';
 
 /**
- * Resolve one of the page's three SECTIONS, waiting for the app to finish booting.
+ * NAVIGATE to one of the three COMMUNITY BOARDS and return its section element.
  *
- * 🔴 IT NO LONGER CLICKS ANYTHING, AND THAT IS THE POINT. There was a top-level
- * tab strip and exactly one view was mounted at a time, so a case that wanted the
- * Matchups list had to click its tab first. The IA refactor made the app ONE PAGE:
- * all three sections are mounted simultaneously, so the helper's job changed from
- * "switch to" to "scope to".
+ * 🔴 IT CLICKS AGAIN, AND THE HISTORY MATTERS BECAUSE IT HAS REVERSED ONCE. There was
+ * a top-level tab strip and exactly one view was mounted, so this helper clicked. The
+ * one-page IA mounted all three sections simultaneously and the helper's job became
+ * "scope to" rather than "switch to" — it stopped clicking, and its docstring said so
+ * emphatically. The BOARD SUBNAV mounts one board at a time again, so it clicks again:
+ * the unselected boards are UNMOUNTED, not hidden, and a bare
+ * `findByTestId('section-prompts')` without the click now fails with "unable to find",
+ * which reads nothing like the real cause.
  *
- * 🔴 SCOPE YOUR QUERIES TO WHAT THIS RETURNS. Because the sections coexist, the
- * object-neutral testids the sub-tabs use (`subtab-my`, `my-panel`,
- * `archive-action`, …) now resolve TWICE in the document — once under matchups and
- * once under prompts. A bare `getByTestId('subtab-my')` throws a
- * "found multiple elements" that reads nothing like the real cause. Use
- * `within(await openView('Matchups'))`.
+ * 🔴 SCOPING IS NO LONGER FORCED, BUT IT IS STILL FREE. While the sections coexisted,
+ * object-neutral testids (`my-panel`, `archive-action`, …) resolved TWICE and a bare
+ * `getByTestId` threw "found multiple elements". One board at a time means that cannot
+ * happen — but `within(await openView('Matchups'))` is still the clearer read and no
+ * call site needed changing.
  *
- * The name is kept (rather than renamed to `section()`) so the ~20 call sites that
- * only need the wait keep working, and so the diff of this refactor shows which
- * cases genuinely needed re-scoping.
+ * `'Grids'` is the DEFAULT board, so asking for it is usually just a wait.
  */
 export async function openView(name: 'Matchups' | 'Prompts' | 'Grids'): Promise<HTMLElement> {
-  const testid =
-    name === 'Matchups' ? 'section-matchups' : name === 'Prompts' ? 'section-prompts' : 'section-grids';
-  return screen.findByTestId(testid);
+  const board = name === 'Matchups' ? 'matchups' : name === 'Prompts' ? 'prompts' : 'grids';
+  // The sidebar has to be on Home for the board subnav to exist at all.
+  await userEvent.click(await screen.findByTestId('nav-home'));
+  await userEvent.click(await screen.findByTestId(`board-nav-${board}`));
+  return screen.findByTestId(`section-${board}`);
 }
 
 /**
- * Reveal the viewer's OWN records for one object kind.
+ * NAVIGATE to the viewer's own surface for one object kind, and return its section.
  *
- * 🔴 THE THREE SURFACES NO LONGER AGREE ON HOW, which is why this is a helper and
- * not an inline click. Matchups and prompts keep their My/Community sub-tabs, so
- * their own records are behind a click; GRIDS dropped its sub-tabs in the IA
- * refactor, so its unpublished list is simply always rendered for a signed-in
- * viewer and there is nothing to click. A parameterised test that clicked
- * `subtab-my` for all three would fail on the grid arm for a reason that has
- * nothing to do with what it is testing.
+ * 🔴 THE THREE SURFACES AGREE AGAIN, which is why this is two clicks rather than a
+ * per-noun branch. They did not for a while: matchups and prompts kept a My/Community
+ * sub-tab strip while GRIDS lost its in the IA refactor, so this helper had to
+ * early-return for `'grid'` and a parameterised test that clicked `subtab-my` for all
+ * three failed on the grid arm for a reason with nothing to do with what it tested.
+ * "My" is one sidebar destination now: My Benchmarks ▸ <noun>, for every noun.
+ *
+ * The group auto-expands when a My view is already active, and `nav-my` is idempotent
+ * in the open direction, so clicking it first is safe from any starting state.
  */
-export async function openMyList(noun: 'matchup' | 'prompt' | 'grid'): Promise<void> {
-  if (noun === 'grid') return;
-  await userEvent.click(await screen.findByTestId(`subtab-my-${noun}`));
+export async function openMyList(noun: 'matchup' | 'prompt' | 'grid'): Promise<HTMLElement> {
+  const trigger = await screen.findByTestId('nav-my');
+  if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+  await userEvent.click(await screen.findByTestId(`nav-my-${noun}`));
+  return screen.findByTestId(`section-my-${noun}`);
 }
 
 /**
- * Open the Contribute menu and click one of its three items.
+ * Open the CREATE form for one object kind, wherever that now lives.
  *
- * Exists because the menu is the ONLY route to a submit form now that the views'
- * own Submit buttons are no longer the page's primary affordance, and because the
- * open→click sequence is two `userEvent` calls that every caller would otherwise
- * get subtly different.
+ * 🔴 THE ROUTES MOVED AND THE CAPABILITY DID NOT — that is the whole reason this
+ * helper still exists under the same name. Three generations of route:
+ *   1. each view's own Submit button (matchup/prompt) plus `grid-new`;
+ *   2. one `ContributeMenu` dropdown with three items, which is what this helper drove;
+ *   3. now: contextual. A MATCHUP or PROMPT is created from its own community board
+ *      (`submit-matchup` / `submit-prompt`, both still ungated for an anonymous
+ *      viewer, both still opening the PUBLIC form); a GRID is created on My Benchmarks
+ *      ▸ Grids, because a grid has no public create path at all — it is assembled from
+ *      other people's rows and there is no reason to make that assembly public before
+ *      its author has looked at it.
+ *
+ * ⚠️ THE GRID ARM IS THE ONE THAT CHANGED CHARACTER, not just address. Reaching it
+ * requires being on the viewer's own surface, and for an ANONYMOUS viewer that surface
+ * is the sign-in panel — so `contribute('grid')` can no longer be used to drive an
+ * anonymous viewer into the grid form. That is not this helper hiding something: the
+ * anonymous grid-create route genuinely does not exist any more, and
+ * `myCommunity.test.tsx`'s anon walk asserts the sign-in panel instead.
  */
 export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<void> {
-  await userEvent.click(await screen.findByTestId('contribute-trigger'));
-  await userEvent.click(screen.getByTestId(`contribute-item-${item}`));
+  if (item === 'grid') {
+    await openMyList('grid');
+    await userEvent.click(await screen.findByTestId('new-unpublished'));
+    return;
+  }
+  await openView(item === 'matchup' ? 'Matchups' : 'Prompts');
+  await userEvent.click(await screen.findByTestId(`submit-${item}`));
 }
 
 export const CKPT_SDXL: BlockResourceInfo = {
