@@ -42,8 +42,7 @@
 // affordance keyed off the same row — and the Top Grid, which has no shared row at
 // all, is not the viewer's and never appears here.
 
-import { Stack } from '@civitai/blocks-react/ui';
-import { Badge, Card, Group } from '@civitai/blocks-react/ui';
+import { Badge, Card, Group, Stack } from '@civitai/blocks-react/ui';
 
 import type { CombinationRow, GridRow, PromptRow, UnpublishedGrid } from '../types.js';
 import {
