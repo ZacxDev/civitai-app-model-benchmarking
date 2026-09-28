@@ -1,8 +1,14 @@
 // Shared test doubles for the component/e2e suites (jsdom). Injected into the
 // App's `deps` bag so the exact production App is driven with canned
-// picks/publish/gated, alongside the real SDK mock host (<Harness>) for the base
-// protocol (shared storage, workflow, picker, consent, viewer). NOT a *.test
-// file, so it isn't collected as a suite.
+// picks/publish/gated, alongside `src/test-harness.tsx` for the base protocol.
+// NOT a *.test file, so it isn't collected as a suite.
+//
+// ⚠ THE MOCK HOST NO LONGER SERVES SHARED STORAGE OR THE BUZZ BALANCE, and this
+// header used to say it did. After the port those two are HTTP and come from
+// `src/dev-rest.ts`; the mock host keeps viewer, consent, the token, the resource
+// picker, the workflow money path, publish and gated reads. The `fakeShared` and
+// `fakeAppStorage` doubles below sit at the `deps` seam and are unaffected either
+// way — which is why most cases in this suite never touch the split at all.
 
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -105,14 +111,19 @@ export function fakeShared(
     /**
      * Make `withdraw()` RESOLVE `{ok: false}` instead of removing the row.
      *
-     * 🔴 This models the SDK's non-rejecting failure channel, and it is the one
-     * behaviour this fake could not express before. `SharedStore.withdraw`
-     * is typed `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write
-     * whose `ok` is `boolean` rather than the literal `true` (`appStorage.set`
-     * and `.delete` are both `ok: true`). That asymmetry is a refusal the host
-     * can signal WITHOUT throwing, so a caller that awaits and discards the
-     * result treats it as success. Hardcoding `ok: true` here made that branch
-     * unreachable from any test in the repo, in either direction.
+     * ⚠ WHAT THIS MODELS CHANGED WITH THE PORT, AND THE OLD CLAIM IS RETRACTED.
+     * It used to say `withdraw` is "the ONLY SDK write whose `ok` is `boolean`
+     * rather than the literal `true`", i.e. that the wire itself permits a
+     * resolving refusal. That is FALSE against `@civitai/sdk`, which declares
+     * `withdraw` as `{ ok: true; deleted: boolean }` — the literal — and hardcodes
+     * it. The `boolean` is `SharedStore`'s own widening (see `lib/sdk-runtime.ts`).
+     *
+     * So this option does NOT model a transport behaviour; it drives the INVARIANT
+     * GUARD in `App.tsx`'s `withdrawRow` from the only place that can reach it —
+     * the façade. It is kept because that guard protects an unrecoverable pointer
+     * delete and a guard no test can reach is worse than none; it is NOT evidence
+     * that a host can refuse this way. If the widening is ever narrowed, this
+     * option and its case in `withdraw.test.tsx` go with it.
      */
     withdrawRefuses?: boolean;
     /**

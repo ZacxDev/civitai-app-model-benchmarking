@@ -30,17 +30,41 @@ import type {
   WorkflowBody,
 } from '@civitai/app-sdk/blocks';
 
-// 🔴 THE BRIDGE HALF, AND IT IS THE HALF THAT STAYS. Generation is still a
-// postMessage conversation with the host, and `@civitai/sdk@0.8.0`'s
-// `BREAKING.md` is explicit that its `app.orchestration` is the WRONG
-// replacement — a direct orchestrator call drops civitai's per-call/per-viewer/
-// per-app spend caps, the viewer's browsing-level clamp and per-app attribution,
-// and "the wrong version compiles". The right replacement is
-// `POST /api/v1/blocks/workflows/*`, which the SDK ships no client for, so
-// porting the money path is its own change against its own spec
-// (`src/money-path.test.tsx`) rather than a line in this one. `useGatedImages`
-// (in `components/GatedCell.tsx`) and `useBlockAnalytics` likewise have no SDK
-// twin — `TRACK_EVENT` is "not carried", and already a no-op on both real hosts.
+// 🔴 THE BRIDGE HALF, AND IT IS THE HALF THAT STAYS — one reason per binding,
+// because "each has its own reason" is worth nothing if the reasons are not here.
+// The long form, with the platform-source citations and the three traps a porter
+// walks into, is the banner in `src/lib/sdk-runtime.ts`.
+//
+//   • `useBuzzWorkflow` + `WorkflowEstimateError` — the money path. The SDK's
+//     `app.orchestration` is the WRONG replacement and "the wrong version
+//     compiles": a direct orchestrator call drops civitai's per-call/per-viewer/
+//     per-app spend caps, the viewer's browsing-level clamp and per-app
+//     attribution. The right one is `POST /api/v1/blocks/workflows/*`, for which
+//     the SDK ships NO CLIENT — and whose `submit` REQUIRES an `idempotencyKey`
+//     the bridge hook mints for us. Its own change, against its own spec
+//     (`src/money-path.test.tsx`), never a line in this one.
+//   • `usePublishGenerationOutputs` — the SDK DOES carry this
+//     (`app.host.publishGenerationOutputs`), so this one is DEFERRED, not
+//     blocked. It is not a pass-through: the host nests the ids
+//     (`reply.result.imageIds`) where the SDK destructures `{ imageIds }` at the
+//     top level, so a naive swap throws for a publish that SUCCEEDED, after the
+//     viewer paid. It also drops a `title` field. It moves with the money path,
+//     because they share one conversation.
+//   • `useResourcePicker` — also CARRIED (`app.host.openResourcePicker`), also
+//     deferred: it resolves `PickedResource | null` where this app's `deps.pickResource`
+//     is typed on `BlockResourceInfo`, so moving it is a shape change through
+//     `MatchupForm` rather than a transport change. Same conversation again.
+//   • `useGenerationResources` — no SDK client. The route exists
+//     (`GET /api/v1/blocks/generation-resources`), so this too is deferred rather
+//     than blocked; it feeds the same picker flow.
+//   • `useGatedImages` (in `components/GatedCell.tsx`) — no SDK client, and the
+//     route to port it to is NOT the one the migration guide names. See trap (1)
+//     in `sdk-runtime.ts`: `blocks/images?ids=` and `blocks/gated-images?ids=`
+//     have COMPLEMENTARY SQL predicates, so the guide's route returns `[]` for
+//     every id this app published, silently, forever.
+//   • `useBlockAnalytics` — genuinely has no twin and never will:
+//     `BREAKING.md` lists `TRACK_EVENT` as "not carried", AND it has no host
+//     handler on either real host, so these calls are ALREADY no-ops on `main`.
 import {
   useBlockAnalytics,
   useBuzzWorkflow,
@@ -1000,24 +1024,31 @@ export function App({ deps: depsOverride }: AppProps = {}) {
      *   disjoint, so a matchup withdraw can never reach a prompt's pointer.
      */
     async (key: string, pointerPrefix: string) => {
-      // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
-      // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
+      // 🔴 THE GUARD IS THE ORDER. THE `ok` BRANCH IS AN INVARIANT GUARD, AND THE
+      // TRANSPORT IT USED TO CITE IS GONE. Be precise about which is which:
       //
-      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure at the
-      //     pinned @civitai/blocks-react 0.43.0, so a throw here is the real
-      //     path and it skips every line below.
-      //   - THE `ok` BRANCH is defensive. `withdraw` is the only SDK write typed
-      //     `ok: boolean` rather than the literal `ok: true` (`appStorage.set`
-      //     and `.delete` are both `ok: true`), so the CONTRACT permits a
-      //     refusal that resolves. ⚠️ The 0.43.0 RUNTIME does not use it:
-      //     `useSharedStorage.js:115-121` does `if (!result.ok || result.error)
-      //     throw` and returns a hardcoded `{ok: true}`, and both hosts only
-      //     emit `ok:false` alongside an `error`. So this branch is UNREACHABLE
-      //     IN PRODUCTION TODAY. It is kept because the declared type is what a
-      //     future SDK could start honouring, and the cost of being wrong the
-      //     other way is unrecoverable (below). Do not describe it as an
-      //     observed channel — an earlier version of this comment did, and it
-      //     was false.
+      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure — the SDK
+      //     states it as a contract ("every failure rejects; nothing resolves to
+      //     mean 'not written'"), so a throw here is the real path and it skips
+      //     every line below.
+      //   - THE `ok` BRANCH is an INVARIANT GUARD: it pins something no transport
+      //     can currently violate. `@civitai/sdk`'s `SharedStorageClient.withdraw`
+      //     is declared `{ ok: true; deleted: boolean }` — the LITERAL `true` — and
+      //     hardcodes it in the implementation. The only thing that makes `!res.ok`
+      //     type-reachable is `SharedStore`'s own widening to `boolean`, which is
+      //     THIS APP's (see the note on `withdraw` in `lib/sdk-runtime.ts` for why
+      //     the widening was kept rather than narrowed, and the follow-up it is
+      //     filed as).
+      //
+      // ⚠️ THREE CLAIMS THAT USED TO BE HERE ARE RETRACTED, not reworded, because
+      // this port falsified them: this branch no longer routes through
+      // `@civitai/blocks-react` AT ALL, so "the pinned 0.43.0", "the 0.43.0
+      // RUNTIME", and `useSharedStorage.js:115-121` were describing a code path
+      // that is not on this line any more — and the pin was `^0.51.0` even before
+      // that. The claim that `withdraw` is "the only SDK write typed `ok: boolean`"
+      // is also false against the installed SDK, where it is `ok: true` like the
+      // others. Do not derive a fresh justification from the new transport either:
+      // what is true is stated above and nothing more.
       //
       // Either way the viewer keeps the only per-viewer handle on a row that is
       // still live. Shared keys are host-minted and the shared list has no

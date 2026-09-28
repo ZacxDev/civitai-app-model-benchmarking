@@ -13,6 +13,21 @@
 // what `sdk-runtime.ts` does with a transport, independently of the adapter in
 // `sdk-transport.test.ts` that produces one. The seam between them is covered by
 // the component suite, which drives the real adapter over the real mock host.
+//
+// ⚠ `snapshotOf` + `fakeTransport` BELOW ARE A DELETION CANDIDATE, and the reason
+// they survived this PR is scheduling, not a case for keeping them. `@civitai/sdk`
+// ships `./testing` with `createFakeTransport(snapshot?: Partial<BlockSnapshot>)`
+// carrying `sent`/`handle`/`reply`/`fail`/`stall`/`push`/`listenerCount`/
+// `setSnapshot` — near one-for-one with what is hand-rolled here, in the dependency
+// this PR just added, and with **0 importers on this tree** (measured the same way
+// as the PR's import table: enumerate `git ls-tree -r HEAD -- src`, read each blob
+// out of the ref). Not a free swap, which is why it is filed rather than done: ~10
+// assertions here read `notify`/`request` as `vi.fn()` spies where the SDK's fake
+// offers `sent`/`handle`, and the transport-identity case drives
+// `resetHarnessTransport()` — the BRIDGE singleton, which the SDK's
+// `__resetTransport` does not touch. Hand it to `/simplify`; do not cut blind, and
+// re-run the mutation battery afterwards, because these are the fixtures that kill
+// most of it.
 
 import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { useRef } from 'react';

@@ -25,14 +25,78 @@
 // (`useResourcePicker`), the generation-resource rehydrate
 // (`useGenerationResources`), output publishing (`usePublishGenerationOutputs`),
 // gated images (`useGatedImages`) and analytics (`useBlockAnalytics`) STAY on
-// `@civitai/blocks-react`. Each has its own reason, and `docs/sdk-port.md`
-// records them with the evidence; the load-bearing one is the money path, where
-// `@civitai/sdk@0.8.0`'s `BREAKING.md` says in terms that `app.orchestration` is
-// the WRONG replacement (it drops civitai's spend caps, maturity clamp and
-// attribution) and that the right one is `POST /api/v1/blocks/workflows/*`,
-// which the SDK ships no client for. That is a separate change with its own
-// blast radius, and `CLAUDE.md` names `src/money-path.test.tsx` as this repo's
-// spec rather than a smoke test.
+// `@civitai/blocks-react`.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴 THREE TRAPS THE NEXT PORT WALKS INTO, EACH VERIFIED AGAINST PLATFORM
+// SOURCE HERE RATHER THAN TAKEN FROM THE MIGRATION GUIDE. All three were
+// measured on civitai `origin/main` @ `329c89a23e`; none of them is reachable
+// from THIS file today, which is exactly why they are recorded here — the next
+// person to move one of the six bindings above is the one who needs them, and
+// they will read the guide first.
+//
+// (1) GATED IMAGES: `@civitai/sdk@0.8.0`'s `BREAKING.md` NAMES THE WRONG ROUTE,
+//     AND THE WRONG ONE FAILS SILENTLY. It maps (`BREAKING.md:20`, and again at
+//     `:242`) `GET_IMAGES_BY_IDS` → `GET /api/v1/blocks/images?ids=`. The
+//     correct route is `GET /api/v1/blocks/gated-images?ids=`, whose own
+//     docblock calls itself "the REST twin of the `GET_IMAGES_BY_IDS` →
+//     `IMAGES_RESULT` bridge message, for apps porting off the postMessage
+//     bridge onto `@civitai/sdk`".
+//     🔴 THE TWO CORPORA ARE DISJOINT, by complementary SQL predicates — read
+//     both, not the prose: `blocks/images` serves `runImageSearch` over the
+//     Meilisearch images index, whose source query hard-filters
+//     `i."postId" IS NOT NULL` (`images.search-index.ts:134`, and `:282` for the
+//     incremental pass); `gated-images` is the exact complement,
+//     `AND i."postId" IS NULL` (`block-gated-images.service.ts:184`), further
+//     scoped to `blockPublishedAppId = claims.appId`. An image cannot satisfy
+//     both. So `blocks/images?ids=` returns an EMPTY ARRAY for every id THIS APP
+//     PUBLISHED — at any ceiling, for any viewer, forever — and because that
+//     route reports misses BY OMISSION (deliberate non-disclosure), it is a 200
+//     with `[]` and never an error. A test whose fake returns rows passes; the
+//     grid renders nothing in production.
+//     ⚠ Both routes clamp ids to `IMAGE_IDS_BATCH_MAX = 100`
+//     (`server/common/constants.ts:83`), enforced in each route's zod schema.
+//     This app is well inside it and needs no clamp of its own: the preview
+//     strip slices to `GRID_PREVIEW_MAX = 6` (`lib/gridEntries.ts`), and a
+//     cell's read is one shared `result` row's ids, i.e. one workflow's outputs.
+//     That second path is unbounded in TYPE — a 100+-output workflow would 400 —
+//     but the bridge message enforces the same ceiling today, so it is a
+//     pre-existing property and NOT something to "fix" while porting.
+//
+// (2) THE MONEY PATH IS `POST /api/v1/blocks/workflows/*`, NOT
+//     `app.orchestration`. `BREAKING.md` calls the substitution "the sharpest
+//     trap in the migration, because the wrong version compiles": it drops
+//     civitai's per-call `buzzBudget`, the per-viewer and per-app daily caps,
+//     the viewer's browsing-level clamp, and per-app attribution. The SDK ships
+//     no client for the right routes, so an app-layer wrapper is the work. Three
+//     shape facts, read off the route files:
+//       • `estimate`, `submit`, `poll` and `cancel` all reply `{ snapshot }`
+//         WRAPPED — a `BlockWorkflowSnapshot` under that key. `query` does not:
+//         it replies `{ workflows, cursor }`.
+//       • 🔴 `submit` REQUIRES `idempotencyKey` — body `{ body, idempotencyKey }`,
+//         `z.string().regex(BLOCK_IDEMPOTENCY_KEY_REGEX)` with no `.optional()`,
+//         and the route's docblock says "REQUIRED — no `?`". The bridge hook
+//         minted it; an app-layer wrapper must mint its own, and the cost of
+//         getting it wrong is a DOUBLE CHARGE, which is the one failure
+//         `src/money-path.test.tsx` exists to prevent.
+//
+// (3) PUBLISH CANNOT BE A PASS-THROUGH ACROSS THIS ADAPTER. The host answers
+//     `PUBLISH_RESULT` with the ids NESTED — the bridge hook reads
+//     `reply.result.imageIds` (`usePublishGenerationOutputs.js:49`) — while the
+//     SDK's `app.host.publishGenerationOutputs` destructures `{ imageIds }` at
+//     the TOP level (`dist/host/index.js:49`). Over a pass-through adapter that
+//     reads `undefined`, and the SDK then throws `BridgeError('malformed', …)`
+//     for a publish that SUCCEEDED, after the viewer paid.
+//     ✅ Not reachable from here, and it fails LOUD rather than silently:
+//     `sdk-transport.ts`'s `RESPONSE_TYPE` maps only `REQUEST_TOKEN` and THROWS
+//     for anything else, so `PUBLISH_GENERATION_OUTPUTS` cannot cross this
+//     adapter at all until someone adds the mapping — at which point they must
+//     un-nest, not map and move on. That refusal is the guard working.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// So the load-bearing reason the six stay is (1)–(3): each is a separate change
+// with its own blast radius, and `CLAUDE.md` names `src/money-path.test.tsx` as
+// this repo's spec rather than a smoke test.
 //
 // 🔴 ONE TRANSPORT, AND IT IS THE BRIDGE'S. `src/lib/sdk-transport.ts` explains
 // why (`/ui`'s `BlockGate` wraps the production root and keeps constructing the
@@ -211,9 +275,12 @@ export interface BlockContextValue {
  * bridge hook of the same name.
  *
  * ⚠ DELIBERATELY NARROWER than the bridge's `useBlockContext`, which returned
- * nine snapshot fields. The other six had no consumer here (measured across
- * `src/`), and returning them would invite one without the port having thought
- * about it. `useBlockSnapshot` is exported for anything that needs more.
+ * TEN snapshot fields — `Pick<BlockSnapshot, 'ready'|'renderMode'|'context'|'token'
+ * |'settings'|'viewer'|'theme'|'blockId'|'blockInstanceId'|'appId'>`, counted off
+ * the declaration rather than recalled (an earlier draft of this line said nine).
+ * So seven were dropped, and the substantive claim is unchanged: none of the seven
+ * had a consumer in `src/`, and returning them would invite one without the port
+ * having thought about it. `useBlockSnapshot` is exported for anything needing more.
  */
 export function useBlockContext(): BlockContextValue {
   const ready = useBlockSnapshot(selectReady);
@@ -397,16 +464,33 @@ export interface SharedStore {
   /**
    * Delete a row the viewer authored.
    *
-   * 🔴 `ok` IS DECLARED `boolean` AND THE TRANSPORT CAN ONLY PRODUCE `true`, and
-   * that gap is deliberate and unchanged by the port. The bridge's `withdraw`
-   * was typed the same way, and `App.tsx`'s `withdrawRow` branches on `!res.ok`
-   * before it clears the viewer's only per-viewer pointer at that key — a
-   * pointer whose loss against a surviving row is unrecoverable, because shared
-   * keys are host-minted and the shared list has no "mine" index. Over REST the
-   * SDK is explicit that "every failure rejects", so the branch is unreachable
-   * in production today exactly as it was before; it is kept because the cost of
-   * being wrong the other way is data loss. Do not describe it as an observed
-   * channel.
+   * 🔴 `ok` IS DECLARED `boolean`, THE TRANSPORT CAN ONLY PRODUCE `true`, AND
+   * THE WIDENING IS THIS PORT'S OWN — not, as an earlier draft of this comment
+   * claimed, a gap inherited unchanged from the bridge. That claim was FALSE and
+   * is retracted: `@civitai/sdk`'s `SharedStorageClient.withdraw` is declared
+   * `Promise<{ ok: true; deleted: boolean }>` — the LITERAL `true` — and
+   * `dist/shared-storage/index.js` hardcodes `return { ok: true, … }`, throwing on
+   * anything else. So `boolean` here is a widening introduced BY this façade, and
+   * it is the only reason `App.tsx`'s `!res.ok` branch is type-reachable at all.
+   *
+   * ⚠ SO THE BRANCH IS AN INVARIANT GUARD, AND MUST BE LABELLED ONE. It guards
+   * the step that clears the viewer's only per-viewer pointer at a host-minted
+   * key — a loss that is unrecoverable, because the shared list has no "mine"
+   * index — but over REST the thing it guards against cannot happen: every
+   * failure REJECTS, so the `await` already skips every line below. The live
+   * guard is the ORDER, exactly as `withdrawRow` says; this is belt.
+   *
+   * ⚠ WHY THE WIDENING WAS KEPT RATHER THAN NARROWED, stated so the next reader
+   * can overturn it on better grounds than mine. Narrowing to `ok: true` is the
+   * simpler code and has a real advantage: the day the SDK starts resolving a
+   * refusal, the façade would stop compiling — a LOUD signal, where a widened
+   * type absorbs the change in silence. It was not taken here because it deletes
+   * a guard installed against unrecoverable data loss, on a path this port has
+   * NOT exercised against the real platform, and because it also deletes
+   * `test-helpers.tsx`'s `withdrawRefuses` fake and the `withdraw.test.tsx` case
+   * that drives it. That is a deletion worth making deliberately, in its own
+   * change, with a live read behind it — not as a side effect of a transport port.
+   * Filed as a follow-up; do not describe the channel as observed either way.
    */
   withdraw(key: string): Promise<{ ok: boolean; deleted: boolean }>;
   vote(key: string): Promise<number>;

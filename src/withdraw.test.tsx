@@ -671,16 +671,20 @@ describe('withdraw: the pointer at the withdrawn row', () => {
   });
 
   it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {
-    // 🔴 THE SECOND FAILURE CHANNEL, and the one a `try/catch` story misses
-    // entirely. `SharedStore.withdraw` is typed
-    // `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write whose `ok`
-    // is `boolean` rather than the literal `true` (`appStorage.set` and
-    // `.delete` are both `ok: true`, and so is `useTip`). That asymmetry is a
-    // refusal the host can signal by RESOLVING, so awaiting the call and
-    // discarding its result scores `{ok: false}` as success: the row stays on
-    // the public board and the pointer — the viewer's only per-viewer handle on
-    // a host-minted key with no "mine" index (docs/matchups.md §4) — is deleted
-    // permanently. Unrecoverable, and silent.
+    // 🔴 AN INVARIANT GUARD, LABELLED AS ONE — and the label is the correction.
+    // This case used to open "THE SECOND FAILURE CHANNEL", on the claim that
+    // `withdraw` is "the ONLY SDK write whose `ok` is `boolean` rather than the
+    // literal `true`". RETRACTED: `@civitai/sdk` declares it `{ ok: true; deleted:
+    // boolean }` and hardcodes the literal, so no transport this app speaks can
+    // resolve a refusal. The `boolean` is `SharedStore`'s own widening.
+    //
+    // What the case still pins, and why it is worth keeping: IF `res.ok` is ever
+    // false, `withdrawRow` must not proceed — because the line after it deletes the
+    // pointer, the viewer's only per-viewer handle on a host-minted key with no
+    // "mine" index (docs/matchups.md §4), against a row still on the public board.
+    // Unrecoverable, and silent. Reaching that branch requires the façade, which is
+    // what `withdrawRefuses` is for. This is NOT a regression test for an observed
+    // failure; it is the only thing that keeps the guard from being unreachable.
     const { shared, withdraws } = fakeShared({
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
       withdrawRefuses: true,
