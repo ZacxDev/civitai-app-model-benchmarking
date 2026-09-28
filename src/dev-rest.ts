@@ -95,6 +95,39 @@ interface SharedRow {
 const EPOCH = '2026-01-01T00:00:00.000Z';
 
 /**
+ * The page size both `list` routes apply when the caller sends none.
+ *
+ * 🔴 MODELLED, NOT IGNORED, AND THAT MATTERS FOR THE MONEY GUARD. `lib/kv.ts`'s
+ * `scanKeys` calls `list({ prefix, cursor })` with NO `limit`, so a fake that
+ * defaulted to "every matching row" would return the whole store in one page and
+ * the cursor rule below could never fire — which is how the in-flight-run scan's
+ * paging loop and its truncation report came to be unexercised over this wire.
+ * Both routes default to 50 (`SHARED_LIST_LIMIT_DEFAULT`, and `limit`'s
+ * `.default(50)` on `appStorageListInput`).
+ */
+const LIST_LIMIT_DEFAULT = 50;
+
+/**
+ * Whether a page that came back FULL should carry a cursor.
+ *
+ * 🔴 ONE RULE, ONE PLACE, BECAUSE THE TWO ARMS HAD DRIFTED. Both real routes use
+ * exactly this — `rows.length === limit ? base64(lastKey) : undefined`
+ * (`app-storage.service.ts` and `apps-shared.router.ts`, independently) — and the
+ * server cannot do better: it has not read row `limit + 1`, so a full page always
+ * means "there may be more".
+ *
+ * The app-storage arm used to say `from + page.length < all.length` instead, which
+ * is the fake looking at data the server cannot see. That is not a harmless
+ * shortcut: it is OPTIMISTIC exactly at the boundary the money guard turns on. On
+ * a final page that is exactly full, the server says "there may be more" and
+ * `App.tsx`'s `inflightScanTruncatedRef` stays ARMED, refusing to spend on a scan
+ * it cannot trust; the old fake said "that was the last page" and stood the
+ * backstop DOWN. Optimistic-at-the-guard is the direction that ships a
+ * double-charge hole with a green suite.
+ */
+const hasMore = (pageLength: number, limit: number): boolean => pageLength === limit;
+
+/**
  * The balance reported when none is seeded.
  *
  * 🔴 COPIED FROM THE MOCK HOST ON PURPOSE (`@civitai/blocks-react`'s own default
@@ -216,24 +249,28 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
       if (op === 'delete') return json({ ok: true, deleted: kv.delete(key) });
       if (op === 'list') {
         const prefix = body.prefix === undefined ? '' : String(body.prefix);
-        const all = [...kv.entries()].filter(([k]) => k.startsWith(prefix));
-        // Page size: the caller's own `limit` wins, else the fixture's, else one
-        // page for everything. 🔴 REAL CURSOR PAGING, because this app's
-        // in-flight-run rehydrate scan pages the per-viewer store and REFUSES TO
-        // SPEND when the scan was truncated — a fake that always returned one
-        // page would make that money guard's paging loop dead code.
-        const size = Number(body.limit ?? options.storage?.pageSize ?? all.length) || all.length;
-        const cursor = body.cursor === undefined ? undefined : String(body.cursor);
-        const from = cursor ? all.findIndex(([k]) => k === atob(cursor)) + 1 : 0;
-        const page = all.slice(from, from + Math.max(size, 1));
+        // 🔴 `ORDER BY key` ASCENDING, plus a KEYSET bound (`key > cursor`) — the
+        // route's own query, not the insertion order of a Map. A cursor whose row
+        // was deleted between pages therefore yields the rows AFTER it rather than
+        // restarting at page 1, which is what the server does and what a test of
+        // paging-under-concurrent-delete needs in order to conclude anything true.
+        const after = body.cursor === undefined ? null : atob(String(body.cursor));
+        const all = [...kv.entries()]
+          .filter(([k]) => k.startsWith(prefix) && (after === null || k > after))
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        const size = Math.max(
+          Number(body.limit ?? options.storage?.pageSize ?? LIST_LIMIT_DEFAULT) ||
+            LIST_LIMIT_DEFAULT,
+          1,
+        );
+        const page = all.slice(0, size);
         const last = page[page.length - 1];
-        const more = last !== undefined && from + page.length < all.length;
         return json({
           keys: page.map(([k, v]) => ({ key: k, updatedAt: v.updatedAt })),
           // The cursor is "opaque, base64-encoded last key" per the route's own
           // docstring — modelled faithfully, so a caller that tries to read it as
           // an index breaks here rather than in production.
-          ...(more && last ? { nextCursor: btoa(last[0]) } : {}),
+          ...(hasMore(page.length, size) && last ? { nextCursor: btoa(last[0]) } : {}),
         });
       }
       if (op === 'quota') {
@@ -266,16 +303,23 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
         const prefix = url.searchParams.get('prefix') ?? '';
         const cursorParam = url.searchParams.get('cursor');
         const limitParam = url.searchParams.get('limit');
-        const matching = rows.filter((r) => r.key.startsWith(prefix));
+        // 🔴 `ORDER BY key DESC` plus the keyset bound `key < cursor` — this route's
+        // own query, and the OPPOSITE direction to app-storage's. Paging the seed
+        // array's insertion order instead happened to look right for an
+        // append-ordered fixture and would diverge for any other, and an unknown or
+        // withdrawn cursor must return the rows PAST it rather than restarting the
+        // scan.
         const after = cursorParam ? atob(cursorParam) : null;
-        const from = after === null ? 0 : matching.findIndex((r) => r.key === after) + 1;
-        const limit = limitParam === null ? matching.length : Number(limitParam);
-        const page = matching.slice(from, from + Math.max(limit, 1));
+        const matching = rows
+          .filter((r) => r.key.startsWith(prefix) && (after === null || r.key < after))
+          .sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
+        const limit = Math.max(
+          limitParam === null ? LIST_LIMIT_DEFAULT : Number(limitParam) || LIST_LIMIT_DEFAULT,
+          1,
+        );
+        const page = matching.slice(0, limit);
         const last = page[page.length - 1];
-        // FULL page ⇒ there may be more. Note this yields a cursor on the exact-fit
-        // case too, which is what the server does: it cannot know the page was the
-        // last one without reading one more row.
-        const more = last !== undefined && page.length === limit;
+        const more = hasMore(page.length, limit) && last !== undefined;
         // `metadata` is where `nextCursor` lives, and the SDK guards its presence as
         // strictly as `items` — so it is always sent, even when empty.
         return json({

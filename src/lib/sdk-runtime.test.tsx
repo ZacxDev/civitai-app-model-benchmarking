@@ -34,10 +34,11 @@ import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createMockHost } from '@civitai/blocks-react/testing';
-import type { BlockSnapshot, BlockTransport } from '@civitai/sdk';
+import type { BlockSnapshot, BlockTransport, StorageClient } from '@civitai/sdk';
 
 import { createRestFake } from '../dev-rest.js';
 import { resetHarnessTransport } from '../dev-transport.js';
+import type { SharedStore } from './sdk-runtime.js';
 import {
   configureSdkRuntime,
   resetSdkRuntime,
@@ -365,6 +366,55 @@ describe('group 3 — per-viewer app storage', () => {
     expect(second.nextCursor).toBeUndefined();
   });
 
+  // 🔴 THE EXACT-FIT BOUNDARY, WHICH IS WHERE THE MONEY GUARD TURNS ON. The server
+  // emits a cursor whenever the page it returned was FULL, because it has not read
+  // row `limit + 1` and so cannot know it was the last. `App.tsx`'s
+  // `inflightScanTruncatedRef` reads that: a cursor still in hand means "this scan
+  // did not see everything", and the run REFUSES TO SPEND. The fake used to answer
+  // `from + page.length < all.length` here — data the server cannot see — which said
+  // "that was the last page" on an exact fit and stood the backstop DOWN. Optimistic
+  // at the guard's own boundary is the direction that ships a double-charge hole
+  // under a green suite.
+  //
+  // ⚠ The bound OVERSHOOTS deliberately: 2 rows at `limit: 2` is the exact fit, and
+  // a fixture where the row count were a non-multiple of the page size would never
+  // reach it.
+  it('app-storage list emits a cursor on an EXACTLY FULL final page', async () => {
+    install({ storage: { seed: { 'inflight:v1:a': 1, 'inflight:v1:b': 2 } } });
+    const { result } = renderHook(() => useAppStorage());
+
+    const page = await result.current.list({ prefix: 'inflight:v1:', limit: 2 });
+    expect(page.keys.map((k) => k.key)).toEqual(['inflight:v1:a', 'inflight:v1:b']);
+    // Full page ⇒ a cursor, even though nothing is actually left.
+    expect(page.nextCursor).toBeTypeOf('string');
+
+    // And the next page is empty and CLEARS it, so the loop terminates.
+    const next = await result.current.list({
+      prefix: 'inflight:v1:',
+      limit: 2,
+      cursor: page.nextCursor,
+    });
+    expect(next.keys).toEqual([]);
+    expect(next.nextCursor).toBeUndefined();
+  });
+
+  // `ORDER BY key` ASCENDING, the opposite of shared storage's DESC — asserted
+  // because the two arms of the fake now model two different queries and a reader
+  // would otherwise assume one rule.
+  it('app-storage list is key-ASCENDING, and a stale cursor resumes rather than restarting', async () => {
+    install({ storage: { seed: { 'd:c': 3, 'd:a': 1, 'd:b': 2 } } });
+    const { result } = renderHook(() => useAppStorage());
+
+    const p1 = await result.current.list({ prefix: 'd:', limit: 2 });
+    expect(p1.keys.map((k) => k.key)).toEqual(['d:a', 'd:b']);
+
+    // A cursor naming a key that no longer exists — the concurrent-delete case. The
+    // route is a keyset bound (`key > cursor`), so it resumes PAST it; a
+    // `findIndex`-based fake returned page 1 again, forever.
+    const p2 = await result.current.list({ prefix: 'd:', limit: 2, cursor: btoa('d:aa') });
+    expect(p2.keys.map((k) => k.key)).toEqual(['d:b', 'd:c']);
+  });
+
   it('the façade is a stable object across renders — it goes into dependency arrays', () => {
     install();
     const { result, rerender } = renderHook(() => useAppStorage());
@@ -373,54 +423,129 @@ describe('group 3 — per-viewer app storage', () => {
     expect(result.current).toBe(first);
   });
 
-  // 🔴 THE DEADLINE THE PORT HAD TO PUT BACK. Every bridge message carried a 30s
-  // client timeout; `@civitai/sdk` dropped them ("per-message client timeouts →
-  // none; pass an `AbortSignal`") and `fetch` has none, so a façade passing NO SIGNAL
-  // hangs forever. That is money-adjacent here: `confirmRun` adds the cell to
-  // `inFlightRef` BEFORE awaiting the claim write and every matching `delete` sits
-  // AFTER the await with no `finally`, so a never-settling `appStorage.set` leaves
-  // the cell permanently un-runnable AND un-resumable with no refusal shown.
+  // 🔴 THE DEADLINE THE PORT HAD TO PUT BACK, PINNED AT EVERY CALL SITE. Every
+  // bridge message carried a 30s client timeout (`DEFAULT_REQUEST_TIMEOUT_MS`,
+  // applied by the iframe transport whenever the caller passed none);
+  // `@civitai/sdk` dropped them deliberately ("per-message client timeouts → none;
+  // pass an `AbortSignal`") and `fetch` has none, so a façade passing NO SIGNAL
+  // hangs forever. Money-adjacent: `confirmRun` adds the cell to `inFlightRef`
+  // BEFORE awaiting the claim write and every matching `delete` sits AFTER the
+  // await with no `finally`, so a never-settling `appStorage.set` leaves the cell
+  // permanently un-runnable AND un-resumable with no `CLAIM_FAILED_MESSAGE`.
   //
-  // ⚠ WHAT THIS ASSERTS IS THAT A DEADLINE EXISTS, NOT THAT IT IS 30s. Asserting the
-  // value would need either a 30s wall-clock wait or fake timers, and
+  // 🔴 A LEDGER OVER ALL THIRTEEN OPERATIONS, NOT A SAMPLE — because three
+  // declarations covering thirteen instances is not coverage. MEASURED: with only
+  // `set`/`list`/balance pinned, a mutant removing the deadline from
+  // `sharedStorage.append` ALONE passed the entire suite, 685/685 green — and
+  // `append` is the publish-a-row write, so that is a permanently spinning publish
+  // with no refusal shown.
+  //
+  // ⚠ WHAT THIS ASSERTS IS THAT A DEADLINE EXISTS, NOT THAT IT IS 30s. Asserting
+  // the value needs either a 30s wall-clock wait or fake timers, and
   // `AbortSignal.timeout()` is a platform primitive vitest's fake timers do not
-  // patch — an earlier draft of this case tried it and hung to vitest's own 5s
-  // deadline, proving nothing. The defect is "no signal at all"; that is what this
-  // pins, in every one of the three REST families.
-  it.each([
-    ['app-storage set', () => renderHook(() => useAppStorage()).result.current.set('k', 1)],
-    ['shared-storage list', () => renderHook(() => useSharedStorage()).result.current.list()],
-    ['buzz balance', null],
-  ])('%s sends an unaborted AbortSignal when the caller passes none', async (_name, call) => {
-    const seen: Array<AbortSignal | undefined> = [];
-    configureSdkRuntime({
-      transport: fakeTransport().transport,
-      fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
-        seen.push(init?.signal);
-        // A reply valid for whichever family is under test — the SDK's clients throw
-        // on a missing field, and a throw before the assertion would make this case
-        // pass or fail for the wrong reason.
-        return new Response(
-          JSON.stringify({ value: null, sizeBytes: 1, items: [], metadata: {}, blue: 0, green: 0, yellow: 0 }),
-          { status: 200 },
-        );
-      }) as never,
-    });
+  // patch — an earlier draft tried it and hung to vitest's own 5s deadline, proving
+  // nothing. The defect is "no signal at all"; that is what this pins.
+  //
+  // 🔴 IT FAILS WHEN THE SET GROWS OR SHRINKS. A new façade method that forgets
+  // `withDeadline` is not merely unpinned — the count assertion below goes red, so
+  // the next author has to add it to this ledger deliberately.
+  describe('every REST call carries a default deadline', () => {
+    /**
+     * One entry per operation the three façades expose. The names are the ledger:
+     * `SharedStore` has seven members and `StorageClient` five, plus the balance
+     * read, and all thirteen must reach `fetch` with a signal.
+     */
+    const OPERATIONS: Array<[string, (r: never) => Promise<unknown>]> = [
+      ['storage.get', (r: never) => (r as unknown as StorageClient).get('k')],
+      ['storage.set', (r: never) => (r as unknown as StorageClient).set('k', 1)],
+      ['storage.delete', (r: never) => (r as unknown as StorageClient).delete('k')],
+      ['storage.list', (r: never) => (r as unknown as StorageClient).list({ prefix: 'k' })],
+      ['storage.getQuota', (r: never) => (r as unknown as StorageClient).getQuota()],
+      ['shared.list', (r: never) => (r as unknown as SharedStore).list()],
+      ['shared.append', (r: never) => (r as unknown as SharedStore).append({ title: 't' })],
+      ['shared.update', (r: never) => (r as unknown as SharedStore).update('k', { title: 't' })],
+      ['shared.withdraw', (r: never) => (r as unknown as SharedStore).withdraw('k')],
+      ['shared.vote', (r: never) => (r as unknown as SharedStore).vote('k')],
+      ['shared.unvote', (r: never) => (r as unknown as SharedStore).unvote('k')],
+      ['shared.report', (r: never) => (r as unknown as SharedStore).report('k')],
+    ];
 
-    if (call) {
-      await call();
-    } else {
-      const { result } = renderHook(() => useBuzzBalance());
-      await waitFor(() => expect(result.current.loading).toBe(false));
+    /** A reply valid for whichever family is under test — the SDK's clients throw on
+     *  a missing field, and a throw before the assertion would make a case pass or
+     *  fail for the wrong reason. */
+    const anyReply = () =>
+      new Response(
+        JSON.stringify({
+          value: null,
+          sizeBytes: 1,
+          deleted: false,
+          ok: true,
+          key: 'k',
+          count: 1,
+          keys: [],
+          items: [],
+          metadata: {},
+          blue: 0,
+          green: 0,
+          yellow: 0,
+        }),
+        { status: 200 },
+      );
+
+    function installCapturing(seen: Array<AbortSignal | undefined>) {
+      configureSdkRuntime({
+        transport: fakeTransport().transport,
+        fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
+          seen.push(init?.signal);
+          return anyReply();
+        }) as never,
+      });
     }
 
-    expect(seen.length).toBeGreaterThan(0);
-    const signal = seen[0];
-    // A signal at all is the regression guard: `undefined` is the defect.
-    expect(signal).toBeInstanceOf(AbortSignal);
-    // And NOT an already-aborted stub, which would satisfy the line above while
-    // making every request fail instantly.
-    expect(signal?.aborted).toBe(false);
+    it.each(OPERATIONS)('%s sends an unaborted AbortSignal', async (_name, call) => {
+      const seen: Array<AbortSignal | undefined> = [];
+      installCapturing(seen);
+      const isShared = _name.startsWith('shared.');
+      const { result } = renderHook(() => (isShared ? useSharedStorage() : useAppStorage()));
+
+      await call(result.current as never);
+
+      expect(seen).toHaveLength(1);
+      // A signal at all is the regression guard: `undefined` is the defect.
+      expect(seen[0]).toBeInstanceOf(AbortSignal);
+      // And NOT an already-aborted stub, which would satisfy the line above while
+      // making every request fail instantly.
+      expect(seen[0]?.aborted).toBe(false);
+    });
+
+    it('the Buzz balance read carries one too', async () => {
+      const seen: Array<AbortSignal | undefined> = [];
+      installCapturing(seen);
+      const { result } = renderHook(() => useBuzzBalance());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(seen[0]).toBeInstanceOf(AbortSignal);
+      expect(seen[0]?.aborted).toBe(false);
+    });
+
+    // 🔴 THE LEDGER'S OWN SIZE. `SharedStore` is declared with seven members and
+    // `StorageClient` with five; plus the balance read that is thirteen operations.
+    // If a façade gains one, this fails and the new op has to be added above rather
+    // than silently shipping without a deadline.
+    it('covers EVERY façade operation — the set may not grow or shrink unnoticed', () => {
+      resetSdkRuntime();
+      configureSdkRuntime({ transport: fakeTransport().transport, fetch: (async () => anyReply()) as never });
+      const { result: sharedResult } = renderHook(() => useSharedStorage());
+      const { result: storageResult } = renderHook(() => useAppStorage());
+
+      const sharedOps = Object.keys(sharedResult.current).sort();
+      const storageOps = Object.keys(storageResult.current).sort();
+      expect(sharedOps).toEqual(
+        ['append', 'list', 'report', 'unvote', 'update', 'vote', 'withdraw'].sort(),
+      );
+      expect(storageOps).toEqual(['delete', 'get', 'getQuota', 'list', 'set'].sort());
+      // 12 façade methods in the table + the balance read = 13 call sites.
+      expect(OPERATIONS).toHaveLength(sharedOps.length + storageOps.length);
+    });
   });
 
   // 🔴 AND IT MUST NOT CLOBBER A CALLER'S OWN SIGNAL. `withDeadline` fills a gap; a
@@ -634,13 +759,18 @@ describe('group 3 — shared storage', () => {
     });
     const { result } = renderHook(() => useSharedStorage());
 
+    // 🔴 NEWEST-FIRST, i.e. `ORDER BY key DESC` — this route's own order, and the
+    // OPPOSITE of `app-storage/list`'s ascending one. Asserted rather than assumed:
+    // an earlier version of this case expected ascending, which is what the fake
+    // did before it was made to match the query, and the ordering is the thing a
+    // "newest first" board is built on.
     const p1 = await result.current.list({ prefix: 'mk-', limit: 2 });
-    expect(p1.items.map((i) => i.key)).toEqual(['mk-1', 'mk-2']);
+    expect(p1.items.map((i) => i.key)).toEqual(['mk-3', 'mk-2']);
     expect(p1.nextCursor).toBeTypeOf('string');
 
     const p2 = await result.current.list({ prefix: 'mk-', limit: 2, cursor: p1.nextCursor });
     // `prefix` is honoured across the page boundary — `other` must not appear.
-    expect(p2.items.map((i) => i.key)).toEqual(['mk-3']);
+    expect(p2.items.map((i) => i.key)).toEqual(['mk-1']);
     // 🔴 THE ABSENCE IS THE PROOF A SCAN COMPLETED. A cursor that never clears makes
     // `listAll` report `truncated` forever; one that never appears makes it report a
     // partial board as the whole one.

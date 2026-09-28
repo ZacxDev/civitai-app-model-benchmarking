@@ -541,14 +541,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // read `false` and spent. The truncated case is the slowest one — up to
   // KV_MAX_PAGES serial `list` calls plus a `get` per key.
   //
-  // 🔴 AND THE SDK PORT MADE THAT WINDOW WIDER, NOT MERELY DIFFERENT — this comment
-  // said "a macrotask over the real host's cross-origin `postMessage` bridge", and
-  // that transport is gone from this path. These are cross-origin HTTPS requests to
+  // 🔴 AND THE SDK PORT MADE THAT WINDOW WIDER — this comment used to say "a
+  // macrotask over the real host's cross-origin `postMessage` bridge", and that
+  // transport is gone from this path: these are cross-origin HTTPS requests to
   // civitai.com now, and `withBlockScope` sets its CORS headers with NO
-  // `Access-Control-Max-Age`, so each POST can carry its own preflight: up to 2N
-  // round trips where there were N in-process messages. The backstop below is
-  // therefore MORE load-bearing after the port, not less. ⚠ Direction established,
-  // magnitude NOT: nothing in this repo has run against a live host.
+  // `Access-Control-Max-Age`, so each POST can carry its own preflight.
+  //
+  // ⚠ THE SIZE OF THAT WIDENING WAS OVERSTATED ONCE, AND THE FIGURE IS RETRACTED. An
+  // earlier draft of this paragraph said "up to 2N round trips where there were N
+  // in-process messages". The bridge's messages were NOT in-process work: the host
+  // answered `APP_STORAGE_*` by calling the very same server function the REST route
+  // calls (`api/v1/blocks/app-storage/get.ts`: "the SAME function
+  // `trpc.apps.storage.get` calls"), so each one was ALREADY a network round trip,
+  // made from the host page. The real delta is +1 preflight leg and −2 postMessage
+  // hops per call, not 0 → 2. The conclusion is unchanged — the backstop below is
+  // MORE load-bearing after the port — but do not re-derive the discarded
+  // multiplier, and the magnitude is still unmeasured: nothing in this repo has run
+  // against a live host.
   //
   // It passed every test because the jsdom fake resolves in microtasks; `latencyMs`
   // in `fakeAppStorage` is what makes it visible, and there is a permanent LATENCY

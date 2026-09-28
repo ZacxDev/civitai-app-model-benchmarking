@@ -255,9 +255,12 @@ export function fakeAppStorage(
    *
    * 🔴 `latencyMs` PUTS EVERY KV CALL ON A MACROTASK, and without it this fake is
    * STRUCTURALLY UNABLE to see an ordering bug. The real `useAppStorage` is a
-   * cross-origin `postMessage` bridge, so every call is at minimum a macrotask;
-   * this fake resolves in a MICROTASK, which makes a long serial scan look
-   * instantaneous. That difference hid a live 🔴 money bug: a backstop armed
+   * cross-origin HTTP call — `POST /api/v1/blocks/app-storage/*` since the SDK
+   * port, and before it a `postMessage` the host served with the SAME server
+   * function, so never in-process on either transport — meaning every call is at
+   * minimum a macrotask and in practice a network round trip, now possibly plus a
+   * CORS preflight. This fake resolves in a MICROTASK, which makes a long serial
+   * scan look instantaneous. That difference hid a live 🔴 money bug: a backstop armed
    * only when the in-flight scan FINISHED passed every test here, while in
    * production a Confirm landing during the scan — the truncated case is the
    * slowest, up to 20 `list` calls plus a `get` per key — read the un-armed flag
