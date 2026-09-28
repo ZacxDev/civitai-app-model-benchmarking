@@ -20,7 +20,7 @@
 // two sites is typically wrong at one of them, so the rule lives here once and
 // each object contributes only its own body parser.
 
-import type { AppStorageQuota } from '@civitai/blocks-react';
+import type { StorageQuota } from '@civitai/sdk';
 
 import type { PublishedPointer } from '../types.js';
 import { newId } from './benchmark.js';
@@ -258,27 +258,47 @@ export function formatBytes(bytes: number): string {
  * viewer is anonymous), and the caller renders nothing rather than a guess.
  *
  * 🔴 THE PRIVACY CLAIM AND THE NUMBERS ARE DELIBERATELY IN SEPARATE CLAUSES,
- * and that separation is the whole point of this string. The two halves have
- * DIFFERENT SCOPES and the SDK contract says so explicitly
- * (`@civitai/blocks-react` `useAppStorage`):
+ * and that separation is the whole point of this string:
  *
- *   - the DATA is per-viewer  — `get()` reads "the current (block instance,
- *     viewer) tuple", so an unpublished item really is invisible to everyone else;
- *   - the QUOTA is PER-APP    — `set()` rejects "when the per-app 50MB quota
- *     would be crossed", and the hook doc reads "50 MB + ~1M rows per app".
+ *   - the DATA is per-viewer — `get()` reads the current (block instance, viewer)
+ *     tuple, so an unpublished item really is invisible to everyone else;
+ *   - the QUOTA was APP-WIDE, i.e. `usedBytes`/`rowCount` were totals summed over
+ *     every viewer. This line used to open `Private to you — ${usedBytes} of
+ *     ${limitBytes} used…`, which fused the two and told the viewer those were
+ *     their own figures. It was measured false on 2026-08-31: two different
+ *     viewers (ids 8753561 and 11025902) saw byte-identical quota lines, including
+ *     a row count that had just moved 27 -> 28 because of the FIRST viewer's
+ *     record. Never re-fuse them.
  *
- * So `usedBytes`/`rowCount` are APP-WIDE totals summed over every viewer. This
- * line used to open `Private to you — ${usedBytes} of ${limitBytes} used…`,
- * which fused the two and told the viewer those were their own figures. It was
- * measured false on 2026-08-31: two different viewers (ids 8753561 and
- * 11025902) saw byte-identical quota lines, including a row count that had just
- * moved 27 -> 28 because of the FIRST viewer's record. Never re-fuse them.
+ * 🔴 BUT THE SECOND CLAUSE IS NOW SUSPECTED STALE, AND THE RENDERED COPY BELOW
+ * WITH IT — recorded here rather than silently corrected, because a viewer-facing
+ * string is not something a transport port is entitled to rewrite on ground it
+ * cannot verify. The authority moved twice. It was the bridge hook's own doc; that
+ * package is no longer the transport for this call (this module is typed against
+ * `@civitai/sdk`'s `StorageQuota` now), and `@civitai/sdk@0.8.0`'s README § App
+ * storage does not restate the per-app claim at all. Reading the server instead —
+ * civitai `origin/main` @ `329c89a23e` — `getAppStorageQuota`
+ * (`server/services/apps/app-storage.service.ts`) returns
+ * `AppStorageProvisioner.getUserQuota({ slug, appBlockId, userId })` against
+ * `USER_QUOTA_BYTES`/`USER_ROW_LIMIT`, and the REST route's docblock
+ * (`api/v1/blocks/app-storage/quota.ts`) says in terms: "The CALLER'S OWN usage
+ * against their own caps … Note what that function deliberately does NOT return:
+ * the APP-WIDE aggregate. It used to", dropped because it was a cross-user
+ * readout. ONE body, BOTH transports (`APP STORAGE: ONE BODY, TWO TRANSPORTS`) —
+ * so this is NOT a port delta: it is an upstream change that landed after
+ * 2026-08-31 and made the app's copy wrong on the bridge too.
+ *
+ * ⚠ NOT FIXED HERE, ON PURPOSE. The fix is a rendered-copy change with its own
+ * verification — the mirror image of the 2026-08-31 measurement, two live viewers,
+ * which nothing local can perform — and a test asserts this exact string. Filed as
+ * a follow-up; do not "tidy" it in passing, and do not read the clause above as
+ * current truth.
  *
  * ⚠️ The leading noun changed from "Drafts" to "Unpublished items" in 527: the
  * word "draft" left the rendered vocabulary (§11.1) while the `draft:v1:` STORAGE
  * prefix kept its historical name. The two clauses and their scopes are unchanged.
  */
-export function formatQuota(quota: AppStorageQuota | null): string | null {
+export function formatQuota(quota: StorageQuota | null): string | null {
   if (!quota) return null;
   return (
     'Unpublished items are private to you. Storage is app-wide, shared with every other viewer: ' +

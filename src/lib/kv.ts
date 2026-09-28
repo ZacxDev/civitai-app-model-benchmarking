@@ -15,7 +15,7 @@
 //   - the defensive `key.startsWith(prefix)` filter (the host or a fake may
 //     over-return, and every call site had its own copy of this line).
 
-import type { UseAppStorage } from '@civitai/blocks-react';
+import type { StorageClient } from '@civitai/sdk';
 
 /**
  * Safety cap on pages per listing. Shared by every caller so the bound is one
@@ -56,7 +56,7 @@ export interface ScanResult {
  * centrally would flatten three deliberate behaviours into one.
  */
 export async function forEachStoredKey(
-  store: UseAppStorage,
+  store: StorageClient,
   prefix: string,
   onKey: (key: string) => Promise<'stop' | void> | 'stop' | void,
   opts: {

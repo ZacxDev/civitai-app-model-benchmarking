@@ -18,8 +18,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
@@ -55,7 +55,7 @@ function row(
   authorUserId: number,
   data: CombinationData | PromptData,
   count = 1,
-): SharedListItem {
+): SharedItem {
   return {
     key,
     authorUserId,

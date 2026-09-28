@@ -24,8 +24,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem, UseAppStorage, UseSharedStorage } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem, StorageClient } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
@@ -121,7 +122,7 @@ const liveComboData: CombinationData = {
   ],
 };
 
-function liveRow(key: string, title: string, authorUserId: number, count: number): SharedListItem {
+function liveRow(key: string, title: string, authorUserId: number, count: number): SharedItem {
   return {
     key,
     authorUserId,
@@ -443,7 +444,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
   it('shows no quota line at all when the host has not answered', async () => {
     // A refusing getQuota() must leave the number OFF, never fall back to a guess.
     const base = fakeAppStorage();
-    const refusing: UseAppStorage = {
+    const refusing: StorageClient = {
       ...base.appStorage,
       getQuota: async () => {
         throw new Error('host declined');
@@ -465,13 +466,13 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
 describe('the My tab degrades rather than breaking the public board', () => {
   it('still renders the public list when the per-viewer store cannot be listed', async () => {
     const base = fakeAppStorage();
-    const broken: UseAppStorage = {
+    const broken: StorageClient = {
       ...base.appStorage,
       list: async () => {
         throw new Error('KV unavailable');
       },
     };
-    const shared: UseSharedStorage = fakeShared({
+    const shared: SharedStore = fakeShared({
       seed: [liveRow('k1', 'A public matchup', OTHER_ID, 2)],
     }).shared;
     await renderApp({ shared, appStorage: broken });

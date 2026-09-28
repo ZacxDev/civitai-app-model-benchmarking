@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { UseAppStorage } from '@civitai/blocks-react';
+import type { StorageClient } from '@civitai/sdk';
 
 import { KV_MAX_PAGES, forEachStoredKey } from './kv.js';
 
@@ -18,7 +18,7 @@ import { KV_MAX_PAGES, forEachStoredKey } from './kv.js';
  * A minimal paging store: `keys` served `pageSize` at a time, cursor = the last
  * key of the page (the SDK documents it as an opaque base64 last-key).
  */
-function store(keys: string[], pageSize: number): UseAppStorage & { listCalls: number } {
+function store(keys: string[], pageSize: number): StorageClient & { listCalls: number } {
   const api = {
     listCalls: 0,
     async get() {
@@ -46,7 +46,7 @@ function store(keys: string[], pageSize: number): UseAppStorage & { listCalls: n
       };
     },
   };
-  return api as unknown as UseAppStorage & { listCalls: number };
+  return api as unknown as StorageClient & { listCalls: number };
 }
 
 const kv = (n: number): string[] => Array.from({ length: n }, (_, i) => `p:${i}`);

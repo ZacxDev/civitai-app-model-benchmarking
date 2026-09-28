@@ -21,8 +21,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -45,7 +45,7 @@ const promptData: PromptData = {
   default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } },
 };
 
-function seedRows(): SharedListItem[] {
+function seedRows(): SharedItem[] {
   return [
     { key: 'c1', authorUserId: 7, count: 3, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboData }, createdAt: new Date(0), updatedAt: new Date(0) },
     { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '', data: promptData }, createdAt: new Date(0), updatedAt: new Date(0) },

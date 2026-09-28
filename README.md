@@ -6,7 +6,10 @@ to the host platform — cross-user image **publish + gated read**, a shared
 community list you can **vote** on, the Buzz **generation-workflow** bridge, the
 **resource picker**, and the `@civitai/blocks-react/ui` component pack — all
 against the *published* SDK packages, with a mock host so you can run it in two
-commands.
+commands. It also shows a block **mid-migration**: data and host UI now go through
+[`@civitai/sdk`](https://www.npmjs.com/package/@civitai/sdk) over `/api/v1`, while
+generation and the component pack stay on the `@civitai/blocks-react` bridge —
+[see the split](#two-transports-one-block).
 
 🔗 **Live:** [civitai.com/apps/run/model-benchmarking](https://civitai.com/apps/run/model-benchmarking)
 
@@ -26,9 +29,12 @@ An **App Block** is a small web app that Civitai hosts inside a **sandboxed
 iframe** on civitai.com. Your block is just a static SPA; everything it needs from
 the platform — who's viewing, their Buzz balance, the model/LoRA picker, the
 ability to run a generation, cross-user storage, moderated image reads — arrives
-through a **host↔block bridge** (postMessage under the hood). In this repo that
-bridge is a set of React hooks from `@civitai/blocks-react`. The block never holds
-credentials: the host injects the viewer identity and a scoped token at runtime.
+through a **host↔block bridge** (postMessage under the hood) and, increasingly,
+through the public `/api/v1` REST API using a token the host mints. In this repo
+both are wired: `@civitai/sdk` for the REST half plus the host-UI messages, and
+React hooks from `@civitai/blocks-react` for generation and the component pack. The
+block never holds credentials either way — the host injects the viewer identity and
+a scoped token at runtime. [Which is which](#two-transports-one-block).
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
 three things: model **matchups** (up to eight configs, each a checkpoint + a
@@ -77,24 +83,25 @@ Want to run against the *real* production host with live reload? See
 
 ## What this demonstrates → where to look
 
-Every host capability is a React hook from
-[`@civitai/blocks-react`](https://www.npmjs.com/package/@civitai/blocks-react),
-assembled into an injectable dependency bag in [`src/App.tsx`](src/App.tsx) (so the
-whole app is testable against the SDK's mock host with canned picks / workflows /
-publish / gated reads). If you're here hunting "how do I do X in a block," jump
+Every host capability is one function or hook, assembled into an injectable
+dependency bag in [`src/App.tsx`](src/App.tsx) (so the whole app is testable with
+canned picks / workflows / publish / gated reads). The **Primitive** column names
+which package it comes from — see [Two transports, one block](#two-transports-one-block)
+for why there are two. If you're here hunting "how do I do X in a block," jump
 straight to the file:
 
 | Capability | Primitive | Where to look |
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useSharedStorage()` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
+| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useSharedStorage()` — local, over `@civitai/sdk` | [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
 | **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`MatchupForm.tsx`](src/components/MatchupForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
-| **Buzz balance** — show the wallet / gate cost | `useBuzzBalance()` | [`App.tsx`](src/App.tsx) |
-| **Consent + sign-in gating** for the generation scope | `useRequestConsent()` / `useRequestSignIn()` | [`scopes.ts`](src/scopes.ts), [`App.tsx`](src/App.tsx) |
-| **Context / token / auto-resize** | `useBlockContext()`, `useBlockToken()`, `useBlockResize()` | [`App.tsx`](src/App.tsx) |
+| **Buzz balance** — show the wallet / gate cost | `useBuzzBalance()` — local, `GET /api/v1/blocks/buzz` | [`App.tsx`](src/App.tsx) |
+| **Consent + sign-in gating** for the generation scope | `useRequestConsent()` / `useRequestSignIn()` — local, over `@civitai/sdk`'s `app.host` | [`scopes.ts`](src/scopes.ts), [`App.tsx`](src/App.tsx) |
+| **Context / token / auto-resize** | `useBlockContext()`, `useBlockToken()`, `useBlockResize()` — local, over `@civitai/sdk` | [`App.tsx`](src/App.tsx) |
+| **Per-viewer KV** — unpublished items, in-flight run claims, the explainer flag | `useAppStorage()` — local, `POST /api/v1/blocks/app-storage/*` | [`App.tsx`](src/App.tsx), [`lib/kv.ts`](src/lib/kv.ts), [`lib/unpublished.ts`](src/lib/unpublished.ts) |
 | **Component pack** — every input/layout primitive | `@civitai/blocks-react/ui` | throughout `src/components/` |
 
 A few notes worth calling out:
@@ -107,8 +114,8 @@ A few notes worth calling out:
   **per-viewer** display data respecting that viewer's moderation settings. The
   block never sees a raw cross-user image URL; the gate is enforced host-side.
 - **Shared storage is append-only, votable, and author-scoped.**
-  `useSharedStorage()` exposes `list` / `append` / `vote` / `unvote` / `withdraw` /
-  `getCount(s)`. **Submit** = `append({ title, body, data })`; **upvote** =
+  `useSharedStorage()` exposes `list` / `append` / `update` / `vote` / `unvote` /
+  `withdraw` / `report`. **Submit** = `append({ title, body, data })`; **upvote** =
   `vote(key)` (idempotent server-side); **delete your own** = `withdraw(key)` —
   surfaced as the author-only **Remove** control on every matchup / prompt
   card, behind a confirm step, and reconciled optimistically so the row does not
@@ -141,6 +148,59 @@ A few notes worth calling out:
   the viewer's OWN outputs shown only to them; anything already **published** is
   read back per-viewer through the gated bridge, never from a url the block
   holds ([`GatedCell.tsx`](src/components/GatedCell.tsx)).
+
+## Two transports, one block
+
+This block talks to civitai over **two** transports at once, and that is the
+current state of the platform rather than a design choice here. It is worth reading
+if you are porting a block of your own.
+
+| | `@civitai/sdk` (REST + host UI) | `@civitai/blocks-react` (bridge) |
+|---|---|---|
+| Per-viewer KV | `app.storage` → `POST /api/v1/blocks/app-storage/*` | — |
+| Shared storage | `app.sharedStorage` + three app-layer routes | — |
+| Buzz balance | `GET /api/v1/blocks/buzz` | — |
+| Snapshot (ready / viewer / theme / token) | `transport.snapshot` | — |
+| Resize · sign-in · consent | `app.host` / `app.requestGrants` | — |
+| **Generation** (estimate → submit → poll) | — | `useBuzzWorkflow()` |
+| **Resource picker · resource rehydrate** | — | `useResourcePicker()` / `useGenerationResources()` |
+| **Publish outputs · gated image read** | — | `usePublishGenerationOutputs()` / `useGatedImages()` |
+| **Analytics** | — | `useBlockAnalytics()` (a no-op on both real hosts) |
+| **Component pack** | — | `@civitai/blocks-react/ui` |
+
+Three things about that split are load-bearing:
+
+- **There is exactly ONE transport object, and it is the bridge's.**
+  `@civitai/sdk` is normally started with a bare `initialize()`, which constructs
+  its own iframe transport. This block cannot do that: `/ui`'s `BlockGate` wraps
+  the production root and constructs the bridge transport on every boot, so a bare
+  `initialize()` would leave **two** — two `message` listeners, two
+  `BLOCK_HELLO`/`BLOCK_READY` senders, two token copies.
+  [`src/lib/sdk-transport.ts`](src/lib/sdk-transport.ts) adapts the bridge's
+  transport to the interface `initialize({ transport })` accepts, so there is one.
+  It is deletable the day `/ui` stops importing the bridge.
+- **Generation stays on the bridge deliberately.** `@civitai/sdk` ships
+  `app.orchestration`, and substituting it for the bridge's workflow path **compiles
+  and passes tests** while silently dropping civitai's per-call/per-viewer/per-app
+  Buzz spend caps, the viewer's browsing-level clamp, and per-app attribution. The
+  real replacement is `POST /api/v1/blocks/workflows/*`, which the SDK carries no
+  client for. Since the money path is this repo's spec
+  ([`money-path.test.tsx`](src/money-path.test.tsx)), it moves on its own change.
+- **`vote` / `unvote` / `report` are app-layer, by platform decision.**
+  `app.sharedStorage` is generic key/value only — `list`/`get`/`append`/`update`/
+  `withdraw`. The platform serves eleven shared-storage routes and keeps doing so;
+  the six higher-level ones (`vote`, `unvote`, `counts`, `top`, `increment`,
+  `report`) belong to the app that wants them. This block reaches the three it uses
+  through `app.site.post(...)` in
+  [`src/lib/sdk-runtime.ts`](src/lib/sdk-runtime.ts). Their absence from the SDK is
+  not a gap to file.
+
+**Testing it needs two fakes, for the same reason.** The mock host answers
+postMessage and no HTTP, so [`src/dev-rest.ts`](src/dev-rest.ts) answers the three
+REST families at the `fetch` boundary and [`src/test-harness.tsx`](src/test-harness.tsx)
+mounts both, routing each prop to the transport that can actually serve it. A test
+that kept seeding the mock host with `shared`/`buzzBalance` would stay green while
+exercising nothing.
 
 ## Architecture
 
@@ -181,7 +241,8 @@ submit flows are modals:
      file, or leave this comment unclosed, and the guard THROWS — each of those
      used to widen the slice silently instead. -->
 
-The pure, node-testable core lives in [`src/lib/`](src/lib). **Every module in it
+[`src/lib/`](src/lib) holds the app's core. Most of it is pure and node-testable;
+two modules are the transport seam and are named at the end. **Every module in it
 is named here**, and that is checked rather than trusted —
 [`readme-inventory.test.ts`](src/readme-inventory.test.ts) compares *this
 paragraph*, and only it, against the directory and fails if the set grows *or*
@@ -201,7 +262,13 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
 [`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
 directly, for the one publish path all three share — and
-[`archive.ts`](src/lib/archive.ts) (the author-side hide).
+[`archive.ts`](src/lib/archive.ts) (the author-side hide). The two that are **not**
+pure logic are the transport seam described in
+[Two transports, one block](#two-transports-one-block):
+[`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes
+from `@civitai/sdk` — the snapshot readers, the host-UI calls, and the three REST
+families) and [`sdk-transport.ts`](src/lib/sdk-transport.ts) (the adapter that lets
+ONE bridge transport serve both packages, so the block never stands up two).
 
 <!-- lib-inventory:end -->
 

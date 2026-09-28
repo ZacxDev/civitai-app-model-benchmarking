@@ -60,9 +60,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import type { SharedListItem } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -80,8 +80,15 @@ const viewerBox: { current: { id: number; username: string } | null } = {
   current: { id: 99, username: 'me' },
 };
 
-vi.mock('@civitai/blocks-react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@civitai/blocks-react')>();
+// 🔴 THE MOCK TARGET MOVED WITH THE PORT: these two bindings now come from
+// `./lib/sdk-runtime.js` (the `@civitai/sdk` snapshot readers), not from
+// `@civitai/blocks-react`. Mocking the old module would still resolve — the
+// package is installed and `/ui` still uses it — and would override a hook the
+// App no longer imports, so the fixture would be inert and the case would pass
+// against the REAL viewer/token. `importOriginal` + spread is what keeps the
+// module's transport and AppClient singletons shared with the app under test.
+vi.mock('./lib/sdk-runtime.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/sdk-runtime.js')>();
   return {
     ...actual,
     useBlockToken: () => {
@@ -132,7 +139,7 @@ const estimateSnap: BlockWorkflowSnapshot = {
   cost: { total: 12 },
 };
 
-function row(key: string, title: string, data: CombinationData | PromptData): SharedListItem {
+function row(key: string, title: string, data: CombinationData | PromptData): SharedItem {
   return {
     key,
     authorUserId: 7,
@@ -145,11 +152,11 @@ function row(key: string, title: string, data: CombinationData | PromptData): Sh
 }
 
 /** One combination × ONE prompt — a single empty cell. */
-function seedOneCell(): SharedListItem[] {
+function seedOneCell(): SharedItem[] {
   return [row('c1', 'Grid Combo', comboData), row('p1', 'Alpha', promptData('a portrait'))];
 }
 /** One combination × TWO prompts — two empty cells, for the supersede case. */
-function seedTwoCells(): SharedListItem[] {
+function seedTwoCells(): SharedItem[] {
   return [
     row('c1', 'Grid Combo', comboData),
     row('p1', 'Alpha', promptData('a portrait')),

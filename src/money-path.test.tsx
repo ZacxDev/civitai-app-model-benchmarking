@@ -13,9 +13,10 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import { WorkflowEstimateError, type SharedListItem } from '@civitai/blocks-react';
+import { WorkflowEstimateError } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
 import {
   App,
@@ -51,7 +52,7 @@ const promptData: PromptData = {
 const CK = 'c1::cfgSeed::p1';
 const INFLIGHT_KEY = `inflight:v1:${CK}`;
 
-function seedRows(): SharedListItem[] {
+function seedRows(): SharedItem[] {
   return [
     { key: 'c1', authorUserId: 7, count: 3, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboData }, createdAt: new Date(0), updatedAt: new Date(0) },
     { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '', data: promptData }, createdAt: new Date(0), updatedAt: new Date(0) },

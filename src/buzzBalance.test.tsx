@@ -7,23 +7,26 @@
 // INSUFFICIENT one` block in `src/components/ResultsGrid.test.tsx`). This file
 // pins the other half: WHY the balance was unknown and stayed unknown.
 //
-// `useBuzzBalance()` (`@civitai/blocks-react`) fetches exactly once, from a
-// mount effect over a `useCallback([], …)` whose identity never changes, and
-// exposes `refetch` "for on-demand refreshes (e.g. after a generation debits
-// the balance)". It does NOT refetch on `TOKEN_REFRESH`. The app called
-// `refetch` nowhere. So one failed or raced read at mount was permanent until a
-// full page reload — which is exactly the operator's cure, and the reason the
-// reload "fixed" a balance the app had simply never re-asked for.
+// `useBuzzBalance()` fetches exactly once, from a mount effect, and exposes
+// `refetch` for on-demand refreshes (e.g. after a generation debits the balance).
+// It does NOT refetch on `TOKEN_REFRESH`. The app called `refetch` nowhere. So one
+// failed or raced read at mount was permanent until a full page reload — which is
+// exactly the operator's cure, and the reason the reload "fixed" a balance the app
+// had simply never re-asked for.
 //
 // ⚠️ WHAT THIS FILE DOES NOT ESTABLISH: why that one mount read failed or raced
 // in the operator's session. Nobody observed it. What is established is that
 // the app had no way to recover from it, which is sufficient to produce the
 // reported symptom — not the same claim as knowing the trigger.
 //
-// THE SEAM THESE COUNT ON. `GET_BUZZ_BALANCE` is the real outbound protocol
-// message the hook posts; the mock host's `onOutbound` sees every one. So the
-// count below is the number of times the block actually asked the host, not a
-// stub's call count — and it goes through the SDK transport unmodified.
+// 🔴 THE SEAM THESE COUNT ON MOVED WITH THE PORT, and it is the same claim over a
+// different wire. The balance used to be a `GET_BUZZ_BALANCE` postMessage the mock
+// host's `onOutbound` saw; it is now `GET /api/v1/blocks/buzz` and the host never
+// sees it. So the counter reads the REST fake's `onRequest` instead
+// (`src/dev-rest.ts`), which is still the number of times the block actually asked
+// the platform — not a stub's call count. Keeping this on `onOutbound` would have
+// left every count below at ZERO while the file stayed green on `waitFor`s that
+// never had to advance, which is exactly the vacuous pass the port could hide.
 //
 // 🔴 THE REFETCH BUDGET, which is the whole risk of adding refetches at all.
 // The token re-mints roughly every two minutes, so anything keyed on token
@@ -35,10 +38,13 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Harness, createMockHost } from '@civitai/blocks-react/testing';
+import { createMockHost } from '@civitai/blocks-react/testing';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
-import type { SharedListItem } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
+import { Harness } from './test-harness.js';
+import { createRestFake } from './dev-rest.js';
+import { configureSdkRuntime } from './lib/sdk-runtime.js';
 import { BALANCE_UNKNOWN_MESSAGE, BALANCE_LOADING_MESSAGE } from './components/ResultsGrid.js';
 import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -51,8 +57,15 @@ import type { CombinationData, PromptData } from './types.js';
  */
 const scopesBox: { current: string[] | null } = { current: null };
 
-vi.mock('@civitai/blocks-react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@civitai/blocks-react')>();
+// 🔴 THE MOCK TARGET MOVED WITH THE PORT: these two bindings now come from
+// `./lib/sdk-runtime.js` (the `@civitai/sdk` snapshot readers), not from
+// `@civitai/blocks-react`. Mocking the old module would still resolve — the
+// package is installed and `/ui` still uses it — and would override a hook the
+// App no longer imports, so the fixture would be inert and the case would pass
+// against the REAL viewer/token. `importOriginal` + spread is what keeps the
+// module's transport and AppClient singletons shared with the app under test.
+vi.mock('./lib/sdk-runtime.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/sdk-runtime.js')>();
   return {
     ...actual,
     useBlockToken: () => {
@@ -94,7 +107,7 @@ const promptData: PromptData = {
 const estimateSnap: BlockWorkflowSnapshot = { workflowId: '', status: 'pending', cost: { total: 12 } };
 const processingSnap: BlockWorkflowSnapshot = { workflowId: 'wf1', status: 'processing' };
 
-function row(key: string, title: string, data: CombinationData | PromptData): SharedListItem {
+function row(key: string, title: string, data: CombinationData | PromptData): SharedItem {
   return {
     key,
     authorUserId: 7,
@@ -106,11 +119,18 @@ function row(key: string, title: string, data: CombinationData | PromptData): Sh
   };
 }
 /** One combination × one prompt — a single empty, runnable cell. */
-const seedOneCell = (): SharedListItem[] => [row('c1', 'Grid Combo', comboData), row('p1', 'Alpha', promptData)];
+const seedOneCell = (): SharedItem[] => [row('c1', 'Grid Combo', comboData), row('p1', 'Alpha', promptData)];
 
-/** Count every `GET_BUZZ_BALANCE` the block posts to the host. */
-function balanceReads(log: Array<{ type: string }>): number {
-  return log.filter((m) => m.type === 'GET_BUZZ_BALANCE').length;
+/**
+ * Count every `GET blocks/buzz` the block sends.
+ *
+ * 🔴 THE METHOD IS PART OF THE ASSERTION, not decoration: every other family this
+ * app reaches is a POST, so matching on the path alone would still be exact today
+ * but would start counting a write the day one appeared under that path. The
+ * route is a GET (`api/v1/blocks/buzz.ts`).
+ */
+function balanceReads(log: Array<{ path: string; method: string }>): number {
+  return log.filter((c) => c.path === 'blocks/buzz' && c.method === 'GET').length;
 }
 
 /** Open Grids and press the single empty cell's Run button. */
@@ -124,7 +144,10 @@ async function pressRunCell() {
 // (b) RE-READ THE BALANCE WHEN IT CAN HAVE CHANGED
 // ---------------------------------------------------------------------------
 describe('🔴 the balance is re-read when it can have changed — and only then', () => {
-  function block(deps: Record<string, unknown>, opts: { consentGranted: boolean; onOutbound: (m: { type: string }) => void }) {
+  function block(
+    deps: Record<string, unknown>,
+    opts: { consentGranted: boolean; onRequest: (c: { path: string; method: string }) => void },
+  ) {
     return (
       <Harness
         viewer={{ id: 99, username: 'me' }}
@@ -135,7 +158,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
         buzzBalance={{ blue: 0, green: 0, yellow: 5000 }}
         shared={{ seed: [] }}
         showLog={false}
-        onOutbound={opts.onOutbound}
+        onRequest={opts.onRequest}
       >
         <App
           deps={{
@@ -156,11 +179,11 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     // `refetch` nowhere, so a viewer who granted consent mid-session ran the
     // whole rest of the page against whatever the mount read produced —
     // including `null`, which the confirm cell then mislabelled.
-    const log: Array<{ type: string }> = [];
+    const log: Array<{ path: string; method: string }> = [];
     const { shared } = fakeShared({ seed: seedOneCell() });
     const { appStorage } = fakeAppStorage();
 
-    render(block({ shared, appStorage }, { consentGranted: false, onOutbound: (m) => log.push(m) }));
+    render(block({ shared, appStorage }, { consentGranted: false, onRequest: (c) => log.push(c) }));
     await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
 
@@ -177,11 +200,11 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     // a NEW array every re-mint) would climb here forever; the exact count is
     // what an at-least assertion could not tell apart from that loop.
     scopesBox.current = UNGRANTED();
-    const log: Array<{ type: string }> = [];
+    const log: Array<{ path: string; method: string }> = [];
     const { shared } = fakeShared({ seed: seedOneCell() });
     const { appStorage } = fakeAppStorage();
     const deps = { shared, appStorage, requestConsent: vi.fn() };
-    const opts = { consentGranted: false, onOutbound: (m: { type: string }) => log.push(m) };
+    const opts = { consentGranted: false, onRequest: (c: { path: string; method: string }) => log.push(c) };
 
     const view = render(block(deps, opts));
     await screen.findByTestId('grid-view');
@@ -226,11 +249,11 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     // pin the budget from the other side — an already-consented viewer must not
     // pay a second read just for mounting or for the token hydrating.
     scopesBox.current = GRANTED();
-    const log: Array<{ type: string }> = [];
+    const log: Array<{ path: string; method: string }> = [];
     const { shared } = fakeShared({ seed: seedOneCell() });
     const { appStorage } = fakeAppStorage();
     const deps = { shared, appStorage };
-    const opts = { consentGranted: true, onOutbound: (m: { type: string }) => log.push(m) };
+    const opts = { consentGranted: true, onRequest: (c: { path: string; method: string }) => log.push(c) };
 
     const view = render(block(deps, opts));
     await screen.findByTestId('grid-view');
@@ -249,7 +272,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     // The SDK's own docstring names this case ("e.g. after a generation debits
     // the balance") and the app ignored it: every subsequent cell in the session
     // was gated against a pre-spend number.
-    const log: Array<{ type: string }> = [];
+    const log: Array<{ path: string; method: string }> = [];
     const { shared } = fakeShared({ seed: seedOneCell() });
     const { appStorage } = fakeAppStorage();
     const submit = vi.fn(async () => processingSnap);
@@ -263,7 +286,7 @@ describe('🔴 the balance is re-read when it can have changed — and only then
           poll: () => new Promise<BlockWorkflowSnapshot>(() => {}), // stays in flight
           publish: async () => [],
         },
-        { consentGranted: true, onOutbound: (m) => log.push(m) },
+        { consentGranted: true, onRequest: (c) => log.push(c) },
       ),
     );
     await screen.findByTestId('grid-view');
@@ -280,13 +303,13 @@ describe('🔴 the balance is re-read when it can have changed — and only then
     // Proves case 4 is attached to the SPEND and not to "the viewer pressed
     // something". Cancelling at the confirm gate spends nothing, so nothing was
     // debited and nothing needs re-reading.
-    const log: Array<{ type: string }> = [];
+    const log: Array<{ path: string; method: string }> = [];
     const { shared } = fakeShared({ seed: seedOneCell() });
     const { appStorage } = fakeAppStorage();
     const submit = vi.fn(async () => processingSnap);
 
     render(
-      block({ shared, appStorage, submit }, { consentGranted: true, onOutbound: (m) => log.push(m) }),
+      block({ shared, appStorage, submit }, { consentGranted: true, onRequest: (c) => log.push(c) }),
     );
     await screen.findByTestId('grid-view');
     await waitFor(() => expect(balanceReads(log)).toBe(1));
@@ -305,30 +328,46 @@ describe('🔴 the balance is re-read when it can have changed — and only then
 // ---------------------------------------------------------------------------
 describe('🔴 a failed initial balance read is recoverable without a page reload', () => {
   /**
-   * Installs the mock host DIRECTLY rather than through `<Harness>`: the
-   * Harness snapshots its options once per mount (`optionsRef`), so a rerender
-   * cannot flip `buzzBalanceError`. `setScenario` is the only seam that can
-   * turn a failing balance read into a succeeding one mid-session — which is
-   * precisely the thing a retry has to be tested against.
+   * Installs the mock host DIRECTLY rather than through `<Harness>`, and pairs it
+   * with a REST fake whose balance is read through a MUTABLE BOX.
+   *
+   * 🔴 THE MUTABILITY IS THE WHOLE POINT, AND IT HAD TO MOVE TRANSPORTS. This case
+   * needs a balance read that FAILS on mount and SUCCEEDS on the viewer's retry
+   * press, because a retry against a still-failing read proves nothing. The mock
+   * host expressed that with `setScenario({ buzzBalanceError })` — `<Harness>`
+   * snapshots its options once per mount (`optionsRef`), so a rerender could not
+   * flip it, which is why the host is installed by hand here. After the port the
+   * balance is HTTP and `buzzBalanceError` reaches nothing, so the same seam is
+   * `RestFakeOptions.buzz` accepting a FUNCTION: `null` refuses with a 403 (how a
+   * missing `buzz:read:self` grant or an anonymous viewer reads), and flipping the
+   * box makes the next read succeed. A plain value is snapshotted at construction
+   * and could not express it — the case would have had nothing to recover from and
+   * would have passed on the mount read alone.
+   *
+   * The mock host stays for everything else this App mounts: viewer, theme, token,
+   * consent and the workflow the confirm gate prices.
    */
-  function installHost(onOutbound: (m: { type: string }) => void) {
+  function installHost(onRequest: (c: { path: string; method: string }) => void) {
+    const balance: { current: { blue: number; green: number; yellow: number } | null } = {
+      current: null, // the one mount read FAILS (403)
+    };
     const host = createMockHost({
       viewer: { id: 99, username: 'me' },
       theme: 'dark',
       consentGranted: true,
       buzzBudget: 1000,
       buzz: { balance: 5000 },
-      buzzBalance: { blue: 0, green: 0, yellow: 5000 },
-      buzzBalanceError: true, // the one mount read FAILS
       shared: { seed: [] },
-      onOutbound,
     });
-    return { host, uninstall: host.install() };
+    configureSdkRuntime({
+      fetch: createRestFake({ viewerUserId: 99, buzz: () => balance.current, onRequest }),
+    });
+    return { balance, uninstall: host.install() };
   }
 
   it('reports the read as UNREADABLE (never as insufficient) and recovers on RETRY', async () => {
-    const log: Array<{ type: string }> = [];
-    const { host, uninstall } = installHost((m) => log.push(m));
+    const log: Array<{ path: string; method: string }> = [];
+    const { balance, uninstall } = installHost((c) => log.push(c));
     try {
       const { shared } = fakeShared({ seed: seedOneCell() });
       const { appStorage } = fakeAppStorage();
@@ -352,16 +391,16 @@ describe('🔴 a failed initial balance read is recoverable without a page reloa
       await screen.findByTestId('cell-confirm-run');
 
       // 🔴 THE OPERATOR'S SCREEN. The cost is known (12); the balance is not,
-      // because the host refused the read. The app must say THAT.
+      // because the platform refused the read (403). The app must say THAT.
       const unreadable = await screen.findByTestId('cell-balance-unknown');
       expect(unreadable).toHaveTextContent(BALANCE_UNKNOWN_MESSAGE);
       expect(screen.queryByTestId('cell-insufficient')).toBeNull();
       expect(screen.getByTestId('cell-confirm-run')).toBeDisabled();
       const readsBeforeRetry = balanceReads(log);
 
-      // The host recovers (a blip, a re-auth, a top-up round-trip) and the
+      // The platform recovers (a blip, a re-auth, a top-up round-trip) and the
       // viewer presses the affordance instead of reloading the page.
-      host.setScenario({ buzzBalanceError: false });
+      balance.current = { blue: 0, green: 0, yellow: 5000 };
 
       // 🔴 THE IN-FLIGHT WINDOW, asserted SYNCHRONOUSLY and deliberately so.
       // A synchronous `act` flushes React's own work but drains no microtask or
@@ -383,7 +422,7 @@ describe('🔴 a failed initial balance read is recoverable without a page reloa
 
       await waitFor(() => expect(screen.queryByTestId('cell-balance-unknown')).toBeNull());
       expect(screen.getByTestId('cell-confirm-run')).not.toBeDisabled();
-      // The retry is a real host round-trip, not a local state flip.
+      // The retry is a real round-trip to the platform, not a local state flip.
       expect(balanceReads(log)).toBe(readsBeforeRetry + 1);
       // And it is bounded: one press, one read — no automatic retry loop.
       expect(readsBeforeRetry).toBe(1);
