@@ -26,8 +26,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { GridsView } from './components/GridsView.js';
@@ -95,7 +96,7 @@ function row(
   title: string,
   data: unknown,
   opts: { authorUserId?: number; viewerVoted?: boolean; body?: string } = {},
-): SharedListItem {
+): SharedItem {
   return {
     key,
     count,
@@ -104,12 +105,12 @@ function row(
     value: { title, body: opts.body ?? '', data },
     createdAt: new Date(0),
     updatedAt: new Date(0),
-  } as unknown as SharedListItem;
+  } as unknown as SharedItem;
 }
 
 /** SEVEN matchups and SIX prompts — both strictly more than `DEFAULT_TOP_N`, so
  * the Top Grid's cut is observable rather than vacuous. */
-const MATCHUPS: SharedListItem[] = [
+const MATCHUPS: SharedItem[] = [
   row('mk-hotel', 14, 'Hotel', comboData('cfg-hotel')),
   row('mk-alpha', 91, 'Alpha', comboData('cfg-alpha')),
   row('mk-golf', 3, 'Golf', comboData('cfg-golf')),
@@ -118,7 +119,7 @@ const MATCHUPS: SharedListItem[] = [
   row('mk-bravo', 22, 'Bravo', comboData('cfg-bravo')),
   row('mk-foxtrot', 55, 'Foxtrot', comboData('cfg-foxtrot')),
 ];
-const PROMPTS: SharedListItem[] = [
+const PROMPTS: SharedItem[] = [
   row('qk-sierra', 8, 'Sierra', promptData),
   row('qk-tango', 76, 'Tango', promptData),
   row('qk-romeo', 31, 'Romeo', promptData),
@@ -133,11 +134,11 @@ const PROMPTS: SharedListItem[] = [
 const VOTE_ANSWER = 123;
 const UNVOTE_ANSWER = 7;
 
-function sharedWithVotes(seed: SharedListItem[]) {
+function sharedWithVotes(seed: SharedItem[]) {
   const base = fakeShared({ seed });
   const votes: string[] = [];
   const unvotes: string[] = [];
-  const shared: UseSharedStorage = {
+  const shared: SharedStore = {
     ...base.shared,
     async vote(key: string) {
       votes.push(key);

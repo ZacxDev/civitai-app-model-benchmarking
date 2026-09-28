@@ -105,8 +105,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App } from './App.js';
 import {
@@ -125,7 +125,7 @@ import { setViewport } from './test-setup.js';
 // Vote counts are non-zero so both land inside the default top-N.
 // ---------------------------------------------------------------------------
 
-const row = (key: string, count: number, title: string, data: unknown): SharedListItem =>
+const row = (key: string, count: number, title: string, data: unknown): SharedItem =>
   ({
     key,
     count,
@@ -134,9 +134,9 @@ const row = (key: string, count: number, title: string, data: unknown): SharedLi
     viewerVoted: false,
     createdAt: new Date(),
     updatedAt: new Date(),
-  }) as unknown as SharedListItem;
+  }) as unknown as SharedItem;
 
-const SEED: SharedListItem[] = [
+const SEED: SharedItem[] = [
   row('c1', 5, 'SDXL Combo', {
     v: 2,
     kind: 'combination',
@@ -444,7 +444,7 @@ describe('420 — the 44px figure itself', () => {
     // viewer) keeps serving every other case in this file unchanged. Here the
     // viewer OWNS the row, because the LoRA slider is only reachable through the
     // author-scoped Edit affordance.
-    const owned: SharedListItem[] = [
+    const owned: SharedItem[] = [
       {
         key: 'c-owned',
         count: 3,
@@ -476,7 +476,7 @@ describe('420 — the 44px figure itself', () => {
         viewerVoted: false,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as unknown as SharedListItem,
+      } as unknown as SharedItem,
     ];
     const { shared } = fakeShared({ seed: owned });
     render(

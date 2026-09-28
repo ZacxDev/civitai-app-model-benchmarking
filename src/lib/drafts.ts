@@ -15,7 +15,7 @@
 // submitted directly. 🔴 `data.kind: 'combination'` is a PERSISTED WIRE VALUE
 // that discriminates every row already on the board; it is never renamed.
 
-import type { AppStorageQuota } from '@civitai/blocks-react';
+import type { StorageQuota } from '@civitai/sdk';
 
 import type { DraftPointer, DraftRecord, DraftUnsubmitted, ModelConfig } from '../types.js';
 import { type CombinationInput } from './benchmark.js';
@@ -147,6 +147,6 @@ export function sortDrafts(drafts: DraftRecord[]): DraftRecord[] {
 export { formatBytes } from './unpublished.js';
 
 /** The host-reported storage line (see the shared core for the scope split). */
-export function formatQuota(quota: AppStorageQuota | null): string | null {
+export function formatQuota(quota: StorageQuota | null): string | null {
   return formatQuotaShared(quota);
 }

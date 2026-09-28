@@ -30,28 +30,67 @@ import type {
   WorkflowBody,
 } from '@civitai/app-sdk/blocks';
 
+// 🔴 THE BRIDGE HALF, AND IT IS THE HALF THAT STAYS — one reason per binding,
+// because "each has its own reason" is worth nothing if the reasons are not here.
+// The long form, with the platform-source citations and the three traps a porter
+// walks into, is the banner in `src/lib/sdk-runtime.ts`.
+//
+//   • `useBuzzWorkflow` + `WorkflowEstimateError` — the money path. The SDK's
+//     `app.orchestration` is the WRONG replacement and "the wrong version
+//     compiles": a direct orchestrator call drops civitai's per-call/per-viewer/
+//     per-app spend caps, the viewer's browsing-level clamp and per-app
+//     attribution. The right one is `POST /api/v1/blocks/workflows/*`, for which
+//     the SDK ships NO CLIENT — and whose `submit` REQUIRES an `idempotencyKey`
+//     the bridge hook mints for us. Its own change, against its own spec
+//     (`src/money-path.test.tsx`), never a line in this one.
+//   • `usePublishGenerationOutputs` — the SDK DOES carry this
+//     (`app.host.publishGenerationOutputs`), so this one is DEFERRED, not
+//     blocked. It is not a pass-through: the host nests the ids
+//     (`reply.result.imageIds`) where the SDK destructures `{ imageIds }` at the
+//     top level, so a naive swap throws for a publish that SUCCEEDED, after the
+//     viewer paid. It also drops a `title` field. It moves with the money path,
+//     because they share one conversation.
+//   • `useResourcePicker` — also CARRIED (`app.host.openResourcePicker`), also
+//     deferred: it resolves `PickedResource | null` where this app's `deps.pickResource`
+//     is typed on `BlockResourceInfo`, so moving it is a shape change through
+//     `MatchupForm` rather than a transport change. Same conversation again.
+//   • `useGenerationResources` — no SDK client. The route exists
+//     (`GET /api/v1/blocks/generation-resources`), so this too is deferred rather
+//     than blocked; it feeds the same picker flow.
+//   • `useGatedImages` (in `components/GatedCell.tsx`) — no SDK client, and the
+//     route to port it to is NOT the one the migration guide names. See trap (1)
+//     in `sdk-runtime.ts`: `blocks/images?ids=` and `blocks/gated-images?ids=`
+//     have COMPLEMENTARY SQL predicates, so the guide's route returns `[]` for
+//     every id this app published, silently, forever.
+//   • `useBlockAnalytics` — genuinely has no twin and never will:
+//     `BREAKING.md` lists `TRACK_EVENT` as "not carried", AND it has no host
+//     handler on either real host, so these calls are ALREADY no-ops on `main`.
+import {
+  useBlockAnalytics,
+  useBuzzWorkflow,
+  useGenerationResources,
+  useResourcePicker,
+  usePublishGenerationOutputs,
+  WorkflowEstimateError,
+} from '@civitai/blocks-react';
+// 🔴 THE PORTED HALF. Snapshot (context/token), host UI (resize/sign-in/consent)
+// and the three REST families (per-viewer KV, shared storage, Buzz balance) now
+// come from `@civitai/sdk` through ONE adapted transport. See
+// `src/lib/sdk-runtime.ts` for the three-group split, and `src/lib/sdk-transport.ts`
+// for why there is exactly one transport rather than two.
 import {
   useAppStorage,
-  useBlockAnalytics,
   useBlockContext,
   useBlockResize,
   useBlockToken,
   useBuzzBalance,
-  useBuzzWorkflow,
-  useGenerationResources,
   useRequestConsent,
   useRequestSignIn,
-  useResourcePicker,
   useSharedStorage,
-  usePublishGenerationOutputs,
-  WorkflowEstimateError,
-} from '@civitai/blocks-react';
-import type {
-  AppStorageQuota,
-  SharedAppendValue,
-  UseAppStorage,
-  UseSharedStorage,
-} from '@civitai/blocks-react';
+  type SharedStore,
+} from './lib/sdk-runtime.js';
+import type { SharedStorageValue } from '@civitai/app-sdk/blocks';
+import type { Scope, StorageClient, StorageQuota } from '@civitai/sdk';
 import {
   Alert,
   Button,
@@ -163,10 +202,10 @@ export interface AppDeps {
   /** Publish a completed generation's own scanned outputs → the created bare
    * `Image` row ids (matches `usePublishGenerationOutputs().publish`). */
   publish: (args: { workflowId: string; imageIndexes?: number[]; title?: string }) => Promise<number[]>;
-  shared: UseSharedStorage;
+  shared: SharedStore;
   /** The gated grid-cell renderer (per-viewer moderation boundary). */
   GatedCell: GatedCellComponent;
-  requestConsent: (opts: { scopes: string[] }) => void;
+  requestConsent: (opts: { scopes: readonly Scope[] }) => void;
   requestSignIn: () => void;
   /** Per-(viewer, block) KV store — holds this viewer's drafts, in-flight run
    * claims and the dismissed-explainer flag.
@@ -174,7 +213,7 @@ export interface AppDeps {
    * 🔴 It does NOT hold vote state. It used to, because the shared list once
    * carried only the aggregate `count`; the list now reports `viewerVoted` per
    * row, which is host-derived and therefore correct across devices. */
-  appStorage: UseAppStorage;
+  appStorage: StorageClient;
   /**
    * Fire-and-forget analytics.
    *
@@ -500,11 +539,37 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // review round and the backstop was UNREACHABLE IN PRODUCTION: the flag was
   // only written when the scan FINISHED, so a Confirm landing during the scan
   // read `false` and spent. The truncated case is the slowest one — up to
-  // KV_MAX_PAGES serial `list` calls plus a `get` per key — and every one of
-  // those is a macrotask over the real host's cross-origin `postMessage` bridge,
-  // so that window is wide. It passed every test because the jsdom fake resolves
-  // in microtasks; `latencyMs` in `fakeAppStorage` is what makes it visible, and
-  // there is a permanent LATENCY ARM case pinning it.
+  // KV_MAX_PAGES serial `list` calls plus a `get` per key.
+  //
+  // 🔴 AND THE SDK PORT MADE THAT WINDOW WIDER — this comment used to say "a
+  // macrotask over the real host's cross-origin `postMessage` bridge", and that
+  // transport is gone from this path: these are cross-origin HTTPS requests to
+  // civitai.com now, and `withBlockScope` sets its CORS headers with NO
+  // `Access-Control-Max-Age`, so each POST can carry its own preflight.
+  //
+  // ⚠ THE SIZE OF THAT WIDENING WAS OVERSTATED ONCE, AND THE FIGURE IS RETRACTED. An
+  // earlier draft of this paragraph said "up to 2N round trips where there were N
+  // in-process messages". The bridge's messages were NOT in-process work: the host
+  // answered `APP_STORAGE_*` by calling the very same server function the REST route
+  // calls (`api/v1/blocks/app-storage/get.ts`: "the SAME function
+  // `trpc.apps.storage.get` calls"), so each one was ALREADY a network round trip,
+  // made from the host page. The real delta is +1 preflight leg and −2 postMessage
+  // hops per call, not 0 → 2.
+  //
+  // ⚠ One qualification, and it widens rather than narrows the conclusion: the host
+  // served those reads through React Query with a 1s `staleTime`
+  // (`BLOCK_STORAGE_READ_STALE_TIME_MS`, `AppBlocks/blockStorageCache.ts`), so an
+  // IDENTICAL repeat read inside a second was a cache hit and not network at all.
+  // Within one rehydrate scan every `list`/`get` has a distinct query key, so those
+  // really were N round trips — but a block that re-read the same key in a loop has
+  // lost a cache it used to get for free. The conclusion is unchanged — the backstop below is
+  // MORE load-bearing after the port — but do not re-derive the discarded
+  // multiplier, and the magnitude is still unmeasured: nothing in this repo has run
+  // against a live host.
+  //
+  // It passed every test because the jsdom fake resolves in microtasks; `latencyMs`
+  // in `fakeAppStorage` is what makes it visible, and there is a permanent LATENCY
+  // ARM case pinning it.
   const inflightScanTruncatedRef = useRef(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -678,7 +743,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   /** Shared keys this viewer archived — an AUTHOR-SIDE HIDE of their own My list
    * and nothing more (§11.3). Never sent to the shared board. */
   const [archived, setArchived] = useState<string[]>([]);
-  const [quota, setQuota] = useState<AppStorageQuota | null>(null);
+  const [quota, setQuota] = useState<StorageQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
 
@@ -884,7 +949,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // Record an optimistic INSERT so a just-appended row shows immediately (item 1)
   // and survives a lagged list() (see reconcileOptimistic).
   const optimisticInsert = useCallback(
-    (key: string, value: SharedAppendValue) => {
+    (key: string, value: SharedStorageValue) => {
       if (!viewer) return;
       pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'insert' });
       setItems((prev) =>
@@ -899,7 +964,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // Record an optimistic UPDATE so an edited row shows its new value immediately
   // and survives a lagged list() until the host reflects it.
   const optimisticUpdate = useCallback(
-    (key: string, value: SharedAppendValue) => {
+    (key: string, value: SharedStorageValue) => {
       if (!viewer) return;
       pendingRef.current.set(key, { value, authorUserId: viewer.id, kind: 'update' });
       setItems((prev) => prev.map((it) => (it.key === key ? { ...it, value } : it)));
@@ -985,24 +1050,31 @@ export function App({ deps: depsOverride }: AppProps = {}) {
      *   disjoint, so a matchup withdraw can never reach a prompt's pointer.
      */
     async (key: string, pointerPrefix: string) => {
-      // 🔴 THE GUARD IS THE ORDER, PLUS AN `ok` BRANCH THAT DEFENDS THE DECLARED
-      // TYPE RATHER THAN AN OBSERVED FAILURE. Be precise about which is which:
+      // 🔴 THE GUARD IS THE ORDER. THE `ok` BRANCH IS AN INVARIANT GUARD, AND THE
+      // TRANSPORT IT USED TO CITE IS GONE. Be precise about which is which:
       //
-      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure at the
-      //     pinned @civitai/blocks-react 0.43.0, so a throw here is the real
-      //     path and it skips every line below.
-      //   - THE `ok` BRANCH is defensive. `withdraw` is the only SDK write typed
-      //     `ok: boolean` rather than the literal `ok: true` (`appStorage.set`
-      //     and `.delete` are both `ok: true`), so the CONTRACT permits a
-      //     refusal that resolves. ⚠️ The 0.43.0 RUNTIME does not use it:
-      //     `useSharedStorage.js:115-121` does `if (!result.ok || result.error)
-      //     throw` and returns a hardcoded `{ok: true}`, and both hosts only
-      //     emit `ok:false` alongside an `error`. So this branch is UNREACHABLE
-      //     IN PRODUCTION TODAY. It is kept because the declared type is what a
-      //     future SDK could start honouring, and the cost of being wrong the
-      //     other way is unrecoverable (below). Do not describe it as an
-      //     observed channel — an earlier version of this comment did, and it
-      //     was false.
+      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure — the SDK
+      //     states it as a contract ("every failure rejects; nothing resolves to
+      //     mean 'not written'"), so a throw here is the real path and it skips
+      //     every line below.
+      //   - THE `ok` BRANCH is an INVARIANT GUARD: it pins something no transport
+      //     can currently violate. `@civitai/sdk`'s `SharedStorageClient.withdraw`
+      //     is declared `{ ok: true; deleted: boolean }` — the LITERAL `true` — and
+      //     hardcodes it in the implementation. The only thing that makes `!res.ok`
+      //     type-reachable is `SharedStore`'s own widening to `boolean`, which is
+      //     THIS APP's (see the note on `withdraw` in `lib/sdk-runtime.ts` for why
+      //     the widening was kept rather than narrowed, and the follow-up it is
+      //     filed as).
+      //
+      // ⚠️ THREE CLAIMS THAT USED TO BE HERE ARE RETRACTED, not reworded, because
+      // this port falsified them: this branch no longer routes through
+      // `@civitai/blocks-react` AT ALL, so "the pinned 0.43.0", "the 0.43.0
+      // RUNTIME", and `useSharedStorage.js:115-121` were describing a code path
+      // that is not on this line any more — and the pin was `^0.51.0` even before
+      // that. The claim that `withdraw` is "the only SDK write typed `ok: boolean`"
+      // is also false against the installed SDK, where it is `ok: true` like the
+      // others. Do not derive a fresh justification from the new transport either:
+      // what is true is stated above and nothing more.
       //
       // Either way the viewer keeps the only per-viewer handle on a row that is
       // still live. Shared keys are host-minted and the shared list has no
@@ -1276,7 +1348,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       /** The per-viewer KV key holding this record. */
       storageKey: string;
       /** The board payload, from this object's own payload builder. */
-      payload: SharedAppendValue;
+      payload: SharedStorageValue;
       /** Analytics event name and props for this object kind. */
       event: string;
       props: Record<string, unknown>;
@@ -1361,7 +1433,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         localId: draft.localId,
         noun: 'matchup',
         storageKey: draftKey(draft.localId),
-        payload: buildCombinationPayload(input) as SharedAppendValue,
+        payload: buildCombinationPayload(input) as SharedStorageValue,
         event: 'submit_combo',
         props: {
           configCount: input.configs.filter((cfg) => cfg?.checkpoint).length,
@@ -1384,7 +1456,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         localId: rec.localId,
         noun: 'prompt',
         storageKey: unpubPromptKey(rec.localId),
-        payload: buildPromptPayload(input) as SharedAppendValue,
+        payload: buildPromptPayload(input) as SharedStorageValue,
         event: 'submit_prompt',
         props: {
           overrideCount: Object.keys(input.overrides ?? {}).length,
@@ -1413,7 +1485,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         localId: rec.localId,
         noun: 'grid',
         storageKey: unpubGridKey(rec.localId),
-        payload: buildGridPayload(input) as SharedAppendValue,
+        payload: buildGridPayload(input) as SharedStorageValue,
         event: 'submit_grid',
         props: {
           matchupCount: input.matchupKeys.length,
@@ -1426,7 +1498,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const submitCombination = useCallback(
     async (input: CombinationInput) => {
-      const payload = buildCombinationPayload(input) as SharedAppendValue;
+      const payload = buildCombinationPayload(input) as SharedStorageValue;
       const { key } = await depsRef.current.shared.append(payload);
       optimisticInsert(key, payload);
       depsRef.current.track('submit_combo', {
@@ -1440,7 +1512,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const submitPrompt = useCallback(
     async (input: PromptInput) => {
-      const payload = buildPromptPayload(input) as SharedAppendValue;
+      const payload = buildPromptPayload(input) as SharedStorageValue;
       const { key } = await depsRef.current.shared.append(payload);
       optimisticInsert(key, payload);
       depsRef.current.track('submit_prompt', {
@@ -1454,7 +1526,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const updateCombination = useCallback(
     async (key: string, input: CombinationInput) => {
-      const payload = buildCombinationPayload(input) as SharedAppendValue;
+      const payload = buildCombinationPayload(input) as SharedStorageValue;
       await depsRef.current.shared.update(key, payload);
       optimisticUpdate(key, payload);
       closeModal();
@@ -1465,7 +1537,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   const updatePrompt = useCallback(
     async (key: string, input: PromptInput) => {
-      const payload = buildPromptPayload(input) as SharedAppendValue;
+      const payload = buildPromptPayload(input) as SharedStorageValue;
       await depsRef.current.shared.update(key, payload);
       optimisticUpdate(key, payload);
       closeModal();
@@ -1605,7 +1677,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           ecosystem: matched.ecosystem,
           imageIds,
           ...(prompt.authorUserId ? { promptAuthorUserId: prompt.authorUserId } : {}),
-        }) as SharedAppendValue;
+        }) as SharedStorageValue;
         const { key } = await depsRef.current.shared.append(payload);
         optimisticInsert(key, payload);
       }
@@ -2560,9 +2632,27 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
 }
 
-/** Page the WHOLE shared list (newest-first) into a flat RawSharedItem[]. */
+/**
+ * Page the WHOLE shared list (newest-first) into a flat RawSharedItem[].
+ *
+ * 🔴 THIS IS THE ONE PLACE A SHARED ROW'S `value` IS NARROWED, and it is a
+ * deliberate cast rather than a validation. `@civitai/sdk` types `SharedItem.value`
+ * as `unknown` on purpose — the row was written by some OTHER viewer's copy of
+ * this app, possibly an older or newer one, so its shape is a fact about stored
+ * data and not a promise a client can keep — and it instructs callers to narrow at
+ * the call site. This app has exactly one read funnel, so "the call site" is here.
+ *
+ * ⚠ IT IS SAFE BECAUSE THE NEXT LAYER ALREADY DISTRUSTS IT, which is the evidence
+ * and not an assumption: every consumer of `RawSharedItem.value.data` goes through
+ * `lib/benchmark.ts`'s `parseCombination`/`parsePrompt`/`parseResult` or
+ * `lib/grids.ts`'s `parseGrid`, each of which returns `null` for a missing or
+ * wrong-typed field rather than trusting the declared type. A row of the wrong
+ * shape is dropped there, as it was before the port — the bridge hook's declared
+ * `SharedAppendValue` was the same unchecked claim, just made one layer earlier.
+ * So do NOT add a second validation here; add it to the parser that is missing it.
+ */
 async function listAll(
-  shared: UseSharedStorage,
+  shared: SharedStore,
 ): Promise<{ items: RawSharedItem[]; truncated: boolean }> {
   const out: RawSharedItem[] = [];
   let cursor: string | undefined;
@@ -2573,7 +2663,7 @@ async function listAll(
         key: it.key,
         count: it.count,
         authorUserId: it.authorUserId,
-        value: it.value,
+        value: it.value as SharedStorageValue,
         viewerVoted: it.viewerVoted,
       });
     }

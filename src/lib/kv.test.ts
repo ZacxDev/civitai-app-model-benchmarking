@@ -10,7 +10,9 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { UseAppStorage } from '@civitai/blocks-react';
+import type { StorageClient } from '@civitai/sdk';
+
+import { hasMore } from '../dev-rest.js';
 
 import { KV_MAX_PAGES, forEachStoredKey } from './kv.js';
 
@@ -18,7 +20,7 @@ import { KV_MAX_PAGES, forEachStoredKey } from './kv.js';
  * A minimal paging store: `keys` served `pageSize` at a time, cursor = the last
  * key of the page (the SDK documents it as an opaque base64 last-key).
  */
-function store(keys: string[], pageSize: number): UseAppStorage & { listCalls: number } {
+function store(keys: string[], pageSize: number): StorageClient & { listCalls: number } {
   const api = {
     listCalls: 0,
     async get() {
@@ -39,14 +41,21 @@ function store(keys: string[], pageSize: number): UseAppStorage & { listCalls: n
       const from = opts?.cursor ? all.indexOf(atob(opts.cursor)) + 1 : 0;
       const page = all.slice(from, from + pageSize);
       const last = page[page.length - 1];
-      const more = last !== undefined && all.indexOf(last) < all.length - 1;
+      // 🔴 THE SERVER'S RULE, FROM THE ONE PLACE THAT STATES IT. `hasMore` is
+      // `dev-rest.ts`'s, shared by every paging fake in the repo: a cursor iff the
+      // page came back FULL (`app-storage.service.ts`: `rows.length === limit`),
+      // because the server has not read row `limit + 1`. This used to be
+      // `all.indexOf(last) < all.length - 1` — the fake reading data the server never
+      // fetched — which is OPTIMISTIC at exactly the boundary `forEachStoredKey`'s
+      // truncation report turns on, i.e. the pre-spend double-charge backstop.
+      const more = last !== undefined && hasMore(page.length, pageSize);
       return {
         keys: page.map((key) => ({ key, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),
       };
     },
   };
-  return api as unknown as UseAppStorage & { listCalls: number };
+  return api as unknown as StorageClient & { listCalls: number };
 }
 
 const kv = (n: number): string[] => Array.from({ length: n }, (_, i) => `p:${i}`);
@@ -142,11 +151,35 @@ describe('forEachStoredKey — `truncated` is a MONEY signal, so it is pinned bo
     expect(s.listCalls).toBe(KV_MAX_PAGES);
   });
 
-  it('a scan that exactly exhausts the keys on its last allowed page is NOT truncated', async () => {
-    // The boundary the two branches meet at: budget spent, but nothing left
-    // behind. Chosen deliberately over a round multiple — a fixture that can
-    // only land mid-range cannot see an off-by-one at the edge.
+  it('🔴 a FULL final page still carries a cursor, so the cap reports truncated: TRUE', async () => {
+    // 🔴 THIS CASE ASSERTED `false` UNTIL THE FAKE WAS PUT ON THE SERVER'S RULE, and
+    // it was pinning the PERMISSIVE side of a money boundary. `KV_MAX_PAGES` keys at
+    // one per page means the last allowed page comes back FULL — and a full page is
+    // exactly when the real route emits a cursor, because it has not read the row
+    // after it. `forEachStoredKey` therefore falls out of its `for` still holding a
+    // cursor and reports `truncated: true`, which is what makes `confirmRun` refuse
+    // to spend. The old fake said "that was the last page" and stood the backstop
+    // down. Nothing about `forEachStoredKey` changed; the fake had been lying.
+    //
+    // ⚠ "Budget spent, nothing left behind" is still a real state and still pinned —
+    // by the case below, whose final page is genuinely PARTIAL. That is the only
+    // shape that reaches it against a server-faithful store.
     const res = await forEachStoredKey(store(kv(KV_MAX_PAGES), 1), 'p:', () => {});
+    expect(res.truncated).toBe(true);
+    expect(res.pages).toBe(KV_MAX_PAGES);
+  });
+
+  it('a scan whose last allowed page comes back EMPTY is NOT truncated', async () => {
+    // The other side of the boundary, reachable under the server's rule: one fewer
+    // key than the cap, so page 20 lists and returns nothing. An empty page is not a
+    // full page, so no cursor, so the walk ends deliberately rather than on budget —
+    // and the backstop stands down, correctly.
+    //
+    // ⚠ The bound OVERSHOOTS the page size deliberately (`KV_MAX_PAGES - 1` keys at
+    // one per page, not a round multiple): a fixture that can only land mid-range
+    // cannot see an off-by-one at the edge, which is why the original case chose
+    // this shape even though its arithmetic was wrong about the store.
+    const res = await forEachStoredKey(store(kv(KV_MAX_PAGES - 1), 1), 'p:', () => {});
     expect(res.truncated).toBe(false);
     expect(res.pages).toBe(KV_MAX_PAGES);
   });

@@ -2,7 +2,7 @@
 // combinations + prompts so the submit/vote/grid loop is explorable offline.
 // Shapes match the app's own `data.kind` records (see lib/benchmark.ts).
 
-import type { MockSharedSeed } from '@civitai/blocks-react/testing';
+import type { RestSharedSeed } from './dev-rest.js';
 
 import type { CombinationData, PromptData } from './types.js';
 
@@ -70,7 +70,7 @@ const promptLandscape = {
   },
 } as unknown as PromptData;
 
-export const DEMO_SHARED_SEED: MockSharedSeed[] = [
+export const DEMO_SHARED_SEED: RestSharedSeed[] = [
   { value: { title: 'SDXL: base vs +detail', body: 'Sharp SDXL baseline, two configs', data: comboSdxl }, authorUserId: 7, voters: [1, 2, 3] },
   { value: { title: 'AutismMix Pony', body: 'Pony baseline', data: comboPony }, authorUserId: 8, voters: [1] },
   { value: { title: 'Flux Realism (legacy v1)', body: 'Amateur photo look', data: comboLegacyV1 }, authorUserId: 8, voters: [1, 2] },

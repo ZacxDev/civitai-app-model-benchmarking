@@ -16,7 +16,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 
 import { contentStyle } from './theme.js';
 

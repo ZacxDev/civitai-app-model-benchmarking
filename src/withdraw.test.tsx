@@ -12,8 +12,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
@@ -48,7 +49,7 @@ function row(
   title: string,
   authorUserId: number,
   data: CombinationData | PromptData,
-): SharedListItem {
+): SharedItem {
   return {
     key,
     authorUserId,
@@ -63,7 +64,7 @@ function row(
 /** A GRID row on the shared board. Its members are keys nothing here seeds — a
  * grid's members belong to other authors and dangling ones are NORMAL (§11.2),
  * so this is the ordinary case, not a degenerate one. */
-function gridRow(key: string, title: string, authorUserId: number): SharedListItem {
+function gridRow(key: string, title: string, authorUserId: number): SharedItem {
   const data: GridData = {
     v: 1,
     kind: 'grid', // 🔴 persisted wire value — never renamed
@@ -78,7 +79,7 @@ function gridRow(key: string, title: string, authorUserId: number): SharedListIt
     value: { title, body: '', data },
     createdAt: new Date(0),
     updatedAt: new Date(0),
-  } as unknown as SharedListItem;
+  } as unknown as SharedItem;
 }
 
 function mountApp(deps: Partial<AppDeps>) {
@@ -331,7 +332,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     const { shared, withdraws } = fakeShared({
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
     });
-    const rejecting: UseSharedStorage = {
+    const rejecting: SharedStore = {
       ...shared,
       async withdraw(key: string) {
         withdraws.push(key);
@@ -670,16 +671,20 @@ describe('withdraw: the pointer at the withdrawn row', () => {
   });
 
   it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {
-    // 🔴 THE SECOND FAILURE CHANNEL, and the one a `try/catch` story misses
-    // entirely. `UseSharedStorage.withdraw` is typed
-    // `Promise<{ok: boolean; deleted: boolean}>` — the ONLY SDK write whose `ok`
-    // is `boolean` rather than the literal `true` (`appStorage.set` and
-    // `.delete` are both `ok: true`, and so is `useTip`). That asymmetry is a
-    // refusal the host can signal by RESOLVING, so awaiting the call and
-    // discarding its result scores `{ok: false}` as success: the row stays on
-    // the public board and the pointer — the viewer's only per-viewer handle on
-    // a host-minted key with no "mine" index (docs/matchups.md §4) — is deleted
-    // permanently. Unrecoverable, and silent.
+    // 🔴 AN INVARIANT GUARD, LABELLED AS ONE — and the label is the correction.
+    // This case used to open "THE SECOND FAILURE CHANNEL", on the claim that
+    // `withdraw` is "the ONLY SDK write whose `ok` is `boolean` rather than the
+    // literal `true`". RETRACTED: `@civitai/sdk` declares it `{ ok: true; deleted:
+    // boolean }` and hardcodes the literal, so no transport this app speaks can
+    // resolve a refusal. The `boolean` is `SharedStore`'s own widening.
+    //
+    // What the case still pins, and why it is worth keeping: IF `res.ok` is ever
+    // false, `withdrawRow` must not proceed — because the line after it deletes the
+    // pointer, the viewer's only per-viewer handle on a host-minted key with no
+    // "mine" index (docs/matchups.md §4), against a row still on the public board.
+    // Unrecoverable, and silent. Reaching that branch requires the façade, which is
+    // what `withdrawRefuses` is for. This is NOT a regression test for an observed
+    // failure; it is the only thing that keeps the guard from being unreachable.
     const { shared, withdraws } = fakeShared({
       seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
       withdrawRefuses: true,

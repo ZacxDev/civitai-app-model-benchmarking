@@ -62,7 +62,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BlockGatedImage } from '@civitai/app-sdk/blocks';
-import type { SharedListItem } from '@civitai/blocks-react';
+import type { SharedItem } from '@civitai/sdk';
 
 const { mockGetImages, mockTrack } = vi.hoisted(() => ({
   mockGetImages: vi.fn(),
@@ -77,7 +77,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
   };
 });
 
-import { Harness } from '@civitai/blocks-react/testing';
+import { Harness } from './test-harness.js';
 
 import { App } from './App.js';
 import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
@@ -130,17 +130,17 @@ const gridData: GridData = {
   promptKeys: ['qk-2'],
 };
 
-const row = (key: string, count: number, title: string, data: unknown, author = 1): SharedListItem => ({
+const row = (key: string, count: number, title: string, data: unknown, author = 1): SharedItem => ({
   key,
   authorUserId: author,
   count,
   viewerVoted: false,
-  value: { title, body: '', data: data as SharedListItem['value']['data'] },
+  value: { title, body: '', data },
   createdAt: new Date(0),
   updatedAt: new Date(0),
 });
 
-const SEED: SharedListItem[] = [
+const SEED: SharedItem[] = [
   row('mk-a', 9, 'Matchup A', comboData('cfg-a')),
   row('mk-b', 8, 'Matchup B', comboData('cfg-b')),
   row('qk-1', 7, 'Prompt One', promptData),

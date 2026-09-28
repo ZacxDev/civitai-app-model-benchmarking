@@ -9,8 +9,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
@@ -28,7 +28,7 @@ const comboData: CombinationData = {
   ],
 };
 
-function seedCombo(key = 'combo-1'): SharedListItem {
+function seedCombo(key = 'combo-1'): SharedItem {
   return {
     key,
     authorUserId: 7,
@@ -71,7 +71,7 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
   return r;
 }
 
-describe('vote state is HOST-AUTHORITATIVE (SharedListItem.viewerVoted)', () => {
+describe('vote state is HOST-AUTHORITATIVE (SharedItem.viewerVoted)', () => {
   // 🔴 WHY THIS REPLACES A KV MIRROR. Until `viewerVoted` existed, `list()`
   // returned only the aggregate `count`, so this app reconstructed the viewer's
   // own vote state from a per-viewer KV array it wrote itself. That mirror is a

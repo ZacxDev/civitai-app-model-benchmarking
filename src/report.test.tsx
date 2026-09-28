@@ -18,8 +18,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { SharedListItem } from '@civitai/blocks-react';
+import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
@@ -40,7 +40,7 @@ const comboData: CombinationData = {
   ],
 };
 
-function combo(key: string, authorUserId: number, title: string): SharedListItem {
+function combo(key: string, authorUserId: number, title: string): SharedItem {
   return {
     key,
     authorUserId,

@@ -1,17 +1,24 @@
-// End-to-end component flows against the real SDK mock host (createMockHost via
-// <Harness>): submit a combination, submit a multi-ecosystem prompt, vote, and
-// run a cell → publish → grid-append. The base protocol (shared storage,
-// workflow money path, resource picker, consent, viewer) is served by the mock
-// host; only the 0.30 publish/gated bridges + the poll clock are injected via
-// deps (those two hooks aren't in the pre-0.30 mock host).
+// End-to-end component flows against the real transports (`src/test-harness.tsx`):
+// submit a combination, submit a multi-ecosystem prompt, vote, and run a cell →
+// publish → grid-append.
+//
+// 🔴 THE BASE PROTOCOL NOW COMES FROM TWO PLACES, and this file is the one that
+// depends on both. The mock host serves viewer, consent, the resource picker and
+// the workflow money path over postMessage; SHARED STORAGE AND THE BUZZ BALANCE
+// are HTTP now and come from `src/dev-rest.ts`. `opts.seed` therefore seeds the
+// REST fake, not the host — which is why it is typed against the fake. Only the
+// poll clock and the resource resolve are injected via `deps`; unlike almost every
+// other file in this suite, per-viewer app storage is NOT injected here either, so
+// this is the case that drives the real `blocks/app-storage/*` round-trips.
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { Harness } from '@civitai/blocks-react/testing';
-import type { MockHostOptions, MockSharedSeed } from '@civitai/blocks-react/testing';
-import type { SharedListItem, UseSharedStorage } from '@civitai/blocks-react';
+import { Harness, type TestHarnessProps } from './test-harness.js';
+import type { RestSharedSeed } from './dev-rest.js';
+import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -34,12 +41,12 @@ const promptSeed: PromptData = {
   default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } },
 };
 
-// NOTE: publish + gated-image reads flow through the REAL SDK hooks
+// NOTE: publish + gated-image reads flow through the REAL bridge hooks
 // (usePublishGenerationOutputs / useGatedImages) → the mock host — NOT injected
 // fakes — so the tests exercise the real hook→message→host shapes and would
 // catch a shape drift. Only the poll clock + resource resolve are seamed.
 function renderApp(
-  opts: { seed?: MockSharedSeed[]; deps?: Partial<AppDeps>; harness?: Partial<MockHostOptions> } = {},
+  opts: { seed?: RestSharedSeed[]; deps?: Partial<AppDeps>; harness?: Partial<TestHarnessProps> } = {},
 ) {
   const deps: Partial<AppDeps> = {
     resolveResources: async () => [],
@@ -300,18 +307,20 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // optimistic insert in confirmRun is what makes the just-published result
     // render immediately; without it the cell falls back to "not generated yet"
     // until a later refetch/manual reload catches up (the reported bug).
-    const seedItems: SharedListItem[] = [
+    const seedItems: SharedItem[] = [
       { key: 'c1', authorUserId: 7, count: 2, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
       { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
     ];
-    const laggingShared: UseSharedStorage = {
+    // 🔴 EXACTLY THE SEVEN OPERATIONS `SharedStore` DECLARES — `get`, `getCount`
+    // and `getCounts` are gone because the port's façade does not carry them (no
+    // call site in this app, and `counts` is one of the six routes the SDK
+    // deliberately leaves app-layer). A fake with a method the App cannot reach is
+    // a fixture nothing exercises.
+    const laggingShared: SharedStore = {
       list: async () => ({ items: seedItems }), // never includes the appended result
-      get: async (key) => seedItems.find((it) => it.key === key) ?? null,
       report: async () => {},
       append: async () => ({ key: 'result-lagged' }),
       update: async () => {},
-      getCount: async () => 0,
-      getCounts: async () => ({}),
       vote: async () => 0,
       unvote: async () => 0,
       withdraw: async () => ({ ok: true, deleted: true }),
