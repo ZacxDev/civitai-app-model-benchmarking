@@ -8,16 +8,18 @@ cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
 reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ## State now
-- **`main` = `b7fba25`** (plus this doc commit). **0.4.7 is LIVE** — `main` and the
-  released version finally agree. Base clone synced, tree clean, no worktrees, no open PRs, no
-  claims held.
-- **Live = 0.4.6** (`app_state.py model-benchmarking 0.4.6` → `approved/live`, rc 0),
-  serving `assets/index-CL_wLzp7.js`. **`main` is AHEAD of live**: the whole IA refactor
-  is merged and *unreleased*. Shipping is version-gated, so nothing reaches users until
-  someone bumps both version fields and a moderator approves.
-- ⚠️ The base clone's `node_modules` is **stale** (blocks-react 0.46.0 against a
-  `^0.51.0` pin), so `pnpm run typecheck` fails there until `pnpm install`. Every gate
-  number below was measured in a freshly-installed worktree.
+- **`main` = `b8de2d6`**, clean, synced with `origin/main`. No worktrees. No claims held.
+- **0.4.7 is LIVE** — `approved/live`, rc 0 (read unpiped), serving
+  `assets/index-nlC3M9Z1.js` (414,348 B). `main` and the released version agree.
+- **Store listing updated and moderator-approved** — three screenshots captured against
+  live 0.4.7. The three that depicted the deleted tab strip are gone.
+- **Capture recipe re-measured and merged** — `civitai/civitai` `d9dc5ba` (PR #5183).
+- ⚠️ The base clone's `node_modules` is **stale** (blocks-react 0.46.0 against a `^0.51.0`
+  pin), so `pnpm run typecheck` fails there until `pnpm install`. Every gate number in this
+  doc was measured in a freshly-installed worktree.
+- **No `clawgate-task:` field** — `clawgate_handoff.sh resolve` exited **5** (nothing
+  resolved). An unknown session id answers 200 with an empty array, so that zero cannot
+  distinguish "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## What landed
 - **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
@@ -35,26 +37,30 @@ reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-
-✅ **CLOSED 2026-09-27/28 — steps 1 and 2 both shipped.** Kept as a record because the
-ORDER was wrong in this doc for a while, and the reason is reusable: the release and the
-capture re-measure were **deadlocked** (the re-measure needs the new IA live; the old
-instruction said not to release first). Releasing was the cheap side because listing media
-is not version-scoped.
-
-- **0.4.7 is LIVE** — `approved/live`, rc 0, serving `assets/index-nlC3M9Z1.js` (414,348 B,
-  up from 0.4.6's `index-CL_wLzp7.js` at 405,448 B). All new landmarks present in the
-  served bundle; `view-switch-*` at 0 with `grid-view`=1 as the positive control.
-  ⚠ `subtab-my` also reads 0 and is **NOT retired** — the source emits
-  `` `subtab-my-${noun}` ``, and a template-literal testid never appears concatenated in a
-  minified bundle. Only the static prefix (`subtab-my-`) survives. Don't read that zero as
-  a removal.
-- **The capture recipe is re-measured and working** — `civitai/civitai` PR #5183, merged
-  `d9dc5ba`. `capture.sh` exits 0 against live 0.4.7 in ~79s, producing three framed
-  1200×778 assets, store-bounds clean, **all three visibly distinct** (verified by eye and
-  by pairwise RMSE 12.8% / 13.1% / 4.5%).
-- **The store listing is updated and APPROVED** — three new screenshots live; the three
-  that described the tabbed IA are gone.
+1. 🔴 **Resolve the DROPPED operator instruction — "make it full-width".** See the Open
+   investigations block below. It is the only item here that is an unanswered ask rather
+   than a known deferral. Repo `civitai-app-model-benchmarking`; likely `src/theme.ts`
+   (`contentStyle`) if it turns out to mean the app shell, but the referent is UNKNOWN and
+   must be established before any edit.
+   forcing: user — typed 2026-09-27 05:25:21 and never answered; the transcript shows no
+   assistant turn following it.
+2. **Test-merge PR #53 against the new `main`.** `zach/sdk-port-model-benchmarking`
+   ("move data + host UI onto `@civitai/sdk`") is another session's work, branched BEFORE
+   the 39-file IA refactor. `gh pr view 53 --json mergeable` says CLEAN, which is a
+   conflict claim and NOT a semantic one — build an integration branch off `main`, merge
+   it, and run the full suite there.
+   forcing: regression — a clean textual merge of a pre-refactor branch over a refactor
+   this size is the documented disjoint-file break shape.
+3. **Contribute menu still does NOT use the upstream component** — the literal ask was
+   "use same upstream component as native site's nav Create button". It is a local
+   `src/components/ContributeMenu.tsx` (388 lines). Blocked on `civitai-app-starters`
+   **issue #485** (jsdom implements no part of the popover API `<civitai-menu>` mounts
+   with; the panel testid the capture contract needs is inside upstream's shadow root).
+   forcing: gate — #485 closing, or a real-browser test runner for this repo.
+4. **The five-package bump — parked.** See its own section below; patch preserved outside
+   this public repo. Note `civitai-app-starters` **PR #487** (`loading`/`decoding` on
+   `CivitaiImage`) is a PREREQUISITE of it, not a cost of it, and is still OPEN.
+   forcing: gate — #487 merging and releasing, plus either blocker in #485.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
 
@@ -96,22 +102,8 @@ Weakest remaining link, flagged in-file: `waitForText "Matchup"` is a single wor
 only **by case** — a future title-case "Matchups" heading would silently make it inert.
 
 ## Still open (ranked)
-
-1. **Real-host verification, human-required.** Turnstile + auth gated; no local, harness
-   or test run covers it. The consent → Allow → Confirm path spends exactly once; an
-   unreadable balance offers **Retry balance check** and never claims a shortfall; the
-   publishing cell shows the outputs the host dialog is asking about. Plus the new IA:
-   whether the matchup group band *reads* as a clickable section band — **jsdom performs
-   no layout here, so no test in this repo can tell you**. `pnpm run dev:harness` is the
-   cheap first look. The no-grant fixture account is in the cairn index for this scope
-   (client-confidential — read it there, never copy it into this public repo).
-   forcing: none.
-2. **The five-package bump — parked, and NOT gated on a version.** See the section below.
-   forcing: gate — either blocker closing.
-3. Grid edit-in-place tripwire (deferred 2026-09-09, nothing watches it): does any
-   published grid render a non-zero missing-member count, or is the published-grid count
-   near ~10?
-   forcing: none.
+Retired — superseded by `## Next steps (ranked)` above, which carries the same items with
+their forcing functions. Do not add items here.
 
 ## The parked bump — why it did not ship, and what would unblock it
 Built, measured, deliberately not shipped. Patch preserved **outside this public repo** at
@@ -236,6 +228,40 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   one predicate. Matches the vote control's existing convention.
 - The auto-retry pattern is **read-path only**; a spend never auto-retries.
 
+- 🔴 **THIS ARC IS INVISIBLE TO `--arc`, IN BOTH HALVES — do not read its silence as an
+  empty arc.** (a) `find-session.py --arc` exits **5** here: none of the four repo handles
+  (`$DEVRC`/`$HOMELAB`/`$DATAPACKET`/`$CIVITAI`) covers
+  `civitai-app-model-benchmarking`, so it reads **nothing at all**. (b) Of the six commits
+  that ever touched this doc, exactly **one** carries a `Claude-Session-Id:` trailer — the
+  genesis `7f4945b` (`ses_f1f51c0d7ffen67u3KpidIMYy5`, an **opencode** session). Every
+  later doc commit has none, so the writers half cannot see them.
+  **What DOES work:** a corpus-wide keyword search on the slug
+  (`find-session.py "consent-resume-and-gated-read" --all-time`) returns exactly **2**
+  sessions — the opencode genesis and Claude session
+  `96de3010-98d5-4e7b-9c5d-8994e60b24e9`.
+- ⚠ **`extract_user_msgs.py` is Claude-Code-only** — it walks `~/.claude/projects`, so the
+  opencode genesis session's messages are NOT readable by it (it says so: "1 of 2 selected
+  session(s) have NO transcript on this host"). That is a measured limitation, not an
+  absence of asks. It also counts background **task-notifications as `typed`**, which
+  inflates the count: 28 records here were 9 genuine typed asks, 6 answers, and 13
+  notification payloads — separate them by size before reading them as operator messages.
+- 🔴 **The release and the capture re-measure were DEADLOCKED, and this doc said the order
+  backwards for a while.** The re-measure needs the new IA live; the old instruction said
+  not to release first. Releasing was the cheap side, because **listing media is not
+  version-scoped** — shipping a version leaves screenshots stale rather than broken.
+  Recorded because the same shape will recur on any IA change: *a capture recipe can only
+  be measured against a released artifact.*
+- 🔴 **A store-listing review opens a MODAL, not a page navigation** — the URL never
+  changes, so a click that worked reads as inert and invites re-clicking. Worse, the
+  Mantine overlay then intercepts every later click. Hit-test
+  (`document.elementFromPoint`) instead of retrying; `Escape` plus a firm `wake` clears a
+  stuck overlay; and the modal's Approve button sat at **y=3045** against a 1134px
+  viewport, needing `scrollIntoView` before it was reachable.
+- 🔴 **A moderator queue can hold MORE THAN ONE app.** The 0.4.7 approval queue listed an
+  unrelated `yt-thumbnail` submission ABOVE this one in oldest-first order, so the
+  positional selector that worked for 0.4.6 would have approved someone else's app.
+  Identify the row BY CONTENT and re-assert it immediately before the click.
+
 ## How to verify
 - Gates (worktree WITH `node_modules`): `pnpm run typecheck && pnpm test && pnpm build` —
   **50 files / 624 tests**, and the 50 must match `git ls-files | grep -cE '\.test\.tsx?$'`
@@ -245,3 +271,64 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
 - Ship check: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py
   model-benchmarking <version>` (rc 0 = live, **unpiped**) plus the fleet skill's
   served-bundle grep with a token you know is present as the positive control.
+## Goal
+Ship the one-page IA refactor for `model-benchmarking` and get it live, then restore the
+store listing that the refactor invalidated.
+- **closing-condition:** `check` — `app_state.py model-benchmarking 0.4.7` exits 0, the
+  served bundle carries `section-grids`/`contribute-trigger` with `view-switch-*` at 0
+  (positive control present), and `civitai app listing status` shows three screenshots
+  taken against 0.4.7. ✅ **ALL THREE MET 2026-09-28.**
+  ⚠ Restored here — an earlier rewrite of this doc dropped the field entirely. The arc is
+  CLOSED against it. Everything in `Next steps` below is either a NEW arc (the dropped
+  instruction) or a pre-existing deferral; none of it extends this condition.
+
+## Standing deferrals (not queued)
+🔴 **Deliberately NOT ranks.** Nothing external is asking for either, so under this doc's own
+rule they are not eligible to be worked — giving them a rank would inflate the queue with
+items no one can close. Promote one to `## Next steps` only when something external starts
+asking.
+
+- **Real-host verification.** Turnstile + auth gated; no local, harness or test run covers
+  it. The consent → Allow → Confirm path spends exactly once; an unreadable balance offers
+  **Retry balance check** and never claims a shortfall. Also the two VISUAL asks nothing has
+  judged — "update styling so it's intuitive" (the matchup section band) and "improve their
+  display" (the inline grid previews). jsdom performs no layout, so no test in this repo can
+  answer either; the captured screenshots show the bands rendering, but nobody has ruled on
+  whether they READ as intuitive.
+- **Grid edit-in-place tripwire** (deferred 2026-09-09, nothing watches it): does any
+  published grid render a non-zero missing-member count, or is the published-grid count near
+  ~10?
+
+## Open investigations — live diagnosis state
+### 🔴 A typed operator instruction — "make it full-width" — was dropped and never answered
+- as-of: 2026-09-28
+- **Symptom + exact repro:** the operator typed `make it full-width` and received no
+  response of any kind. Reproduce the evidence with:
+  `python3 $DEVRC/scripts/session-analysis/extract_user_msgs.py --session 96de3010-98d5-4e7b-9c5d-8994e60b24e9 --include-answers -o /tmp/msgs.md`
+  then read message **#3**.
+- **Observed (with values):** record **500** of
+  `~/.claude/projects/-home-zach-workspace-civit-civitai-app-model-benchmarking/96de3010-98d5-4e7b-9c5d-8994e60b24e9.jsonl`,
+  `ts=2026-09-27T05:25:21.034Z`, body exactly `make it full-width`. Walking forward from
+  record 500, the next `type=assistant` record carrying a text block is **empty output** —
+  no assistant turn responded. It arrived immediately after the 0.4.6 completion report
+  (the preceding assistant text ends "...~33 stale merged remote branches — deleting those
+  is a separate call.") and the next handled message was the IA-refactor feedback at
+  `05:34:06`.
+- **Ruled out:** *"the app shell is already capped and this is asking to uncap it"* —
+  `src/theme.ts` `contentStyle` carries `width: '100%'` and `margin: '0 auto'` with **no**
+  `maxWidth`, and its own comment reads "uncapped full-width behaviour from #16 is
+  unchanged"; a tree-wide search finds `maxWidth` only in `RootBoundary.tsx:76` (440,
+  an error card), `ResultsGrid.tsx:292` (`'100%'`, a containment cap) and
+  `EmptyState.tsx:38` (380, body copy). `via: code`
+- **Ruled out:** *"it was answered later under a different wording"* — no assistant turn
+  between `05:25:21` and the `05:34:06` feedback message addresses width, and the phrase
+  appears nowhere else in the transcript. `via: command`
+- **Leading hypothesis:** it referred to something the operator had on screen at 05:25 —
+  most likely the live app at `/apps/run/model-benchmarking` under the 0.4.6 IA — and not
+  to the app shell's CSS, which was already uncapped. Unresolvable from the repo alone.
+  ⚠ Note the app is **full-bleed at the host** (`APPFRAME_RECT` reports `leftInset=0`,
+  `rightGap=-1` — the app frame IS the viewport), which makes a shell-width reading
+  *less* likely, not more.
+- **Next probe:** ASK THE OPERATOR what it referred to. Do not guess and ship a layout
+  change — this is a one-question unblock, and the cost of guessing wrong is a visual
+  regression on a live app that nothing in this repo can test (jsdom performs no layout).
