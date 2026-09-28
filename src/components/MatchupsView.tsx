@@ -42,15 +42,12 @@ import { MyPublished } from './MyPublished.js';
 import { MyTabSignedOut } from './MySignedOut.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
-/**
- * The "Included" badge's tooltip.
- *
- * 🔴 RE-EXPORTED, NOT DEFINED HERE. It moved to `MatchupBody` with the card body
- * it annotates — the detail modal renders the same badge and must make the same
- * claim. The re-export keeps every existing importer (and the whole-string guard
- * in `IncludedSummary.test.tsx`) pointing at one definition.
- */
-export { INCLUDED_ROW_TOOLTIP } from './MatchupBody.js';
+/* 🔴 `INCLUDED_ROW_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED, along with the
+   `matchup-included` badge it annotated (the third IA pass — see `MatchupBody`'s
+   header). It is recorded rather than quietly dropped because the constant existed
+   to be pinned whole by a test: `IncludedSummary.test.tsx` names the case it
+   retired. The `matchups-included-summary` copy below is a DIFFERENT claim and is
+   untouched. */
 
 /** Which surface of this view to render. */
 export type MatchupSurface = 'community' | 'my';
@@ -134,7 +131,6 @@ export function MatchupsView({
     <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
       <MatchupBody
         combo={combo}
-        included={includedKeys.has(combo.key)}
         voted={votedKeys.has(combo.key)}
         viewerId={viewerId}
         onVote={onVote}

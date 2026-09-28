@@ -52,6 +52,36 @@ export const MOBILE_BREAKPOINT_PX = 720;
  */
 export const NAV_ITEM_SELECTOR = '[data-mb-nav-item]';
 
+/**
+ * The selector that reaches a {@link MenuItem}'s clickable element.
+ *
+ * 🔴 RE-ADDED, AND THE PREVIOUS COMMENT INVITED IT. The sidebar change deleted
+ * `ContributeMenu` — the only thing in this app or the pack that emitted
+ * `role="menuitem"` — and removed this selector from the rule, saying "if a menu
+ * ever comes back, so does the selector". One did: `components/Menu.tsx`, the ⋮
+ * overflow menu on every matchup and prompt row. Its items carry
+ * `padding: 8px 10px` around a 13px line — ~34px, under the floor, the same
+ * arithmetic the departed menu had.
+ *
+ * 🔴 DEFINED HERE AND IMPORTED BY `Menu.tsx`, not the other way round. This module
+ * is deliberately React-free (`useMediaQuery.ts` imports it, and a node-project
+ * test could), so pulling a `.tsx` component into its graph to fetch one string
+ * would be a real cost for no gain. The rule, the component's own focus queries and
+ * the reachability test all name it once, from here.
+ *
+ * It is the ROLE, not a testid: it pins a STATE (this element is an item in a menu)
+ * rather than a word a future component could spell differently — which is also what
+ * makes it survive the upstream `<civitai-menu-item>` swap, since that element sets
+ * the same role on its own light-DOM host.
+ *
+ * ⚠️ THE QUOTING IS DELIBERATE: single quotes inside, matching `[role='option']` in
+ * the same sheet. The guard this replaces asserted `not.toContain("[role='menuitem']")`
+ * — a check on a SPELLING, which a double-quoted `[role="menuitem"]` would have
+ * walked straight past while the selector was back in the rule. Keeping one spelling
+ * is what makes that guard's replacement meaningful.
+ */
+export const MENU_ITEM_SELECTOR = "[role='menuitem']";
+
 /** The sidebar's column width, in px, on a wide viewport. */
 export const SIDEBAR_WIDTH_PX = 172;
 
@@ -95,16 +125,25 @@ export const TOOLTIP_GAP_PX = 6;
  *     LITERAL so each move is a decision someone takes rather than a drift.
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
+ *   - `[role='menuitem']`            → `components/Menu.tsx`'s items (Edit, and any
+ *     future single-press row action). See {@link MENU_ITEM_SELECTOR}.
  *   - `[data-mb-nav-item]`           → `SideNav`'s items (Home, My Benchmarks, and
  *     the three sub-items). See {@link NAV_ITEM_SELECTOR}.
  *
- * ⚠️ `[role='menuitem']` IS GONE FROM THE RULE, and it is a deletion with a
- * measurement behind it rather than a tidy-up: `ContributeMenu` — the only thing in
- * this app or the pack that ever emitted `role="menuitem"` — is deleted, replaced by
- * `SideNav`. Enumerated before removing it, which is the discipline the third
- * correction below exists to enforce: `grep -r "role=\"menuitem\"" src/` returns
- * nothing, and the pack emits none either (that was the original reason the local
- * menu's items were missed). If a menu ever comes back, so does the selector.
+ * ⚠️ `[role='menuitem']` LEFT THIS RULE AND HAS COME BACK, and both moves were
+ * correct at the time. It left because `ContributeMenu` — then the only emitter of
+ * that role in this app or the pack — was deleted by the sidebar change, and the
+ * removal was enumerated rather than assumed (`grep` for the role returned nothing,
+ * and the pack emits none either). It is back because the third IA pass added
+ * `components/Menu.tsx`, the ⋮ overflow menu on every matchup and prompt row, whose
+ * items carry the same `padding: 8px 10px` around a 13px line — ~34px.
+ *
+ * 🔴 WHAT THE RULE DOES *NOT* HAVE TO COVER, and the reason it does not: a menu's
+ * two CONFIRM-FLOW controls (Remove, Report) are pack `Button`s hosted inside the
+ * panel, not menuitems — a two-step handshake is not expressible as one menuitem,
+ * and the pack's `ReportButton` exposes no role hook. They are already floored by
+ * the `[data-civitai-ui='button']` selector at the top of this list. Enumerate the
+ * panel's controls before concluding this rule covers all of them.
  *
  * 🔴 THE LAST TWO ARE THE TAP TARGETS THIS APP BUILDS ITSELF, and BOTH shipped
  * below the floor — the same defect twice, one surface apart:
@@ -352,6 +391,7 @@ export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-range],
 [${COMPACT_ATTR}='true'] [role='option'],
+[${COMPACT_ATTR}='true'] ${MENU_ITEM_SELECTOR},
 [${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR} {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;

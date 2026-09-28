@@ -91,6 +91,11 @@ export function loraFromPick(pick: BlockResourceInfo): LoraRef {
   const seed = pick.strength ?? DEFAULT_WEIGHT;
   return {
     versionId: pick.versionId,
+    // 🔴 THE PICKER HAS ALWAYS SUPPLIED THIS and this app never stored it, which is
+    // why every LoRA published before now is permanently unlinkable — see
+    // `LoraRef.modelId`. Stored here, in the ONE place a pick becomes a LoraRef, so
+    // no form can write a LoRA without it.
+    modelId: pick.modelId,
     weight: clampWeight(seed, min, max),
     modelName: pick.modelName,
     versionName: pick.versionName,
@@ -394,6 +399,14 @@ function parseLoras(raw: unknown): LoraRef[] {
         .slice(0, MAX_LORAS)
         .map((l) => ({
           versionId: l.versionId,
+          // 🔴 TOLERATED, NEVER REQUIRED. `modelId` did not exist on `LoraRef`
+          // until the resource-link change, so a row published before it simply
+          // has none — and a parse that rejected such a row would empty the shared
+          // board for every viewer, permanently (nothing can rewrite another
+          // author's row). Carried through only when it is a number; omitted
+          // otherwise, so the field is absent rather than `undefined`-valued on the
+          // way back out to `shared.update`.
+          ...(isNum(l.modelId) ? { modelId: l.modelId } : {}),
           weight: clampWeight(
             l.weight,
             l.minStrength ?? DEFAULT_MIN_WEIGHT,

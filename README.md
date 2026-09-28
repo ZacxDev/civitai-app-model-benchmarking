@@ -281,7 +281,11 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
 [`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
 directly, for the one publish path all three share — and
-[`archive.ts`](src/lib/archive.ts) (the author-side hide). The two that are **not**
+[`archive.ts`](src/lib/archive.ts) (the author-side hide),
+[`resourceLink.ts`](src/lib/resourceLink.ts) (the ONE place a civitai.com
+`/models/<id>` path is built — read its header before trusting a resource link to
+land, because what the host does with the path is measured and is not what the docs
+say). The two that are **not**
 pure logic are the transport seam described in
 [Two transports, one block](#two-transports-one-block):
 [`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes

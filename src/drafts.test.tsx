@@ -35,6 +35,7 @@ import {
   fakeShared,
   immediateSleep,
   openMyList,
+  openRowMenu,
   openView,
 } from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
@@ -363,6 +364,7 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     // pointer used to stand in for (§11.1), so the pointer is storage-only now.
     await openMy();
     const own = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', own);
     await userEvent.click(within(own).getByTestId('matchup-edit'));
     const form = await screen.findByTestId('matchup-form');
     const nameInput = within(form).getByTestId('matchup-name');

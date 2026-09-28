@@ -38,6 +38,30 @@ export interface CheckpointRef {
 /** One weighted LoRA in a config's stack (from useResourcePicker, LORA). */
 export interface LoraRef {
   versionId: number;
+  /**
+   * The LoRA's MODEL id — what `/models/<id>` addresses on civitai.com.
+   *
+   * 🔴 OPTIONAL, AND IT WILL BE OPTIONAL FOREVER. The resource picker has always
+   * supplied it (`BlockResourceInfo.modelId` is required there); this app simply
+   * never stored it, so every LoRA in every row published before this field
+   * existed lacks it. A published shared row belongs to its author —
+   * `shared.update`/`withdraw` are author-scoped — so this app can NEVER backfill
+   * another viewer's row, and there is no migration window at the end of which the
+   * field becomes reliable. `CheckpointRef.modelId` is required for the opposite
+   * reason: it has been written since v1, and `parseCheckpoint` rejects a config
+   * without it.
+   *
+   * Consequence in the UI, and it is a permanent visible state rather than a
+   * degraded one: `ResourceLink` renders a LoRA with no `modelId` as plain,
+   * un-underlined text, never as a link that cannot work.
+   *
+   * 🔴 A PARSE MUST NEVER THROW OR REJECT ON ITS ABSENCE. A row on the shared board
+   * is read by every viewer; a parse that refused an old row would empty the board
+   * for everyone, unrecoverably. `parseLoras` carries it through only when it is a
+   * number and drops it otherwise — `renameWireCompat.test.ts` covers both
+   * directions of that round trip.
+   */
+  modelId?: number;
   /** Applied weight/strength (clamped to [min,max]). */
   weight: number;
   modelName?: string;

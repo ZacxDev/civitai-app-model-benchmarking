@@ -32,6 +32,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCombinationPayload,
   checkpointFromPick,
+  loraFromPick,
   parseCombination,
   parseResult,
   recordKind,
@@ -39,7 +40,7 @@ import {
   type RawSharedItem,
 } from './lib/benchmark.js';
 import { DRAFT_PREFIX } from './lib/drafts.js';
-import { CKPT_SDXL } from './test-helpers.js';
+import { CKPT_SDXL, LORA_SDXL } from './test-helpers.js';
 
 // ---------------------------------------------------------------------------
 // The frozen fixtures. These are BYTES, not builder output — a snapshot of the
@@ -197,6 +198,137 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     expect(reread!.data.kind).toBe('combination');
   });
 
+  // -------------------------------------------------------------------------
+  // 🔴 `LoraRef.modelId` — ADDED LATE, SO IT IS OPTIONAL FOREVER.
+  //
+  // The resource-link change stores a LoRA's model id so its title can be a link.
+  // Every LoRA already on the shared board was written WITHOUT it, and nothing can
+  // ever rewrite those rows (`shared.update`/`withdraw` are author-scoped, and the
+  // board is cross-viewer). So the field is permanently optional, and a parse that
+  // rejected or threw on its absence would empty the board for every viewer with no
+  // recovery path — the same class of unrecoverable break the `kind: 'combination'`
+  // literal is pinned against, one field down.
+  //
+  // BOTH DIRECTIONS are covered, because each is blind to the other's failure:
+  // reading an OLD row that lacks it, and round-tripping a NEW row that has it.
+  // -------------------------------------------------------------------------
+  it('🔴 READ: a LoRA with NO `modelId` still parses, and gains no phantom one', () => {
+    // `PRE_RENAME_V1_ROW`'s LoRA carries `modelId: 800`, so it cannot serve here —
+    // this needs a row whose LoRA genuinely lacks the field, which is what every row
+    // published before the resource-link change looks like. Written out as BYTES for
+    // the reason the frozen fixtures above are: a fixture produced by this repo's own
+    // builder would grow the field alongside the code and stay green through exactly
+    // the break it is meant to catch.
+    const preModelIdLora: RawSharedItem = {
+      key: 'shared_01HZQ8NOMODELID',
+      count: 1,
+      authorUserId: 9,
+      viewerVoted: false,
+      value: {
+        title: 'Pre-modelId LoRA stack',
+        body: '',
+        data: {
+          v: 2,
+          kind: 'combination',
+          configs: [
+            {
+              id: 'cfg_old',
+              checkpoint: { versionId: 3003, modelId: 700, baseModel: 'Flux.1 D' },
+              loras: [{ versionId: 4004, weight: 0.6, minStrength: 0, maxStrength: 1 }],
+            },
+          ],
+        },
+      },
+    } as unknown as RawSharedItem;
+
+    const parsed = parseCombination(preModelIdLora);
+    // The row is READABLE — the claim that matters, and the one whose failure would
+    // be unrecoverable.
+    expect(parsed).not.toBeNull();
+    expect(parsed!.data.configs).toHaveLength(1);
+    const lora = parsed!.data.configs[0]!.loras[0]!;
+    expect(lora.versionId).toBe(4004);
+    expect(lora.weight).toBe(0.6);
+    // 🔴 AND NO PHANTOM VALUE IS INVENTED. A parse that defaulted `modelId` to 0, or
+    // to the checkpoint's 700, would make `ResourceLink` render a LINK TO THE WRONG
+    // MODEL — worse than plain text, because a wrong link cannot be told from a right
+    // one by looking. The field must be ABSENT, not falsy.
+    expect(lora.modelId).toBeUndefined();
+    expect('modelId' in lora).toBe(false);
+  });
+
+  it('🔴 WRITE→READ: a LoRA WITH `modelId` survives publish and re-read', () => {
+    const built = buildCombinationPayload({
+      name: 'Linked LoRA',
+      description: 'written after the resource-link change',
+      configs: [
+        {
+          id: 'cfg_new',
+          checkpoint: checkpointFromPick(CKPT_SDXL),
+          loras: [loraFromPick(LORA_SDXL)],
+        },
+      ],
+    });
+
+    // What the BUILDER emits — the wire bytes another viewer's client will read.
+    const wire = built.data as {
+      configs: { loras: { versionId: number; modelId?: number }[] }[];
+    };
+    // Literals, not `LORA_SDXL.modelId`: an expectation read out of the same fixture
+    // the implementation read cannot check it.
+    expect(wire.configs[0]!.loras[0]!.modelId).toBe(900);
+    expect(wire.configs[0]!.loras[0]!.versionId).toBe(2002);
+
+    const reread = parseCombination({
+      key: 'k',
+      count: 0,
+      authorUserId: 1,
+      viewerVoted: false,
+      value: built,
+    } as unknown as RawSharedItem);
+    expect(reread).not.toBeNull();
+    const lora = reread!.data.configs[0]!.loras[0]!;
+    expect(lora.modelId).toBe(900);
+    // 🔴 DISTINCT FROM THE CHECKPOINT'S, on purpose. `CKPT_SDXL.modelId` is 500 and
+    // `LORA_SDXL.modelId` is 900, so a parse (or a builder) that copied the
+    // checkpoint's id onto the LoRA fails here. Fixtures whose values could coincide
+    // cannot see that mutant at all.
+    expect(reread!.data.configs[0]!.checkpoint.modelId).toBe(500);
+  });
+
+  it('🔴 a LoRA `modelId` that is NOT a number is dropped, not carried through', () => {
+    // `data` is an opaque, unmoderated blob written by other clients (and by older
+    // revisions of this one). A string or null here reaching `ResourceLink` would
+    // build `/models/null`.
+    const junk: RawSharedItem = {
+      key: 'shared_01HZQ8JUNK',
+      count: 0,
+      authorUserId: 9,
+      viewerVoted: false,
+      value: {
+        title: 'Junk modelId',
+        body: '',
+        data: {
+          v: 2,
+          kind: 'combination',
+          configs: [
+            {
+              id: 'cfg_junk',
+              checkpoint: { versionId: 3003, modelId: 700, baseModel: 'Flux.1 D' },
+              loras: [{ versionId: 4004, modelId: 'nope', weight: 0.5 }],
+            },
+          ],
+        },
+      },
+    } as unknown as RawSharedItem;
+
+    const parsed = parseCombination(junk);
+    expect(parsed).not.toBeNull();
+    const lora = parsed!.data.configs[0]!.loras[0]!;
+    expect(lora.versionId).toBe(4004);
+    expect('modelId' in lora).toBe(false);
+  });
+
   it('🔴 `ResultData.comboKey` and the result payload version are unrenamed', () => {
     // Read straight off the frozen fixture: the field NAME is the wire contract.
     const raw = PRE_RENAME_RESULT_ROW.value.data as Record<string, unknown>;
@@ -234,13 +366,11 @@ const RENAMED_TESTIDS = [
   'grid-group-matchup',
   'matchup-cancel',
   'matchup-card',
-  'matchup-config-count',
   'matchup-config-summary',
   'matchup-description',
   'matchup-edit',
   'matchup-errors',
   'matchup-form',
-  'matchup-included',
   'matchup-name',
   'matchup-report',
   'matchup-submit',
@@ -285,8 +415,34 @@ const RENAMED_TESTIDS = [
   'matchup-detail-config',
   'matchup-detail-configs',
   'my-published-matchup',
+  // ---- added by the THIRD IA pass, which also retired two ----
+  // 🔴 TWO NAMES OUT, THREE IN, and the arithmetic is written down because the
+  // length assertion below is a literal someone has to move on purpose:
+  //   OUT `matchup-included`     — the Included badge and its whole-string tooltip are
+  //                               DELETED (every badge went, both modals, operator
+  //                               decision). `IncludedSummary.test.tsx` records which
+  //                               case that retired and why it was not retargeted.
+  //   OUT `matchup-config-count` — the "N configs" pill, deleted with the rest.
+  //   IN  `matchup-menu`         — the row's ⋮ overflow TRIGGER. Edit, Remove and
+  //                               Report moved behind it, so ~30 test call sites now
+  //                               open it first (`openRowMenu` in `test-helpers.tsx`).
+  //   IN  `matchup-menu-items`   — that menu's PANEL. 🔴 It reaches the DOM through
+  //                               `Menu`'s `panelTestId` prop, NOT a `data-testid=`
+  //                               attribute, so the scan had to grow a third pattern
+  //                               to see it at all — see `PANEL_TESTIDS` below. That
+  //                               is a WIDENING of the scan, not an exemption from it:
+  //                               the id is in this ledger like every other.
+  //   IN  `grid-group-matchup-name` — the underlined NAME inside the grid's matchup
+  //                               band. The band itself keeps `grid-group-matchup`
+  //                               (an external capture recipe CLICKS it); the child
+  //                               exists so a test can pin the underline on the name
+  //                               rather than on the whole button, which also carries
+  //                               the vote count.
   'my-sign-in-matchup',
   'my-signed-out-matchup',
+  'grid-group-matchup-name',
+  'matchup-menu',
+  'matchup-menu-items',
   'section-matchups',
   'section-my-matchup',
 ] as const;
@@ -356,7 +512,27 @@ const TEMPLATED_MATCHES = Array.from(
 const TEMPLATED_TESTIDS = TEMPLATED_MATCHES.flatMap(({ stem, variable }) =>
   (TEMPLATE_UNIONS[variable] ?? []).map((v) => `${stem}${v}`),
 );
-const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS];
+/**
+ * `panelTestId="literal"` → the PANEL id of a `components/Menu.tsx` dropdown.
+ *
+ * 🔴 A THIRD PATTERN, AND IT IS A WIDENING OF THE SCAN RATHER THAN AN EXEMPTION
+ * FROM IT. `Menu` carries two test hooks — the ⋮ trigger's (`data-testid`) and its
+ * panel's — because one component cannot spell two ids under one attribute name,
+ * and deriving the panel's from the trigger's would be a template over a variable
+ * this scan's own union-guard does not know. The consequence is that the panel ids
+ * ARE production-source literals but sit under a prop name the first pattern cannot
+ * see, so `matchup-menu-items` would have been rendered on every matchup row while
+ * being absent from `ALL_TESTIDS` — the exact "an empty match set reads as a clean
+ * sweep" failure this whole file is built against, in a fourth shape.
+ *
+ * Reading the prop name is sound for the same reason reading `data-testid` is: the
+ * literal is at the CALL SITE, in production source. It is not a pass-through the
+ * scan already sees, because the attribute name differs.
+ */
+const PANEL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/panelTestId="([^"]*)"/g)).map(
+  (m) => m[1],
+);
+const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS, ...PANEL_TESTIDS];
 
 describe('527 Phase 1 — the renamed testid ledger', () => {
   // The positive control for every claim below: if this number is 0 the scan
@@ -374,6 +550,13 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // Two live examples, one per union, so a mapping that lost either half fails here.
     expect(TEMPLATED_TESTIDS).toContain('my-signed-out-matchup');
     expect(TEMPLATED_TESTIDS).toContain('board-nav-matchups');
+    // 🔴 POSITIVE CONTROL ON THE THIRD PATTERN, for the same reason as the second:
+    // a `panelTestId=` regex that matched nothing would silently drop both ⋮ panels
+    // out of `ALL_TESTIDS`, and the ledger assertion below would pass while covering
+    // neither. A non-zero count is what proves the pattern CAN see them, and the two
+    // literals are what prove it sees the right ones.
+    expect(PANEL_TESTIDS.length, 'the panelTestId scan matched nothing').toBeGreaterThan(0);
+    expect(PANEL_TESTIDS.slice().sort()).toEqual(['matchup-menu-items', 'prompt-menu-items']);
   });
 
   it('🔴 every templated testid variable maps to a KNOWN union', () => {
@@ -394,8 +577,8 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     }
   });
 
-  it('renders exactly the 32 matchup-spelled testids of the §11.4 map, as extended', () => {
-    expect(RENAMED_TESTIDS).toHaveLength(32);
+  it('renders exactly the 33 matchup-spelled testids of the §11.4 map, as extended', () => {
+    expect(RENAMED_TESTIDS).toHaveLength(33);
     const found = new Set(ALL_TESTIDS.filter((t) => /matchup/.test(t)));
     expect([...found].sort()).toEqual([...RENAMED_TESTIDS].sort());
   });
@@ -440,7 +623,21 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // the same shape, so the gap is the same size in a different file. The COUNT is
     // unchanged, which is exactly why a count alone would not have noticed the move —
     // hence a ledger of names plus the file-scoped literal check below.
+    //
+    // ⚠️ THE THIRD IA PASS ADDED THREE MORE, ALL PASS-THROUGHS — i.e. the harmless
+    // kind, and the reason this list is names rather than a number:
+    //   - `testId`      ×2 — `Menu`'s ⋮ trigger and `MenuItem`. Both literals are
+    //                        supplied at the call site under `data-testid="…"`, so the
+    //                        first scan pattern already sees them.
+    //   - `panelTestId`     — `Menu`'s panel. Its literal is at the call site too, but
+    //                        under a DIFFERENT attribute name, which is why the scan
+    //                        grew `PANEL_TESTIDS`. Not a blind spot either, now.
+    // What is NOT here, and must never be: a menu whose items come from a table local
+    // to the component. That would be the `SideNav` shape of gap all over again.
     expect(indirect.slice().sort(), 'a new indirect data-testid appeared — ledger it').toEqual([
+      'panelTestId',
+      'testId',
+      'testId',
       'testId',
       'testId',
       'testid',

@@ -22,7 +22,13 @@ import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import type { CombinationData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -100,12 +106,19 @@ describe('report — the board’s abuse seam', () => {
     const theirs = cards.find((c) => c.textContent?.includes('Someone else’s combo'))!;
     const mine = cards.find((c) => c.textContent?.includes('My combo'))!;
 
+    // 🔴 BOTH CONTROLS NOW LIVE IN THE ROW'S ⋮ MENU (the third IA pass), so each
+    // half of this claim needs its own row's menu opened. The ownership rule is
+    // unchanged; only where the controls are rendered moved.
+    const theirMenu = await openRowMenu('matchup', theirs);
     // Their row: report offered, remove NOT (it is not the viewer's to withdraw).
-    expect(within(theirs).getByTestId('matchup-report')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
-    // Own row: remove offered, report NOT.
-    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
-    expect(within(mine).queryByTestId('matchup-report')).toBeNull();
+    expect(within(theirMenu).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(theirMenu).queryByTestId('matchup-withdraw')).toBeNull();
+
+    // Own row: remove offered, report NOT. Opening this menu closes the other
+    // (an outside press), which is why the two are asserted in sequence.
+    const myMenu = await openRowMenu('matchup', mine);
+    expect(within(myMenu).getByTestId('matchup-withdraw')).toBeInTheDocument();
+    expect(within(myMenu).queryByTestId('matchup-report')).toBeNull();
   });
 
   it('🔴 offers NO report affordance to a signed-out viewer (the host rejects those)', async () => {
@@ -114,6 +127,12 @@ describe('report — the board’s abuse seam', () => {
 
     const card = await screen.findByTestId('matchup-card');
     expect(within(card).queryByTestId('matchup-report')).toBeNull();
+    // 🔴 AND NO MENU AT ALL, which is STRONGER than the line above and is the
+    // claim the ⋮ menu made possible: with no Edit, no Remove and no Report to
+    // offer, an anonymous viewer on someone else's row gets no overflow trigger
+    // rather than an empty one. An empty menu would be a control that promises
+    // actions and has none.
+    expect(within(card).queryByTestId('matchup-menu')).toBeNull();
 
     // 🔴 POSITIVE CONTROL, in-band. A missing testid is indistinguishable from a
     // row that never rendered its action group at all, and that is exactly how
@@ -140,8 +159,13 @@ describe('report — the board’s abuse seam', () => {
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
-    await userEvent.click(within(card).getByTestId('matchup-report'));
-    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
+    const menu = await openRowMenu('matchup', card);
+    // 🔴 THE WHOLE HANDSHAKE HAPPENS INSIDE THE OPEN PANEL. Every press is an
+    // INSIDE press, so the menu's outside-press close never fires and the confirm
+    // step is reachable — the reason `ReportButton` is hosted in the panel as
+    // itself rather than flattened into a single `role="menuitem"`.
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
 
     await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
     expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
@@ -164,8 +188,9 @@ describe('report — the board’s abuse seam', () => {
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
-    await userEvent.click(within(card).getByTestId('matchup-report'));
-    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
+    const menu = await openRowMenu('matchup', card);
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
 
     await waitFor(() =>
       expect(screen.getByTestId('matchup-report-prompt')).toHaveTextContent(/could not send/i),

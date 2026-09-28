@@ -2684,7 +2684,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <MatchupBody
                 combo={detailMatchup}
                 detail
-                included={includedComboKeys.has(detailMatchup.key)}
                 voted={votedKeys.has(detailMatchup.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}
@@ -2708,7 +2707,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <PromptBody
                 prompt={detailPrompt}
                 detail
-                included={includedPromptKeys.has(detailPrompt.key)}
                 voted={votedKeys.has(detailPrompt.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}

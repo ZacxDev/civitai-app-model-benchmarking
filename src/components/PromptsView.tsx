@@ -20,9 +20,9 @@ import { MyTabSignedOut } from './MySignedOut.js';
 import { PromptBody } from './PromptBody.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
-/** The "Included" badge's tooltip — RE-EXPORTED from `PromptBody`, which now owns
- * the card body it annotates (the prompt detail modal renders the same badge). */
-export { INCLUDED_COLUMN_TOOLTIP } from './PromptBody.js';
+/* 🔴 `INCLUDED_COLUMN_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED with the
+   `prompt-included` badge — the mirror of the matchup side. See `PromptBody`'s
+   header; `prompts-included-summary` below is a different claim and is untouched. */
 
 /** Which surface of this view to render. See `MatchupsView.surface`. */
 export type PromptSurface = 'community' | 'my';
@@ -96,7 +96,6 @@ export function PromptsView({
     <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
       <PromptBody
         prompt={prompt}
-        included={includedKeys.has(prompt.key)}
         voted={votedKeys.has(prompt.key)}
         viewerId={viewerId}
         onVote={onVote}
