@@ -554,7 +554,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // calls (`api/v1/blocks/app-storage/get.ts`: "the SAME function
   // `trpc.apps.storage.get` calls"), so each one was ALREADY a network round trip,
   // made from the host page. The real delta is +1 preflight leg and −2 postMessage
-  // hops per call, not 0 → 2. The conclusion is unchanged — the backstop below is
+  // hops per call, not 0 → 2.
+  //
+  // ⚠ One qualification, and it widens rather than narrows the conclusion: the host
+  // served those reads through React Query with a 1s `staleTime`
+  // (`BLOCK_STORAGE_READ_STALE_TIME_MS`, `AppBlocks/blockStorageCache.ts`), so an
+  // IDENTICAL repeat read inside a second was a cache hit and not network at all.
+  // Within one rehydrate scan every `list`/`get` has a distinct query key, so those
+  // really were N round trips — but a block that re-read the same key in a loop has
+  // lost a cache it used to get for free. The conclusion is unchanged — the backstop below is
   // MORE load-bearing after the port — but do not re-derive the discarded
   // multiplier, and the magnitude is still unmeasured: nothing in this repo has run
   // against a live host.

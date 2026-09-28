@@ -16,6 +16,7 @@ import userEvent from '@testing-library/user-event';
 import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
 import type { SharedItem, StorageClient } from '@civitai/sdk';
 
+import { hasMore } from './dev-rest.js';
 import type { SharedStore } from './lib/sdk-runtime.js';
 
 import type { GatedCellComponent } from './components/GatedCell.js';
@@ -409,7 +410,14 @@ export function fakeAppStorage(
       const from = listOpts?.cursor ? all.indexOf(atob(listOpts.cursor)) + 1 : 0;
       const page = all.slice(from, from + Math.max(size, 1));
       const last = page[page.length - 1];
-      const more = last !== undefined && all.indexOf(last) < all.length - 1;
+      // 🔴 THE SERVER'S RULE, FROM THE ONE PLACE THAT STATES IT — see `hasMore` in
+      // `dev-rest.ts`. A cursor iff the page came back FULL, not `indexOf(last) <
+      // all.length - 1`, which is the fake reading rows the server never fetched; the
+      // optimistic form stands the pre-spend double-charge backstop DOWN at the page
+      // cap. This copy is not independently pinned — nothing reaches that boundary
+      // through `deps`-injected storage — which is exactly why it shares the
+      // predicate instead of restating it.
+      const more = last !== undefined && hasMore(page.length, Math.max(size, 1));
       return {
         keys: page.map((key) => ({ key, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),

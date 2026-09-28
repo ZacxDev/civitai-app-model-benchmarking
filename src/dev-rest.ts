@@ -98,7 +98,7 @@ const EPOCH = '2026-01-01T00:00:00.000Z';
  * The page size both `list` routes apply when the caller sends none.
  *
  * 🔴 MODELLED, NOT IGNORED, AND THAT MATTERS FOR THE MONEY GUARD. `lib/kv.ts`'s
- * `scanKeys` calls `list({ prefix, cursor })` with NO `limit`, so a fake that
+ * `forEachStoredKey` calls `list({ prefix, cursor })` with NO `limit`, so a fake that
  * defaulted to "every matching row" would return the whole store in one page and
  * the cursor rule below could never fire — which is how the in-flight-run scan's
  * paging loop and its truncation report came to be unexercised over this wire.
@@ -110,6 +110,16 @@ const LIST_LIMIT_DEFAULT = 50;
 /**
  * Whether a page that came back FULL should carry a cursor.
  *
+ * 🔴 EXPORTED, AND EVERY PAGING FAKE IN THE REPO MUST USE IT — `dev-rest`'s two
+ * arms, `test-helpers.tsx`'s `fakeAppStorage` and `lib/kv.test.ts`'s `store`. Four
+ * copies of one predicate is four chances to be wrong in the same direction, and
+ * they WERE: the drift this constant was extracted to end had already produced two
+ * optimistic copies, and a mutant flipping `test-helpers.tsx`'s copy alone passed
+ * the entire suite because nothing reaches that boundary through it. Consolidating
+ * is what makes that mutant impossible rather than merely unobserved — one
+ * predicate, one guard (`lib/kv.test.ts`'s two boundary cases), and a flip anywhere
+ * is a flip everywhere.
+ *
  * 🔴 ONE RULE, ONE PLACE, BECAUSE THE TWO ARMS HAD DRIFTED. Both real routes use
  * exactly this — `rows.length === limit ? base64(lastKey) : undefined`
  * (`app-storage.service.ts` and `apps-shared.router.ts`, independently) — and the
@@ -117,15 +127,19 @@ const LIST_LIMIT_DEFAULT = 50;
  * means "there may be more".
  *
  * The app-storage arm used to say `from + page.length < all.length` instead, which
- * is the fake looking at data the server cannot see. That is not a harmless
- * shortcut: it is OPTIMISTIC exactly at the boundary the money guard turns on. On
- * a final page that is exactly full, the server says "there may be more" and
- * `App.tsx`'s `inflightScanTruncatedRef` stays ARMED, refusing to spend on a scan
- * it cannot trust; the old fake said "that was the last page" and stood the
- * backstop DOWN. Optimistic-at-the-guard is the direction that ships a
- * double-charge hole with a green suite.
+ * is the fake looking at data the server cannot see, and it is OPTIMISTIC in the
+ * direction that stands the money guard down.
+ *
+ * ⚠ BE EXACT ABOUT WHERE IT BITES, because an earlier draft of this paragraph was
+ * wider than the code. A full page yields a cursor, so `forEachStoredKey` follows it
+ * — and at any exact fit BEFORE the cap it reaches an empty page, gets no cursor,
+ * and reports `truncated: false`. The rule only changes the money decision on the
+ * `KV_MAX_PAGES`-th page, where the walk runs out of budget with a cursor still
+ * outstanding: there the server arms `inflightScanTruncatedRef` and the old fake
+ * disarmed it. One page, and it is the page a double-charge hole would live on —
+ * `lib/kv.test.ts` pins both sides of it.
  */
-const hasMore = (pageLength: number, limit: number): boolean => pageLength === limit;
+export const hasMore = (pageLength: number, limit: number): boolean => pageLength === limit;
 
 /**
  * The balance reported when none is seeded.

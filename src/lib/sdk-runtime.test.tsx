@@ -366,15 +366,18 @@ describe('group 3 — per-viewer app storage', () => {
     expect(second.nextCursor).toBeUndefined();
   });
 
-  // 🔴 THE EXACT-FIT BOUNDARY, WHICH IS WHERE THE MONEY GUARD TURNS ON. The server
-  // emits a cursor whenever the page it returned was FULL, because it has not read
-  // row `limit + 1` and so cannot know it was the last. `App.tsx`'s
-  // `inflightScanTruncatedRef` reads that: a cursor still in hand means "this scan
-  // did not see everything", and the run REFUSES TO SPEND. The fake used to answer
-  // `from + page.length < all.length` here — data the server cannot see — which said
-  // "that was the last page" on an exact fit and stood the backstop DOWN. Optimistic
-  // at the guard's own boundary is the direction that ships a double-charge hole
-  // under a green suite.
+  // 🔴 THE EXACT-FIT BOUNDARY. The server emits a cursor whenever the page it
+  // returned was FULL, because it has not read row `limit + 1` and so cannot know it
+  // was the last. The fake used to answer `from + page.length < all.length` here —
+  // data the server cannot see — and said "that was the last page" on an exact fit.
+  //
+  // ⚠ WHAT THAT COSTS, STATED NARROWLY: this case pins the WIRE, and the money
+  // consequence is one page further on. A cursor makes `forEachStoredKey` follow it,
+  // so at an exact fit before the cap it reaches an empty page and reports
+  // `truncated: false` — as the second half of this case shows. Only on the
+  // `KV_MAX_PAGES`-th page does the walk end with a cursor still outstanding, and
+  // there `inflightScanTruncatedRef` arms and `confirmRun` refuses to spend. Both
+  // sides of THAT boundary are pinned in `lib/kv.test.ts`.
   //
   // ⚠ The bound OVERSHOOTS deliberately: 2 rows at `limit: 2` is the exact fit, and
   // a fixture where the row count were a non-multiple of the page size would never
@@ -543,7 +546,13 @@ describe('group 3 — per-viewer app storage', () => {
         ['append', 'list', 'report', 'unvote', 'update', 'vote', 'withdraw'].sort(),
       );
       expect(storageOps).toEqual(['delete', 'get', 'getQuota', 'list', 'set'].sort());
-      // 12 façade methods in the table + the balance read = 13 call sites.
+      // 🔴 DERIVED FROM THE TABLE'S OWN NAMES, NOT A COUNT. A count alone is
+      // satisfiable while a method goes unpinned: swapping the `shared.report` row
+      // for a duplicate `vote` keeps the length identical, and `report` then ships
+      // with no deadline and a green suite. Comparing the SETS makes a duplicate or a
+      // typo red instead.
+      const tabled = OPERATIONS.map(([n]) => n.split('.')[1]).sort();
+      expect(tabled).toEqual([...storageOps, ...sharedOps].sort());
       expect(OPERATIONS).toHaveLength(sharedOps.length + storageOps.length);
     });
   });
