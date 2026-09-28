@@ -8,7 +8,12 @@ cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
 reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ## State now
-- **`main` = `b8de2d6`**, clean, synced with `origin/main`. No worktrees. No claims held.
+- **`main` = `e05f120`**, clean, synced with `origin/main`. No worktrees. No claims held.
+  (Updated 2026-09-28: the `int/pr53-merge-test` worktree used for rank 2 and a stray
+  `/tmp/audit-pr53-r1` left by an earlier #53 audit were both removed; both were clean, and
+  the stray was checked with `git status -s` before removal rather than assumed empty.)
+- **PR #53 is OPEN and unmerged**, test-merged green — see rank 2. Merging it is a separate
+  call nobody has made.
 - **0.4.7 is LIVE** — `approved/live`, rc 0 (read unpiped), serving
   `assets/index-nlC3M9Z1.js` (414,348 B). `main` and the released version agree.
 - **Store listing updated and moderator-approved** — three screenshots captured against
@@ -37,20 +42,49 @@ reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. 🔴 **Resolve the DROPPED operator instruction — "make it full-width".** See the Open
-   investigations block below. It is the only item here that is an unanswered ask rather
-   than a known deferral. Repo `civitai-app-model-benchmarking`; likely `src/theme.ts`
-   (`contentStyle`) if it turns out to mean the app shell, but the referent is UNKNOWN and
-   must be established before any edit.
-   forcing: user — typed 2026-09-27 05:25:21 and never answered; the transcript shows no
-   assistant turn following it.
-2. **Test-merge PR #53 against the new `main`.** `zach/sdk-port-model-benchmarking`
-   ("move data + host UI onto `@civitai/sdk`") is another session's work, branched BEFORE
-   the 39-file IA refactor. `gh pr view 53 --json mergeable` says CLEAN, which is a
-   conflict claim and NOT a semantic one — build an integration branch off `main`, merge
-   it, and run the full suite there.
-   forcing: regression — a clean textual merge of a pre-refactor branch over a refactor
-   this size is the documented disjoint-file break shape.
+1. ✅ **RETIRED 2026-09-28 — the dropped "make it full-width" instruction.** Put to the
+   operator directly (the one-question unblock the investigation called for). **Answer:
+   drop it — superseded.** Whatever it referred to no longer exists or no longer matters
+   after the 0.4.7 one-page IA refactor. No layout change is owed. The investigation block
+   below is kept for its ruled-out evidence and is CLOSED; do not re-open it or re-derive
+   the shell-width reading, which was already disproven.
+2. ✅ **DONE 2026-09-28 — PR #53 test-merged against `main`, all gates green.** 🔴 **The
+   premise was STALE and the doc said the risk backwards.** #53 had already merged
+   `origin/main` twice by the time this was ranked — `bb1980c` took in the 0.4.7 release
+   (so the IA refactor `b413500` IS an ancestor of the PR head `acc2ef0`, verified with
+   `git merge-base --is-ancestor`) and `acc2ef0` took in #55. The only commit `main` held
+   that #53 lacked was `e05f120`, **docs-only**.
+   **Measured** on `int/pr53-merge-test` (worktree off `origin/main`, fresh
+   `pnpm install --frozen-lockfile` rc 0, `.envrc` copied + `direnv allow`), merging
+   `origin/zach/sdk-port-model-benchmarking`:
+   - textual merge rc 0, `ort`, no conflicts, 38 files / +3440 −308;
+   - `pnpm run typecheck` **rc 0**;
+   - `pnpm test` **rc 0 — 52 files / 699 tests**, and 52 matches
+     `git ls-files | grep -cE '\.test\.tsx?$'` = 52 exactly, so nothing was silently
+     uncollected (that equality is also what proves BOTH vitest projects ran — a project
+     that did not run would drop its files from the count);
+   - `pnpm build` **rc 0**, `index-CsAdVJvV.js` **434.18 kB** (gzip 123.41 kB).
+   🔴 **The decisive check, and it is stronger than the suite:**
+   `git diff --name-only acc2ef0 HEAD` on the merged tree returns **`claudedocs/` only**.
+   The merged tree is byte-identical to the PR head on every non-docs path, so there was
+   **no semantic merge surface at all** — the disjoint-file break shape this rank existed
+   to catch cannot apply, and a gate on the merged tree and a gate on the PR branch are
+   here the SAME measurement. Nothing about #53's own correctness is claimed by this; it
+   says only that merging it into `main` introduces nothing a gate can see.
+   ⚠️ **Instrument validated before the green was believed** (the suite's zero was
+   otherwise uncontrolled). Negative control: deleted `if (opts?.signal) return opts;`
+   from `withDeadline` in `src/lib/sdk-runtime.ts` — the exact clobber its doc-comment
+   forbids — with `node_modules/.vite` cleared first per the stale-transform-cache gotcha.
+   Result **rc 1, 1 failed**, and it died for the RIGHT reason: `|dom|
+   src/lib/sdk-runtime.test.tsx > group 3 … > honours a CALLER's signal rather than
+   substituting the default deadline`, at `sdk-runtime.test.tsx:580`. Tree restored, clean.
+   ⚠️ **Bundle growth is the one number worth an operator's eye:** 434.18 kB against the
+   **414.20 kB recorded in this doc** for `1d5fc9d` = **+19.98 kB (+4.8%)**. Provenance
+   differs — 414.20 was measured in a prior session's worktree, 434.18 here — so treat it
+   as the SDK port's approximate cost, not a controlled A/B. Re-measure both in one tree
+   if the number ever has to carry weight.
+   **Not merged.** Test-merging was the ask; merging #53 is a separate call and was not
+   authorised. `int/pr53-merge-test` was a scratch branch and is deleted.
 3. **Contribute menu still does NOT use the upstream component** — the literal ask was
    "use same upstream component as native site's nav Create button". It is a local
    `src/components/ContributeMenu.tsx` (388 lines). Blocked on `civitai-app-starters`
@@ -177,6 +211,17 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
 - **PR #487** — `loading`/`decoding` passthrough on `CivitaiImage` (above).
 
 ## Gotchas / decisions
+- 🔴 **A RANK'S PREMISE ROTS WHILE IT SITS IN THE QUEUE — re-derive it before working it,
+  not just the claim it makes.** Rank 2 here read "#53 branched BEFORE the IA refactor, so
+  expect the disjoint-file break shape". By the time anyone picked it up another session had
+  merged `main` into #53 **twice**, and the stated risk could not occur. The doc was not
+  wrong when written; it was wrong when read, and nothing in it could say so. **The cheap
+  discriminator is ancestry, and it costs one command** — `git merge-base --is-ancestor
+  <the-refactor> <pr-head>` plus `git log --oneline <pr-head>..origin/main` — run it BEFORE
+  building the integration branch, because it can collapse the whole task. Widest reading:
+  any queued item whose justification names *where a branch sits* is a claim with an expiry
+  date. Related, and the reason this matters more here than usual: a handoff doc is written
+  by a session that cannot see what the next one will find.
 - 🔴 **`money-path.test.tsx` is NOT the right gate for a design-system bump.** It injects
   `fakeGatedCell()` (line 82), so it **stubs the cell that renders `Image`** — a green
   30/30 says nothing about the riskiest part of that change. Proven by control: mutating
@@ -300,7 +345,20 @@ asking.
   ~10?
 
 ## Open investigations — live diagnosis state
-### 🔴 A typed operator instruction — "make it full-width" — was dropped and never answered
+### ✅ CLOSED 2026-09-28 — "make it full-width" (was: a dropped operator instruction)
+🔴 **RESOLVED BY ASKING, WHICH IS WHAT THE `Next probe` BELOW PRESCRIBED. Do not re-open
+this, and do not re-derive the shell-width reading.** Put to the operator on 2026-09-28;
+the answer was **"drop it — superseded"**: whatever it referred to no longer exists or no
+longer matters after the 0.4.7 one-page IA refactor. **No layout change is owed, and none
+should be made on the strength of this entry.** The diagnosis below is preserved only as
+the record of what was ruled out — every "Ruled out" line was re-checked against the live
+tree at close time and still holds (`contentStyle` carries no `maxWidth`; the only
+`maxWidth`s in `src/` are `RootBoundary.tsx:76` = 440, `EmptyState.tsx:38` = 380, and
+`ResultsGrid.tsx:292` = `'100%'`).
+
+<details>
+<summary>Original investigation (closed — evidence only)</summary>
+
 - as-of: 2026-09-28
 - **Symptom + exact repro:** the operator typed `make it full-width` and received no
   response of any kind. Reproduce the evidence with:
@@ -332,3 +390,6 @@ asking.
 - **Next probe:** ASK THE OPERATOR what it referred to. Do not guess and ship a layout
   change — this is a one-question unblock, and the cost of guessing wrong is a visual
   regression on a live app that nothing in this repo can test (jsdom performs no layout).
+  ✅ **Done 2026-09-28. Answer: drop it — superseded. See the CLOSED banner above.**
+
+</details>
