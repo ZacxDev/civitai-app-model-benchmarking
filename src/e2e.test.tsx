@@ -92,7 +92,7 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
   it('fills the default prompt, adds a Pony override, and publishes both', async () => {
     renderApp();
     // switch to the prompts tab
-    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    await screen.findByTestId('section-prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
     await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
@@ -159,7 +159,7 @@ describe('edit-in-place: the author edits their OWN combination', () => {
 describe('edit-in-place: the author edits their OWN prompt', () => {
   it('updates the prompt row in place (same card, new name)', async () => {
     renderApp({ seed: [{ value: { title: 'My Prompt', body: '[SDXL] x', data: promptSeed }, authorUserId: 99, voters: [1] }] });
-    await userEvent.click(await screen.findByRole('tab', { name: /Prompts/ }));
+    await screen.findByTestId('section-prompts');
     const card = await screen.findByTestId('prompt-card');
     await userEvent.click(within(card).getByTestId('prompt-edit'));
     const form = await screen.findByTestId('prompt-form');
@@ -227,7 +227,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     });
 
     // go to the grid tab
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+    await screen.findByTestId('grid-view');
     const grid = await screen.findByTestId('results-grid');
     // the single cell is empty → run it
     const emptyCell = within(grid).getByTestId('grid-cell');
@@ -251,13 +251,22 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // the viewer's ceiling — the "an unrated output reads as rated mature" bug
     // this release exists to stop.
     await waitFor(() => expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result'), { timeout: 3000 });
-    const resultImgs = await screen.findAllByTestId('result-image', {}, { timeout: 3000 });
+    // 🔴 SCOPED TO THE CELL. The grid CARDS below the matrix now render an inline
+    // preview through the SAME gated read (see GridPreview), so every
+    // `result-*` testid resolves in two places once a cell has outputs — the
+    // matrix cell and the card's preview strip. The claim this case makes is about
+    // the CELL, so it is scoped there; the preview's own budget and error handling
+    // have their own cases in `gridPreview.test.tsx`.
+    const cell = screen.getByTestId('grid-cell');
+    const resultImgs = await waitFor(() => within(cell).getAllByTestId('result-image'), {
+      timeout: 3000,
+    });
     expect(resultImgs).toHaveLength(1); // 9001 only — visible AND rated
     expect(resultImgs[0]).toHaveAttribute('src', expect.stringContaining('gated-9001'));
-    expect(screen.getByTestId('result-hidden')).toBeInTheDocument(); // 9002 withheld
+    expect(within(cell).getByTestId('result-hidden')).toBeInTheDocument(); // 9002 withheld
     // 9003: shown to its author, marked as awaiting a rating, not withheld.
-    expect(screen.getByTestId('result-pending')).toBeInTheDocument();
-    expect(screen.getByTestId('result-pending-image')).toHaveAttribute(
+    expect(within(cell).getByTestId('result-pending')).toBeInTheDocument();
+    expect(within(cell).getByTestId('result-pending-image')).toHaveAttribute(
       'src',
       expect.stringContaining('gated-9003'),
     );
@@ -271,12 +280,18 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
       ],
       harness: { gatedImagesError: 'gated read failed' },
     });
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+    await screen.findByTestId('grid-view');
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(within(grid).getByTestId('run-cell'));
     await userEvent.click(await screen.findByTestId('cell-confirm-run'));
     // The result row appends, but the gated cell reports the read failure.
-    expect(await screen.findByTestId('gated-error', {}, { timeout: 3000 })).toHaveTextContent('gated read failed');
+    // 🔴 Scoped to the matrix: the grid cards' preview strips read through the same
+    // hook, so a failing read now surfaces `gated-error` there too — which is the
+    // point of reusing GatedCell, and is asserted in `gridPreview.test.tsx`.
+    await waitFor(
+      () => expect(within(grid).getByTestId('gated-error')).toHaveTextContent('gated read failed'),
+      { timeout: 3000 },
+    );
   });
 
   it('renders the published result in-session even when list() never reflects the append (optimistic insert)', async () => {
@@ -305,7 +320,7 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // publish + gated reads still flow through the real hooks → mock host.
     renderApp({ deps: { shared: laggingShared } });
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+    await screen.findByTestId('grid-view');
     const grid = await screen.findByTestId('results-grid');
     const emptyCell = within(grid).getByTestId('grid-cell');
     expect(emptyCell).toHaveAttribute('data-state', 'empty');

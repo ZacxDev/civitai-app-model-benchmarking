@@ -73,7 +73,14 @@ import { DRAFT_PREFIX, buildDraft, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, buildUnpubPrompt, unpubPromptKey } from './lib/unpubPrompts.js';
 import { UNPUB_GRID_PREFIX, buildUnpubGrid } from './lib/unpubGrids.js';
 import { unpubGridKey } from './lib/grids.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openView,
+} from './test-helpers.js';
 
 const VIEWER_ID = 99;
 
@@ -117,19 +124,34 @@ const LOCAL_ID = 'l-halfpub';
  * ⚠ These are prose, and a cosmetic reword WILL fail them. That cost is
  * deliberate — pay it and update the literal, having re-read whether the new
  * sentence still says the true thing about the store.
+ *
+ * 🔴 THE TAIL IS PER-NOUN, AND THIS FILE USED TO PIN THE STALE ONE AS CORRECT.
+ * Every noun's notice ended "Find it under Published by you to edit or remove
+ * it.", and after the IA refactor that sentence is true only for matchups and
+ * prompts — they still render a "Published by you" heading. The grids section lost
+ * its sub-tabs: a published grid lives in the one flat "All grids" list carrying a
+ * `grid-own-badge` reading "Yours". Worse, this table asserted the notice VERBATIM
+ * PER NOUN, so the guard was actively certifying the stale wording for the grid
+ * arm. The grid sentence also does not promise an EDIT: `App.tsx` has
+ * `updateCombination` and `updatePrompt` and no `updateGrid`, and the grid card
+ * offers Withdraw/Archive/Vote/Report and no Edit.
  */
-const NOTICE_PRIVATE_COPY_REMOVED = (noun: string): string =>
+const WHERE_TO_FIND: Record<'matchup' | 'prompt' | 'grid', string> = {
+  matchup: 'Find it under Published by you to edit or remove it.',
+  prompt: 'Find it under Published by you to edit or remove it.',
+  grid: 'Find it in All grids, badged Yours. A published grid can be withdrawn, not edited.',
+};
+
+const NOTICE_PRIVATE_COPY_REMOVED = (noun: 'matchup' | 'prompt' | 'grid'): string =>
   `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
   `updated with its key (${HOST_ERROR}), so the private copy has been discarded and this ` +
-  `list will not offer to publish it again. Find it under Published by you to edit or ` +
-  `remove it.`;
+  `list will not offer to publish it again. ${WHERE_TO_FIND[noun]}`;
 
-const NOTICE_PRIVATE_COPY_SURVIVED = (noun: string): string =>
+const NOTICE_PRIVATE_COPY_SURVIVED = (noun: 'matchup' | 'prompt' | 'grid'): string =>
   `Your ${noun} WAS published to the shared board — but your private copy could not be ` +
   `updated with its key (${HOST_ERROR}), and discarding that private copy was refused too — ` +
   `so after a reload it can reappear here still offering Publish. Do NOT publish it again: ` +
-  `that would put a SECOND, unmergeable copy on the board. Find it under Published by you ` +
-  `to edit or remove it.`;
+  `that would put a SECOND, unmergeable copy on the board. ${WHERE_TO_FIND[noun]}`;
 
 /**
  * The rendered notice as ONE normalised string. JSX and the `Alert` wrapper both
@@ -248,7 +270,8 @@ describe.each(OBJECTS)(
       );
       mountApp({ shared: s.shared, appStorage: kv.appStorage });
       await openView(view);
-      await userEvent.click(await screen.findByTestId('subtab-my'));
+      // Grids has no sub-tabs any more — see openMyList.
+      await openMyList(noun);
       const card = await screen.findByTestId('unpublished-card');
       await userEvent.click(within(card).getByTestId('unpublished-publish'));
       await waitFor(() => expect(s.appends).toHaveLength(1));
@@ -365,6 +388,7 @@ describe.each(OBJECTS)(
 
 describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
   it.each(OBJECTS)('$noun — no error is shown and the pointer is stored', async ({
+    noun,
     view,
     storageKey,
     record,
@@ -376,7 +400,7 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     const kv = fakeAppStorage({ [storageKey]: record });
     mountApp({ shared: s.shared, appStorage: kv.appStorage });
     await openView(view);
-    await userEvent.click(await screen.findByTestId('subtab-my'));
+    await openMyList(noun);
     const card = await screen.findByTestId('unpublished-card');
     await userEvent.click(within(card).getByTestId('unpublished-publish'));
 

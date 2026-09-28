@@ -88,6 +88,8 @@ function renderGrid() {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      onOpenMatchup={vi.fn()}
+      onOpenPrompt={vi.fn()}
     />,
   );
   return { onRunCell, configs };
@@ -133,6 +135,8 @@ function renderGridWithRun(
       onConfirmRun={onConfirmRun}
       onResumeRun={onResumeRun}
       onCancelRun={onCancelRun}
+      onOpenMatchup={vi.fn()}
+      onOpenPrompt={vi.fn()}
     />,
   );
   return { onConfirmRun, onResumeRun, onCancelRun, onRetryBalance, configs };
@@ -278,6 +282,8 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        onOpenMatchup={vi.fn()}
+        onOpenPrompt={vi.fn()}
       />,
     );
     // (the pack Loader also carries role="status", so target the progress region by testid)
@@ -446,6 +452,8 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        onOpenMatchup={vi.fn()}
+        onOpenPrompt={vi.fn()}
       />,
     );
     expect(screen.getByTestId('grid-empty')).toBeInTheDocument();
@@ -465,6 +473,12 @@ describe('ResultsGrid render (config rows)', () => {
       onConfirmRun: vi.fn(),
       onResumeRun: vi.fn(),
       onCancelRun: vi.fn(),
+      // 🔴 REQUIRED props now: the drill-in handlers stopped being optional when
+      // `ColumnHeader`/`GroupBand`'s inert `<div>` branches were deleted. A fixture
+      // that omits one no longer renders a different element than production does —
+      // it fails to compile.
+      onOpenMatchup: vi.fn(),
+      onOpenPrompt: vi.fn(),
     };
 
     it('no ROWS: says so and offers the Combinations tab', () => {

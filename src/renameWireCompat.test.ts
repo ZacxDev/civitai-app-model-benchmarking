@@ -253,7 +253,31 @@ const RENAMED_TESTIDS = [
   'matchups-loading',
   'matchups-view',
   'submit-matchup',
-  'view-switch-matchups',
+  // ---- added by the IA refactor, and `view-switch-matchups` removed by it ----
+  // 🔴 THE LEDGER IS THE SET, SO IT MOVES WHEN THE SURFACE DOES — deliberately,
+  // in one place, with the reason written down. The IA refactor deleted the
+  // top-level tab strip (so `view-switch-matchups` has no renderer any more) and
+  // added four matchup-spelled landmarks:
+  //   - `section-matchups`        the page section that replaced the tab;
+  //   - `contribute-item-matchup` the Contribute menu item that replaced its
+  //                               submit route — NOT in this list, because the
+  //                               scan below cannot see it (it reaches the DOM
+  //                               through a variable). That gap is bounded and
+  //                               asserted by its own case at the end of this
+  //                               describe block rather than left silent;
+  //   - `matchup-detail*`         the drill-in modal the grid's group band opens;
+  //   - `subtab-*-matchup`        the sub-tab strip, which had to become
+  //                               object-scoped once matchups and prompts are
+  //                               mounted TOGETHER (see SubTabs.tsx).
+  'matchup-detail',
+  'matchup-detail-config',
+  'matchup-detail-configs',
+  'my-sign-in-matchup',
+  'my-signed-out-matchup',
+  'section-matchups',
+  'subtab-community-matchup',
+  'subtab-my-matchup',
+  'subtabs-matchup',
 ] as const;
 
 /** Every production (non-test) `.ts`/`.tsx` file under src/. */
@@ -274,7 +298,27 @@ const SRC = resolve(process.cwd(), 'src');
 const PROD_SOURCE = productionSources(SRC)
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
-const ALL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/data-testid="([^"]*)"/g)).map((m) => m[1]);
+/**
+ * Every testid a production source renders.
+ *
+ * 🔴 TWO PATTERNS, AND THE SECOND ONE IS NOT OPTIONAL. The scan used to read only
+ * `data-testid="literal"`, which made every TEMPLATE-LITERAL testid invisible to
+ * it — a guard whose description claims "every production testid" while its
+ * implementation sees one of the two spellings. That was latent (the app had no
+ * templated testids) and the IA refactor made it live: `SubTabs` builds
+ * `subtab-my-${noun}`, and a `combo`-spelled template would have sailed straight
+ * through the combo/combination assertion below. Templated ids are expanded over
+ * their declared union, so what lands in this list is what the DOM actually gets.
+ */
+const LITERAL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/data-testid="([^"]*)"/g)).map(
+  (m) => m[1],
+);
+/** `data-testid={`stem-${expr}`}` → one entry per member of `NOUNS`. */
+const NOUNS = ['matchup', 'prompt', 'grid'] as const;
+const TEMPLATED_TESTIDS = Array.from(
+  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{[^}]*\}`\}/g),
+).flatMap((m) => NOUNS.map((n) => `${m[1]}${n}`));
+const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS];
 
 describe('527 Phase 1 — the renamed testid ledger', () => {
   // The positive control for every claim below: if this number is 0 the scan
@@ -282,15 +326,68 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
   it('the scan actually reads the production sources', () => {
     expect(PROD_SOURCE.length).toBeGreaterThan(50_000);
     expect(new Set(ALL_TESTIDS).size).toBeGreaterThan(100);
+    // 🔴 POSITIVE CONTROL ON THE SECOND PATTERN. A regex that matched nothing
+    // would leave the templated half of the scan silently empty, and every claim
+    // below would be about literals only — exactly the blind spot this pattern was
+    // added to close. A non-zero count is what proves it CAN see them.
+    expect(TEMPLATED_TESTIDS.length, 'the templated-testid scan matched nothing').toBeGreaterThan(
+      0,
+    );
+    expect(TEMPLATED_TESTIDS).toContain('subtab-my-matchup');
   });
 
-  it('renders exactly the 24 renamed testids from the §11.4 map', () => {
-    expect(RENAMED_TESTIDS).toHaveLength(24);
+  it('renders exactly the 32 matchup-spelled testids of the §11.4 map, as extended', () => {
+    expect(RENAMED_TESTIDS).toHaveLength(32);
     const found = new Set(ALL_TESTIDS.filter((t) => /matchup/.test(t)));
     expect([...found].sort()).toEqual([...RENAMED_TESTIDS].sort());
   });
 
   it('🔴 no production testid still spells combo/combination', () => {
     expect(ALL_TESTIDS.filter((t) => /combo|combination/i.test(t))).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE SCAN'S BLIND SPOT, BOUNDED AND NAMED RATHER THAN LEFT SILENT.
+  //
+  // The two patterns above read `data-testid="literal"` and
+  // `data-testid={`stem-${expr}`}`. A THIRD spelling exists and is not statically
+  // resolvable: `data-testid={someVariable}`, where the value comes from a table.
+  // `ContributeMenu` uses it (its three items are driven by one array, which is
+  // also what a ledger test asserts over), so the ids it renders are invisible to
+  // `ALL_TESTIDS` — and a `combo`-spelled id introduced that way would pass the
+  // assertion above.
+  //
+  // What makes that acceptable is that the blind spot is CLOSED AT THE EDGES: the
+  // number of such sites is pinned, so a second one cannot appear unnoticed, and
+  // the ids the one site can render are pinned as source literals. Either half
+  // moving fails here.
+  // -------------------------------------------------------------------------
+  it('🔴 pins every INDIRECT data-testid site, so the scan cannot silently miss one', () => {
+    const indirect = Array.from(
+      PROD_SOURCE.matchAll(/data-testid=\{\s*([A-Za-z_$][\w$]*)\s*\}/g),
+    ).map((m) => m[1]);
+    // A literal ledger, not a `<=`: a new indirect site is a decision someone takes.
+    //
+    // 🔴 THE TWO KINDS ARE NOT EQUALLY BLIND, and the distinction is the reason this
+    // is a ledger of NAMES rather than a count:
+    //   - `testId` (EmptyState, GridPicker) is a PROP PASS-THROUGH. The literal is
+    //     supplied by the caller, in production source, so the scan above already
+    //     sees it. Not a blind spot at all.
+    //   - `testid` (ContributeMenu) comes from a table LOCAL to the component, so
+    //     no call site carries the literal and the scan cannot reach it. That is
+    //     the one genuine gap, and the literal check below closes it.
+    expect(indirect.slice().sort(), 'a new indirect data-testid appeared — ledger it').toEqual([
+      'testId',
+      'testId',
+      'testid',
+    ]);
+
+    const menu = readFileSync(resolve(SRC, 'components/ContributeMenu.tsx'), 'utf8');
+    // POSITIVE CONTROL: the file really was read.
+    expect(menu.length).toBeGreaterThan(1_000);
+    for (const id of ['contribute-item-matchup', 'contribute-item-prompt', 'contribute-item-grid']) {
+      expect(menu, `${id} is not declared in ContributeMenu`).toContain(`'${id}'`);
+    }
+    expect(menu).not.toMatch(/'contribute-item-(?!matchup'|prompt'|grid')/);
   });
 });

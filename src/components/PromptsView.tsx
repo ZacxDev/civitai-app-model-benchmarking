@@ -7,30 +7,22 @@
 // COMMUNITY = every published row INCLUDING the viewer's own. A prompt the viewer
 // authored appears in both.
 
-import { Alert, Badge, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
-import { Tooltip } from '@civitai/components-react';
+import { Alert, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 
 import { useState, type ReactNode } from 'react';
 
 import type { PromptRow, UnpublishedPrompt } from '../types.js';
 import { includedSummary, isOwnRow } from '../lib/benchmark.js';
 import { ARCHIVE_NOTE } from '../lib/archive.js';
-import { ecosystemMeta } from '../lib/ecosystem.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
-import { VoteButton } from './VoteButton.js';
-import { ReportButton } from '@civitai/blocks-react/ui';
-import { WithdrawButton } from './WithdrawButton.js';
+import { PromptBody } from './PromptBody.js';
 import { SubTabs, MyTabSignedOut, type SubTab } from './SubTabs.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
-/** The "Included" badge's tooltip — the column-side mirror of
- * `INCLUDED_ROW_TOOLTIP`. Exported for the same reason: it is a claim, it has
- * been wrong once (it named the `Slider` 527 deletes), and a test pins it whole. */
-export const INCLUDED_COLUMN_TOOLTIP =
-  'Included: currently in the top by votes, so it forms a column of the ' +
-  'system-owned Top Grid — ranked over the entries this app has loaded. To pick ' +
-  'your own columns, build a grid in the Grids tab.';
+/** The "Included" badge's tooltip — RE-EXPORTED from `PromptBody`, which now owns
+ * the card body it annotates (the prompt detail modal renders the same badge). */
+export { INCLUDED_COLUMN_TOOLTIP } from './PromptBody.js';
 
 export interface PromptsViewProps {
   prompts: PromptRow[];
@@ -100,77 +92,25 @@ export function PromptsView({
   const myArchived = own.filter((p) => archived.has(p.key));
   const myCount = myPublished.length + unpublished.length;
 
-  const card = (prompt: PromptRow, extraActions?: ReactNode): React.JSX.Element => {
-    const overrideEcos = Object.keys(prompt.data.overrides ?? {});
-    const isOwn = isOwnRow(prompt, viewerId);
-    return (
-      <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={4}>
-            <Group gap={8}>
-              <strong>{prompt.name || `#${prompt.key}`}</strong>
-              {includedKeys.has(prompt.key) && (
-                <Tooltip label={INCLUDED_COLUMN_TOOLTIP}>
-                  <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
-                    <Badge color="success" variant="light" data-testid="prompt-included">
-                      Included
-                    </Badge>
-                  </span>
-                </Tooltip>
-              )}
-            </Group>
-            {prompt.description && <span style={mutedText}>{prompt.description}</span>}
-            <Group gap={4} wrap>
-              <Badge color="success" variant="light" size="sm" data-testid="prompt-default-badge">
-                Default
-              </Badge>
-              {overrideEcos.map((eco) => (
-                <Badge key={eco} variant="light" size="sm" data-testid="prompt-override-badge">
-                  {ecosystemMeta(eco).label}
-                </Badge>
-              ))}
-            </Group>
-          </Stack>
-          <Group gap={6} align="center">
-            {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
-            {isOwn && (
-              <Button size="sm" variant="subtle" onClick={() => onEdit(prompt)} data-testid="prompt-edit">
-                Edit
-              </Button>
-            )}
-            {extraActions}
-            {isOwn && (
-              <WithdrawButton
-                noun="prompt"
-                onWithdraw={() => onWithdraw(prompt.key)}
-                data-testid="prompt-withdraw"
-              />
-            )}
-            {/* Escalation, and the mirror image of the two above: offered only
-                on rows the viewer does NOT own, and only when signed in —
-                the host rejects an anonymous report, and an owner has
-                Remove. Filing does NOT hide the row; see ReportButton. */}
-            {!isOwn && viewerId != null && (
-              <ReportButton
-                noun="prompt"
-                onReport={() => onReport(prompt.key)}
-                data-testid="prompt-report"
-              />
-            )}
-            <VoteButton
-              count={prompt.count}
-              voted={votedKeys.has(prompt.key)}
-              disabled={viewerId == null}
-              onVote={() => onVote(prompt.key)}
-              onUnvote={() => onUnvote(prompt.key)}
-              onRequireAuth={onRequireAuth}
-              data-testid="prompt-vote"
-            />
-          </Group>
-        </Group>
-      </Card>
-    );
-  };
+  // 🔴 Shared with the prompt DETAIL MODAL a grid COLUMN header opens — see
+  // MatchupsView for why the body is one component rather than two.
+  const card = (prompt: PromptRow, extraActions?: ReactNode): React.JSX.Element => (
+    <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
+      <PromptBody
+        prompt={prompt}
+        included={includedKeys.has(prompt.key)}
+        voted={votedKeys.has(prompt.key)}
+        viewerId={viewerId}
+        onVote={onVote}
+        onUnvote={onUnvote}
+        onRequireAuth={onRequireAuth}
+        onEdit={onEdit}
+        onWithdraw={onWithdraw}
+        onReport={onReport}
+        extraActions={extraActions}
+      />
+    </Card>
+  );
 
   return (
     <Stack gap={14} data-testid="prompts-view">
@@ -184,7 +124,13 @@ export function PromptsView({
         </Button>
       </Group>
 
-      <SubTabs value={tab} onChange={setTab} myCount={myCount} communityCount={prompts.length} />
+      <SubTabs
+        value={tab}
+        onChange={setTab}
+        noun="prompt"
+        myCount={myCount}
+        communityCount={prompts.length}
+      />
 
       {error && (
         <Alert color="error" data-testid="prompts-error">

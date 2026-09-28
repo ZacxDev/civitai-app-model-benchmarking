@@ -181,6 +181,8 @@ function renderPublishingCell(run: CellRun) {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      onOpenMatchup={vi.fn()}
+      onOpenPrompt={vi.fn()}
     />,
   );
 }
@@ -311,7 +313,7 @@ describe('🔴 driven end to end: the image is on screen while the host prompt i
       </Harness>,
     );
 
-    await userEvent.click(await screen.findByRole('tab', { name: /^Grids$/ }));
+    await screen.findByTestId('grid-view');
     const grid = await screen.findByTestId('results-grid');
     await userEvent.click(within(grid).getByTestId('run-cell'));
     await userEvent.click(await screen.findByTestId('cell-confirm-run'));

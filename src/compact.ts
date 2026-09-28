@@ -51,23 +51,61 @@ export const TOOLTIP_GAP_PX = 6;
  * silently orphans a rule fails the suite rather than shipping 30px buttons):
  *   - `[data-civitai-ui='button']`   → every pack Button (vote, run-cell,
  *     confirm/cancel, withdraw, the modal form actions).
- *   - `[data-civitai-ui-segment]`    → the `view-switch` tab-strip segments.
+ *   - `[data-civitai-ui-segment]`    → the `SegmentedControl` segments. These used
+ *     to be the top-level `view-switch` strip's tabs as well; the IA refactor
+ *     deleted that strip, so the only segments left are the My/Community sub-tabs
+ *     on the matchup and prompt sections (four of them, and the reachability
+ *     ledger in `mobile-responsive.test.tsx` says so as a literal).
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
+ *   - `[role='menuitem']`            → `ContributeMenu`'s three items.
  *
- * 🔴 THE OPTION ROWS ARE THE ONE TAP TARGET THIS APP BUILDS ITSELF, and they
- * shipped below the floor. `GridPicker` is hand-built because the pack has no
- * MultiSelect (see the header there), so its rows are plain `<div role="option">`
- * carrying `padding: 10px 12px` around a 14px line — ~37px, under the 44 every
- * other control in this rule is held to, and they are the primary hit target of
- * the whole grid-builder flow on a phone. The three selectors above all reach
- * PACK-rendered controls, which is exactly why this one was missed: nothing in
- * the pack emits it.
+ * 🔴 THE LAST TWO ARE THE TAP TARGETS THIS APP BUILDS ITSELF, and BOTH shipped
+ * below the floor — the same defect twice, one surface apart:
  *
- * The selector is `[role='option']` — the ROLE, not a `data-testid` — so it pins
- * the STATE (this element is an option in a listbox) rather than a word a future
- * component could spell differently, and it covers any second listbox this app
- * grows without a fourth selector.
+ *   - `GridPicker` is hand-built because the pack has no MultiSelect (see the
+ *     header there), so its rows are plain `<div role="option">` carrying
+ *     `padding: 10px 12px` around a 14px line — ~37px, and the primary hit target
+ *     of the whole grid-builder flow on a phone.
+ *   - `ContributeMenu` is hand-built because no `@civitai/*` package this repo
+ *     imports ships a React menu, so its items are `<button role="menuitem">`
+ *     carrying `padding: 8px 10px` around a 13px line — ~34px, and it is the
+ *     page's ONLY contribute affordance since the IA refactor deleted the tab
+ *     strip. MEASURED at the pre-change base: computed `min-height` on the three
+ *     live items was **0** (`mobile-responsive.test.tsx`, red before this
+ *     selector existed, green after).
+ *
+ * The three PACK-facing selectors above reach controls the pack renders, which is
+ * exactly why both app-built ones were missed: the pack emits neither
+ * `role="option"` nor `role="menuitem"` anywhere.
+ *
+ * 🔴 THE RECURRING LESSON, NOW THIRD-HAND: an app-built tap target slips this
+ * list every time, because the list reads as "the pack's controls". AUDIT IT BY
+ * ROLE — enumerate the interactive roles the app itself renders — rather than by
+ * remembering which ones were added.
+ *
+ * Both selectors are the ROLE, not a `data-testid` — they pin the STATE (this
+ * element is an option in a listbox / an item in a menu) rather than a word a
+ * future component could spell differently, and each covers any second listbox or
+ * menu this app grows without another selector.
+ *
+ * ⚠️ AND THE ROLE IS WHAT MAKES `[role='menuitem']` SURVIVE THE UPSTREAM MENU
+ * MIGRATION, which is the reason to prefer it over a testid here specifically.
+ * `@civitai/components@0.8.1` ships a `<civitai-menu-item>` custom element that a
+ * later change may adopt in place of the local menu. MEASURED in
+ * `node_modules/.pnpm/@civitai+components@0.8.1/.../elements/civitai-menu-item.js`:
+ * its `connectedCallback()` runs `this.setAttribute('role', 'menuitem')` on its own
+ * HOST, in LIGHT DOM — so this selector reaches it, and a document-level
+ * `min-height` beats its shadow `:host` rule (outer-tree author styles win over
+ * `:host` regardless of specificity).
+ *
+ * 🔴 AND IT IS NOT ALREADY ABOVE THE FLOOR, so adopting it would NOT retire this
+ * selector. `:host` is `padding: 7px 14px; font-size: 14px; line-height: 1.4` —
+ * 14 × 1.4 + 7 + 7 = **33.6px**, i.e. the upstream element is under 44 on its own,
+ * marginally worse than the local menu's ~34. "The pack's own items are covered"
+ * is FALSE; the floor stays this app's job either way. Recorded here because
+ * assuming the opposite is precisely how the range selector was wrongly deleted in
+ * round 3 above — "nothing needs this any more" is a measurement, not an inference.
  *
  * 🔴 THIS PARAGRAPH HAS BEEN WRONG THREE TIMES. Every correction came from
  * MEASURING the DOM or the cascade, never from reading it:
@@ -249,7 +287,8 @@ export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui='button'],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-range],
-[${COMPACT_ATTR}='true'] [role='option'] {
+[${COMPACT_ATTR}='true'] [role='option'],
+[${COMPACT_ATTR}='true'] [role='menuitem'] {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
 }

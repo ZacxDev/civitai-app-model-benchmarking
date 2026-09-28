@@ -136,9 +136,17 @@ tests — `pnpm build` runs it too (`tsc --noEmit && vite build`).
 gated. No local run, harness run, or test proves a cell actually charged
 correctly — that needs a human in a real mod-gated host. Say so plainly rather
 than reporting a green suite as if it covered the money path. The same goes for
-the platform builder: CI is a *different environment* and `.github/` is not part
-of the submitted bundle, so a green CI run is not evidence the platform can
-build this app.
+the platform builder: CI is a *different environment*, so a green CI run is not
+evidence the platform can build this app — the builder runs
+`block.manifest.json`'s `buildCommand` on its own image, and nothing in
+`.github/` is consulted.
+
+> 🔴 This used to say `.github/` **is not part of the submitted bundle**, and
+> that is wrong — measured on CLI 0.1.105 while releasing 0.4.6 (2026-09-27):
+> `civitai app submit --package-only` packaged 123 files *including*
+> `.github/workflows/ci.yml`, skipping only `.envrc` (`.env*`) and `.git`. The
+> conclusion above survives the correction; the reason given for it did not. The
+> workflow file is shipped and simply never executed.
 
 New guards should pin a *relationship* that cannot rot on a routine bump, and be
 watched failing before they are trusted. `src/toolchain-lockstep.test.ts` and
@@ -159,7 +167,16 @@ copy — both explain, in the file, the incident they exist to prevent.
   refused at install time on `minimumReleaseAge`, add one with
   `packages: ['.']` plus a `minimumReleaseAgeExclude` naming the exact versions
   (see `civitai-app-gen-matrix` for the shape) — and re-run the bundle build,
-  because that file *is* part of the submitted bundle while `.github/` is not.
+  because that file *is* part of the submitted bundle.
+- 🔴 **Submit from a clean worktree off `origin/main`, never the base clone.**
+  0.4.6's bundle diff showed three files *removed* — `pf.txt`, `sub.txt`,
+  `val.txt` — which were **never tracked in git and are not gitignored**, i.e.
+  0.4.5 was packaged out of a dirty working directory and shipped a prior
+  session's scratch redirects to production. The packager takes whatever is on
+  disk; only `.env*` and `.git` are skipped. `git -C <repo> worktree add
+  --detach <dir> origin/main` is clean by construction, and being inside a git
+  repo is also what arms the CLI's dirty-tree refusal and its build-provenance
+  stamp.
 - ⚠️ There is **no tracked `.env.production`** here (`.gitignore` excludes it),
   so the build bakes in no `VITE_BLOCK_ALLOWED_PARENT_ORIGINS`. Measured in
   `@civitai/blocks-react@0.46.0`: with none set, `readAllowedOriginsFromEnv()`

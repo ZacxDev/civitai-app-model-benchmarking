@@ -76,13 +76,13 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
 
 /** Switch to the My sub-tab of whichever view is mounted (§11.1). */
 async function openMy() {
-  await userEvent.click(await screen.findByTestId('subtab-my'));
+  await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
   return screen.findByTestId('my-panel');
 }
 
 /** Switch to the Community sub-tab. */
 async function openCommunity() {
-  await userEvent.click(await screen.findByTestId('subtab-community'));
+  await userEvent.click(await screen.findByTestId('subtab-community-matchup'));
 }
 
 /** Drive the private matchup form: open it, name it, pick a checkpoint, save. */
