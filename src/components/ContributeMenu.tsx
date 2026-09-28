@@ -85,17 +85,32 @@ export interface ContributeMenuProps {
 }
 
 /**
- * The three items, as `[testid, label, which handler]`.
+ * The four columns, as `[testid, visible label, accessible name, which handler]`.
  *
  * 🔴 A LEDGER LIVES OFF THIS SHAPE, so adding a fourth contribution kind fails a
- * test rather than silently widening the menu. The labels are the accessible
- * names a capture recipe and a screen reader both read.
+ * test rather than silently widening the menu.
+ *
+ * 🔴 THE VISIBLE LABEL AND THE ACCESSIBLE NAME ARE NOW SEPARATE COLUMNS, and that
+ * split is the whole point of this table's current shape. The labels used to be
+ * BOTH — `'Submit a matchup'` was the text on screen *and* the accessible name,
+ * because a `<button>`'s accessible name falls out of its own text content. The
+ * operator asked for terse visible text (`Matchup`, not `Submit a matchup`), which
+ * is fine on screen — the surrounding control already says "Contribute" — but a
+ * screen reader user hears the accessible name with no such context, and
+ * "Matchup" does not say what pressing it DOES. So each item carries an explicit
+ * `aria-label`, which overrides the text content as the accessible name.
+ *
+ * Both columns are asserted (`ContributeMenu.test.tsx`), and they are asserted
+ * SEPARATELY: a single assertion over "the label" would be satisfied by dropping
+ * the aria-label and going back to one string.
  */
 const ITEMS = [
-  ['contribute-item-matchup', 'Submit a matchup', 'onSubmitMatchup'],
-  ['contribute-item-prompt', 'Submit a prompt', 'onSubmitPrompt'],
-  ['contribute-item-grid', 'Build a grid', 'onBuildGrid'],
-] as const satisfies ReadonlyArray<readonly [string, string, keyof ContributeMenuProps]>;
+  ['contribute-item-matchup', 'Matchup', 'Create a matchup', 'onSubmitMatchup'],
+  ['contribute-item-prompt', 'Prompt', 'Create a prompt', 'onSubmitPrompt'],
+  ['contribute-item-grid', 'Grid', 'Create a grid', 'onBuildGrid'],
+] as const satisfies ReadonlyArray<
+  readonly [string, string, string, keyof ContributeMenuProps]
+>;
 
 export function ContributeMenu(props: ContributeMenuProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
@@ -207,12 +222,17 @@ export function ContributeMenu(props: ContributeMenuProps): React.JSX.Element {
             }
           }}
         >
-          {ITEMS.map(([testid, label, handler]) => (
+          {ITEMS.map(([testid, label, ariaLabel, handler]) => (
             <button
               key={testid}
               type="button"
               role="menuitem"
               data-testid={testid}
+              /* 🔴 THE ACCESSIBLE NAME, EXPLICIT. The visible text is terse by
+                 operator decision; `aria-label` is what a screen reader reads, and
+                 it has to say what pressing this does without the surrounding
+                 "Contribute" context that a sighted reader gets for free. */
+              aria-label={ariaLabel}
               onClick={() => choose(handler)}
               style={{
                 appearance: 'none',
@@ -248,5 +268,16 @@ export function ContributeMenu(props: ContributeMenuProps): React.JSX.Element {
   );
 }
 
-/** The item ledger, exported so a test asserts the SET rather than a count. */
-export const CONTRIBUTE_ITEMS = ITEMS.map(([testid, label]) => ({ testid, label }));
+/**
+ * The item ledger, exported so a test asserts the SET rather than a count.
+ *
+ * 🔴 IT CARRIES BOTH NAMES. Exporting only `label` would let the `aria-label`
+ * column drift out of the table unnoticed — the export is what a ledger test
+ * cross-checks against its own literals, so anything the component decides and
+ * the export omits is outside the contract.
+ */
+export const CONTRIBUTE_ITEMS = ITEMS.map(([testid, label, ariaLabel]) => ({
+  testid,
+  label,
+  ariaLabel,
+}));

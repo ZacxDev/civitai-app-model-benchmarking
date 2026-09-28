@@ -177,9 +177,14 @@ describe('board scan truncation', () => {
   it('does NOT cry truncation on the Grids view either, on a board that fits', async () => {
     renderApp({ shared: finiteShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The Grids list is the load anchor here: the Top Grid card is rendered from
-    // the scanned rows, so its presence means the scan settled.
-    await waitFor(() => expect(screen.getByTestId('grid-system-badge')).toBeInTheDocument());
+    // The open grid is the load anchor here: the Top Grid is computed from the
+    // scanned rows, so its presence means the scan settled.
+    //
+    // ⚠️ IT USED TO BE `grid-system-badge` — the badge on the Top Grid's CARD. The
+    // open grid is no longer listed, so on a default load the Top Grid has no card
+    // and that testid does not exist. `grid-open-system-badge` is the same claim
+    // about the same entry, read where it now renders.
+    await waitFor(() => expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument());
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 });

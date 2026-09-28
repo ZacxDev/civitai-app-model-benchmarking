@@ -117,7 +117,7 @@ import {
   compactTapTargetCss,
 } from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import { contribute, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
 
 // ---------------------------------------------------------------------------
@@ -539,8 +539,9 @@ describe('420 — the 44px figure itself', () => {
     renderApp();
     await screen.findByTestId('grid-view');
 
-    // Grids is the default view (§11.5), so the builder is two clicks away.
-    await userEvent.click(await screen.findByTestId('grid-new'));
+    // Grids is the default view (§11.5), so the builder is two clicks away —
+    // through the Contribute menu since `grid-new` was removed from that surface.
+    await contribute('grid');
     await screen.findByTestId('grid-form');
     await userEvent.click(screen.getByTestId('grid-form-pick-rows'));
     await screen.findByTestId('grid-pick-rows');
