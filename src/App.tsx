@@ -4,17 +4,30 @@
 // rehydrate, the Buzz workflow money path + balance, shared storage, consent,
 // and the 0.30 publish/gated bridges).
 //
-// 🔴 ONE PAGE, NO TOP-LEVEL TABS. There used to be a `SegmentedControl` routing
-// between three views (Combos / Prompts / Grid) and a `view` state behind it; both
-// are gone. The page now renders three SECTIONS in a fixed order — grids (with the
-// runnable matrix and the flat all-grids list), then matchups, then prompts — each
-// marked with `data-mb-section` so a ledger test fails when the set grows or
-// shrinks. Contribution is one `ContributeMenu` where the strip used to be.
+// 🔴 A SIDEBAR AND ONE SURFACE AT A TIME. Three generations of IA have passed through
+// this file and each retired the last one's premise, so all three are named:
+//   1. a top-level `SegmentedControl` routing between three views (Combos / Prompts /
+//      Grid), with a `view` state behind it — deleted, because it put the thing the
+//      block is FOR behind a click (§11.5, criterion 9);
+//   2. ONE PAGE, NO TABS: three simultaneous `data-mb-section` sections plus a
+//      `ContributeMenu` dropdown where the strip had been. That page rendered 2166 CSS
+//      px and the host's iframe — sized to the VIEWPORT inside an `overflow: hidden`
+//      parent — clipped two of the three sections out of every store screenshot;
+//   3. now: a SIDEBAR (`SideNav`) choosing Home vs My Benchmarks, and on Home a BOARD
+//      SUBNAV (`BoardNav`) mounting exactly ONE community board. There is a `view`
+//      state again and it is NOT the one that was deleted: Home always renders the grid
+//      and its runnable matrix, so nothing the block is for is behind a click.
 //
-// The matchup and prompt sections KEEP their own My/Community sub-tabs, drafts,
-// archive and quota machinery: those lists are what the vote ranking is cast on,
-// and the ranking is what decides the Top Grid's members. Folding them away is
-// what would starve it.
+// 🔴 THE UNSELECTED SURFACES ARE UNMOUNTED, NOT HIDDEN, and every absence that creates
+// is asserted as an absence (`boardNav.test.tsx`, `sideNav.test.tsx`,
+// `myBenchmarks.test.tsx`). `data-mb-section` is still the ledger marker, and
+// `capture-landmarks.test.tsx` now pins the SET per destination rather than one list.
+//
+// 🔴 THE PER-BOARD My/Community SUB-TABS ARE GONE, AND THE MACHINERY BEHIND THEM IS NOT.
+// Drafts, archive and quota all moved to My Benchmarks (`MyPublished`, `MyGridsView`),
+// which is also where `ARCHIVE_NOTE`'s promise — "stays in Community for everyone
+// including you" — is true again. The community boards still carry the vote lists the
+// Top Grid's members come out of; folding THOSE away is what would starve it.
 //
 // Submit flows are modals; so are the matchup/prompt DETAIL views the grid's
 // group band and column headers open. The hooks are
