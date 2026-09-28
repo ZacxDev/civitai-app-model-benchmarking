@@ -30,10 +30,19 @@
 // So on the measured host revision `modelPath(500, 1001)` shallow-pushes
 // `/apps/run/model-benchmarking/models/500?modelVersionId=1001` — the URL bar
 // changes and the viewer never leaves the app. The app-side call is correct; the
-// affordance cannot land until the host stops rewriting the path. That is filed
-// upstream (see the PR body) and is NOT something this repo can work around: the
-// host is the only thing that can perform a top-level navigation out of a
-// sandboxed iframe.
+// affordance cannot land until the host stops rewriting the path, and that is NOT
+// something this repo can work around: the host is the only thing that can perform
+// a top-level navigation out of a sandboxed iframe.
+//
+// 🔵 FILED UPSTREAM as `civitai/civitai` **issue #5209** — the path rewrite and the
+// missing `allow-popups-to-escape-sandbox` token as ONE consumer story, since either
+// alone blocks the feature. It may close by the host changing OR by the docs being
+// corrected to say the path is app-scoped; the issue names both outcomes. Nothing
+// here changes until it does.
+//
+// ⚠ THE EVIDENCE IS A SOURCE READ, NOT A LIVE CLICK. Upstream has no behavioural
+// test on that handler's rewrite, and nobody has watched a resource link fail in a
+// real host from here. Do not upgrade this to "measured in production".
 //
 // ⚠ Recorded so nobody "fixes" it here. An `<a href>` is not the workaround
 // either — upstream's own `ResourceCard` declined to be a link for exactly this
