@@ -19,21 +19,25 @@
 //
 // ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
 //
-// A BRAND-NEW FILE against a BRAND-NEW COMPONENT: `components/SideNav.tsx` does not
-// exist on `zach/ia-feedback-sidebar`, so every case here is 0-of-N red at base and that
-// number says nothing. **Do not count these cases as regression coverage.** They are
-// INVARIANT GUARDS on behaviour a hand-built nav has to provide and an upstream
-// component would have given for free — validated, when they are validated at all, by
-// MUTATION (break the behaviour on purpose, watch the case go red), never by a red base.
+// THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/sideNav.test.tsx` and
+// `src/components/SideNav.tsx` were both added by `8a4b681`, and NEITHER exists on
+// `origin/main` (verified: `git ls-tree -r --name-only origin/main -- src` matches
+// neither). So there is no tree in which these cases exist and their subject does not —
+// "0 of 19 red at base" is a STRUCTURAL fact about a new file and says nothing about
+// coverage. **Do not count these cases as regression coverage.** They are INVARIANT
+// GUARDS on behaviour a hand-built nav has to provide and an upstream component would
+// have given for free, validated by MUTATION (break the behaviour, watch the case go
+// red) and never by a red base.
 //
-// ⚠️ AND THE "BASE" THE RUN WAS TAKEN AGAINST WAS A HYBRID TREE, WHICH AN EARLIER
-// WRITE-UP OVERSTATED AS "#59's tip". The run used `git checkout HEAD~1 --
-// src/components/`, which RESTORES tracked files but cannot DELETE files that are new in
-// HEAD — so the tree measured was #59's `App.tsx` plus HEAD's new, unreferenced
-// components. Harmless here (the new files are dead code in that tree, imported by
-// nothing), but it is not the same claim as "measured at #59's tip", and a base-run
-// method that cannot remove files should never be described as a checkout of an older
-// commit. `src/myBenchmarks.test.tsx` carries the same correction for its own cases.
+// ⚠️ AND A METHOD WARNING FOR WHOEVER TRIES TO TAKE A BASE READING ANYWAY.
+// `git checkout <older-ref> -- <dir>` RESTORES tracked files but CANNOT DELETE files
+// that are new in HEAD (verified directly, in a scratch repo: a file added in HEAD
+// survives `git checkout HEAD~1 -- src/`). So a "base" built that way is a HYBRID tree —
+// the older commit's tracked files PLUS every file HEAD added — and must not be
+// described as a checkout of the older commit. An earlier write-up of these cases did
+// exactly that, and also named the wrong branch as the one lacking the component.
+// To get a real base here, check out the ref itself in a clean worktree.
+// `src/myBenchmarks.test.tsx` carries the same label for its own cases.
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

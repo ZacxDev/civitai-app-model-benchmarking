@@ -26,10 +26,11 @@
 // `useCivitaiNavigate`" rather than "cannot navigate".
 //
 // 🔴 A BRAND-NEW FILE, SO NONE OF IT IS RED AT BASE. Stated rather than implied: "0 of N
-// red at base" is not coverage. Its ancestor case in `lib/resourceLink.test.ts` was
-// equally new on `zach/ia-feedback-sidebar`. What this IS: an INVARIANT GUARD on a
-// property that has always held, watched failing by MUTATION (add a `useCivitaiNavigate`
-// import to a production file → red) rather than by a red base.
+// red at base" is not coverage. Its ancestor case lived in `lib/resourceLink.test.ts`,
+// which was itself new in this stack (verified: neither that file nor `lib/resourceLink.ts`
+// exists on `origin/main` or on `zach/ia-feedback-sidebar`). What this IS: an INVARIANT
+// GUARD on a property that has always held, watched failing by MUTATION (add a
+// `useCivitaiNavigate` import to a production file → red) rather than by a red base.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';

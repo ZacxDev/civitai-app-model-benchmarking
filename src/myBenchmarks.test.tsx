@@ -29,19 +29,20 @@
 //
 // ── 🔴 COVERAGE LABEL, FOR THE DIRECT-RENDER CASES ──────────────────────────
 //
-// A BRAND-NEW FILE against a BRAND-NEW COMPONENT (`components/MyGridsView.tsx` does not
-// exist on `zach/ia-feedback-sidebar`), so 0-of-N red at base and that number says
-// nothing. The direct-render cases in particular are INVARIANT GUARDS: they pin
+// THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/myBenchmarks.test.tsx` and
+// `src/components/MyGridsView.tsx` were both added by `8a4b681`, and neither exists on
+// `origin/main`. So "0 of N red at base" is a STRUCTURAL fact about a new file, not a
+// coverage number. The direct-render cases in particular are INVARIANT GUARDS: they pin
 // properties of a component that had no previous address, so nothing in them can be a
 // regression guard over a fixed bug. Validate them by MUTATION, not by a red base.
 //
-// ⚠️ AND THE "BASE" THAT WAS RUN AGAINST WAS A HYBRID TREE, which an earlier write-up
-// overstated as "#59's tip". The run used `git checkout HEAD~1 -- src/components/`,
-// which restores tracked files but CANNOT DELETE files that are new in HEAD — so the
-// measured tree was #59's `App.tsx` plus HEAD's new, unreferenced components. Harmless
-// here (those files are dead code in that tree), but it is not the claim "measured at
-// #59's tip", and a base-run method that cannot remove files must not be described as a
-// checkout of an older commit. `src/sideNav.test.tsx` carries the same correction.
+// ⚠️ AND A METHOD WARNING. `git checkout <older-ref> -- <dir>` restores tracked files
+// but CANNOT DELETE files new in HEAD (verified directly in a scratch repo), so a "base"
+// built that way is a HYBRID tree and must not be described as a checkout of the older
+// commit. An earlier write-up of these cases did exactly that, and named the wrong branch
+// as the one lacking the component — `MyGridsView.tsx` is present on
+// `zach/ia-feedback-sidebar`, because that PR is what added it.
+// `src/sideNav.test.tsx` carries the same label.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
