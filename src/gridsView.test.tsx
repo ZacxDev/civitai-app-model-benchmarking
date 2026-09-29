@@ -334,6 +334,46 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(screen.getByTestId('grid-open-members')).toHaveTextContent('1 matchup × 1 prompt');
   });
 
+  it('🔴 SEAM: the App feeds the boards the SAME included count the Top Grid is built from', async () => {
+    // 🔴 THIS CASE EXISTS BECAUSE A MUTANT SURVIVED. `App` derives `includedCombos` /
+    // `includedPrompts` once and uses them for BOTH the Top Grid's members and the
+    // boards' "The top N by votes are showing as the grid's rows/columns" copy — the
+    // whole point of one computation being that the badge and the grid cannot disagree.
+    // Nothing asserted the second half through the App: MEASURED, replacing BOTH
+    // `includedCount={includedCombos.length}` call sites with `includedCount={0}` left
+    // the FULL suite green (58 files / 776 tests). `IncludedSummary.test.tsx` renders
+    // the views directly and passes its own number, so it is structurally blind to the
+    // App's wiring; this is the seam neither side owned.
+    //
+    // It is a RELATIONSHIP, not a component property: the number in the board copy must
+    // be the same `DEFAULT_TOP_N` the matrix above was built from, on BOTH axes.
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, OTHER] }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    // PREMISE: the board holds MORE than the cut admits, so `DEFAULT_TOP_N` is a real
+    // cut and not just "all of them" — otherwise a count wired to `combinations.length`
+    // would pass too.
+    expect(MATCHUPS.length).toBeGreaterThan(DEFAULT_TOP_N);
+    expect(PROMPTS.length).toBeGreaterThan(DEFAULT_TOP_N);
+
+    const matchups = await openView('Matchups');
+    expect(within(matchups).getByTestId('matchups-included-summary')).toHaveTextContent(
+      `The top ${DEFAULT_TOP_N} by votes are showing as the grid's rows in your view.`,
+    );
+
+    const prompts = await openView('Prompts');
+    expect(within(prompts).getByTestId('prompts-included-summary')).toHaveTextContent(
+      `The top ${DEFAULT_TOP_N} by votes are showing as the grid's columns in your view.`,
+    );
+
+    // …and back on Home the matrix really is that many rows, which is what makes the two
+    // numbers a RELATIONSHIP rather than two independent readings of the same constant.
+    await openView('Grids');
+    const matrix = await screen.findByTestId('results-grid');
+    expect(within(matrix).getAllByTestId('grid-group-matchup')).toHaveLength(DEFAULT_TOP_N);
+    expect(within(matrix).getAllByTestId('grid-col-header')).toHaveLength(DEFAULT_TOP_N);
+  });
+
   it('🔴 is PINNED FIRST once listed, and carries NO vote control, because it has no shared row', async () => {
     // Two published grids, one loud and one quiet: once the loud one is opened and
     // the Top Grid joins the list, a system entry folded into the ordering with an
