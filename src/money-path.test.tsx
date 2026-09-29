@@ -1365,10 +1365,27 @@ describe('#5 the view switch: a live run survives a trip to My Benchmarks', () =
      * a `const` cannot fail the test before the count is read.
      */
     const reOfferedBeforePress = screen.queryByTestId('run-cell') !== null;
-    const stateBeforePress = screen
-      .getByTestId('results-grid')
-      .querySelector('[data-testid="grid-cell"]')
-      ?.getAttribute('data-state');
+    /**
+     * 🔴 THE CELL SET IS COUNTED, NOT FIRST-MATCHED, AND THE WEAKER FORM WAS A REAL
+     * HAZARD. This read was `within(grid).getByTestId('grid-cell')` and became
+     * `querySelector('[data-testid="grid-cell"]')`, which silently takes the FIRST
+     * match. Equivalent today — §5's seed is one cell — and silently WRONG the moment
+     * that seed grows one, because it would then report some other cell's state under
+     * this cell's assertion.
+     *
+     * ⚠️ AND THE THROWING FORM IS *NOT* SIMPLY RESTORED, deliberately. `getByTestId`
+     * throws on 0 matches AND on >1, and it would throw HERE — above
+     * `tryToSpendAgain()`. That kills the case before the money count is read, which is
+     * the exact "died for the wrong reason" shape this section's own helper header
+     * forbids. So the ambiguity is captured as a VALUE and surfaces at the assertion
+     * below instead: a set of any size other than one produces a string no
+     * `toBe('running')` can match, and the failure message names the count.
+     */
+    const cellsBeforePress = within(screen.getByTestId('results-grid')).queryAllByTestId('grid-cell');
+    const stateBeforePress =
+      cellsBeforePress.length === 1
+        ? cellsBeforePress[0]!.getAttribute('data-state')
+        : `AMBIGUOUS: ${cellsBeforePress.length} grid-cell(s), expected exactly 1`;
 
     // 🔴 THE MONEY ASSERTIONS GO FIRST, and `tryToSpendAgain` is what puts them on the
     // path: press Run and Confirm exactly as a viewer would, then count. A state

@@ -24,10 +24,12 @@
 // (`ResultData.comboKey`, the `draft:v1:` appStorage prefix), and a structural
 // ledger over the 24 renamed testids.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { productionReachable, scannedSources } from './lib/sourceScan.js';
 
 import {
   buildCombinationPayload,
@@ -463,22 +465,38 @@ const RENAMED_TESTIDS = [
   'section-my-matchup',
 ] as const;
 
-/** Every production (non-test) `.ts`/`.tsx` file under src/. */
-function productionSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      out.push(...productionSources(full));
-    } else if (/\.tsx?$/.test(entry) && !entry.includes('.test.')) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
 const SRC = resolve(process.cwd(), 'src');
-const PROD_SOURCE = productionSources(SRC)
+/**
+ * Every file the PRODUCTION ENTRY actually reaches, concatenated.
+ *
+ * 🔴 IT USED TO BE A LOCAL WALKER CALLED `productionSources`, BYTE-FOR-BYTE IDENTICAL TO
+ * `navigationDormancy.test.ts`'s `scannedSources`, and the duplication rotted exactly as
+ * this repo's "one rule, one place" rule predicts: the docstring on the other copy was
+ * corrected to say the filter is WIDER than production, and this copy kept the sentence
+ * "Every production (non-test) `.ts`/`.tsx` file under src/" that had just been found
+ * wrong. The walker is `lib/sourceScan.ts` now, imported by both.
+ *
+ * 🔴 AND THE FILTER IS GENUINELY NARROWED HERE, which the other caller's is not. This
+ * scan feeds `ALL_TESTIDS`, a LEDGER whose docstring claims "every testid a production
+ * source renders" — and the old walker handed it `src/test-helpers.tsx`, which renders
+ * three ids of its own (`gated-cell`, `result-image`, `result-hidden`). A ledger that can
+ * certify an id only a TEST HELPER renders is asserting something it cannot back, which
+ * is the same class of defect as the rest of this file.
+ *
+ * ⚠️ NO ID LEAVES THE SET TODAY, MEASURED, so this is a correctness fix with no
+ * behavioural change: all three of those ids are ALSO rendered by
+ * `components/GatedCell.tsx`, so the helper only ever contributed duplicates. The
+ * 33-entry matchup assertion and the `>100` control below are unaffected — verified by
+ * running the file before and after the narrowing.
+ *
+ * ⚠️ WHAT "REACHABLE" MEANS HERE IS AN IMPORT WALK FROM `src/main.tsx`, heuristics and
+ * all — see `productionReachable`. It keeps `Harness.tsx`, `test-harness.tsx` and
+ * `demo-data.ts`, which ARE in the entry's graph (the harness is chosen by a runtime env
+ * flag, not a conditional import) and therefore genuinely can render a production id.
+ */
+const REACHABLE = productionReachable(resolve(SRC, 'main.tsx'));
+const PROD_SOURCE = scannedSources(SRC)
+  .filter((f) => REACHABLE.has(f))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 /**

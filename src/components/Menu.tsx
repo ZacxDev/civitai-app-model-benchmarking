@@ -40,22 +40,58 @@
 // So the listener is attached with `capture: true`. Capture at `document` runs
 // before the bubble phase reaches `document` at all, so `stopPropagation()` there
 // keeps the event from the modal entirely: the first Escape closes the menu, a
-// second closes the modal. `menuInsideModalEscape` in `Menu.test.tsx` pins it.
+// second closes the modal. The `describe('Menu — nested inside a Modal')` case in
+// `Menu.test.tsx` pins it.
+//
+// ⚠️ THAT CROSS-REFERENCE USED TO NAME AN IDENTIFIER THAT DOES NOT EXIST —
+// `menuInsideModalEscape`. `git grep` for it returned exactly one hit: the comment
+// itself. A cross-reference is a CLAIM, and a reader who greps for a named case and
+// finds nothing has no way to tell "renamed" from "never written". The mechanism
+// above is unchanged and correct; only the citation was wrong.
 //
 // ── THE UPSTREAM COMPONENT IS STILL BLOCKED ─────────────────────────────────
 //
-// 🔴 `@civitai/components-react` DOES ship a menu (`CivitaiMenu`,
-// `CivitaiMenuItem`, `CivitaiMenuLabel`, exported from its public `./elements`
-// subpath at 0.9.0) — this is NOT a case of "upstream has none", and three drafts
-// of `ContributeMenu`'s header said otherwise before being retracted. The blocker
-// is the TEST ENVIRONMENT, filed as `civitai-app-starters` **issue #485**:
+// ⚠️ PROVENANCE, SPLIT EXPLICITLY, the way `ResourceName.tsx` splits its three
+// routes — because the two halves below are NOT equally strong and a previous
+// version of this block presented both as one measurement.
+//
+// 🔴 LIVE, MEASURED ON THIS TREE (the only half that describes what this repo
+// builds against). `package.json` pins `@civitai/components-react: ^0.4.1`;
+// installed are `components-react@0.4.1` and, transitively,
+// `components@0.4.1`. Their `exports` maps are `["."]` and `[".", "./styles.css"]`
+// — there is NO `./elements` subpath. Enumerated with `find -L … -print0 | xargs -0
+// grep -l` over all 1016 files under `node_modules/.pnpm/@civitai+*` (`-L` because
+// pnpm's layout is symlinks, and `grep -r` here honours `.gitignore`):
+//
+//     Civitai        121 files   ← positive control, the scan can see the tree
+//     ReportButton     8 files   ← positive control, a real exported component
+//     menuitem        16 files   ← positive control, the role IS shipped
+//     CivitaiMenu      0 files
+//     civitai-menu     0 files
+//     popover-open     0 files
+//     showPopover      0 files
+//
+// 🔴 SO THE SWAP *IS* GATED ON A VERSION BUMP ON THIS TREE, and the line that said
+// otherwise is RETRACTED. It read: "THE SWAP is gated on either of those closing …
+// It is NOT gated on a version bump." That is false here for the plainest possible
+// reason — the installed package ships no menu element to swap to. `sideNav.test.tsx`
+// states the compatible fact in the same diff ("the pinned `@civitai/components@0.4.1`
+// installed here SHIPS NO NAV ELEMENT AT ALL"), so for one round two files in this
+// repo disagreed about the same dependency. The version bump is a PREREQUISITE; the
+// two findings below are ADDITIONAL blockers that a bump alone would not clear.
+//
+// ⚠️ SECOND-HAND, FROM A DIFFERENT TREE — the parked five-package bump
+// (`components@0.8.1` / `components-react@0.9.0`), not the installed pins. Nobody
+// has reproduced any of it from this checkout, and nothing here could: the element
+// does not exist to mount. Re-measure at swap time rather than trusting these lines.
+// Filed as `civitai-app-starters` **issue #485**:
 //
 //   - `<civitai-menu>` throws on **MOUNT**, not on open. `open` carries a
 //     constructor default, so `changed.has('open')` is true on the first update
 //     and the element evaluates `:popover-open` immediately — `DOMException:
 //     unknown pseudo-class selector ':popover-open'`. There is no state in which
 //     it renders inertly.
-//   - **UPGRADING JSDOM IS NOT AN ESCAPE ROUTE.** Measured at jsdom 30.1.1 the
+//   - **UPGRADING JSDOM IS NOT AN ESCAPE ROUTE.** Reported at jsdom 30.1.1: the
 //     selector stops throwing and the failure merely moves to `TypeError:
 //     panel.showPopover is not a function`.
 //   - ADDRESSABILITY, the second half of #485: upstream renders the panel inside
@@ -64,17 +100,22 @@
 //     null, and wrapping the items in a consumer `<div data-testid>` makes
 //     upstream's `assignedElements` see `['DIV']`, so its `role="menuitem"`
 //     filter yields ZERO items and focus goes nowhere.
+//   - And the menu element IS exported from a public `./elements` subpath at 0.9.0,
+//     i.e. "upstream has none" was wrong and stays retracted — three drafts of
+//     `ContributeMenu`'s header said it. A name-grep of `src/index.ts` could not see
+//     `export * from './elements/index.js'`; a wildcard re-export is invisible to a
+//     name search.
 //
-// 🔵 THE SWAP is gated on either of those closing — a real-browser test runner
-// for this repo, or an upstream API change. It is NOT gated on a version bump.
-// When it happens: replace the `<div role="menu">` below with `<CivitaiMenu>` and
-// delete the key handling. The trigger, the panel and the item testids are the
-// contract; keep them.
+// 🔵 SO THE SWAP NEEDS ALL THREE: the five-package bump lands, a real-browser test
+// runner exists for this repo (or #485's mount throw is fixed upstream), and the
+// panel becomes addressable. When it happens: replace the `<div role="menu">` below
+// with `<CivitaiMenu>` and delete the key handling. The trigger, the panel and the
+// item testids are the contract; keep them.
 //
-// ⚠ One thing the swap will NOT fix, measured rather than assumed:
-// `<civitai-menu-item>`'s `:host` is `padding: 7px 14px` on a 14px/1.4 font =
-// 33.6px, BELOW this repo's 44px floor. It sets `role="menuitem"` on its own
-// light-DOM host, so `compact.ts`'s rule reaches it either way — which is why
+// ⚠ One thing the swap will NOT fix — and this reading is SECOND-HAND too, from the
+// same 0.8.1 tree: `<civitai-menu-item>`'s `:host` is `padding: 7px 14px` on a
+// 14px/1.4 font = 33.6px, BELOW this repo's 44px floor. It sets `role="menuitem"` on
+// its own light-DOM host, so `compact.ts`'s rule reaches it either way — which is why
 // that fix lives there and not here.
 
 import {
@@ -91,6 +132,7 @@ import {
 import { Button } from '@civitai/blocks-react/ui';
 
 import { ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR } from '../compact.js';
+import { rovingTarget } from '../lib/roving.js';
 import { elevate, radius, token } from '../theme.js';
 
 /**
@@ -285,9 +327,14 @@ export function Menu({
               );
               if (items.length === 0) return;
               e.preventDefault();
+              // 🔴 THE ARITHMETIC IS `lib/roving.ts`'s, not inline, and it used to be
+              // WRONG here and in `SideNav` identically: `indexOf` is -1 when focus is
+              // not on an item, and `(-1 - 1 + n) % n` is `n - 2`, so ArrowUp landed
+              // second-to-last. See that module for why the -1 branch is not reachable
+              // through today's call sites and why the fix is still worth making.
               const i = items.indexOf(document.activeElement as HTMLElement);
               const step = e.key === 'ArrowDown' ? 1 : -1;
-              items[(i + step + items.length) % items.length]!.focus();
+              items[rovingTarget(items.length, i, step)]!.focus();
             }}
           >
             {children}

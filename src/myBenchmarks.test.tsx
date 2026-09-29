@@ -467,8 +467,24 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     // latch, because the page mounted the grid, matchup and prompt panels TOGETHER and
     // an always-present empty panel added a second copy of every `unpublished-*` testid
     // to the document. My Benchmarks mounts ONE noun at a time, so that collision cannot
-    // happen and the panel simply always renders — which cannot unmount mid-report at
-    // all, and that was the latch's other job.
+    // happen and the panel simply always renders.
+    //
+    // ⚠️ THIS PARAGRAPH USED TO END "— which cannot unmount mid-report at all, and that
+    // was the latch's other job". RETRACTED. It is FALSE: an unconditional panel closes
+    // the LIST-EMPTIED unmount path, but NAV is a second one — selecting Home or another
+    // My noun unmounts `MyGridsView` and takes `UnpublishedList`'s local publish `error`
+    // with it, and nothing brings it back. `MyGridsView`'s header, `gridsView.test.tsx`
+    // and `publishPointerFailure.test.tsx` all carry the retraction; this file was the
+    // FOURTH copy and the previous round's sweep missed it. It is also the surface a
+    // reader arriving from the test side lands on first.
+    //
+    // 🔴 A RETRACTION IS A TREE-WIDE SWEEP, NOT AN EDIT AT THE SITE YOU WERE LOOKING AT.
+    // Re-swept over NORMALISED comment text (markers stripped, whitespace collapsed, so
+    // a claim that wraps across `//` lines is still one string) with two
+    // differently-shaped patterns — `/cannot unmount mid-report/i` and
+    // `/latch.s other job/i` — and a positive control that the sweep HIT the three files
+    // already carrying the retraction. Four files matched the first pattern; three of
+    // them are retractions; this was the one assertion.
     render(view({ viewerId: VIEWER_ID, unpublished: [] }));
     expect(screen.getByTestId('my-grids-unpublished')).toBeInTheDocument();
     expect(screen.getByTestId('unpublished-empty')).toBeInTheDocument();

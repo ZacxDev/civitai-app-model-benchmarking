@@ -58,11 +58,26 @@
 // swap. Only a fresh instance guarantees A's local publish `error` does not come with
 // it.
 //
-// 🔴 WHAT THIS SURFACE DELIBERATELY DOES NOT OFFER: a vote control. Voting is a
-// community act on a shared row and it lives on the community board, where the row is
-// also listed. A second vote button here would be a second copy of the same
-// affordance keyed off the same row — and the Top Grid, which has no shared row at
-// all, is not the viewer's and never appears here.
+// 🔴 WHAT THIS SURFACE DELIBERATELY DOES NOT OFFER: a vote control. The reason is
+// GRID-SPECIFIC, and the general version of it that used to be here is FALSE.
+//
+// ⚠️ THE FALSE HALF, RETRACTED RATHER THAN REWORDED: "A second vote button here would
+// be a second copy of the same affordance keyed off the same row." That is contradicted
+// two files over. `MatchupsView` and `PromptsView` with `surface="my"` render
+// `MyPublished`, whose `renderCard` is the same `MatchupBody` / `PromptBody` the
+// community board uses — `VoteButton` included. So the viewer's own matchups and prompts
+// DO carry a vote control on this very destination, and as written this paragraph read as
+// a tree-wide convention that two of three surfaces violate. Left standing, it invites
+// someone to "fix" the siblings by deleting a working control.
+//
+// 🔴 THE HALF THAT IS SOUND, AND IT IS SUFFICIENT: this list's rows are grids, and a
+// grid card here has no vote control because `MyPublished` is handed a `renderCard` that
+// does not build one. What makes THAT right is not duplication but the object: the only
+// grid without a shared row is the Top Grid, which is not the viewer's and never appears
+// on this surface, so there is no key-less row to worry about — and the community board
+// plus `GridOpenPanel` already carry the affordance for every grid that HAS a row. This
+// is a presentation choice on a card body, not an invariant; if the operator asks for a
+// vote control here, `card` below is the one place to add it.
 
 import { Alert, Badge, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 

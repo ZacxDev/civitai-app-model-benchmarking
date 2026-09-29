@@ -20,7 +20,7 @@
 // sensible. The 44px floor is a cascade claim and lives in
 // `mobile-responsive.test.tsx`, which reads computed styles off live nodes.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -159,6 +159,58 @@ describe('Menu — arrow-key roving', () => {
     expect(screen.getByTestId('hosted')).toHaveFocus();
     await userEvent.keyboard('{ArrowUp}');
     expect(screen.getByTestId('item-b')).toHaveFocus();
+  });
+
+  // 🔴 ENTERING THE SET FROM OUTSIDE IT: ArrowUp must land on the LAST item, and it used
+  // to land SECOND-TO-LAST. `indexOf(document.activeElement)` is -1 when focus is not on
+  // one of the panel's own controls, and the old inline `(i + step + n) % n` then gives
+  // `n - 2`. ArrowDown was right by coincidence (`(-1 + 1 + n) % n === 0`), which is why
+  // the pair of cases above could not see it: both start with focus already on `item-a`.
+  //
+  // ⚠️ AN INVARIANT GUARD, AND LABELLED AS ONE. Through today's production call sites the
+  // -1 branch is unreachable — everything focusable inside a real panel is matched by
+  // `MENU_FOCUSABLE_SELECTOR`, and the one exception (`ReportButton`'s settled
+  // `<span tabIndex={-1}>`) only appears in a panel whose item set is empty, where both
+  // handlers return early. `lib/roving.ts` traces that; `lib/roving.test.ts` pins the
+  // arithmetic. THIS case is what proves the component is wired to the fixed helper
+  // rather than to its own copy, against the real DOM.
+  //
+  // 🔴 IT USES `fireEvent.keyDown` ON THE PANEL RATHER THAN `userEvent`, and that is
+  // forced rather than preferred. MEASURED: `userEvent.type(panel, '{ArrowUp}',
+  // { skipClick: true })` dispatches into `document.activeElement`, which in this state
+  // is `<body>` — outside the panel — so the component's `onKeyDown` never fires and the
+  // case failed with focus still on `<body>`. `fireEvent` targets the node, which is the
+  // only way to deliver a keydown to the panel while nothing inside it has focus. It
+  // still runs the component's own React handler; this is not a unit call on the helper.
+  it('🔴 INVARIANT GUARD: ArrowUp with focus OUTSIDE the panel lands on the LAST item', async () => {
+    render(<Fixture />);
+    await userEvent.click(screen.getByTestId('row-menu'));
+    const panel = await screen.findByTestId('row-menu-items');
+    await waitFor(() => expect(screen.getByTestId('item-a')).toHaveFocus());
+
+    // Move focus out of the set WITHOUT closing the panel. `document.body` is not in
+    // `MENU_FOCUSABLE_SELECTOR`, so `indexOf` will return -1.
+    (screen.getByTestId('item-a') as HTMLElement).blur();
+    expect(panel.contains(document.activeElement)).toBe(false);
+
+    fireEvent.keyDown(panel, { key: 'ArrowUp' });
+    // LAST, not second-to-last. `item-b` is what the buggy arithmetic selected.
+    expect(screen.getByTestId('hosted')).toHaveFocus();
+    expect(screen.getByTestId('item-b')).not.toHaveFocus();
+  });
+
+  it('🔴 …and ArrowDown from outside lands on the FIRST — the half that was right', async () => {
+    // Kept as the pair's other half so the asymmetry is visible: the old formula got
+    // this one right, which is exactly why the bug survived. Without it, a "fix" that
+    // broke ArrowDown while fixing ArrowUp would be invisible here.
+    render(<Fixture />);
+    await userEvent.click(screen.getByTestId('row-menu'));
+    const panel = await screen.findByTestId('row-menu-items');
+    await waitFor(() => expect(screen.getByTestId('item-a')).toHaveFocus());
+
+    (screen.getByTestId('item-a') as HTMLElement).blur();
+    fireEvent.keyDown(panel, { key: 'ArrowDown' });
+    expect(screen.getByTestId('item-a')).toHaveFocus();
   });
 });
 

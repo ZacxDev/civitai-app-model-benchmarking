@@ -32,45 +32,27 @@
 // GUARD on a property that has always held, watched failing by MUTATION (add a
 // `useCivitaiNavigate` import to a production file → red) rather than by a red base.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-/**
- * Every `.ts`/`.tsx` file under `src/` whose name does not contain `.test.`.
+import { productionReachable, scannedSources } from './lib/sourceScan.js';
+
+/*
+ * 🔴 THE WALKER IS `lib/sourceScan.ts` NOW, NOT A LOCAL COPY, and the reason is a
+ * concrete rot rather than tidiness: `renameWireCompat.test.ts` held a BYTE-FOR-BYTE
+ * duplicate under the name `productionSources`, and when this copy's docstring was
+ * corrected the other one kept the sentence that had just been found wrong. See that
+ * module's header for what the second copy's version was silently feeding into a ledger.
  *
- * ⚠️ THE DOCSTRING USED TO SAY "every production (non-test) file" AND THE FILTER IS
- * WIDER THAN THAT: `test-helpers.tsx`, `test-harness.tsx`, `Harness.tsx` and
- * `demo-data.ts` are test scaffolding and are scanned too, because none of them spells
- * `.test.`. For an ABSENCE check that is the SAFE direction — scanning extra files can
- * only produce a false RED, never a false green — so it is left as is and described
- * accurately instead of narrowed.
- *
- * 🔴 AND THREE OF THOSE FOUR REALLY ARE PRODUCTION-REACHABLE, which is the positive
- * reason not to narrow it. The chain, traced rather than assumed: `src/main.tsx` imports
- * `./Harness.js` STATICALLY (the harness is selected by a runtime env flag, not by a
- * conditional import), and `Harness.tsx` imports BOTH `./test-harness.js` AND
- * `./demo-data.js`. So `Harness.tsx`, `test-harness.tsx` and `demo-data.ts` all sit in
- * the production entry's dependency graph. Only `test-helpers.tsx` is genuinely
- * test-only — nothing outside a `*.test.*` file imports it (the two non-test files that
- * match its name mention it in PROSE, which is exactly the confusion the stripper below
- * exists for). Do not "fix" the filter to match the old sentence.
- *
- * ⚠️ A draft of this paragraph said TWO of four and named `test-harness.tsx` as
- * test-only. Wrong: it is reached through `Harness.tsx`. Corrected by following the
- * imports instead of guessing from the file name — which is the whole hazard a name like
- * "test-harness" creates.
+ * ⚠️ WHAT THE FILTER IS: every `.ts`/`.tsx` under `src/` not spelling `.test.` — WIDER
+ * than "production", because the test scaffolding does not spell `.test.` either. For an
+ * ABSENCE check that is the safe direction: scanning extra files can only produce a false
+ * RED, never a false green. The scaffolding ledger below is what keeps the description
+ * and the reality in step, MECHANICALLY, because the prose version of this paragraph has
+ * now been wrong twice.
  */
-function scannedSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...scannedSources(full));
-    else if (/\.tsx?$/.test(entry) && !entry.includes('.test.')) out.push(full);
-  }
-  return out;
-}
 
 /**
  * Source with comments removed.
@@ -93,12 +75,65 @@ function stripComments(src: string): string {
 
 const SRC = resolve(process.cwd(), 'src');
 const SCANNED = scannedSources(SRC);
+/** `src/main.tsx`'s dependency graph — what really ships. */
+const REACHABLE = productionReachable(resolve(SRC, 'main.tsx'));
+/** Scanned files that are NOT in it, as `src/`-relative paths, sorted. */
+const TEST_ONLY = SCANNED.filter((f) => !REACHABLE.has(f))
+  .map((f) => relative(SRC, f))
+  .sort();
 const RAW = new Map(SCANNED.map((f) => [f, readFileSync(f, 'utf8')]));
 const CODE = new Map([...RAW].map(([f, src]) => [f, stripComments(src)]));
 const ALL_CODE = [...CODE.values()].join('\n');
 const ALL_RAW = [...RAW.values()].join('\n');
 
 describe('🔴 the host-navigation machinery stays dormant', () => {
+  // 🔴 THE SCAFFOLDING LEDGER, DERIVED BY AN IMPORT WALK RATHER THAN WRITTEN DOWN.
+  //
+  // ⚠️ WHAT THIS REPLACES, AND WHY IT IS NOT A CORRECTED SENTENCE. The docstring above
+  // `scannedSources` used to enumerate the scaffolding by hand. It said FOUR files and
+  // named `test-helpers.tsx` as the only test-only one. That was the SECOND version of
+  // the paragraph (a draft before it had said "two of four" and named `test-harness.tsx`
+  // as test-only, which was wrong), and it was STILL wrong TWICE OVER:
+  //
+  //   - `src/test-setup.ts` is a fifth scanned scaffolding file — `vite.config.ts`'s
+  //     `setupFiles` entry, matching the filter, imported by no production file;
+  //   - `src/manifest.ts` is a SIXTH, and nobody had noticed it at all. It exists to
+  //     feed `manifest.test.ts`'s `defineBlock` gate; the only importer in the tree is
+  //     that test. It does not look like scaffolding from its name, which is precisely
+  //     why a hand-written list could not be trusted to contain it.
+  //
+  // A third writer editing "four" to "five" would simply have been the next person to
+  // get it wrong. The list is COMPUTED now, and it fails when a file joins or leaves.
+  //
+  // 🔴 IT PINS A RELATIONSHIP, NOT A COUNT: which scanned files are outside
+  // `src/main.tsx`'s dependency graph. `Harness.tsx`, `test-harness.tsx` and
+  // `demo-data.ts` all ARE inside it — `main.tsx` imports `./Harness.js` statically (the
+  // harness is selected by a runtime env flag, not a conditional import) and
+  // `Harness.tsx` imports both of the others — which is the positive reason not to
+  // narrow the filter to "production".
+  //
+  // 🔴 AND IT DOUBLES AS THE GUARD ON `lib/sourceScan.ts` ITSELF: that module reads
+  // `node:fs`, so a production import of it would break the browser build. Its presence
+  // in THIS list is the assertion that no production file imports it.
+  it('🔴 LEDGER: exactly these scanned files are outside the production graph', () => {
+    // VALIDATE THE INSTRUMENT FIRST. An import walk that resolved nothing would return a
+    // one-element set and classify the whole tree as test-only — a ledger mismatch, yes,
+    // but the diagnosis would read as "the tree changed" rather than "the walk is
+    // broken". So: the walk reached most of the tree, and it reached two named files by
+    // two different routes (a direct import from the entry, and a transitive one).
+    expect(REACHABLE.size, 'the import walk resolved almost nothing').toBeGreaterThan(30);
+    expect(REACHABLE.has(resolve(SRC, 'App.tsx')), 'App.tsx is not reachable?').toBe(true);
+    expect(
+      REACHABLE.has(resolve(SRC, 'components/GridOpenPanel.tsx')),
+      'a transitively-imported component is not reachable — the walk stops at depth 1',
+    ).toBe(true);
+
+    expect(
+      TEST_ONLY,
+      'a scanned file entered or left the production graph — update this ledger on purpose',
+    ).toEqual(['lib/sourceScan.ts', 'manifest.ts', 'test-helpers.tsx', 'test-setup.ts']);
+  });
+
   it('VALIDATE THE INSTRUMENT: the scan reads real code, and only code', () => {
     // 🔴 THE ASSERTION BELOW IS AN ABSENCE, and an absence read off an empty (or
     // over-stripped) string is green for the worst possible reason.
@@ -141,10 +176,19 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
     // stripper that silently stopped stripping cannot pass it.
     //
     // ⚠️ THIS ONE AND THE NEXT ARE BACKSTOPS AND HAVE NOT BEEN WATCHED FAILING ON A REAL
-    // MUTANT — the synthetic pair above fails first, which is the crisper diagnosis. Their
-    // ASSERTIONS were proven REACHABLE (point `COMMENT_ONLY` at a code token and the
-    // `not.toContain` below goes red), but a stripper broken only against real files and
-    // not against a two-line string is contrived enough that no such mutant was built.
+    // MUTANT — the synthetic pair above fails first, which is the crisper diagnosis. A
+    // stripper broken only against real files and not against a two-line string is
+    // contrived enough that no such mutant was built.
+    //
+    // ⚠️ AND THE REACHABILITY CLAIM HERE WAS TOO WIDE, so it is narrowed rather than
+    // restated. It said "their ASSERTIONS were proven REACHABLE", plural, citing the
+    // `COMMENT_ONLY` experiment. That experiment reaches the `COMMENT_ONLY` PAIR below
+    // and says nothing about THIS ratio assertion: the only mutant that would make the
+    // ratio fail is a stripper that stops stripping, and such a mutant is already killed
+    // — earlier in this same `it()` — by the two synthetic `stripComments` checks. So the
+    // ratio guard has no mutant of its own that reaches it first, which is the definition
+    // of an assertion whose reachability is UNPROVEN. It is kept as a cheap backstop and
+    // labelled as one; it is not coverage.
     expect(ALL_CODE.length, 'the stripper removed almost nothing from the real tree').toBeLessThan(
       ALL_RAW.length * 0.75,
     );

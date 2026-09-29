@@ -1015,23 +1015,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   /**
    * Start a NEW unpublished grid.
    *
-   * 🔴 ONE PREDICATE, STILL MORE THAN ONE ROUTE. The auth decision lives HERE and
-   * nowhere else, and that is the fix a real defect bought: the page used to reach
-   * this action from `Contribute ▸ Build a grid` (no auth condition at all) and
-   * from the grids section's own `grid-new` button (gated on `signedIn &&
-   * onNewUnpublished`), so the two disagreed — an anonymous viewer could open
-   * `grid-form` through the menu, fill it in, and have the save rejected at
-   * `appStorage.set`, while the sibling route ten pixels away simply hid itself.
+   * 🔴 THERE IS EXACTLY **ONE** CALLER, AND THE SIGN-IN BRANCH IS CURRENTLY
+   * UNREACHABLE. Say it first, because the argument below used to be presented as
+   * live and is not.
    *
-   * ⚠️ `grid-new` IS GONE (operator's call: superseded by `Contribute ▸ Grid`), so
-   * that specific pair no longer exists — but the reasoning is unchanged and still
-   * load-bearing, because there are still two callers: the menu item and
-   * `GridsView`'s private panel (`UnpublishedList`'s `new-unpublished`). Do not
-   * re-add a `signedIn` test at either: a predicate open-coded at N call sites is
-   * how these came to disagree in the first place.
+   * ⚠️ WHAT THIS DOCBLOCK CLAIMED AND WHY IT IS RETRACTED. It said "there are still
+   * two callers: the menu item and `GridsView`'s private panel", and rested a
+   * twenty-line 🔴 argument on that premise. Both halves are now false: this stack
+   * deleted `ContributeMenu` (so there is no menu item), and `GridsView` no longer
+   * renders the private panel at all — it moved to `MyGridsView`. The single caller
+   * is `MyGridsView.onNewUnpublished`, i.e. `UnpublishedList`'s `new-unpublished`.
+   * And that caller cannot press it anonymously: `MyGridsView` returns
+   * `MyTabSignedOut` for `viewerId == null` and renders no private panel, which
+   * `myBenchmarks.test.tsx` asserts as a positive fact ("an ANONYMOUS viewer gets the
+   * sign-in panel and no private panel at all"). So `if (!viewer)` below is dead on
+   * this tree and NOTHING IN THE SUITE COVERS IT.
    *
-   * An unauthorised press routes to sign-in, which is what the vote control already
-   * does (`onRequireAuth`) — the app's existing answer for "this needs an account".
+   * 🔵 THE BRANCH STAYS ANYWAY, and this is the explicit decision rather than an
+   * omission — DEFENCE IN DEPTH, labelled as such and not counted as coverage:
+   *
+   *   - the history it comes from is real. The page once reached this action from
+   *     `Contribute ▸ Build a grid` (no auth condition at all) AND from the grids
+   *     section's own `grid-new` button (gated on `signedIn && onNewUnpublished`), and
+   *     the two disagreed: an anonymous viewer could open the grid form through the
+   *     menu, fill it in, and have the save rejected at `appStorage.set`, while the
+   *     sibling route ten pixels away simply hid itself. Both routes are gone; the way
+   *     they came apart is not a hypothetical.
+   *   - deleting it makes the next caller's author decide the auth question again, at
+   *     their call site, which is precisely the N-copies shape that produced the
+   *     disagreement. One predicate in one place costs three lines.
+   *
+   * 🔴 SO: do not re-add a `signedIn` test at the call site, and do not read the
+   * branch as tested. An unauthorised press routes to sign-in, matching the vote
+   * control's `onRequireAuth` — the app's existing answer for "this needs an account".
    */
   const openNewGrid = useCallback(() => {
     if (!viewer) {

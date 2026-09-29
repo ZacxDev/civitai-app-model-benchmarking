@@ -75,6 +75,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import type { MyNoun } from '../types.js';
+import { rovingTarget } from '../lib/roving.js';
 import { radius, token } from '../theme.js';
 
 /**
@@ -219,9 +220,12 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
     );
     if (items.length === 0) return;
     e.preventDefault();
+    // 🔴 SHARED WITH `Menu`'s panel through `lib/roving.ts` — the two were open-coded
+    // copies of the same expression and wrong in the same way (ArrowUp from outside
+    // the set landed second-to-last, because `indexOf` is -1 there).
     const i = items.indexOf(document.activeElement as HTMLElement);
     const step = e.key === 'ArrowDown' ? 1 : -1;
-    items[(i + step + items.length) % items.length]!.focus();
+    items[rovingTarget(items.length, i, step)]!.focus();
   };
 
   /**
