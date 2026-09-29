@@ -48,6 +48,11 @@ import { WithdrawButton } from './WithdrawButton.js';
 export interface PromptBodyProps {
   prompt: PromptRow;
   voted: boolean;
+  /**
+   * This viewer has already REPORTED this row. See `MatchupBody.reported` — the same
+   * menu-unmount problem, the same fix, and `App.reportedKeys` is the one record.
+   */
+  reported: boolean;
   viewerId: number | null;
   /** Render the prompt TEXT and its per-ecosystem overrides (the detail modal). */
   detail?: boolean;
@@ -76,6 +81,7 @@ const preStyle: React.CSSProperties = {
 export function PromptBody({
   prompt,
   voted,
+  reported,
   viewerId,
   detail = false,
   onVote,
@@ -137,6 +143,7 @@ export function PromptBody({
               <MenuControl>
                 <ReportButton
                   noun="prompt"
+                  reported={reported}
                   onReport={() => onReport(prompt.key)}
                   data-testid="prompt-report"
                 />

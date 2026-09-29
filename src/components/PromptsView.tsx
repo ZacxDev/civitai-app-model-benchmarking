@@ -39,6 +39,11 @@ export interface PromptsViewProps {
    */
   includedCount: number;
   votedKeys: Set<string>;
+  /**
+   * Shared keys this viewer has already REPORTED — see `MatchupsView`'s prop of the
+   * same name, and `App.reportedKeys` for the record itself.
+   */
+  reportedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
   error: string | null;
@@ -74,6 +79,7 @@ export function PromptsView({
   prompts,
   includedCount,
   votedKeys,
+  reportedKeys,
   viewerId,
   loading,
   error,
@@ -104,6 +110,7 @@ export function PromptsView({
       <PromptBody
         prompt={prompt}
         voted={votedKeys.has(prompt.key)}
+        reported={reportedKeys.has(prompt.key)}
         viewerId={viewerId}
         onVote={onVote}
         onUnvote={onUnvote}

@@ -69,6 +69,16 @@ import { WithdrawButton } from './WithdrawButton.js';
 export interface MatchupBodyProps {
   combo: CombinationRow;
   voted: boolean;
+  /**
+   * This viewer has already REPORTED this row.
+   *
+   * 🔴 IT COMES FROM `App`, NOT FROM `ReportButton`'s LOCAL STATE, and moving Report
+   * into the `⋮` menu is what made that necessary: `Menu` unmounts its panel on any
+   * outside `mousedown` and on Escape, so a settled "Reported for review" lasted until
+   * the viewer's next click and the menu then offered Report again. `report()` is not
+   * documented idempotent, so that is a duplicate report. See `App.reportedKeys`.
+   */
+  reported: boolean;
   viewerId: number | null;
   /**
    * Render the FULL config list instead of the one-line summary.
@@ -93,6 +103,7 @@ export interface MatchupBodyProps {
 export function MatchupBody({
   combo,
   voted,
+  reported,
   viewerId,
   detail = false,
   onVote,
@@ -196,6 +207,7 @@ export function MatchupBody({
               <MenuControl>
                 <ReportButton
                   noun="matchup"
+                  reported={reported}
                   onReport={() => onReport(combo.key)}
                   data-testid="matchup-report"
                 />

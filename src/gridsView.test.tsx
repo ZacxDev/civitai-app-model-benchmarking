@@ -502,6 +502,158 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
 });
 
 // ===========================================================================
+// The OPEN grid's own controls
+// ===========================================================================
+//
+// 🔴 THE DEFECT THESE EXIST FOR, AND IT WAS SHIPPED BY THE EXCLUSION ABOVE.
+// `GridsView`'s `entryCard` was the ONLY place that rendered `VoteButton`,
+// `WithdrawButton`, `ReportButton`, the ownership badge and the row's description —
+// so the moment the open grid stopped being listed, the grid a viewer is actually
+// READING became the one grid nobody could upvote, its author could not withdraw,
+// and nobody could report. The recovery was to open a DIFFERENT grid so the first
+// returned to the list and got its buttons back. Votes feed `buildTopGrid`, so the
+// missing control is the ranking mechanic.
+//
+// 🔴 WATCHED FAILING, MEASURED: with every production source swapped to `7410ca7`
+// (this stack's tip before this round) and these tests left in place, all FOUR cases
+// below go red and the other 28 in this file stay green. Each dies on its own missing
+// control — `grid-open-description`, `grid-open-own-badge`, `grid-open-system-note`,
+// `grid-open-vote` — not on a shared helper or a type error.
+//
+// ⚠️ ONE HALF OF THE SYSTEM CASE IS AN INVARIANT GUARD AND IS LABELLED AS ONE. Its
+// three `queryByTestId(...).toBeNull()` assertions pass at base VACUOUSLY: at base no
+// panel renders any of those controls for any entry, so "absent on the Top Grid" is
+// not yet a claim about the Top Grid. What makes them non-vacuous on THIS tree is the
+// pair of cases above, which show the same panel DOES render them for a published
+// grid — the absence is a property of the ENTRY, and the two halves only mean
+// something together. The system case's own red-at-base half is `grid-open-system-note`.
+//
+// 🔴 AND THE SYSTEM GATE IS DERIVED, NOT SPELLED. The last case publishes a grid
+// literally NAMED "Top Grid" and requires it to carry all three controls: a gate
+// written as a name comparison passes every other case here and fails that one.
+describe('🔴 the OPEN grid carries the controls its card used to', () => {
+  const MEMBERS = gridData(['mk-alpha'], ['qk-tango']);
+
+  it('ANOTHER author’s open grid: vote + report, no Remove, and the vote names ITS key', async () => {
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-zulu', 40, 'Loud grid', MEMBERS, { authorUserId: OTHER_ID, body: 'Zulu blurb' }),
+    ];
+    const { shared, votes } = sharedWithVotes(seed);
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-zulu']));
+    await openListed('gk-zulu');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent('Loud grid');
+    // The row's own words, which also only ever rendered on a card.
+    expect(within(panel).getByTestId('grid-open-description')).toHaveTextContent('Zulu blurb');
+
+    // 🔴 THE THREE GATES, ALL THREE ASSERTED — two presences and one absence, so a
+    // panel that rendered every control unconditionally fails here too.
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();
+    expect(within(panel).queryByTestId('grid-open-withdraw')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-own-badge')).toBeNull();
+
+    // 🔴 THE VOTE IS WIRED TO THE OPEN GRID'S KEY, not merely rendered. `40` is the
+    // seeded count and `VOTE_ANSWER` (123) is unlike every fixture count, so the
+    // number after the press can only have come from the host's answer.
+    expect(within(panel).getByTestId('vote-count')).toHaveTextContent('40');
+    await userEvent.click(within(panel).getByTestId('grid-open-vote'));
+    await waitFor(() => expect(votes).toEqual(['gk-zulu']));
+    await waitFor(() =>
+      expect(within(screen.getByTestId('grid-open-panel')).getByTestId('vote-count')).toHaveTextContent(
+        String(VOTE_ANSWER),
+      ),
+    );
+  });
+
+  it('the VIEWER’s OWN open grid: Remove + the Yours badge, and no Report', async () => {
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-mine', 5, 'My grid', MEMBERS, { authorUserId: VIEWER_ID }),
+    ];
+    const { shared, withdraws } = fakeShared({ seed });
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-mine']));
+    await openListed('gk-mine');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-own-badge')).toHaveTextContent('Yours');
+    expect(within(panel).getByTestId('grid-open-withdraw')).toBeInTheDocument();
+    // An author has a real Remove, so Report is not offered — the mirror of the rule
+    // the cards apply, from the same `isOwnRow` predicate.
+    expect(within(panel).queryByTestId('grid-open-report')).toBeNull();
+    // A vote control IS still offered on your own row: the community ranking includes
+    // it, which is the same decision the cards make.
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+
+    // 🔴 AND REMOVE REACHES `withdraw` WITH THIS GRID'S KEY, through the confirm step.
+    // Without this the Remove button could be inert or aimed at another row.
+    // ⚠ `withdraw-confirm` is a FIXED testid inside `WithdrawButton`, not derived from
+    // the trigger's — scoped to the panel so it cannot resolve against a card's.
+    await userEvent.click(within(panel).getByTestId('grid-open-withdraw'));
+    await userEvent.click(
+      within(screen.getByTestId('grid-open-panel')).getByTestId('withdraw-confirm'),
+    );
+    await waitFor(() => expect(withdraws).toContain('gk-mine'));
+  });
+
+  it('🔴 the SYSTEM entry offers NONE of the three, and says why in words', async () => {
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
+    const panel = await screen.findByTestId('grid-open-panel');
+
+    // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered,
+    // so the three nulls below are not three ways of saying "nothing is on screen".
+    expect(within(panel).getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
+
+    expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-withdraw')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-report')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-own-badge')).toBeNull();
+
+    // …and it says so where the reader is, rather than leaving the absence unexplained.
+    expect(within(panel).getByTestId('grid-open-system-note')).toHaveTextContent(
+      /cannot be voted on and it is not part of the vote order/i,
+    );
+    // A system entry has no description of its own, so that slot is the note and
+    // nothing else — an either/or, not both.
+    expect(within(panel).queryByTestId('grid-open-description')).toBeNull();
+  });
+
+  it('🔴 the gate is the ENTRY, not the NAME: a published grid called "Top Grid" keeps its controls', async () => {
+    // 🔴 THE ANTI-SPELLING CONTROL. `TOP_GRID_NAME` is imported, never typed, so this
+    // case cannot drift out of alignment with the constant it collides with. A gate
+    // written as `name === TOP_GRID_NAME` (or `/top grid/i`) passes every other case
+    // in this describe and fails exactly here.
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-impostor', 3, TOP_GRID_NAME, MEMBERS, { authorUserId: OTHER_ID }),
+    ];
+    renderApp({ shared: fakeShared({ seed }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-impostor']));
+    await openListed('gk-impostor');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
+    // It is NOT the system entry, so: no badge, no note, and all the controls a
+    // published grid by another author gets.
+    expect(within(panel).queryByTestId('grid-open-system-badge')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
 // Criterion 11 — grid votes and the Community ordering
 // ===========================================================================
 

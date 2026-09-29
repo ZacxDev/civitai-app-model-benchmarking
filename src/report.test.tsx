@@ -26,10 +26,11 @@ import {
   fakeAppStorage,
   fakeShared,
   immediateSleep,
+  openMyList,
   openRowMenu,
   openView,
 } from './test-helpers.js';
-import type { CombinationData } from './types.js';
+import type { CombinationData, GridData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
 const OTHER_ID = 7;
@@ -201,5 +202,145 @@ describe('report — the board’s abuse seam', () => {
     expect(reports).toHaveLength(1);
     // …and nothing was tracked as a filed report.
     expect(track).not.toHaveBeenCalledWith('report');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 THE SETTLED STATE AND THE ⋮ MENU'S UNCONDITIONAL CLOSE
+// ---------------------------------------------------------------------------
+//
+// 🔴 WHAT THIS FILE COULD NOT SEE, AND THE DEFECT THAT HID IN IT. Every case above
+// asserts INSIDE the still-open panel, so all of them passed while the outcome of a
+// report was being destroyed by the viewer's next click. `components/Menu.tsx` closes
+// on any outside `mousedown` and on Escape, both UNCONDITIONALLY, and closing unmounts
+// the panel — so `ReportButton`'s local `done` went with it and re-opening the menu
+// offered Report again as if nothing had happened. `report()` is not documented
+// idempotent the way `vote` is (`ReportButtonProps.reported` says so), so that is a
+// second filing of the same row rather than a no-op. Before the ⋮ menu existed the
+// control sat inline on the card and survived.
+//
+// The fix is `App.reportedKeys` plus `reported={…}` per row — the hoist
+// `ReportButtonProps.reported`'s own JSDoc advises.
+//
+// 🔴 WATCHED FAILING, MEASURED: with the production sources at `7410ca7` and these two
+// cases in place, both go red — the first on
+// `getByTestId('matchup-report-done')` after the re-open, the second on
+// `grid-open-report-done` after the board switch.
+//
+// ⚠️ WHAT IS STILL NOT COVERED, AND IS NOT CLAIMED: a page RELOAD. `reportedKeys` is
+// session state in `App`, not a per-viewer `appStorage` record, so a reload re-offers
+// Report on a row this viewer already reported. Nor is the FAILURE line durable — it is
+// `ReportButton`'s own local state with no prop, so a refused report's "Could not send"
+// still dies on the next click. Both are stated in `App.reportRow`'s docblock.
+describe('report — the settled outcome outlives the menu', () => {
+  it('🔴 survives an outside-press close, an Escape close, a re-open and a view switch', async () => {
+    const { shared, reports } = fakeShared({
+      seed: [
+        combo('theirs', OTHER_ID, 'Someone else’s combo'),
+        combo('other', OTHER_ID, 'A second combo nobody reported'),
+      ],
+    });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+
+    const cardFor = (text: string) =>
+      screen.getAllByTestId('matchup-card').find((c) => c.textContent?.includes(text))!;
+
+    await waitFor(() => expect(screen.getAllByTestId('matchup-card')).toHaveLength(2));
+    let menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
+    await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
+
+    // ---- 1. AN OUTSIDE PRESS. This is the path that destroyed it: `Menu`'s
+    //         `mousedown` listener closes with no condition on what the panel holds.
+    await userEvent.click(screen.getByTestId('app-content'));
+    await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
+    // PREMISE, not decoration: the panel really is unmounted, so the re-open below is a
+    // fresh mount rather than a query against markup that never went away.
+    expect(screen.queryByTestId('matchup-report-done')).toBeNull();
+
+    // ---- 2. RE-OPEN: still settled, and Report is NOT offered a second time.
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toHaveTextContent(/reported for review/i);
+    expect(within(menu).queryByTestId('matchup-report')).toBeNull();
+
+    // 🔴 …AND IT IS KEYED BY THE ROW, not global. The second combo — never reported —
+    // still offers its own Report. Without this, "settled" could be a single boolean
+    // and every row on the board would show as reported after one report.
+    const otherMenu = await openRowMenu('matchup', cardFor('A second combo nobody reported'));
+    expect(within(otherMenu).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(otherMenu).queryByTestId('matchup-report-done')).toBeNull();
+
+    // ---- 3. ESCAPE, the other unconditional close, then re-open again.
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
+
+    // ---- 4. A VIEW SWITCH, which unmounts the whole board. `reportedKeys` lives in
+    //         `App`, above the switch, which is what makes this pass.
+    await openMyList('matchup');
+    await openView('Matchups');
+    menu = await openRowMenu('matchup', await waitFor(() => cardFor('Someone else’s combo')));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
+    expect(within(menu).queryByTestId('matchup-report')).toBeNull();
+
+    // 🔴 THE POINT OF ALL FOUR: exactly ONE report reached the host. The fake records
+    // ATTEMPTS, so a second filing would show up here even if it had succeeded.
+    expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
+  });
+
+  it('🔴 the OPEN GRID’s report settles and survives a board switch', async () => {
+    // The grid surface has no ⋮ menu — its controls are inline in `GridOpenPanel` — so
+    // the hazard here is the plainer one: the panel re-renders on every board switch and
+    // every `list()` refresh, and a settled control that resets invites a second filing.
+    // ⚠ `parseGrid` returns null unless BOTH member lists are non-empty, so the seed
+    // carries a real prompt row as well — a grid with no columns is simply not listed.
+    const promptData: PromptData = { v: 3, kind: 'prompt', default: { prompt: 'a portrait', params: {} } };
+    const gridData: GridData = { v: 1, kind: 'grid', matchupKeys: ['theirs'], promptKeys: ['qk-one'] };
+    const { shared, reports } = fakeShared({
+      seed: [
+        combo('theirs', OTHER_ID, 'Someone else’s combo'),
+        {
+          key: 'qk-one',
+          authorUserId: OTHER_ID,
+          count: 1,
+          viewerVoted: false,
+          value: { title: 'A prompt', body: '', data: promptData },
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        } as unknown as SharedItem,
+        {
+          key: 'gk-theirs',
+          authorUserId: OTHER_ID,
+          count: 4,
+          viewerVoted: false,
+          value: { title: 'Their grid', body: '', data: gridData },
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        } as unknown as SharedItem,
+      ],
+    });
+    mountApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+
+    // Open the published grid, so the panel is showing a row that CAN be reported (the
+    // default open entry is the system Top Grid, which offers no Report at all).
+    const openGrid = await waitFor(() =>
+      screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-theirs')!,
+    );
+    await userEvent.click(within(openGrid).getByTestId('grid-open'));
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    await userEvent.click(within(panel).getByTestId('grid-open-report'));
+    await userEvent.click(within(panel).getByTestId('grid-open-report-confirm'));
+    await waitFor(() => expect(screen.getByTestId('grid-open-report-done')).toBeInTheDocument());
+
+    // A board switch and back — the panel stays on Home but re-renders throughout.
+    await openView('Matchups');
+    await openView('Grids');
+    const back = await screen.findByTestId('grid-open-panel');
+    expect(within(back).getByTestId('grid-open-report-done')).toBeInTheDocument();
+    expect(within(back).queryByTestId('grid-open-report')).toBeNull();
+    expect(reports).toEqual([{ key: 'gk-theirs', reason: undefined }]);
   });
 });

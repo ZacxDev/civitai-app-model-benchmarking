@@ -22,10 +22,25 @@
 //
 // 🔴 THE OPEN GRID IS NOT IN THE LIST. The default open grid is the TOP GRID, so by
 // default the Top Grid is not listed at all: it renders in full in `grid-open-panel`
-// above, and a card whose only distinguishing content was "Shown in full above" is a
-// row the viewer cannot act on sitting in the position that pushes every row they CAN
-// act on further down. Open another grid and the Top Grid joins the list like any
-// other entry, still badged system-owned and still carrying no vote control.
+// above. Open another grid and the Top Grid joins the list like any other entry, still
+// badged system-owned and still carrying no vote control.
+//
+// ⚠️ THE JUSTIFICATION THIS PARAGRAPH USED TO GIVE WAS FALSE, and it is recorded rather
+// than replaced with a better-sounding one. It read: a card whose only distinguishing
+// content was "Shown in full above" is "a row the viewer cannot act on sitting in the
+// position that pushes every row they CAN act on further down". The second half is
+// fine. The first half was wrong on this very file's own markup — `entryCard` renders
+// Open, Remove, Report and the vote control, so the open grid's card carried THREE
+// action buttons and was the most actionable row in the list. Excluding it therefore
+// REMOVED affordances rather than removing dead weight, which is the defect
+// `GridOpenPanel` now closes by carrying vote / withdraw / report itself.
+//
+// 🔴 WHAT THE EXCLUSION IS ACTUALLY FOR, and it is the one reason that survives
+// measurement: the open grid's card previewed exactly the cells its own matrix already
+// renders full-size a few hundred pixels above — a duplicate gated read of the same
+// ids, pinned by `gridPreviewSeam.test.tsx` at 3 calls not 4. See the `GridPreview`
+// comment below, which has the numbers. Position is a secondary, real benefit; "the
+// viewer cannot act on it" is not a reason at all.
 //
 // 🔴 THE THREE CLAIMS THIS VIEW OWES THE READER, and none is decoration:
 //
@@ -101,6 +116,11 @@ export interface GridsViewProps {
    */
   GatedCell: GatedCellComponent;
   votedKeys: Set<string>;
+  /**
+   * Shared keys this viewer has already REPORTED — see `App.reportedKeys` for why the
+   * record lives there and not in `ReportButton`'s local state.
+   */
+  reportedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
   error: string | null;
@@ -143,6 +163,7 @@ export function GridsView({
   results,
   GatedCell,
   votedKeys,
+  reportedKeys,
   viewerId,
   loading,
   error,
@@ -243,7 +264,12 @@ export function GridsView({
             )}
             {!entry.system && !isOwn && signedIn && (
               <ReportButton
+                /* 🔴 KEYED BY THE ROW, per `ReportButtonProps`' own example: the
+                   settled state belongs to the grid, and this list RE-ORDERS (by vote
+                   count) and gains/loses the open entry as the viewer navigates. */
+                key={entry.row.key}
                 noun="grid"
+                reported={reportedKeys.has(entry.row.key)}
                 onReport={() => onReport(entry.row.key)}
                 data-testid="grid-report"
               />

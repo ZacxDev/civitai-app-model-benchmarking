@@ -230,6 +230,7 @@ function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
       results={opts.results ?? []}
       GatedCell={GatedCell}
       votedKeys={new Set()}
+      reportedKeys={new Set()}
       viewerId={VIEWER_ID}
       loading={false}
       error={null}

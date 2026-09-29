@@ -80,6 +80,7 @@ function renderCombos(rows: CombinationRow[], includedCount: number) {
       combinations={rows}
       includedCount={includedCount}
       votedKeys={new Set()}
+      reportedKeys={new Set()}
       viewerId={1}
       loading={false}
       error={null}
@@ -101,6 +102,7 @@ function renderPrompts(rows: PromptRow[], includedCount: number) {
       prompts={rows}
       includedCount={includedCount}
       votedKeys={new Set()}
+      reportedKeys={new Set()}
       viewerId={1}
       loading={false}
       error={null}

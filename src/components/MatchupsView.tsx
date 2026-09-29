@@ -75,6 +75,15 @@ export interface MatchupsViewProps {
    */
   includedCount: number;
   votedKeys: Set<string>;
+  /**
+   * Shared keys this viewer has already REPORTED.
+   *
+   * 🔴 A SET, THREADED THE SAME WAY `votedKeys` IS, and for the same reason: the
+   * per-row boolean is `has(key)` at the card, so no caller has to build one lookup per
+   * row. Where it comes FROM differs — see `App.reportedKeys`, and `MatchupBody.reported`
+   * for the menu-unmount defect it closes.
+   */
+  reportedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
   error: string | null;
@@ -110,6 +119,7 @@ export function MatchupsView({
   combinations,
   includedCount,
   votedKeys,
+  reportedKeys,
   viewerId,
   loading,
   error,
@@ -142,6 +152,7 @@ export function MatchupsView({
       <MatchupBody
         combo={combo}
         voted={votedKeys.has(combo.key)}
+        reported={reportedKeys.has(combo.key)}
         viewerId={viewerId}
         onVote={onVote}
         onUnvote={onUnvote}

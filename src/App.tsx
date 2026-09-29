@@ -544,6 +544,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     () => new Set(items.filter((it) => it.viewerVoted).map((it) => it.key)),
     [items],
   );
+  /**
+   * Shared keys this viewer has REPORTED, this session.
+   *
+   * 🔴 IT IS HERE BECAUSE `ReportButton`'s LOCAL STATE STOPPED SURVIVING. The third IA
+   * pass moved Report into the row's `⋮` menu, and `components/Menu.tsx` unmounts its
+   * whole panel on any outside `mousedown` and on Escape — both unconditional. So the
+   * armed confirm, the "Could not send — try again?" line and the settled "Reported for
+   * review" note were all destroyed by the next click ANYWHERE, and re-opening the menu
+   * offered Report again as if nothing had happened. `report()` is not documented
+   * idempotent (unlike `vote`), so that is a duplicate report rather than a no-op.
+   * `ReportButtonProps.reported`'s own JSDoc advises exactly this hoist.
+   *
+   * 🔴 THE SET IS THE OPPOSITE OF `votedKeys` IN ONE IMPORTANT WAY, and it is worth
+   * saying because the two sit next to each other: a vote is DERIVED from the row
+   * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
+   * has no such field — `SharedListItem` carries no report equivalent — so the only
+   * possible source is the app's own record, and holding it is not a second copy of
+   * anything.
+   *
+   * ⚠️ IT IS SESSION STATE, NOT PERSISTED, AND THAT IS THE HONEST SCOPE OF THE FIX. A
+   * reload still offers Report again on a row this viewer already reported; closing
+   * that needs a per-viewer `appStorage` record and is a write-path change with its own
+   * verification. What this DOES close is every in-session loss: a menu close, a
+   * re-open, a board switch, a sidebar navigation and a `list()` refresh.
+   */
+  const [reportedKeys, setReportedKeys] = useState<Set<string>>(() => new Set<string>());
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   // Mirror of `runs` for reading the live workflowId outside a state updater
   // (resume-poll reads it without re-subscribing the callback to `runs`).
@@ -1207,12 +1233,29 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * to fall back on either — `update`/`withdraw` both reject for anyone but the
    * row's author, so escalation is the whole of what this app can offer.
    *
-   * Rejections propagate to `ReportButton`, which stays armed for a retry: a
-   * failed report that closed quietly would read as a filed one.
+   * 🔴 REJECTIONS PROPAGATE — the `await` is not swallowed, so `ReportButton` renders
+   * its "Could not send — try again?" line instead of settling: a failed report that
+   * closed quietly would read as a filed one. It also means `key` is recorded ONLY on
+   * the success path, below.
+   *
+   * ⚠️ A PREVIOUS VERSION OF THIS DOCBLOCK SAID THE CONTROL "STAYS ARMED FOR A RETRY",
+   * AND THE ⋮ MENU PARTIALLY FALSIFIED IT. The rejection does still reach the control
+   * and does still render the failure line — that half is unchanged and is pinned by
+   * `report.test.tsx`. What is NOT true any more is that the armed state PERSISTS:
+   * `components/Menu.tsx` unmounts its panel on any outside `mousedown` and on Escape,
+   * so the failure line survives only until the viewer's next click. Nothing here can
+   * fix that — `ReportButton`'s in-flight and failed states are its own local state and
+   * there is no prop for them, unlike `reported` — so the honest statement is that a
+   * REFUSED report is still discoverable while the menu is open and is lost on close,
+   * while a SUCCEEDED one is durable for the session through `reportedKeys`. Filing the
+   * failure half upstream would need a `failed`-style prop on `ReportButton`.
    */
   const reportRow = useCallback(async (key: string) => {
     await depsRef.current.shared.report(key);
     depsRef.current.track('report');
+    // 🔴 AFTER the await, so a REFUSED report is not recorded as filed. See
+    // `reportedKeys` for why this record exists at all and what it does not survive.
+    setReportedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
   }, []);
 
   // ---- private write paths (see the per-viewer block above) ----
@@ -1923,9 +1966,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // viewer swap (the host can change viewer without remounting — see
   // `src/viewer-change.test.tsx`) AND on unmount, so neither a different account's
   // grant nor a remount can complete a press that is no longer anyone's.
+  //
+  // 🔴 `reportedKeys` GOES WITH IT, for the same reason and with a sharper symptom: a
+  // report belongs to the viewer who filed it, and the swap does NOT remount, so
+  // viewer B would arrive looking at "Reported for review" against rows they have never
+  // reported — and, worse, with no Report control to file their own. This is the same
+  // class of bug `key={viewerId}` on `UnpublishedList` closes for the publish error;
+  // that fix cannot be reused here because the state lives in `App`, above the swap.
   useEffect(
     () => () => {
       pendingConsentRunRef.current = null;
+      setReportedKeys((prev) => (prev.size === 0 ? prev : new Set<string>()));
     },
     [viewer?.id],
   );
@@ -2449,14 +2500,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 >
                   <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
                     <GridOpenPanel
+                      /* 🔴 THE WHOLE ENTRY, not a `system` boolean — the panel's three
+                         row controls each need the row's KEY as well, and one object
+                         is what stops them naming two different grids. */
+                      entry={openEntry}
+                      viewerId={viewer?.id ?? null}
                       name={openName}
-                      system={openEntry.system}
                       members={openMembers}
                       /* 🔴 Criterion 8 on the OPEN grid: the surviving members render
                          below and this sentence carries the honest count of what is
                          not there — built from the scan's truncation flag, so a
                          member that was merely UNREAD is not reported as removed. */
                       missing={openMissing}
+                      /* 🔴 THE OPEN GRID'S OWN CONTROLS, and they are the SAME
+                         callbacks the cards get. Excluding the open grid from the list
+                         took its card away, and the card was the only place vote /
+                         withdraw / report rendered — so the grid a viewer is actually
+                         reading was the one grid they could not act on. */
+                      votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
+                      onVote={onVote}
+                      onUnvote={onUnvote}
+                      onRequireAuth={requireAuth}
+                      onWithdraw={withdrawGrid}
+                      onReport={reportRow}
                     >
                       {/* 🔴 THE MATRIX IS RENDERED HERE, not inside any browse
                           surface, because every prop below it is money-shaped (the
@@ -2517,6 +2584,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       results={results}
                       GatedCell={deps.GatedCell}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2550,6 +2618,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       combinations={combinations}
                       includedCount={includedCombos.length}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2575,6 +2644,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       prompts={prompts}
                       includedCount={includedPrompts.length}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2631,6 +2701,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     combinations={combinations}
                     includedCount={includedCombos.length}
                     votedKeys={votedKeys}
+                    reportedKeys={reportedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
                     error={error}
@@ -2661,6 +2732,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     prompts={prompts}
                     includedCount={includedPrompts.length}
                     votedKeys={votedKeys}
+                    reportedKeys={reportedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
                     error={error}
@@ -2711,6 +2783,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 combo={detailMatchup}
                 detail
                 voted={votedKeys.has(detailMatchup.key)}
+                reported={reportedKeys.has(detailMatchup.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}
                 onUnvote={onUnvote}
@@ -2734,6 +2807,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 prompt={detailPrompt}
                 detail
                 voted={votedKeys.has(detailPrompt.key)}
+                reported={reportedKeys.has(detailPrompt.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}
                 onUnvote={onUnvote}
