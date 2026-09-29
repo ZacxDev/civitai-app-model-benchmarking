@@ -31,7 +31,15 @@
 //   - an item's expandable state shown as a CHEVRON;
 //   - nesting expressed as a DEPTH VALUE — upstream's custom property is
 //     `--civitai-nav-depth`, at 14px per level. This file sets the same property
-//     name and the same step, so the indent survives the swap untouched.
+//     name and the same step, so the DECLARATION survives the swap untouched.
+//     🔴 BUT IT IS INERT ON THIS TREE AND THE SENTENCE USED TO IMPLY OTHERWISE. It
+//     read "so the INDENT survives the swap untouched", which reads as "the custom
+//     property is what indents a row". It is not: NOTHING in this tree consumes
+//     `--civitai-nav-depth` (verified by `git grep` across `src`), and `padding-left`
+//     is the only thing that moves a row here — which is exactly how the indent came
+//     to be dead at every level while looking correct in the source. `itemStyle`'s
+//     comment carries that measurement. Same defect class as `Menu.tsx`'s upstream
+//     block: a second-hand upstream mechanism written up as if it were live here.
 //   - `aria-current` on the active item.
 //
 // 🔴 TWO KNOWN SNAGS, both of which cost work at swap time and neither of which is a
