@@ -93,20 +93,34 @@ export const MENU_ITEM_SELECTOR = "[role='menuitem']";
  * Marks a control whose whole visible content is an ICON — no text at all, with an
  * `aria-label` carrying the accessible name.
  *
- * 🔴 IT EXISTS BECAUSE THE 44px FLOOR WAS HEIGHT-ONLY, AND UNTIL NOW THAT WAS ENOUGH.
- * Every other tap target in this app is text-bearing: a pack `Button`'s label, a
- * segment, a `role="option"` row, a nav item. Text makes a box WIDER than 44px on its
- * own, so `min-height` was the only binding dimension and `min-width` appears nowhere
- * else in this sheet. `components/Menu.tsx`'s `⋮` trigger is the app's FIRST text-less
- * control — a 14×14 `<svg>` inside a `size="sm"` pack Button — so width is the short
- * axis for the first time and the existing rule does not floor it.
+ * 🔴 IT EXISTS BECAUSE THE 44px FLOOR WAS HEIGHT-ONLY, AND NOTHING HAD NEEDED MORE.
+ * Every other tap target in this app carries TEXT: a pack `Button`'s label, a segment, a
+ * `role="option"` row, a nav item. `components/Menu.tsx`'s `⋮` trigger is the app's FIRST
+ * text-less control — a 14×14 `<svg>` plus an `aria-label`, inside a `size="sm"` pack
+ * Button — so width became a candidate short axis for the first time, and the existing
+ * rule (which is `min-height` only, and in which `min-width` appears nowhere) does not
+ * floor it.
+ *
+ * ⚠️ THE GEOMETRIC PREMISE IS NOT MEASURED, AND A DRAFT STATED IT AS FACT. It said "text
+ * makes a box WIDER than 44px on its own", which this repo cannot check — jsdom resolves
+ * no layout, and the pack's horizontal padding is not in this tree. The nearest
+ * counterexample is in-tree: `VoteButton` is a 12×12 glyph beside a `minWidth: 14`
+ * single-digit count, also `size="sm"`, and nothing says that clears 44px either. So the
+ * honest form is narrower: every other tap target carries a MULTI-CHARACTER label and has
+ * never been reported too narrow, the `⋮` trigger carries NONE, and `VoteButton`'s
+ * single-digit case is owed the same live reading as the trigger. Do not read the
+ * not-widened decision below as resting on a measurement.
  *
  * 🔴 IT IS AN ATTRIBUTE THIS APP SETS, NOT A ROLE, AND THAT IS A KNOWN WEAKNESS rather
- * than a preference — the same one `NAV_ITEM_SELECTOR` carries and says so. "This
- * control's content is an icon" is not a state ARIA exposes, so there is nothing
- * role-shaped to pin and an upstream `<civitai-menu>` trigger will not carry this
- * attribute. The reachability case in `mobile-responsive.test.tsx` is what turns that
- * into a failure rather than into a silently orphaned rule.
+ * than a preference. "This control's content is an icon" is not a state ARIA exposes, so
+ * there is nothing role-shaped to pin and an upstream `<civitai-menu>` trigger will not
+ * carry this attribute. {@link NAV_ITEM_SELECTOR} has the same weakness — the swap
+ * ORPHANS both — and {@link MENU_ITEM_SELECTOR} is the one that avoids it, by pinning a
+ * role the upstream element sets on its own light-DOM host; its docblock carries that
+ * argument. (⚠ A draft said `NAV_ITEM_SELECTOR` "says so"; it does not — it is three
+ * lines about being exported once. The weakness is recorded in `compactTapTargetCss`'s
+ * selector notes instead.) The reachability case in `mobile-responsive.test.tsx` is what
+ * turns the orphan into a failure rather than into a silently dead rule.
  *
  * 🔴 SCOPED TO THE ONE CONTROL RATHER THAN ADDED TO THE SHARED RULE, deliberately. A
  * blanket `min-width: 44px` on `[data-civitai-ui='button']` would reach every button in

@@ -80,13 +80,28 @@ function resolveSpecifier(fromFile: string, spec: string): string | null {
  * by its name at all). A prose list of which files are test-only rots on the next file
  * anyone adds; an import walk does not.
  *
- * ⚠️ TWO DELIBERATE HEURISTICS, both over-inclusive:
+ * ⚠️ THREE DELIBERATE HEURISTICS, all over-inclusive — and the DIRECTION of that
+ * over-inclusion is safe for one caller and UNSAFE for the other, so read the third with
+ * that in mind:
  *   - TYPE-ONLY imports count. `import type { X } from './y.js'` puts no code in the
- *     bundle, but distinguishing them needs a parser. Over-inclusive here means the
- *     reachable set can be too BIG, so the test-only set derived from it can only be too
- *     SMALL — a ledger built on it under-reports rather than inventing members.
+ *     bundle, but distinguishing them needs a parser.
  *   - BARE specifiers are ignored entirely: this walk is about THIS repo's files, not
  *     about `node_modules`.
+ *   - THE REGEX RUNS OVER RAW SOURCE, SO A SPECIFIER INSIDE A **COMMENT** IS FOLLOWED.
+ *     This module's callers are comment-heavy, so that is not hypothetical. Measured
+ *     today: exactly two comment-line matches exist in the scanned tree
+ *     (`Menu.tsx`'s `./elements/index.js` and this file's own `./y.js` above) and
+ *     NEITHER resolves to a real file, so both callers' results are currently exact.
+ *
+ * 🔴 WHY THE DIRECTION MATTERS DIFFERENTLY PER CALLER. For
+ * `navigationDormancy.test.ts`'s LEDGER, an over-large reachable set makes the test-only
+ * set too SMALL — it under-reports rather than inventing members, and the ledger simply
+ * goes red. For `renameWireCompat.test.ts`, which NARROWS its scan to this set, the same
+ * over-inclusion is the unsafe direction: a production file merely MENTIONING
+ * `'./test-helpers.js'` in prose would put a test helper back into a ledger that claims
+ * to hold only what production renders. If that ever happens, strip comments before
+ * matching (`navigationDormancy.test.ts` already has a `stripComments` for its own scan).
+ *
  * A dynamic `import(expr)` with a computed path is invisible to it; there are none in
  * this tree, and a static `import()` with a literal is matched like any other.
  */

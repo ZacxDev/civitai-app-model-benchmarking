@@ -45,7 +45,11 @@ import { Button, Stack } from '@civitai/blocks-react/ui';
 import type { MyNoun } from '../types.js';
 import { EmptyState } from './EmptyState.js';
 
-// ── WHY {@link MyNoun} HAS THREE MEMBERS — the history, not this panel's docs ──
+// ── WHY `MyNoun` HAS THREE MEMBERS — the history, not this panel's docs ──
+//
+// (⚠ Deliberately NOT `{@link MyNoun}`: that only resolves inside a JSDoc block, and this
+// one was demoted out of JSDoc on purpose — see the next paragraph. A live-looking link
+// tag in a `//` comment is a small claim that the tooling will honour it, and it will not.)
 //
 // ⚠️ THIS WAS A `/** … */` DOCBLOCK AND IT WAS ORPHANED. It documented the `MyNoun`
 // union while that union was DECLARED here; the declaration moved to `../types.js` and

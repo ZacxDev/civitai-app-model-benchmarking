@@ -533,7 +533,9 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
   // `my-published-empty` — "You have no published grids on the board right now" — an
   // absence the app never observed. My ▸ Matchups renders `matchups-error` on the same
   // failure, so grids was the one surface of three that answered a failure with a
-  // confident zero. The App-level half of this is in `myCommunity.test.tsx`.
+  // confident zero. The App-level half is the `🔴 App SEAM` case a few below, IN THIS
+  // FILE. ⚠ A draft pointed at `myCommunity.test.tsx`; that file has no error-handling
+  // case at all (`grep -n error` → 0 hits over its 686 lines).
   it('🔴 surfaces a board-read FAILURE instead of "you have no published grids"', () => {
     // `ownGrids: []` is precisely the state a failed read leaves behind — that is what
     // made the empty line a lie rather than a mere gap.

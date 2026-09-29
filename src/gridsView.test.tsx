@@ -654,17 +654,27 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
 //
 // 🔴 WATCHED FAILING, MEASURED: with every production source swapped to `7410ca7`
 // (this stack's tip before this round) and these tests left in place, all FOUR cases
-// below go red and the other 28 in this file stay green. Each dies on its own missing
-// control — `grid-open-description`, `grid-open-own-badge`, `grid-open-system-note`,
-// `grid-open-vote` — not on a shared helper or a type error.
+// below go red. Each dies on its own missing control — `grid-open-description`,
+// `grid-open-own-badge`, `grid-open-system-note`, `grid-open-vote` — not on a shared
+// helper or a type error.
+//
+// ⚠️ THE "…AND THE OTHER **28** IN THIS FILE STAY GREEN" HALF OF THAT SENTENCE IS
+// RETRACTED, TWICE OVER. It was true of the file as it stood when the measurement was
+// taken (32 cases); the file has 34 now, so the arithmetic is stale — and, worse, one of
+// the two added since is the withdraw-fallback case below, which clicks
+// `grid-open-withdraw`, a control this round INTRODUCED. It cannot be green at base
+// either. Do not re-derive a number here: the measured claim is about the four cases in
+// THIS describe, and whether any other case is red at base is that case's own business.
 //
 // ⚠️ ONE HALF OF THE SYSTEM CASE IS AN INVARIANT GUARD AND IS LABELLED AS ONE. Its
-// three `queryByTestId(...).toBeNull()` assertions pass at base VACUOUSLY: at base no
-// panel renders any of those controls for any entry, so "absent on the Top Grid" is
-// not yet a claim about the Top Grid. What makes them non-vacuous on THIS tree is the
-// pair of cases above, which show the same panel DOES render them for a published
-// grid — the absence is a property of the ENTRY, and the two halves only mean
-// something together. The system case's own red-at-base half is `grid-open-system-note`.
+// `queryByTestId(...).toBeNull()` assertions — FOUR before this note was written and
+// FIVE in the case as it stands — pass at base VACUOUSLY: at base no panel renders any
+// of those controls for any entry, so "absent on the Top Grid" is not yet a claim about
+// the Top Grid. (A draft said "three"; counted rather than remembered now.) What makes
+// them non-vacuous on THIS tree is the pair of cases above, which show the same panel
+// DOES render them for a published grid — the absence is a property of the ENTRY, and
+// the two halves only mean something together. The system case's own red-at-base half is
+// `grid-open-system-note`.
 //
 // 🔴 AND THE SYSTEM GATE IS DERIVED, NOT SPELLED. The last case publishes a grid
 // literally NAMED "Top Grid" and requires it to carry all three controls: a gate
@@ -746,8 +756,9 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
     const panel = await screen.findByTestId('grid-open-panel');
 
-    // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered,
-    // so the three nulls below are not three ways of saying "nothing is on screen".
+    // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered, so
+    // the FIVE nulls below are not five ways of saying "nothing is on screen". (A draft
+    // said "three"; there are four controls plus the description.)
     expect(within(panel).getByTestId('grid-open-system-badge')).toBeInTheDocument();
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
 

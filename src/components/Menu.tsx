@@ -74,11 +74,18 @@
 // 🔴 SO THE SWAP *IS* GATED ON A VERSION BUMP ON THIS TREE, and the line that said
 // otherwise is RETRACTED. It read: "THE SWAP is gated on either of those closing …
 // It is NOT gated on a version bump." That is false here for the plainest possible
-// reason — the installed package ships no menu element to swap to. `sideNav.test.tsx`
-// states the compatible fact in the same diff ("the pinned `@civitai/components@0.4.1`
-// installed here SHIPS NO NAV ELEMENT AT ALL"), so for one round two files in this
-// repo disagreed about the same dependency. The version bump is a PREREQUISITE; the
-// two findings below are ADDITIONAL blockers that a bump alone would not clear.
+// reason — the installed package ships no menu element to swap to.
+//
+// ⚠️ AND THE TWO FILES DISAGREED FOR TWO WHOLE ROUNDS, not one. `sideNav.test.tsx`
+// states the compatible fact — "the pinned `@civitai/components@0.4.1` installed here
+// SHIPS NO NAV ELEMENT AT ALL" — and it landed in `035bc14`, a round-0 CORRECTION
+// commit, i.e. AFTER the wrong line here (`c6d7896`) and without noticing it. A draft
+// of this paragraph said the two were "in the same diff"; they were not, and the real
+// history is worse: a round dedicated to correcting false claims read the installed
+// version correctly in one file while leaving the opposite claim standing in another.
+//
+// The version bump is a PREREQUISITE; the findings below are ADDITIONAL blockers that a
+// bump alone would not clear.
 //
 // ⚠️ SECOND-HAND, FROM A DIFFERENT TREE — the parked five-package bump
 // (`components@0.8.1` / `components-react@0.9.0`), not the installed pins. Nobody

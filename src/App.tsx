@@ -396,6 +396,16 @@ function inflightToRun(entry: InflightRun): CellRun {
   };
 }
 
+/**
+ * The empty reported-keys set, shared.
+ *
+ * 🔴 MODULE-LEVEL AND FROZEN SO THE IDENTITY IS STABLE. `reportedKeys` below returns this
+ * whenever the stored record does not belong to the viewer on screen; a `new Set()` at
+ * that site would be a new object every render and would invalidate every `useMemo` and
+ * `React.memo` downstream of it on every render, for a value that never changes.
+ */
+const EMPTY_REPORTED: Set<string> = Object.freeze(new Set<string>()) as Set<string>;
+
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
   const token = useBlockToken();
@@ -574,7 +584,34 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * verification. What this DOES close is every in-session loss: a menu close, a
    * re-open, a board switch, a sidebar navigation and a `list()` refresh.
    */
-  const [reportedKeys, setReportedKeys] = useState<Set<string>>(() => new Set<string>());
+  const [reportedRecord, setReportedRecord] = useState<{
+    ownerId: number | null;
+    keys: Set<string>;
+  }>(() => ({ ownerId: null, keys: new Set<string>() }));
+  /**
+   * The set the views read — DERIVED, and empty unless the record belongs to the viewer
+   * on screen RIGHT NOW.
+   *
+   * 🔴 IT WAS AN EFFECT AND THE EFFECT LEAKED ONE PAINTED FRAME. The first version
+   * cleared the set from a `useEffect` cleanup keyed on `[viewer?.id]`. Passive effects
+   * flush AFTER paint, so viewer B's first frame rendered with viewer A's set — "Reported
+   * for review" against rows B has never reported, and no Report trigger — and only the
+   * frame after that was correct. No test could see it, because every `findBy*` flushes
+   * effects before asserting: the guard in `viewer-change.test.tsx` was green over a
+   * wrong frame. Found by an adversarial audit of this round, not by a test.
+   *
+   * 🔴 SO OWNERSHIP IS PART OF THE VALUE, and the answer is computed in RENDER. There is
+   * no window in which the wrong viewer's reports can reach the DOM, because there is no
+   * moment at which the stored set is read without its owner. This is the repo's standing
+   * preference for a deterministic fix over an effect, and it is the same shape as
+   * `votedKeys` above: derived from what is true now rather than mirrored and corrected.
+   *
+   * `EMPTY_REPORTED` is module-level and frozen so the identity is STABLE across renders
+   * — a fresh `new Set()` here would churn every `useMemo`/`memo` that takes this as a
+   * dependency.
+   */
+  const reportedKeys =
+    reportedRecord.ownerId === (viewer?.id ?? null) ? reportedRecord.keys : EMPTY_REPORTED;
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   // Mirror of `runs` for reading the live workflowId outside a state updater
   // (resume-poll reads it without re-subscribing the callback to `runs`).
@@ -1271,13 +1308,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * while a SUCCEEDED one is durable for the session through `reportedKeys`. Filing the
    * failure half upstream would need a `failed`-style prop on `ReportButton`.
    */
-  const reportRow = useCallback(async (key: string) => {
-    await depsRef.current.shared.report(key);
-    depsRef.current.track('report');
-    // 🔴 AFTER the await, so a REFUSED report is not recorded as filed. See
-    // `reportedKeys` for why this record exists at all and what it does not survive.
-    setReportedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
-  }, []);
+  const reportRow = useCallback(
+    async (key: string) => {
+      await depsRef.current.shared.report(key);
+      depsRef.current.track('report');
+      // 🔴 AFTER the await, so a REFUSED report is not recorded as filed. See
+      // `reportedKeys` for why this record exists at all and what it does not survive.
+      //
+      // 🔴 AND IT STAMPS THE OWNER, which is what makes the read above derivable. A set
+      // stored without its owner has to be CLEARED by something when the viewer changes,
+      // and the only thing that can do that is an effect — which runs after paint. See
+      // `reportedKeys`.
+      const ownerId = viewer?.id ?? null;
+      setReportedRecord((prev) => {
+        const mine = prev.ownerId === ownerId;
+        if (mine && prev.keys.has(key)) return prev;
+        return { ownerId, keys: new Set(mine ? prev.keys : []).add(key) };
+      });
+    },
+    [viewer?.id],
+  );
 
   // ---- private write paths (see the per-viewer block above) ----
 
@@ -1988,16 +2038,18 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // `src/viewer-change.test.tsx`) AND on unmount, so neither a different account's
   // grant nor a remount can complete a press that is no longer anyone's.
   //
-  // 🔴 `reportedKeys` GOES WITH IT, for the same reason and with a sharper symptom: a
-  // report belongs to the viewer who filed it, and the swap does NOT remount, so
-  // viewer B would arrive looking at "Reported for review" against rows they have never
-  // reported — and, worse, with no Report control to file their own. This is the same
-  // class of bug `key={viewerId}` on `UnpublishedList` closes for the publish error;
-  // that fix cannot be reused here because the state lives in `App`, above the swap.
+  // ⚠️ `reportedKeys` WAS CLEARED HERE FOR ONE ROUND AND IS NOT ANY MORE, deliberately.
+  // The hazard is real and identical — a report belongs to the viewer who filed it, and
+  // the swap does NOT remount, so viewer B must not arrive looking at "Reported for
+  // review" against rows they have never reported, with no Report trigger of their own.
+  // But AN EFFECT IS THE WRONG INSTRUMENT FOR IT: a passive effect's cleanup flushes
+  // after PAINT, so B's first committed frame still carried A's set and only the frame
+  // after that was right. `reportedKeys` is DERIVED in render now, from a record that
+  // stores its owner, so no such frame exists. Do not re-add a clear here — it would be a
+  // second, weaker spelling of a decision already made, and the two could disagree.
   useEffect(
     () => () => {
       pendingConsentRunRef.current = null;
-      setReportedKeys((prev) => (prev.size === 0 ? prev : new Set<string>()));
     },
     [viewer?.id],
   );

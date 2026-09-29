@@ -41,6 +41,12 @@ describe('rovingTarget', () => {
     expect(rovingTarget(3, -1, -1)).toBe(2);
     // …and the old formula's answer is written out so the difference is legible rather
     // than asserted by absence: at count 3 it was 1, the MIDDLE item.
+    //
+    // ⚠️ THE THREE `expect((…) % …)` LINES IN THIS CASE ARE NOT GUARDS AND CANNOT BE RED.
+    // They assert literal arithmetic over literal numbers, so no change to this repo can
+    // move them; they are here to put the WRONG answer beside the right one in the
+    // reader's eye. Do not count them when counting this case's coverage — the guards are
+    // the `rovingTarget(...)` calls.
     expect((-1 + -1 + 3) % 3).toBe(1);
     expect(rovingTarget(3, -1, -1)).not.toBe(1);
     // 🔴 AT A COUNT WHERE THE TWO CANNOT COINCIDE BY ACCIDENT. With count 2 the buggy

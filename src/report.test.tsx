@@ -306,10 +306,23 @@ describe('report — the settled outcome outlives the menu', () => {
     expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
   });
 
-  it('🔴 the OPEN GRID’s report settles and survives a board switch', async () => {
+  it('🔴 the OPEN GRID’s report settles and survives a SIDEBAR navigation', async () => {
     // The grid surface has no ⋮ menu — its controls are inline in `GridOpenPanel` — so
-    // the hazard here is the plainer one: the panel re-renders on every board switch and
-    // every `list()` refresh, and a settled control that resets invites a second filing.
+    // the unmount that can destroy a settled report here is a SIDEBAR navigation: leaving
+    // Home unmounts the whole `view.kind === 'home'` branch, `section-open-grid`
+    // included. (The other reset is `key={row.key}` changing when a different grid is
+    // opened, which is why the panel's `ReportButton` carries that key.)
+    //
+    // 🔴 THIS CASE USED TO SWITCH BOARDS, AND THAT PROVED NOTHING. MEASURED by an
+    // adversarial audit of this round: `section-open-grid` is a SIBLING of the
+    // `board === …` sections inside the one Home branch (`App.tsx`), so a board switch
+    // RE-RENDERS the panel and never unmounts it — and a React re-render does not reset
+    // local state. Under the mutant that deletes `reported=` from `GridOpenPanel.tsx`,
+    // the board-switch version stayed GREEN (1 failed / 803 passed, and the sole failure
+    // was the SEAM LEDGER below); the control's own `done` had simply survived. The
+    // positive control was the same deletion in `MatchupBody.tsx`, which took 2 cases red.
+    // Routed through `openMyList('grid')` it is a real unmount and discriminates.
+    //
     // ⚠ `parseGrid` returns null unless BOTH member lists are non-empty, so the seed
     // carries a real prompt row as well — a grid with no columns is simply not listed.
     const promptData: PromptData = { v: 3, kind: 'prompt', default: { prompt: 'a portrait', params: {} } };
@@ -351,9 +364,14 @@ describe('report — the settled outcome outlives the menu', () => {
     await userEvent.click(within(panel).getByTestId('grid-open-report-confirm'));
     await waitFor(() => expect(screen.getByTestId('grid-open-report-done')).toBeInTheDocument());
 
-    // A board switch and back — the panel stays on Home but re-renders throughout.
-    await openView('Matchups');
+    // 🔴 A SIDEBAR NAVIGATION AND BACK — a real UNMOUNT of the whole Home branch, which
+    // is the only thing on this surface that can destroy the control's local state.
+    await openMyList('grid');
+    // PREMISE, not decoration: the panel really did leave the DOM, so the assertion
+    // below is about a fresh mount rather than a node that never went away.
+    expect(screen.queryByTestId('grid-open-panel')).toBeNull();
     await openView('Grids');
+
     const back = await screen.findByTestId('grid-open-panel');
     expect(within(back).getByTestId('grid-open-report-done')).toBeInTheDocument();
     expect(within(back).queryByTestId('grid-open-report')).toBeNull();
@@ -381,8 +399,15 @@ describe('report — the settled outcome outlives the menu', () => {
   // without a force-push, so the correction lives here.
   //
   // ⚠️ IT IS STRUCTURAL AND THAT IS ITS CEILING: it proves the prop is PASSED, not that
-  // the value is right. The two behavioural cases above are what prove the value; this is
-  // what stops a THIRD site existing without one.
+  // the value is right. The two behavioural cases above are what prove the value on the
+  // two surfaces they drive; this is what stops a THIRD site existing without one.
+  //
+  // 🔴 AND BOTH OF THOSE CASES HAD TO EARN THAT, which is worth recording because one of
+  // them did not at first. The grid case originally switched BOARDS, and a board switch
+  // does not unmount `GridOpenPanel` — so it stayed green under the `reported` mutant and
+  // proved only that the control renders and settles. Re-routed through a sidebar
+  // navigation (a real unmount), the mutant now takes it AND this ledger red: measured,
+  // 2 failed / 802 passed, matching the matchup case's shape exactly.
   it('🔴 SEAM LEDGER: every production ReportButton is handed `reported`', () => {
     const SRC = resolve(process.cwd(), 'src');
     const reachable = productionReachable(resolve(SRC, 'main.tsx'));

@@ -136,10 +136,25 @@ export interface GridOpenPanelProps {
    * Shared keys this viewer has already REPORTED this session.
    *
    * 🔴 IT IS `App`'s, NOT `ReportButton`'s LOCAL STATE, and the reason is the same one
-   * that put the cards' reports there — see `App.reportedKeys`. Here it matters even
-   * without a menu: the panel re-renders on every board switch and every `list()`
-   * refresh, and a settled control that resets to "Report" invites a duplicate report
-   * of the same row.
+   * that put the cards' reports there — see `App.reportedKeys`.
+   *
+   * 🔴 WHAT RESETS THE CONTROL ON *THIS* SURFACE, named precisely, because a draft of
+   * this docblock named a mechanism that does not exist. There is no ⋮ menu here, so the
+   * two resets are:
+   *   1. a SIDEBAR NAVIGATION — leaving Home unmounts the whole `view.kind === 'home'`
+   *      branch, `section-open-grid` included, and takes the control's local `done`
+   *      with it;
+   *   2. OPENING A DIFFERENT GRID — the `key={row.key}` below changes, which is a fresh
+   *      instance by construction (and is there so grid B is not shown settled from a
+   *      report filed against grid A).
+   *
+   * ⚠️ IT IS *NOT* "the panel re-renders on every board switch and every `list()`
+   * refresh", which is what a draft said. `section-open-grid` is a SIBLING of the
+   * `board === …` sections inside the one Home branch, so a board switch re-renders this
+   * panel and never unmounts it — and a React re-render does not reset local state.
+   * Measured by an adversarial audit: with this prop deleted, a board-switch test stayed
+   * green. Recorded rather than quietly swapped, because "re-render" and "remount" are
+   * exactly the two a reader conflates.
    */
   reportedKeys: Set<string>;
   onVote: (key: string) => Promise<number> | void;

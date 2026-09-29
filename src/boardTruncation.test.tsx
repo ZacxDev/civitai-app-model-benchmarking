@@ -233,11 +233,16 @@ describe('board scan truncation', () => {
     // The badge is there on first paint: `openKey` starts `null` and
     // `buildTopGrid([], [])` yields a system entry regardless of what the scan found.
     await waitFor(() => expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument());
-    // …and the board it sits above has not loaded. Both true at the same instant, which
-    // is the whole point.
+    // …and the board it sits above has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it
+    // is a PRESENCE, so it cannot be satisfied by a stale selector or an empty render,
+    // and it is what proves the two facts are simultaneous rather than sequential.
     expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
-    // POSITIVE CONTROL that the matrix really is empty of scanned rows, i.e. the scan
-    // has produced nothing — so the badge cannot have come from it.
+    // …and the matrix is empty of scanned rows, so the badge cannot have come from one.
+    // ⚠ AN ABSENCE, NOT A CONTROL — a draft labelled it "POSITIVE CONTROL", which it
+    // cannot be: a wrong testid would produce the same `[]`. It is corroboration, and the
+    // presence assertion above is what carries the case. (`grid-group-matchup` is real —
+    // twelve other files query it — so this one is not silently broken, only weaker than
+    // its old label claimed.)
     expect(screen.queryAllByTestId('grid-group-matchup')).toEqual([]);
   });
 });
