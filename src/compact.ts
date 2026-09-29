@@ -16,6 +16,13 @@
 // `min-height` is deliberate: CSS resolves a box's used height as
 // `max(min-height, height)`, so a `min-height` declaration beats the pack's
 // `height: 30px` without having to out-specify or !important it.
+//
+// ⚠️ AND THE FLOOR IS NO LONGER HEIGHT-ONLY — do not read the paragraph above as "this
+// sheet is about height". Every TEXT-BEARING control's label carries it past 44px
+// horizontally, so height was the only binding dimension until the `⋮` overflow trigger
+// arrived with no text at all. There is now a second, narrowly scoped rule flooring
+// `min-width` on {@link ICON_BUTTON_SELECTOR}; its docblock has the argument, the blast
+// radius, and the live reading that is still owed.
 
 /** Marks the block root when the compact (narrow-viewport) layout is active. */
 export const COMPACT_ATTR = 'data-mb-compact';
@@ -81,6 +88,39 @@ export const NAV_ITEM_SELECTOR = '[data-mb-nav-item]';
  * is what makes that guard's replacement meaningful.
  */
 export const MENU_ITEM_SELECTOR = "[role='menuitem']";
+
+/**
+ * Marks a control whose whole visible content is an ICON — no text at all, with an
+ * `aria-label` carrying the accessible name.
+ *
+ * 🔴 IT EXISTS BECAUSE THE 44px FLOOR WAS HEIGHT-ONLY, AND UNTIL NOW THAT WAS ENOUGH.
+ * Every other tap target in this app is text-bearing: a pack `Button`'s label, a
+ * segment, a `role="option"` row, a nav item. Text makes a box WIDER than 44px on its
+ * own, so `min-height` was the only binding dimension and `min-width` appears nowhere
+ * else in this sheet. `components/Menu.tsx`'s `⋮` trigger is the app's FIRST text-less
+ * control — a 14×14 `<svg>` inside a `size="sm"` pack Button — so width is the short
+ * axis for the first time and the existing rule does not floor it.
+ *
+ * 🔴 IT IS AN ATTRIBUTE THIS APP SETS, NOT A ROLE, AND THAT IS A KNOWN WEAKNESS rather
+ * than a preference — the same one `NAV_ITEM_SELECTOR` carries and says so. "This
+ * control's content is an icon" is not a state ARIA exposes, so there is nothing
+ * role-shaped to pin and an upstream `<civitai-menu>` trigger will not carry this
+ * attribute. The reachability case in `mobile-responsive.test.tsx` is what turns that
+ * into a failure rather than into a silently orphaned rule.
+ *
+ * 🔴 SCOPED TO THE ONE CONTROL RATHER THAN ADDED TO THE SHARED RULE, deliberately. A
+ * blanket `min-width: 44px` on `[data-civitai-ui='button']` would reach every button in
+ * the app — including the ones inside the results matrix's own scroller — and jsdom can
+ * measure NONE of that (see the ⚠ below). Flooring exactly the control that is under
+ * the floor is the change whose blast radius can be reasoned about without layout.
+ *
+ * ⚠️ WHAT IS *NOT* VERIFIED, AND WHAT IS OWED: jsdom performs no layout, so nothing in
+ * this repo can observe the trigger's RENDERED width — only that this declaration is in
+ * the emitted sheet and that its selector matches the live node (i.e. the CASCADE). A
+ * LIVE READING AT ≤{@link MOBILE_BREAKPOINT_PX}px IS OWED for this control and has not
+ * been taken. Do not read the tests as coverage of the tap target's actual size.
+ */
+export const ICON_BUTTON_SELECTOR = '[data-mb-icon-button]';
 
 /** The sidebar's column width, in px, on a wide viewport. */
 export const SIDEBAR_WIDTH_PX = 172;
@@ -395,6 +435,19 @@ export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR} {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
+}
+
+/* 🔴 THE ONE CONTROL WHERE **WIDTH** IS THE SHORT AXIS. Every selector in the rule
+   above is a TEXT-BEARING control, so its label already carries it past 44px
+   horizontally and min-height was the only binding dimension — which is why min-width
+   appears nowhere else in this sheet. The ⋮ overflow trigger
+   (${ICON_BUTTON_SELECTOR}) has no text at all: a 14x14 glyph inside a size="sm" pack
+   Button, with an aria-label for the name. ICON_BUTTON_SELECTOR's docblock in this file
+   says why this is a separate rule rather than a widening of the one above, and records
+   the LIVE <=${MOBILE_BREAKPOINT_PX}px READING THAT IS STILL OWED — jsdom performs no
+   layout, so nothing here observes the rendered width. */
+[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR} {
+  min-width: ${MIN_TAP_TARGET_PX}px;
 }
 
 /* 🔴 THE SIDEBAR COLLAPSES TO A TOP BAR under ${MOBILE_BREAKPOINT_PX}px.

@@ -90,7 +90,7 @@ import {
 
 import { Button } from '@civitai/blocks-react/ui';
 
-import { MENU_ITEM_SELECTOR } from '../compact.js';
+import { ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR } from '../compact.js';
 import { elevate, radius, token } from '../theme.js';
 
 /**
@@ -120,6 +120,20 @@ export const MENU_CONTROL_ATTR = 'data-mb-menu-control';
  * role would leave that (very common) menu with nothing to focus on open.
  */
 export const MENU_FOCUSABLE_SELECTOR = `${MENU_ITEM_SELECTOR},[${MENU_CONTROL_ATTR}] button`;
+
+/**
+ * The attribute `compact.ts` floors at 44px **wide**, stamped on the `⋮` trigger.
+ *
+ * 🔴 THE TRIGGER IS THIS APP'S FIRST TEXT-LESS CONTROL, so it is the first one whose
+ * SHORT AXIS is width rather than height. `compact.ts`'s existing rule is `min-height`
+ * only, which is sufficient for every text-bearing control and does nothing for a
+ * 14×14 glyph in a `size="sm"` button. Derived from `ICON_BUTTON_SELECTOR` rather than
+ * spelled again, so the rule, this component and the reachability case name it once.
+ *
+ * ⚠️ jsdom performs NO LAYOUT, so a LIVE reading at ≤720px is owed — see
+ * `ICON_BUTTON_SELECTOR`'s docblock in `compact.ts`.
+ */
+export const ICON_BUTTON_ATTR = ICON_BUTTON_SELECTOR.slice(1, -1);
 
 /**
  * Close the menu from inside it.
@@ -233,6 +247,7 @@ export function Menu({
           ref={triggerRef}
           size="sm"
           variant="subtle"
+          {...{ [ICON_BUTTON_ATTR]: 'true' }}
           data-testid={testId}
           aria-haspopup="menu"
           aria-expanded={open}

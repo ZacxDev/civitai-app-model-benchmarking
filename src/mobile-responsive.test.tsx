@@ -111,6 +111,7 @@ import type { SharedItem } from '@civitai/sdk';
 import { App } from './App.js';
 import {
   COMPACT_ATTR,
+  ICON_BUTTON_SELECTOR,
   LAYOUT_ATTR,
   MENU_ITEM_SELECTOR,
   MIN_TAP_TARGET_PX,
@@ -235,6 +236,27 @@ function minHeightPx(el: Element): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * `min-width` as a NUMBER of px, or 0 when nothing declares one.
+ *
+ * 🔴 THE SIBLING OF `minHeightPx`, AND READ THE SAME WAY FOR THE SAME REASON: what this
+ * observes is the CASCADE (which declaration wins for this element), never the geometry.
+ * jsdom resolves no layout, so `getBoundingClientRect().width` is 0 here whatever the
+ * sheet says.
+ *
+ * ⚠️ MEASURED BEFORE BEING TRUSTED, because a longhand's CSSOM behaviour is not
+ * something to assume: jsdom 25.0.1 SYNTHESISES the `padding` shorthand out of four
+ * longhands, so a draft guard elsewhere in this stack asserted an empty shorthand and
+ * could never have discriminated its bug. `min-width` has no shorthand and reads back as
+ * a plain `'44px'` from a document stylesheet — confirmed by the negative control in the
+ * WIDE-viewport case below, which reads 0 from the same helper on the same element.
+ */
+function minWidthPx(el: Element): number {
+  const raw = getComputedStyle(el).minWidth;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // ---------------------------------------------------------------------------
 
 describe('420 — narrow viewport: the compact layout is mounted through the seam', () => {
@@ -326,6 +348,24 @@ describe('420 — wide viewport: the desktop rendering is untouched', () => {
     for (const tab of t) {
       expect(minHeightPx(tab)).toBeLessThan(MIN_TAP_TARGET_PX);
     }
+  });
+
+  // 🔴 THE NEGATIVE CONTROL FOR `minWidthPx`, AND IT IS DOING TWO JOBS. (1) It is the
+  // mirror of the ⋮ reachability case: if the width floor also applied on a wide
+  // viewport, that case would be green whether or not the compact seam decided anything.
+  // (2) It VALIDATES THE HELPER — a `getComputedStyle().minWidth` that always returned
+  // `'44px'`, or always `''`, would satisfy the mobile assertion for the wrong reason.
+  // Reading 0 off the SAME element through the SAME helper is what proves the number
+  // moves with the sheet. jsdom's CSSOM was measured rather than assumed here, because a
+  // longhand's read-back behaviour is not safe to assume: in this same jsdom (25.0.1) the
+  // `padding` SHORTHAND is synthesised from its longhands, which falsified a draft guard
+  // elsewhere in this stack that asserted the shorthand was empty.
+  it('leaves the ⋮ trigger with NO width floor (negative control for minWidthPx)', async () => {
+    setViewport('desktop');
+    renderApp();
+    const matchups = await openView('Matchups');
+    const trigger = await within(matchups).findByTestId('matchup-menu');
+    expect(minWidthPx(trigger)).toBe(0);
   });
 });
 
@@ -753,6 +793,72 @@ describe('420 — the 44px figure itself', () => {
     for (const i of items) {
       expect(minHeightPx(i)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE ⋮ TRIGGER — THE FIRST CONTROL WHOSE SHORT AXIS IS **WIDTH**
+  // -------------------------------------------------------------------------
+  //
+  // 🔴 THE FLOOR WAS HEIGHT-ONLY, AND THAT HELD UNTIL THIS CONTROL EXISTED. Every
+  // selector in `compactTapTargetCss`'s first rule reaches a TEXT-BEARING control — a
+  // pack Button's label, a segment, a `role="option"` row, a nav item — and text carries
+  // a box past 44px horizontally on its own. So `min-width` appeared NOWHERE in that
+  // sheet as a tap-target declaration, and nothing noticed, because nothing needed it.
+  // `components/Menu.tsx`'s trigger is a 14×14 `<svg>` with an `aria-label` and no text
+  // at all, in a `size="sm"` pack Button: width is the short axis for the first time.
+  //
+  // 🔴 AND THE EXISTING REACHABILITY CASE DOES NOT COVER IT. That case measures
+  // `minHeightPx` on the menu's ITEMS — the things inside the open panel — not on the
+  // trigger that opens it. Two different elements, one of which had no width floor.
+  //
+  // ⚠️ WHAT THESE TWO CASES DO AND DO NOT CLAIM, and the distinction is the whole point
+  // of this block. They assert (a) the declaration is in the emitted sheet, and (b) its
+  // selector wins the CASCADE on the real rendered trigger. They assert NOTHING about
+  // the tap target's actual size: jsdom performs no layout, `getBoundingClientRect()` is
+  // all zeros, and no amount of CSSOM reading changes that. **A LIVE READING AT
+  // ≤720px IS OWED FOR THIS CONTROL AND HAS NOT BEEN TAKEN.** It is recorded here, in
+  // `ICON_BUTTON_SELECTOR`'s docblock and in the sheet's own comment, in all three
+  // places, because a claim that only lives in one is a claim that gets summarised away.
+  it('SELECTOR REACHABILITY: the icon-button rule matches the live ⋮ trigger', async () => {
+    setViewport('mobile');
+    renderApp();
+
+    // The COMMUNITY board is enough here: the trigger renders for any row the viewer can
+    // act on, and on this seed that is Report (`SEED` is authored by 7, the viewer is
+    // 99). No owned fixture needed — which is what separates this case from the menuitem
+    // one above, whose subject is author-scoped.
+    const matchups = await openView('Matchups');
+    const trigger = await within(matchups).findByTestId('matchup-menu');
+
+    // 🔴 POSITIVE CONTROL ON THE SELECTOR ITSELF, scoped to the compact root, before any
+    // measurement: a rule whose selector matches nothing still parses, is still in the
+    // document, and still satisfies every "the CSS says 44px" assertion.
+    const matched = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR}`,
+    );
+    expect(matched.length, 'the icon-button selector reached no live node').toBeGreaterThan(0);
+    expect([...matched], 'the ⋮ trigger is not among the matched nodes').toContain(trigger);
+
+    // 🔴 AND THE TRIGGER REALLY IS TEXT-LESS, which is the premise the whole rule rests
+    // on. If it ever grows a label, width stops being the short axis and this block's
+    // reason evaporates — better to fail here than to keep a rule whose motive is gone.
+    expect((trigger.textContent ?? '').trim(), 'the ⋮ trigger grew visible text').toBe('');
+    expect(trigger).toHaveAttribute('aria-label');
+
+    expect(minWidthPx(trigger)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    // …and the height floor still reaches it through the pack-Button selector, so the
+    // new rule is an ADDITION rather than a replacement.
+    expect(minHeightPx(trigger)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+  });
+
+  it('the emitted stylesheet floors the ⋮ trigger on WIDTH, with the IMPORTED constant', () => {
+    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some future
+    // refactor stops mounting a menu. Both halves are interpolated, never spelled: the
+    // literal `44px` is pinned once, a few describes up.
+    expect(compactTapTargetCss()).toContain(
+      `[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR}`,
+    );
+    expect(compactTapTargetCss()).toContain(`min-width: ${MIN_TAP_TARGET_PX}px`);
   });
 
   it('the emitted stylesheet floors the option rows with the IMPORTED constant', () => {
