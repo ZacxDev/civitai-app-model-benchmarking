@@ -142,6 +142,68 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
   // file's mirror agrees. That is a relationship between two things and can be red.
   // ───────────────────────────────────────────────────────────────────────────
 
+  /**
+   * 🔴 THE INDENT WAS DEAD ON ARRIVAL, AND THIS IS THE CASE THAT WOULD HAVE SEEN IT.
+   *
+   * `itemStyle` set `paddingLeft: calc(...)` and then, LATER IN THE SAME OBJECT,
+   * `padding: '6px 10px'`. React serialises a style object in INSERTION ORDER, so the
+   * shorthand reset `padding-left` and every row rendered at 10px — Home, My Benchmarks
+   * and its three sub-items all at the same inset, i.e. no visual hierarchy in the
+   * page's only primary navigation. Measured before the fix with
+   * `renderToStaticMarkup`: emitted
+   * `padding-left:calc(10px + 14px);…;padding:6px 10px`, effective `padding-left` 10px
+   * at depths 0, 1 AND 2 where 10/24/38px was intended.
+   *
+   * 🔴 IT SHIPPED BECAUSE THE WITNESS WAS POINTED AT THE WRONG PROPERTY. The deleted
+   * case above asserted `--civitai-nav-depth` — which NOTHING IN THIS TREE CONSUMES —
+   * so it stayed green while the visible indent was gone. Assert the property that
+   * MOVES THE ROW.
+   *
+   * 🔴 LITERALS, NOT `NAV_DEPTH_STEP_PX`. Deriving the expectation from the component's
+   * own constant is precisely what made the deleted case unable to fail. jsdom folds the
+   * sum, so `calc(10px + 14px)` reads back as `calc(24px)`; the shorthand mutant reads
+   * back as a bare `10px`, which differs from the depth-0 literal too — so even the
+   * depth-0 row discriminates.
+   *
+   * This asserts a DECLARED value, which jsdom does give. It is NOT a layout claim:
+   * jsdom computes no layout, so whether the indent is legible on screen is still owed
+   * to a live reading.
+   */
+  it('🔴 indents by DEPTH on the property that actually moves the row', async () => {
+    renderNav();
+    await expand();
+
+    // Positive control first: a nav whose rows did not render would satisfy every
+    // assertion below vacuously.
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+
+    const paddingLeftOf = (testid: string) => screen.getByTestId(testid).style.paddingLeft;
+
+    // ⚠️ AND NOT `style.padding`. A draft of this case also asserted the shorthand was
+    // EMPTY, on the assumption that writing four longhands leaves it unset. MEASURED in
+    // jsdom 25.0.1, that is false — CSSOM SYNTHESISES it, and four longhands report
+    // `padding: "6px 10px 6px calc(24px)"`. So an empty-shorthand assertion cannot tell
+    // "no shorthand was written" from "four longhands were", i.e. it could never have
+    // discriminated the bug. `padding-left` is the whole discriminator: the broken tree
+    // reports a bare `10px`, this one reports `calc(...)`.
+    //
+    // Depth 0 — the two top-level rows.
+    expect(paddingLeftOf('nav-home')).toBe('calc(10px)');
+    expect(paddingLeftOf('nav-my')).toBe('calc(10px)');
+
+    // Depth 1 — every sub-item, indented by exactly one step.
+    for (const testid of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
+      expect(paddingLeftOf(testid), `${testid} lost its depth indent`).toBe('calc(24px)');
+    }
+
+    // 🔴 And the RELATIONSHIP, stated independently of the literals above: a sub-item is
+    // not indented the same as its parent. That is the sentence the feature is about, and
+    // it goes red on any mutation that flattens the nav however it spells the values.
+    expect(screen.getByTestId('nav-my-grid').style.paddingLeft).not.toBe(
+      screen.getByTestId('nav-my').style.paddingLeft,
+    );
+  });
+
   it('shows the expandable state as a CHEVRON, and moves it in both directions', async () => {
     renderNav();
     const trigger = screen.getByTestId('nav-my');

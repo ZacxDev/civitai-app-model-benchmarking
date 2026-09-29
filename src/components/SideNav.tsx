@@ -127,10 +127,28 @@ export interface SideNavProps {
 /** One row of the nav. `depth` is expressed the way upstream expresses it. */
 function itemStyle(depth: number, active: boolean): React.CSSProperties {
   return {
-    // 🔴 THE CUSTOM PROPERTY IS UPSTREAM'S NAME AND STEP, so the indent is
-    // byte-identical after the swap and the `padding-left` below can simply go.
+    // 🔴 NO `padding` SHORTHAND IN THIS OBJECT, AND THAT IS THE WHOLE POINT.
+    // It read `paddingLeft: calc(…)` followed LATER by `padding: '6px 10px'`, and
+    // React serialises a style object in INSERTION ORDER — so the shorthand reset
+    // `padding-left` to 10px and the depth indent was DEAD at every level.
+    // Measured with `renderToStaticMarkup`, the emitted declaration was
+    //   `padding-left:calc(10px + 14px);…;padding:6px 10px;padding-right:10px`
+    // and the effective `padding-left` came out **10px for depth 0, 1 AND 2**
+    // where 10/24/38px was intended. Every row rendered at the same inset, so the
+    // sidebar — this page's only primary navigation — had no visual hierarchy,
+    // in the wide rail and in the <=720px top bar alike.
+    //
+    // 🔴 THE CUSTOM PROPERTY IS WHY NOBODY NOTICED, and it did not save it:
+    // NOTHING in this tree consumes `--civitai-nav-depth`. It is upstream's name
+    // and step, set so the eventual `<civitai-nav-item>` swap inherits the same
+    // indent — but on THIS tree `padding-left` is the only thing that moves a row.
+    // Setting the property LOOKED like the mechanism while being inert decoration.
+    //
+    // So the four sides are spelled out individually. Reintroducing `padding:`
+    // here silently re-breaks the indent; `sideNav.test.tsx`'s depth case is what
+    // catches that, and it asserts the DECLARED value (readable in jsdom) rather
+    // than a computed layout (which jsdom cannot give).
     ['--civitai-nav-depth' as string]: String(depth),
-    paddingLeft: `calc(10px + ${depth * NAV_DEPTH_STEP_PX}px)`,
     appearance: 'none',
     display: 'flex',
     alignItems: 'center',
@@ -141,8 +159,10 @@ function itemStyle(depth: number, active: boolean): React.CSSProperties {
     fontSize: 13,
     fontWeight: active ? 600 : 400,
     cursor: 'pointer',
-    padding: '6px 10px',
+    paddingTop: 6,
+    paddingBottom: 6,
     paddingRight: 10,
+    paddingLeft: `calc(10px + ${depth * NAV_DEPTH_STEP_PX}px)`,
     borderRadius: radius.sm,
     border: '1px solid transparent',
     background: active ? token.surface : 'transparent',
