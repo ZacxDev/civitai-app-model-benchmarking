@@ -120,7 +120,8 @@ const result = (comboKey: string, configId: string, promptKey: string, imageIds:
  * `gk-all` spans all four cells, `gk-one` a single one, so every call is
  * attributable to exactly one card and the counts below can be equalities.
  *
- * Vote counts order them after the pinned Top Grid: `__system__`, `gk-all`, `gk-one`.
+ * Vote counts order them `gk-all`, `gk-one`. The Top Grid is the OPEN grid on a
+ * default load and the open grid is NOT LISTED, so `__system__` has no card here.
  */
 const GRID_ALL: GridRow = {
   key: 'gk-all',
@@ -269,9 +270,11 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
       ],
     });
 
-    // THREE cards are on screen; exactly TWO carry a strip — the open Top Grid
-    // card carries none, which is the seam guard's business and asserted there.
-    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(3));
+    // TWO cards are on screen and BOTH carry a strip. It was three cards / two
+    // strips while the open grid was listed with a "shown above" note instead of a
+    // preview; the open grid is not listed at all now, so strip-bearing == listed,
+    // which is the seam guard's business and asserted there.
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
     await waitFor(() => expect(screen.getAllByTestId('grid-preview')).toHaveLength(2));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -302,7 +305,7 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     // assertion the case is named for was never reached, and the mutant died for
     // the wrong reason. Anchor on the cards being rendered (which does not depend
     // on the claim under test), flush, then COUNT.
-    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(3));
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
     // Let any effect that wanted to fire, fire.
     await new Promise((r) => setTimeout(r, 0));
 
@@ -314,11 +317,12 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     expect(within(card('gk-one')).queryByTestId('grid-preview')).toBeNull();
     expect(within(card('gk-one')).getByTestId('grid-preview-empty')).toBeInTheDocument();
     expect(within(card('gk-all')).getByTestId('grid-preview-empty')).toBeInTheDocument();
-    // …and the OPEN card has neither — no strip and no "nothing yet" line, because
-    // it says where its (absent) images would be instead. Asserted so this case
-    // cannot be read as a claim about the open card.
-    expect(within(card('__system__')).queryByTestId('grid-preview')).toBeNull();
-    expect(within(card('__system__')).getByTestId('grid-preview-shown-above')).toBeInTheDocument();
+    // …and the OPEN grid has no card at all, so it contributes neither a strip nor a
+    // "nothing yet" line. Asserted so this case cannot be read as a claim about it.
+    expect(
+      screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === '__system__'),
+    ).toEqual([]);
+    expect(screen.queryAllByTestId('grid-preview-shown-above')).toEqual([]);
   });
 
   it('skips the UNRUN cells: one filled cell of four means one id and one call', async () => {

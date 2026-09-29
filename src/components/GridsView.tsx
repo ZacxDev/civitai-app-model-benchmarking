@@ -10,10 +10,30 @@
 // vote ranking they feed is what stops the Top Grid starving.
 //
 // The list's order is unchanged: the system-owned TOP GRID pinned first, then the
-// published grids by vote `count` descending (see lib/gridEntries.ts). What the
-// viewer's own ARCHIVE flag now does is hide their own row from this one list —
-// an author-side hide, still on the shared board for everybody else — reachable
-// again through "Show archived".
+// published grids by vote `count` descending (see lib/gridEntries.ts).
+//
+// 🔴 THE OPEN GRID IS NOT IN THE LIST, and the default open grid is the TOP GRID,
+// so by default the Top Grid is not listed at all. That is intended: the open grid
+// renders in full in `grid-open-panel` a few hundred pixels above, so listing it
+// again was a card whose only distinguishing feature was saying "Shown in full
+// above" — a row the viewer cannot act on, in the one position that pushes every
+// row they CAN act on further down. Open another grid and the Top Grid appears in
+// the list like any other entry, still badged system-owned and still carrying no
+// vote control.
+//
+// 🔴 ARCHIVE IS NOT ON THIS SURFACE. It is an author-side hide of the viewer's own
+// row from THEIR OWN list (§11.3, and `ARCHIVE_NOTE` says so in words) — and this
+// list is not that: it is the community board, where an archived row is supposed
+// to stay visible to everyone INCLUDING the archiver. While the grids section had
+// no My/Community split, "your own list" had nowhere else to mean, so the flag was
+// pointed at this list; that reading is retired. The flag, `lib/archive.ts`,
+// `ARCHIVE_KEY` and `ARCHIVE_NOTE` all survive untouched and App still reads and
+// writes them — they belong to the viewer's own surface.
+//
+// ⚠️ THE LIST FILTER WENT WITH THE CONTROLS, AND HAD TO. Keeping
+// `archived.has(key)` as a filter here while removing "Show archived" would leave
+// a previously-archived row hidden from the only list that renders it with NO
+// recovery path anywhere in the app — strictly worse than either end state.
 //
 // 🔴 THE THREE CLAIMS THIS VIEW OWES THE READER, and none is decoration:
 //
@@ -41,7 +61,6 @@ import type {
   UnpublishedGrid,
 } from '../types.js';
 import { indexResultsByCell, isOwnRow } from '../lib/benchmark.js';
-import { ARCHIVE_NOTE } from '../lib/archive.js';
 import {
   buildTopGrid,
   communityGridEntries,
@@ -121,15 +140,27 @@ export interface GridsViewProps {
   onReport: (key: string) => Promise<void>;
 
   // ---- the PRIVATE half (per-viewer storage) ----
+  //
+  // 🔴 NO `archivedKeys` / `onArchive` / `onUnarchive` ANY MORE — see the header.
+  // They are not "temporarily removed pending a new home": this component has no
+  // business with them, because archive is a claim about the viewer's own list and
+  // this one is the community board. App still holds the flag and still passes it
+  // to the matchup and prompt surfaces, which do have that split.
   unpublished?: UnpublishedGrid[];
   quotaLine?: string | null;
-  archivedKeys?: Set<string>;
+  /**
+   * Start a NEW unpublished grid.
+   *
+   * 🔴 STILL REQUIRED, AND THE BUTTON THAT USED TO CALL IT IS GONE. `grid-new` was
+   * removed from this surface (superseded by `Contribute ▸ Grid`), but the
+   * capability is NOT: `UnpublishedList`'s own `new-unpublished` control below is
+   * wired to this same callback, so the private panel keeps its create route. A
+   * reader who deletes this prop along with the button takes that with it.
+   */
   onNewUnpublished?: () => void;
   onEditUnpublished?: (localId: string) => void;
   onDiscardUnpublished?: (localId: string) => Promise<void> | void;
   onPublishUnpublished?: (localId: string) => Promise<void> | void;
-  onArchive?: (key: string) => Promise<void> | void;
-  onUnarchive?: (key: string) => Promise<void> | void;
 
   /**
    * Render the OPEN grid's results matrix from its surviving members.
@@ -161,16 +192,12 @@ export function GridsView({
   onReport,
   unpublished = [],
   quotaLine = null,
-  archivedKeys,
   onNewUnpublished,
   onEditUnpublished,
   onDiscardUnpublished,
   onPublishUnpublished,
-  onArchive,
-  onUnarchive,
   renderMatrix,
 }: GridsViewProps): React.JSX.Element {
-  const [showArchived, setShowArchived] = useState(false);
   /**
    * Which grid is OPEN, by shared key. `null` means the Top Grid — the system
    * entry has no key to name, and it is the default because it is the one grid
@@ -178,7 +205,6 @@ export function GridsView({
    */
   const [openKey, setOpenKey] = useState<string | null>(null);
 
-  const archived = archivedKeys ?? new Set<string>();
   const signedIn = viewerId != null;
 
   const topGrid = useMemo(() => buildTopGrid(combinations, prompts), [combinations, prompts]);
@@ -186,37 +212,6 @@ export function GridsView({
     () => communityGridEntries(topGrid, grids),
     [topGrid, grids],
   );
-
-  /**
-   * Is this row HIDDEN FROM THIS ONE LIST by its owner's archive flag?
-   *
-   * 🔴 ARCHIVE STILL MEANS "hide from MY OWN view", and with the My tab gone that
-   * is this one list. It is NOT a suppression: the row stays appended, keeps its
-   * votes, and stays visible to every other viewer — the app HAS no power to do
-   * otherwise (`update`/`withdraw` are author-scoped, `report()` does not hide),
-   * which is why `ARCHIVE_NOTE` says so in words next to the control.
-   *
-   * 🔴 ONE PREDICATE, AND IT USED TO BE TWO THAT DISAGREED. The list filter tested
-   * `archived.has(key)` alone — ownership-blind — while `myArchived` tested
-   * `isOwnRow(...) && archived.has(key)`. A key in `archived` that the viewer does
-   * NOT own was therefore hidden from the one list AND absent from `myArchived`, so
-   * no `archived-toggle` rendered and the row had no recovery path on this surface
-   * at all. That state is reachable transiently on a viewer swap, because the
-   * private-store effect only reaches `setArchived` after three serial prefix
-   * scans, so a moment exists where the incoming viewer holds the OUTGOING
-   * viewer's archive set against the incoming viewer's rows. At base it could not
-   * happen — the Community list was unfiltered.
-   *
-   * The ownership half is what makes the failure direction right. `App.tsx`'s
-   * archive read already reasons that a failure must degrade to showing MORE of the
-   * viewer's own rows, never fewer ("a failed read degrades to 'nothing archived'");
-   * an ownership-blind filter escaped that by hiding rows the flag was never about.
-   */
-  const isHiddenByArchive = (row: GridRow): boolean =>
-    isOwnRow(row, viewerId) && archived.has(row.key);
-
-  /** The viewer's OWN grids they have archived — the same predicate, listed. */
-  const myArchived = grids.filter(isHiddenByArchive);
 
   /** Cell → result index, built once per render for every card's preview. */
   const byCell = useMemo(() => indexResultsByCell(results), [results]);
@@ -275,12 +270,19 @@ export function GridsView({
   const openMissing = missingMembersNotice(openResolved, boardTruncated);
   const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
 
-  const entryCard = (entry: GridEntry, extraActions?: ReactNode): React.JSX.Element => {
+  /**
+   * One listed grid.
+   *
+   * 🔴 THERE IS NO `isOpen` ANY MORE, and no `extraActions`. The only caller is the
+   * all-grids list, which EXCLUDES the open entry — so `isOpen` was a constant
+   * `false` and the two branches it selected were unreachable. `extraActions` had
+   * exactly one user, the archive control, which is not on this surface (header).
+   */
+  const entryCard = (entry: GridEntry): React.JSX.Element => {
     const resolved = resolveGridRows(entry, combinations, prompts);
     const missing = missingMembersNotice(resolved, boardTruncated);
     const key = entry.system ? '__system__' : entry.row.key;
     const isOwn = !entry.system && isOwnRow(entry.row, viewerId);
-    const isOpen = entry.system ? openKey === null : openKey === entry.row.key;
     const name = entry.system ? TOP_GRID_NAME : entry.row.name || `#${entry.row.key}`;
     const preview = gridPreviewIds(resolved, byCell);
     return (
@@ -324,14 +326,19 @@ export function GridsView({
             )}
           </Stack>
           <Group gap={6} align="center">
+            {/* 🔴 AN ACTION, NOT A TOGGLE, AND IT USED TO BE BOTH. It carried
+                `aria-pressed` and an `isOpen ? 'Showing' : 'Open'` label back when
+                the open grid was listed alongside the others. It is not listed any
+                more, so every button here belongs to a CLOSED grid: a permanently
+                `aria-pressed="false"` toggle would announce a state that has no
+                other value on this surface. */}
             <Button
               size="sm"
-              variant={isOpen ? 'filled' : 'light'}
+              variant="light"
               onClick={() => setOpenKey(entry.system ? null : entry.row.key)}
               data-testid="grid-open"
-              aria-pressed={isOpen}
             >
-              {isOpen ? 'Showing' : 'Open'}
+              Open
             </Button>
             {isOwn && !entry.system && (
               <WithdrawButton
@@ -340,7 +347,6 @@ export function GridsView({
                 data-testid="grid-withdraw"
               />
             )}
-            {extraActions}
             {!entry.system && !isOwn && signedIn && (
               <ReportButton
                 noun="grid"
@@ -370,23 +376,27 @@ export function GridsView({
             REQUIRED prop: the card can no longer end up with no strip because a
             caller forgot to pass one, which used to fail silently.
 
-            🔴 `!isOpen` IS A UI/PARTITION GUARD: do not preview a grid whose full
-            matrix is already on the same page. The OPEN grid renders that matrix in
-            the panel above this list, and every cell of it reads its outputs
-            through the SAME `GatedCell`. Without this condition the open card
-            previewed exactly the cells shown full-size a few hundred pixels above
-            it — redundant UI, and the one grid the viewer is looking at ran the
-            0.4.6 timeout / auto-retry / `gated_read_error` machinery twice over the
-            same ids.
+            🔴 IT IS NOW UNCONDITIONAL, AND THE GUARD IT REPLACED IS NOT GONE — IT
+            MOVED UP A LEVEL AND GOT STRONGER. The hazard was the OPEN grid's card
+            previewing exactly the cells its own matrix already shows full-size a
+            few hundred pixels above: redundant UI, and the one grid the viewer is
+            looking at running the 0.4.6 timeout / auto-retry / `gated_read_error`
+            machinery twice over the same ids. That used to be held off by a
+            `!isOpen` condition HERE. The open grid is no longer LISTED at all, so
+            there is no open card to condition on — a partition enforced by the
+            list rather than by a per-card flag, which is the difference between
+            "the open card renders a different way" and "the open card does not
+            exist". `gridPreviewSeam.test.tsx` pins the new relationship: exactly
+            one strip per listed card, the open grid absent from the list, and the
+            read count unchanged at 3 rather than 4.
 
-            ⚠️ WHAT IT SAVES, MEASURED AND NOT ROUNDED UP: exactly ONE `getImages`
-            call per page load. The matrix issues one call per FILLED CELL and the
-            card strip issues ONE BATCHED call, so removing the open card's strip
-            removes one call — `gridPreviewSeam.test.tsx` measures 4 → 3. On a
-            ~22-card list that is 1 of ~23. An earlier version of this comment said
-            "twice the weight on the host's 150-per-10s-per-`blockInstanceId`
-            limiter", which overstated it by about an order of magnitude: the
-            DOUBLING is per-output for the open grid, not per-page for the limiter.
+            ⚠️ WHAT THE PARTITION SAVES, MEASURED AND NOT ROUNDED UP: exactly ONE
+            `getImages` call per page load. The matrix issues one call per FILLED
+            CELL and a card strip issues ONE BATCHED call. On a ~22-card list that
+            is 1 of ~23. An earlier version of this comment said "twice the weight
+            on the host's 150-per-10s-per-`blockInstanceId` limiter", which
+            overstated it by about an order of magnitude: the DOUBLING was
+            per-output for the open grid, never per-page for the limiter.
 
             🔴 AND THERE IS NO ID-LEVEL DEDUPE ANYWHERE — an ACCEPTED open item, not
             an oversight. Two surfaces that share a cell each read it: the seam
@@ -400,27 +410,17 @@ export function GridsView({
             would be a second read path to keep correct across retry and invalidation
             for a saving nobody has measured a need for.
 
-            ⚠️ THE PER-CARD BUDGET TESTS CANNOT SEE THE OPEN-CARD DUPLICATION.
+            ⚠️ THE PER-CARD BUDGET TESTS CANNOT SEE THE CROSS-SURFACE DUPLICATION.
             `gridPreview.test.tsx` asserts one batched call per CARD and is correct;
             the duplication lives in the SEAM between a card and the matrix, which no
             card-scoped fixture builds. `gridPreviewSeam.test.tsx` pins that
-            relationship instead — open card ⇒ no strip AND the matrix shows the
-            images; closed card ⇒ strip. Both arms in one render, by exact count. */}
-        {!isOpen && (
-          <GridPreview
-            imageIds={preview.ids}
-            totalCount={preview.total}
-            label={name}
-            GatedCell={GatedCell}
-          />
-        )}
-        {/* The open card would otherwise look emptier than its neighbours for no
-            stated reason. Says where its images are instead of showing them twice. */}
-        {isOpen && (
-          <span style={metaText} data-testid="grid-preview-shown-above">
-            Shown in full above.
-          </span>
-        )}
+            relationship instead, in one render, by exact count. */}
+        <GridPreview
+          imageIds={preview.ids}
+          totalCount={preview.total}
+          label={name}
+          GatedCell={GatedCell}
+        />
         </Stack>
       </Card>
     );
@@ -433,18 +433,6 @@ export function GridsView({
           A grid is a named set of matchups × prompts. Run an empty cell to contribute its outputs to
           the shared board — a cell is shared by every grid that contains it.
         </span>
-        {/* 🔴 NO `signedIn` HERE, DELIBERATELY — the auth decision belongs to the
-            ONE callback (`App`'s `openNewGrid`), which routes an anonymous press
-            to sign-in exactly as the vote control does. This button used to
-            re-test `signedIn` itself while the page's `Contribute ▸ Build a grid`
-            route tested nothing, so the two disagreed: the menu opened a form an
-            anonymous viewer could not save. Re-adding the predicate here is how
-            that comes back. */}
-        {onNewUnpublished && (
-          <Button size="sm" onClick={onNewUnpublished} data-testid="grid-new">
-            New grid
-          </Button>
-        )}
       </Group>
 
       {/* ---- the OPEN grid ---- */}
@@ -491,101 +479,63 @@ export function GridsView({
       <Stack gap={10} data-testid="grids-all-section" style={{ minWidth: 0 }}>
         <strong style={{ fontSize: 14 }}>All grids</strong>
 
+        {/* 🔴 THE EMPTY STATE IS ABOUT THE *LIST*, AND THE LIST NO LONGER
+            CONTAINS THE OPEN GRID. Its body used to read "The Top Grid above is
+            always here" — a sentence that was true only because the Top Grid was
+            entry 0 of this list AND the default open grid, so it was above AND
+            below. It is now only above, and only while it is the one open: open a
+            community grid and the Top Grid joins this list like anything else. The
+            copy says what is actually invariant instead.
+
+            🔴 AND IT CARRIES NO ACTION. `grid-new` is gone from this surface (it is
+            superseded by `Contribute ▸ Grid`, which is on the open grid's own title
+            row a few hundred pixels above), so an empty state offering a second
+            copy of it would be the duplicated route the removal exists to close.
+            The empty state's job here is to explain, not to be a second door. */}
         {!loading && grids.length === 0 && (
           <EmptyState
             data-testid="grids-empty"
             title="No published grids yet"
-            body="The Top Grid above is always here. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
-            /* Same one predicate as `grid-new` above: the callback decides. */
-            action={
-              onNewUnpublished ? (
-                <Button size="sm" onClick={onNewUnpublished}>
-                  New grid
-                </Button>
-              ) : undefined
-            }
+            body="The grid open above is all there is for now. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
           />
         )}
 
-        {/* 🔴 The Top Grid is entry 0 by construction (communityGridEntries), not
-            by a sort that happens to put it there. Own-and-archived rows are
-            filtered out HERE and nowhere else, through `isHiddenByArchive` — the
-            SAME predicate `myArchived` is built from, so what this list hides and
-            what "Show archived" can bring back cannot come apart. */}
+        {/* 🔴 THE OPEN GRID IS FILTERED OUT HERE, AND THE COMPARISON IS THE ENTRY
+            IDENTITY RATHER THAN A NAME OR A FLAG. `openKey === null` means the
+            system entry, so the system entry is what leaves the list in the default
+            state; any other value names a published row's key. Written as a match
+            against `openEntry` so the one thing that decides what the panel above
+            renders is the same thing that decides what this list omits — two
+            independent spellings of "which grid is open" is how they come to
+            disagree about, say, an opened-then-withdrawn grid (which `openEntry`
+            already falls back to the Top Grid for).
+
+            🔴 The Top Grid is entry 0 of `communityGridEntries` by construction,
+            not by a sort that happens to put it there — so when it IS listed it is
+            still first. ---- */}
         <Stack gap={10} data-testid="grids-list">
           {communityEntries
-            .filter((entry) => entry.system || !isHiddenByArchive(entry.row))
-            .map((entry) =>
-              entryCard(
-                entry,
-                !entry.system && isOwnRow(entry.row, viewerId) && onArchive ? (
-                  <Button
-                    size="sm"
-                    variant="subtle"
-                    onClick={() => onArchive(entry.row.key)}
-                    data-testid="archive-action"
-                    aria-label="Archive: hide from your own list only"
-                  >
-                    Archive
-                  </Button>
-                ) : undefined,
-              ),
-            )}
+            .filter((entry) =>
+              entry.system ? !openEntry.system : openEntry.system || openEntry.row.key !== entry.row.key,
+            )
+            .map((entry) => entryCard(entry))}
         </Stack>
-
-        {myArchived.length > 0 && (
-          <Stack gap={10}>
-            <Group gap={8} align="center">
-              <Button
-                size="sm"
-                variant="subtle"
-                onClick={() => setShowArchived((v) => !v)}
-                data-testid="archived-toggle"
-              >
-                {showArchived ? 'Hide archived' : `Show archived (${myArchived.length})`}
-              </Button>
-              <span style={metaText}>Still on the shared board, still visible to everyone else.</span>
-            </Group>
-            {showArchived && (
-              <Stack gap={10} data-testid="archived-list">
-                {myArchived.map((row) =>
-                  entryCard(
-                    { system: false, row },
-                    onUnarchive && (
-                      <Button
-                        size="sm"
-                        variant="subtle"
-                        onClick={() => onUnarchive(row.key)}
-                        data-testid="unarchive-action"
-                      >
-                        Unarchive
-                      </Button>
-                    ),
-                  ),
-                )}
-              </Stack>
-            )}
-          </Stack>
-        )}
-
-        {/* 🔴 THE HONEST WORDING, rendered NEXT TO the control rather than behind a
-            tooltip. Archiving hides nothing from anyone else — the app has no such
-            power (§2.2 + §9 Q2). */}
-        {(myArchived.length > 0 || grids.some((g) => isOwnRow(g, viewerId))) && (
-          <span style={metaText} data-testid="archive-note">
-            {ARCHIVE_NOTE}
-          </span>
-        )}
       </Stack>
 
       {/* ---- the viewer's UNPUBLISHED grids (per-viewer storage) ----
            🔴 RENDERED ONLY ONCE THERE IS (OR HAS BEEN) SOMETHING IN IT, which is a
-           change from the My tab it replaced. The panel's own "New grid" button is
-           redundant here — `grid-new` above and the page's Contribute ▸ Build a
-           grid are both routes to the same modal — so an always-present EMPTY
-           panel would add a second copy of every `unpublished-*` testid to a page
-           that also mounts the matchup and prompt panels, for no affordance a
-           viewer does not already have.
+           change from the My tab it replaced. An always-present EMPTY panel would
+           add a second copy of every `unpublished-*` testid to a page that also
+           mounts the matchup and prompt panels, for no affordance a viewer does not
+           already have — the page's `Contribute ▸ Grid` is the route to the same
+           modal, and it is on the open grid's own title row.
+
+           ⚠️ `grid-new` USED TO BE THE OTHER ROUTE NAMED HERE and it is gone (the
+           operator's call: superseded by `Contribute ▸ Grid`). What has NOT gone is
+           this panel's own `new-unpublished` control below, which is wired to the
+           same `onNewUnpublished` callback — so a viewer who already has an
+           unpublished grid still has a create route here, and the prop is still
+           required.
 
            🔴 WHY THE LATCH AND NOT A PLAIN `length > 0`. `UnpublishedList` holds
            its publish ERROR in local state, so unmounting the panel throws that

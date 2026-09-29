@@ -19,17 +19,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { CONTRIBUTE_ITEMS, ContributeMenu } from './ContributeMenu.js';
 
 /**
- * The three items, as `[testid, accessible name, which handler must fire]`.
+ * The three items, as `[testid, VISIBLE TEXT, ACCESSIBLE NAME, which handler]`.
  *
  * 🔴 LITERALS ON EVERY SIDE, and deliberately NOT derived from the component's own
  * `ITEMS` table — a mapping read out of the implementation agrees with a wrong
  * implementation. `CONTRIBUTE_ITEMS` is cross-checked against this table below
  * rather than used to build it.
+ *
+ * 🔴 THE TWO NAMES ARE SEPARATE COLUMNS, AND THEY USED TO BE ONE. The visible text
+ * was `'Submit a matchup'` and, being a `<button>`'s own text content, it was also
+ * the accessible name — so one assertion covered both. The operator asked for terse
+ * visible text (`Matchup`), which leaves a screen reader user hearing a noun with no
+ * verb: the surrounding "Contribute" trigger is context a sighted reader gets for
+ * free and a screen reader user does not. So each item now carries an explicit
+ * `aria-label`, and BOTH are asserted, separately — a single "the label" assertion
+ * would be satisfied by dropping the aria-label and going back to one string.
  */
 const ITEMS = [
-  ['contribute-item-matchup', 'Submit a matchup', 'matchup'],
-  ['contribute-item-prompt', 'Submit a prompt', 'prompt'],
-  ['contribute-item-grid', 'Build a grid', 'grid'],
+  ['contribute-item-matchup', 'Matchup', 'Create a matchup', 'matchup'],
+  ['contribute-item-prompt', 'Prompt', 'Create a prompt', 'prompt'],
+  ['contribute-item-grid', 'Grid', 'Create a grid', 'grid'],
 ] as const;
 
 function renderMenu() {
@@ -83,17 +92,31 @@ describe('ContributeMenu — opening', () => {
     const items = within(menu).getAllByRole('menuitem');
     expect(items).toHaveLength(3);
     expect(items.map((el) => el.getAttribute('data-testid'))).toEqual(ITEMS.map(([t]) => t));
-    expect(items.map((el) => el.textContent)).toEqual(ITEMS.map(([, name]) => name));
+    // 🔴 THE VISIBLE TEXT…
+    expect(items.map((el) => el.textContent)).toEqual(ITEMS.map(([, text]) => text));
+    // 🔴 …AND THE ACCESSIBLE NAME, WHICH IS A DIFFERENT STRING. Asserted through
+    // `toHaveAccessibleName` rather than by reading the attribute, so this pins what
+    // the a11y tree actually computes: an `aria-label` that failed to override the
+    // text content (misspelled attribute, a wrapper element carrying it instead)
+    // would pass an attribute check and fail here.
+    for (const [, text, name] of ITEMS) {
+      const item = screen.getByTestId(ITEMS.find(([, t]) => t === text)![0]);
+      expect(item).toHaveAccessibleName(name);
+      expect(item).toHaveTextContent(text);
+      // …and the two really are different, so a future change that collapses them
+      // back into one string fails here rather than reading as a tidy-up.
+      expect(name).not.toBe(text);
+    }
     // …and nothing else in the popover is a control at all: every focusable
     // descendant IS one of the three items. A fourth button that forgot
     // `role="menuitem"` would slip past the ledger above and still be tabbable.
     const focusable = Array.from(menu.querySelectorAll('button, a[href], [tabindex]'));
     expect(focusable).toEqual(items);
 
-    // The component's own exported ledger agrees with this table. Cross-checked,
-    // not used to build it — the table above is the contract.
-    expect(CONTRIBUTE_ITEMS.map((i) => [i.testid, i.label])).toEqual(
-      ITEMS.map(([t, name]) => [t, name]),
+    // The component's own exported ledger agrees with this table, in BOTH columns.
+    // Cross-checked, not used to build it — the table above is the contract.
+    expect(CONTRIBUTE_ITEMS.map((i) => [i.testid, i.label, i.ariaLabel])).toEqual(
+      ITEMS.map(([t, text, name]) => [t, text, name]),
     );
   });
 
@@ -108,7 +131,7 @@ describe('ContributeMenu — opening', () => {
 });
 
 describe('ContributeMenu — each item fires its own handler, and only its own', () => {
-  for (const [testid, , which] of ITEMS) {
+  for (const [testid, , , which] of ITEMS) {
     it(`${testid} fires ${which} exactly once and nothing else`, async () => {
       const { trigger, handlers, all } = renderMenu();
       await userEvent.click(trigger);

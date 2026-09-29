@@ -504,17 +504,20 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 
       // ---- GRIDS: the first section ----
       await screen.findByTestId('grid-view');
-      // 🔴 BOTH ROUTES TO A NEW GRID ARE PRESSED HERE, and both used to be missing
-      // from this walk in opposite ways. `grid-new` was HIDDEN for an anonymous
-      // viewer, so the walk asserted its absence and pressed nothing; `Contribute ▸
-      // Build a grid` was rendered and completely UNGATED, and the walk never opened
-      // the menu — so this case's zero-write ledger held VACUOUSLY over the one
-      // route that could reach a private-store write. (Measured pre-fix: an
-      // anonymous viewer reached `grid-form` through the menu and had the save
-      // refused at `appStorage.set`.) Both now go through App's one `openNewGrid`
-      // and nudge sign-in, which is what the vote control already does.
-      await userEvent.click(await screen.findByTestId('grid-new'));
-      expect(screen.queryByTestId('grid-form'), 'the New grid button opened a form').toBeNull();
+      // 🔴 THE ONE ROUTE TO A NEW GRID IS PRESSED HERE, and it used to be missing
+      // from this walk entirely: `Contribute ▸ Build a grid` was rendered and
+      // completely UNGATED, and the walk never opened the menu — so this case's
+      // zero-write ledger held VACUOUSLY over the one route that could reach a
+      // private-store write. (Measured pre-fix: an anonymous viewer reached
+      // `grid-form` this way and had the save refused at `appStorage.set`.) It goes
+      // through App's one `openNewGrid` and nudges sign-in, which is what the vote
+      // control already does.
+      //
+      // ⚠️ THERE WERE TWO ROUTES AND THIS WALK PRESSED BOTH. `grid-new` was removed
+      // from the grids section (superseded by this menu item), so there is one left
+      // — asserted as an absence rather than dropped silently, because "a route
+      // disappeared" is exactly what a zero-write ledger cannot otherwise see.
+      expect(screen.queryAllByTestId('grid-new')).toEqual([]);
       await userEvent.click(screen.getByTestId('contribute-trigger'));
       await userEvent.click(await screen.findByTestId('contribute-item-grid'));
       expect(screen.queryByTestId('grid-form'), 'the Contribute item opened a form').toBeNull();
@@ -554,12 +557,12 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       // `>=`: this is the walk's ledger, so a route appearing or disappearing should
       // be a decision someone takes.
       //
-      // FOUR, and each one named: `my-sign-in-matchup`, `my-sign-in-prompt`,
-      // `grid-new` and `Contribute ▸ Build a grid`. It was 3 while the grids view had
-      // sub-tabs of its own, then 2 when the IA refactor removed them and `grid-new`
-      // was hidden from anonymous viewers; it is 4 now that both grid routes render
-      // and nudge instead of one hiding and one dead-ending.
-      expect(signInRequests, 'an unauthorised press did not reach sign-in').toBe(4);
+      // THREE, and each one named: `my-sign-in-matchup`, `my-sign-in-prompt` and
+      // `Contribute ▸ Grid`. It was 3 while the grids view had sub-tabs of its own,
+      // then 2 when the IA refactor removed them and `grid-new` was hidden from
+      // anonymous viewers, then 4 when both grid routes rendered and nudged; it is 3
+      // now that `grid-new` is gone and the menu item is the only grid route.
+      expect(signInRequests, 'an unauthorised press did not reach sign-in').toBe(3);
 
       // 🔴 NOT ONE write was attempted, on either store. `setAttempts` records
       // even a REJECTED `set`, which `sets` would not — so this cannot be

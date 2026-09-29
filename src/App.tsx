@@ -921,21 +921,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   /**
    * Start a NEW unpublished grid.
    *
-   * 🔴 ONE PREDICATE, TWO ROUTES — and the second copy of the check is exactly
-   * what went wrong. The page reaches this action from two places: `Contribute ▸
-   * Build a grid` (always rendered, because `ContributeMenu`'s item ledger is
-   * fixed at three) and the grids section's own `grid-new` button. The menu route
-   * had NO auth condition at all while the button was gated on `signedIn &&
-   * onNewUnpublished`, so an anonymous viewer could open `grid-form` through the
-   * menu, fill it in, and have the save rejected at `appStorage.set` — honest, but
-   * a dead end, and unreachable from the sibling route ten pixels away.
+   * 🔴 ONE PREDICATE, STILL MORE THAN ONE ROUTE. The auth decision lives HERE and
+   * nowhere else, and that is the fix a real defect bought: the page used to reach
+   * this action from `Contribute ▸ Build a grid` (no auth condition at all) and
+   * from the grids section's own `grid-new` button (gated on `signedIn &&
+   * onNewUnpublished`), so the two disagreed — an anonymous viewer could open
+   * `grid-form` through the menu, fill it in, and have the save rejected at
+   * `appStorage.set`, while the sibling route ten pixels away simply hid itself.
    *
-   * Both routes now call THIS, and the auth decision lives here only. An
-   * unauthorised press routes to sign-in, which is what the vote control already
+   * ⚠️ `grid-new` IS GONE (operator's call: superseded by `Contribute ▸ Grid`), so
+   * that specific pair no longer exists — but the reasoning is unchanged and still
+   * load-bearing, because there are still two callers: the menu item and
+   * `GridsView`'s private panel (`UnpublishedList`'s `new-unpublished`). Do not
+   * re-add a `signedIn` test at either: a predicate open-coded at N call sites is
+   * how these came to disagree in the first place.
+   *
+   * An unauthorised press routes to sign-in, which is what the vote control already
    * does (`onRequireAuth`) — the app's existing answer for "this needs an account".
-   * `GridsView` deliberately no longer re-tests `signedIn` for its button: a
-   * predicate open-coded at two call sites is how these two came to disagree, and
-   * re-adding it there would just restore the disagreement in a new shape.
    */
   const openNewGrid = useCallback(() => {
     if (!viewer) {
@@ -2335,13 +2337,18 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               onReport={reportRow}
               unpublished={unpublishedGrids}
               quotaLine={quotaLine}
-              archivedKeys={archivedKeys}
+              /* 🔴 NO `archivedKeys`/`onArchive`/`onUnarchive` HERE, and that is a
+                 deliberate narrowing rather than a dropped feature. Archive is an
+                 author-side hide of the viewer's own row from THEIR OWN list
+                 (§11.3); the grids section renders the COMMUNITY board, where an
+                 archived row is supposed to stay visible to everyone including the
+                 archiver — which is exactly what `ARCHIVE_NOTE` promises in words.
+                 The flag is still read, still written, and still passed to the two
+                 surfaces that have a My/Community split. See `GridsView`'s header. */
               onNewUnpublished={openNewGrid}
               onEditUnpublished={editGridById}
               onDiscardUnpublished={deleteUnpubGrid}
               onPublishUnpublished={publishGridById}
-              onArchive={archiveRow}
-              onUnarchive={unarchiveRow}
               /* 🔴 The matrix is rendered HERE, not inside GridsView, because
                  every prop below it is money-shaped (the estimate → confirm →
                  submit → poll path and the Buzz gate). A browse surface has no
