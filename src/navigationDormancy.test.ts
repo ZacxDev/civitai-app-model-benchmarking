@@ -104,18 +104,47 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
     expect(stripComments("const u = 'https://x.test/a'; // gone")).toContain('https://x.test/a');
 
     // ---- NEGATIVE CONTROLS: comment prose does NOT survive ----
+    //
+    // 🔴 NONE OF THEM MAY MENTION `useCivitaiNavigate` ON THE REAL TREE, and that rule
+    // was learned here. A draft's real-tree control asserted
+    // `expect(ALL_CODE).not.toContain('useCivitaiNavigate')` — which IS the guard below.
+    // Measured: under the mutant that adds the hook to a production file, BOTH cases went
+    // red, so the instrument case reported "the instrument is broken" for what was
+    // actually an app change. A control must not share its subject with the thing it
+    // validates. The synthetic pair may name it freely; the real-tree pair must not.
+    //
     // Synthetic, in both comment syntaxes — self-contained, so they cannot rot with a
-    // reword somewhere else in the tree.
+    // reword somewhere else in the tree. ✅ WATCHED FAILING: a `stripComments` that
+    // returns its input unchanged fails at the first of these.
     expect(stripComments('a(); // useCivitaiNavigate')).not.toContain('useCivitaiNavigate');
     expect(stripComments('/* useCivitaiNavigate */ b();')).not.toContain('useCivitaiNavigate');
-    // 🔴 AND THE SAME CONTROL ON THE REAL TREE, which is the one that matters: the
-    // identifier IS present in this tree's PROSE (`ResourceName.tsx`'s header names it),
-    // and must be absent after stripping. This pair is what makes the case below a fact
-    // about the app rather than about a regex that happened to match nothing.
-    expect(ALL_RAW, 'no production comment names the hook — this control is now vacuous').toContain(
-      'useCivitaiNavigate',
+
+    // 🔴 AND ON THE REAL TREE, because a regex that works on two synthetic strings can
+    // still no-op against the files that matter. Measured at the time of writing: 685 kB
+    // raw → 280 kB stripped, i.e. ~41%. The bound OVERSHOOTS deliberately rather than
+    // sitting on the measurement: it asks only that MOST of this tree is comment, which
+    // it emphatically is, so an ordinary round of comment edits cannot trip it while a
+    // stripper that silently stopped stripping cannot pass it.
+    //
+    // ⚠️ THIS ONE AND THE NEXT ARE BACKSTOPS AND HAVE NOT BEEN WATCHED FAILING ON A REAL
+    // MUTANT — the synthetic pair above fails first, which is the crisper diagnosis. Their
+    // ASSERTIONS were proven REACHABLE (point `COMMENT_ONLY` at a code token and the
+    // `not.toContain` below goes red), but a stripper broken only against real files and
+    // not against a two-line string is contrived enough that no such mutant was built.
+    expect(ALL_CODE.length, 'the stripper removed almost nothing from the real tree').toBeLessThan(
+      ALL_RAW.length * 0.75,
     );
-    expect(ALL_CODE).not.toContain('useCivitaiNavigate');
+
+    // A phrase that exists ONLY in a comment must go, while a code token in the SAME file
+    // must stay — the sharpest form, and about the STRIPPER rather than about the hook.
+    const one = RAW.get(resolve(SRC, 'components/ResourceName.tsx'));
+    expect(one, 'ResourceName.tsx was not scanned — every control below is vacuous').toBeDefined();
+    const COMMENT_ONLY = 'THE MEASUREMENT: THREE ROUTES OUT OF THE IFRAME';
+    expect(one!, 'the phrase this control keys on was reworded — re-pick it').toContain(
+      COMMENT_ONLY,
+    );
+    expect(stripComments(one!)).not.toContain(COMMENT_ONLY);
+    expect(stripComments(one!)).toContain('data-testid="resource-name"');
   });
 
   it('NO scanned source reaches for `useCivitaiNavigate`', () => {
