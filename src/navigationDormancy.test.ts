@@ -41,8 +41,9 @@ import { productionReachable, scannedSources } from './lib/sourceScan.js';
 
 /*
  * 🔴 THE WALKER IS `lib/sourceScan.ts` NOW, NOT A LOCAL COPY, and the reason is a
- * concrete rot rather than tidiness: `renameWireCompat.test.ts` held a BYTE-FOR-BYTE
- * duplicate under the name `productionSources`, and when this copy's docstring was
+ * concrete rot rather than tidiness: `renameWireCompat.test.ts` held a SEMANTICALLY
+ * IDENTICAL duplicate under the name `productionSources` (same body, same regex; it
+ * differed only in the name and in brace style), and when this copy's docstring was
  * corrected the other one kept the sentence that had just been found wrong. See that
  * module's header for what the second copy's version was silently feeding into a ledger.
  *

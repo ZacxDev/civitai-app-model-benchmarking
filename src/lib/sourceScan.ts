@@ -6,11 +6,16 @@
 // ── WHY IT EXISTS: THE SAME WALKER WAS WRITTEN TWICE ────────────────────────
 //
 // `navigationDormancy.test.ts`'s `scannedSources` and `renameWireCompat.test.ts`'s
-// `productionSources` were BYTE-FOR-BYTE identical, and the duplication behaved exactly
-// the way this repo's "one rule, one place" rule predicts: a docstring correction landed
-// on one copy and not the other, so for a round one of them described the filter
-// accurately ("wider than production — it scans the test scaffolding too") while the
-// other still claimed "every production (non-test) file". Two copies, one corrected.
+// `productionSources` were SEMANTICALLY IDENTICAL — same eight-line body, same regex,
+// same filter, differing only in the function name and in whether the `if`/`else` arms
+// carried braces. (⚠️ A draft of this paragraph, and of the two comments that point at
+// it, said "byte-for-byte"; that is not what `git show 7410ca7:…` shows, and a
+// duplication claim should be checked rather than asserted.) The duplication behaved
+// exactly the way this repo's "one rule, one place" rule predicts: a docstring
+// correction landed on one copy and not the other, so for a round one of them described
+// the filter accurately ("wider than production — it scans the test scaffolding too")
+// while the other still claimed "every production (non-test) file". Two copies, one
+// corrected.
 //
 // 🔴 AND THE SECOND COPY WAS NOT MERELY UNTIDY. `renameWireCompat`'s `ALL_TESTIDS` is a
 // LEDGER claiming to hold "every testid a production source renders"; scanning
@@ -26,12 +31,17 @@ import { dirname, join, resolve } from 'node:path';
 /**
  * Every `.ts`/`.tsx` file under `dir` whose name does not contain `.test.`.
  *
- * ⚠️ IT IS WIDER THAN "PRODUCTION", AND THAT IS ACCURATE RATHER THAN A BUG:
- * `test-helpers.tsx`, `test-harness.tsx`, `test-setup.ts`, `Harness.tsx` and
- * `demo-data.ts` are all scaffolding and none of them spells `.test.`, so all five come
- * back. For an ABSENCE check (does any file reach for X?) that is the SAFE direction —
- * scanning extra files can only produce a false RED, never a false green. Callers that
- * need the narrower set compose this with {@link productionReachable}.
+ * ⚠️ IT IS WIDER THAN "PRODUCTION", AND THAT IS ACCURATE RATHER THAN A BUG: the test
+ * scaffolding does not spell `.test.` either, so it comes back too. For an ABSENCE check
+ * (does any file reach for X?) that is the SAFE direction — scanning extra files can
+ * only produce a false RED, never a false green. Callers that need the narrower set
+ * compose this with {@link productionReachable}.
+ *
+ * 🔴 WHICH FILES THOSE ARE IS NOT WRITTEN DOWN HERE, ON PURPOSE. A draft of this
+ * docstring enumerated five by name — and enumerating by hand is the exact defect this
+ * module exists to close (the paragraph it replaced in `navigationDormancy.test.ts` had
+ * been wrong twice, missing `test-setup.ts` and `manifest.ts`). The live, asserted list
+ * is that file's `LEDGER` case, which COMPUTES it; read it there, never from a comment.
  */
 export function scannedSources(dir: string): string[] {
   const out: string[] = [];
@@ -63,9 +73,10 @@ function resolveSpecifier(fromFile: string, spec: string): string | null {
  * 🔴 THIS IS THE MECHANICAL ANSWER TO A QUESTION THAT HAS BEEN GOT WRONG TWICE BY HAND.
  * `navigationDormancy.test.ts`'s scaffolding paragraph has already been corrected once
  * ("a draft said TWO of four") and was still wrong afterwards — it enumerated FOUR
- * scaffolding files and missed `src/test-setup.ts`, the vitest `setupFiles` entry. A
- * prose list of which files are test-only rots on the next file anyone adds; an import
- * walk does not.
+ * scaffolding files and missed both `src/test-setup.ts` (the vitest `setupFiles` entry)
+ * and `src/manifest.ts` (imported only by `manifest.test.ts`, and not scaffolding-shaped
+ * by its name at all). A prose list of which files are test-only rots on the next file
+ * anyone adds; an import walk does not.
  *
  * ⚠️ TWO DELIBERATE HEURISTICS, both over-inclusive:
  *   - TYPE-ONLY imports count. `import type { X } from './y.js'` puts no code in the

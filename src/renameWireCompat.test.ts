@@ -469,8 +469,9 @@ const SRC = resolve(process.cwd(), 'src');
 /**
  * Every file the PRODUCTION ENTRY actually reaches, concatenated.
  *
- * 🔴 IT USED TO BE A LOCAL WALKER CALLED `productionSources`, BYTE-FOR-BYTE IDENTICAL TO
- * `navigationDormancy.test.ts`'s `scannedSources`, and the duplication rotted exactly as
+ * 🔴 IT USED TO BE A LOCAL WALKER CALLED `productionSources`, SEMANTICALLY IDENTICAL TO
+ * `navigationDormancy.test.ts`'s `scannedSources` (same body and regex, differing only in
+ * the name and in brace style), and the duplication rotted exactly as
  * this repo's "one rule, one place" rule predicts: the docstring on the other copy was
  * corrected to say the filter is WIDER than production, and this copy kept the sentence
  * "Every production (non-test) `.ts`/`.tsx` file under src/" that had just been found

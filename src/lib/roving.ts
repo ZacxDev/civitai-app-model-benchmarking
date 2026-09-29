@@ -1,7 +1,8 @@
 // Arrow-key roving: where does focus go next?
 //
 // 🔴 WHY THIS IS A MODULE AND NOT TWO INLINE EXPRESSIONS. It was open-coded in
-// `components/Menu.tsx` and `components/SideNav.tsx`, byte-for-byte identically:
+// `components/Menu.tsx` and `components/SideNav.tsx` as the same three lines, identical
+// apart from indentation:
 //
 //     const i = items.indexOf(document.activeElement as HTMLElement);
 //     const step = e.key === 'ArrowDown' ? 1 : -1;
