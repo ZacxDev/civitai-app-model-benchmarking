@@ -99,7 +99,7 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
   it('fills the default prompt, adds a Pony override, and publishes both', async () => {
     renderApp();
     // switch to the prompts tab
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
     await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
@@ -166,7 +166,7 @@ describe('edit-in-place: the author edits their OWN combination', () => {
 describe('edit-in-place: the author edits their OWN prompt', () => {
   it('updates the prompt row in place (same card, new name)', async () => {
     renderApp({ seed: [{ value: { title: 'My Prompt', body: '[SDXL] x', data: promptSeed }, authorUserId: 99, voters: [1] }] });
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     const card = await screen.findByTestId('prompt-card');
     await userEvent.click(within(card).getByTestId('prompt-edit'));
     const form = await screen.findByTestId('prompt-form');

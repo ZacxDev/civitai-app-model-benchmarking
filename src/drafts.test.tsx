@@ -29,7 +29,14 @@ import type { SharedItem, StorageClient } from '@civitai/sdk';
 import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openView,
+} from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
 import type { CombinationData } from './types.js';
 
@@ -75,15 +82,23 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
   return r;
 }
 
-/** Switch to the My sub-tab of whichever view is mounted (§11.1). */
+/**
+ * Go to the viewer's own matchups (§11.1).
+ *
+ * ⚠️ IT IS A SIDEBAR DESTINATION NOW, NOT A SUB-TAB. `subtab-my-matchup` and
+ * `subtab-community-matchup` do not exist: the per-board My/Community strip is deleted
+ * and "my work" is `My Benchmarks ▸ Matchups`. The `my-panel` testid the old helper
+ * returned is unchanged and still the thing every case below queries into, so only
+ * these two functions had to move.
+ */
 async function openMy() {
-  await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
+  await openMyList('matchup');
   return screen.findByTestId('my-panel');
 }
 
-/** Switch to the Community sub-tab. */
+/** Go back to the community matchups board. */
 async function openCommunity() {
-  await userEvent.click(await screen.findByTestId('subtab-community-matchup'));
+  await openView('Matchups');
 }
 
 /** Drive the private matchup form: open it, name it, pick a checkpoint, save. */

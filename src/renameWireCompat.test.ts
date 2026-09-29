@@ -254,30 +254,41 @@ const RENAMED_TESTIDS = [
   'matchups-view',
   'submit-matchup',
   // ---- added by the IA refactor, and `view-switch-matchups` removed by it ----
-  // 🔴 THE LEDGER IS THE SET, SO IT MOVES WHEN THE SURFACE DOES — deliberately,
-  // in one place, with the reason written down. The IA refactor deleted the
-  // top-level tab strip (so `view-switch-matchups` has no renderer any more) and
-  // added four matchup-spelled landmarks:
+  // 🔴 THE LEDGER IS THE SET, SO IT MOVES WHEN THE SURFACE DOES — deliberately, in one
+  // place, with the reason written down. TWO generations of movement are recorded here,
+  // because the second one retired three names the first one added.
+  //
+  // The IA refactor deleted the top-level tab strip (so `view-switch-matchups` has no
+  // renderer any more) and added:
   //   - `section-matchups`        the page section that replaced the tab;
-  //   - `contribute-item-matchup` the Contribute menu item that replaced its
-  //                               submit route — NOT in this list, because the
-  //                               scan below cannot see it (it reaches the DOM
-  //                               through a variable). That gap is bounded and
-  //                               asserted by its own case at the end of this
-  //                               describe block rather than left silent;
+  //   - `contribute-item-matchup` the Contribute menu item that replaced its submit
+  //                               route — NEVER in this list, because the scan below
+  //                               cannot see it (it reached the DOM through a variable).
+  //                               That gap was bounded by its own case at the end of
+  //                               this describe block; the component is now DELETED and
+  //                               that case points at `SideNav` instead;
   //   - `matchup-detail*`         the drill-in modal the grid's group band opens;
-  //   - `subtab-*-matchup`        the sub-tab strip, which had to become
-  //                               object-scoped once matchups and prompts are
-  //                               mounted TOGETHER (see SubTabs.tsx).
+  //   - `subtab-*-matchup`        the sub-tab strip, which had to become object-scoped
+  //                               once matchups and prompts were mounted TOGETHER.
+  //
+  // 🔴 THE SIDEBAR CHANGE THEN DELETED THE SUB-TAB STRIP OUTRIGHT — "my work" is a
+  // sidebar destination, not a per-board toggle — so `subtabs-matchup`,
+  // `subtab-my-matchup` and `subtab-community-matchup` have NO RENDERER and are removed
+  // from this ledger. Three names in, three out; the count is coincidence, not a rule.
+  // The three that replace them:
+  //   - `board-nav-matchups`      the board subnav segment that mounts this board
+  //                               (PLURAL — it names a board, not an object kind);
+  //   - `section-my-matchup`      the viewer's own matchup surface;
+  //   - `my-published-matchup`    that surface's own published-rows list.
+  'board-nav-matchups',
   'matchup-detail',
   'matchup-detail-config',
   'matchup-detail-configs',
+  'my-published-matchup',
   'my-sign-in-matchup',
   'my-signed-out-matchup',
   'section-matchups',
-  'subtab-community-matchup',
-  'subtab-my-matchup',
-  'subtabs-matchup',
+  'section-my-matchup',
 ] as const;
 
 /** Every production (non-test) `.ts`/`.tsx` file under src/. */
@@ -313,11 +324,38 @@ const PROD_SOURCE = productionSources(SRC)
 const LITERAL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/data-testid="([^"]*)"/g)).map(
   (m) => m[1],
 );
-/** `data-testid={`stem-${expr}`}` → one entry per member of `NOUNS`. */
+/**
+ * `data-testid={`stem-${expr}`}` → one entry per member of the union `expr` ranges over.
+ *
+ * 🔴 THE UNION IS CHOSEN BY THE VARIABLE'S NAME, AND IT USED TO BE HARDCODED TO ONE
+ * UNION. Every templated testid was expanded over `NOUNS` — which was right while every
+ * template was `${noun}`, and became WRONG the moment `BoardNav` introduced
+ * `board-nav-${board}`: the scan produced `board-nav-matchup` (an id nothing renders)
+ * and never produced `board-nav-matchups` (the id it does). A ledger built on that is
+ * asserting fiction in both directions at once.
+ *
+ * 🔴 AND AN UNKNOWN VARIABLE FAILS LOUDLY rather than being silently mis-expanded —
+ * see the `unknown templated testid variable` case. Adding a third union is a two-line
+ * change; guessing which one a new variable means is how the above happened.
+ */
 const NOUNS = ['matchup', 'prompt', 'grid'] as const;
-const TEMPLATED_TESTIDS = Array.from(
-  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{[^}]*\}`\}/g),
-).flatMap((m) => NOUNS.map((n) => `${m[1]}${n}`));
+const BOARDS = ['matchups', 'prompts', 'grids'] as const;
+const TEMPLATE_UNIONS: Record<string, readonly string[]> = { noun: NOUNS, board: BOARDS };
+/**
+ * 🔴 THE EXPRESSION MAY BE A MEMBER ACCESS, and the union is keyed on its LAST
+ * segment. `App` renders `section-my-${view.noun}`, so a pattern that only accepted a
+ * bare identifier matched nothing there — and a template the scan does not match is a
+ * set of ids that silently leaves `ALL_TESTIDS`, which is the same blind spot in a new
+ * shape (measured: `section-my-matchup` was missing from the scan while being rendered).
+ * Taking the last segment is a heuristic, and it is a SAFE one only because the
+ * known-union guard below turns anything unexpected into a failure rather than a zero.
+ */
+const TEMPLATED_MATCHES = Array.from(
+  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{\s*([A-Za-z_$][\w$.]*)\s*\}`\}/g),
+).map((m) => ({ stem: m[1]!, variable: m[2]!.split('.').pop()! }));
+const TEMPLATED_TESTIDS = TEMPLATED_MATCHES.flatMap(({ stem, variable }) =>
+  (TEMPLATE_UNIONS[variable] ?? []).map((v) => `${stem}${v}`),
+);
 const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS];
 
 describe('527 Phase 1 — the renamed testid ledger', () => {
@@ -333,7 +371,27 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     expect(TEMPLATED_TESTIDS.length, 'the templated-testid scan matched nothing').toBeGreaterThan(
       0,
     );
-    expect(TEMPLATED_TESTIDS).toContain('subtab-my-matchup');
+    // Two live examples, one per union, so a mapping that lost either half fails here.
+    expect(TEMPLATED_TESTIDS).toContain('my-signed-out-matchup');
+    expect(TEMPLATED_TESTIDS).toContain('board-nav-matchups');
+  });
+
+  it('🔴 every templated testid variable maps to a KNOWN union', () => {
+    // 🔴 THE GUARD ON THE SCAN ITSELF. A variable the mapping does not know contributes
+    // ZERO entries, so its ids vanish from `ALL_TESTIDS` and every ledger assertion
+    // below silently stops covering them — an empty match set reading as a clean sweep,
+    // which is the failure this whole file is built against. MEASURED as the real thing
+    // rather than a hypothetical: `board-nav-${board}` was expanded over the NOUN union
+    // for one round, which invented `board-nav-matchup` and hid `board-nav-matchups`.
+    const seen = TEMPLATED_MATCHES.map((m) => m.variable);
+    // POSITIVE CONTROL: the scan found some.
+    expect(seen.length).toBeGreaterThan(0);
+    for (const variable of seen) {
+      expect(
+        TEMPLATE_UNIONS[variable],
+        `unknown templated testid variable \`${variable}\` — add its union to TEMPLATE_UNIONS`,
+      ).toBeDefined();
+    }
   });
 
   it('renders exactly the 32 matchup-spelled testids of the §11.4 map, as extended', () => {
@@ -373,21 +431,34 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     //   - `testId` (EmptyState, GridPicker) is a PROP PASS-THROUGH. The literal is
     //     supplied by the caller, in production source, so the scan above already
     //     sees it. Not a blind spot at all.
-    //   - `testid` (ContributeMenu) comes from a table LOCAL to the component, so
-    //     no call site carries the literal and the scan cannot reach it. That is
-    //     the one genuine gap, and the literal check below closes it.
+    //   - `testid` (SideNav — previously ContributeMenu) comes from a table LOCAL to
+    //     the component, so no call site carries the literal and the scan cannot reach
+    //     it. That is the one genuine gap, and the literal check below closes it.
+    //
+    // ⚠️ THE OWNER OF THE THIRD ENTRY MOVED. It was `ContributeMenu`'s three-item table;
+    // that component is deleted and `SideNav`'s My Benchmarks sub-items are driven by
+    // the same shape, so the gap is the same size in a different file. The COUNT is
+    // unchanged, which is exactly why a count alone would not have noticed the move —
+    // hence a ledger of names plus the file-scoped literal check below.
     expect(indirect.slice().sort(), 'a new indirect data-testid appeared — ledger it').toEqual([
       'testId',
       'testId',
       'testid',
     ]);
 
-    const menu = readFileSync(resolve(SRC, 'components/ContributeMenu.tsx'), 'utf8');
+    const nav = readFileSync(resolve(SRC, 'components/SideNav.tsx'), 'utf8');
     // POSITIVE CONTROL: the file really was read.
-    expect(menu.length).toBeGreaterThan(1_000);
-    for (const id of ['contribute-item-matchup', 'contribute-item-prompt', 'contribute-item-grid']) {
-      expect(menu, `${id} is not declared in ContributeMenu`).toContain(`'${id}'`);
+    expect(nav.length).toBeGreaterThan(1_000);
+    for (const id of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
+      expect(nav, `${id} is not declared in SideNav`).toContain(`'${id}'`);
     }
-    expect(menu).not.toMatch(/'contribute-item-(?!matchup'|prompt'|grid')/);
+    expect(nav).not.toMatch(/'nav-my-(?!grid'|matchup'|prompt')/);
+
+    // 🔴 AND THE DELETED COMPONENT'S IDS ARE GONE FROM THE WHOLE PRODUCTION TREE, not
+    // merely from this one file. The scan above cannot see a variable-driven testid, so
+    // "no `contribute-item-*` in ALL_TESTIDS" would have been true even while the menu
+    // still existed — this is the check that is not vacuous.
+    expect(PROD_SOURCE).not.toContain('contribute-item-');
+    expect(PROD_SOURCE).not.toContain('contribute-trigger');
   });
 });

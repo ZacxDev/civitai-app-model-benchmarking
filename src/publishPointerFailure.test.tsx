@@ -270,7 +270,6 @@ describe.each(OBJECTS)(
       );
       mountApp({ shared: s.shared, appStorage: kv.appStorage });
       await openView(view);
-      // Grids has no sub-tabs any more — see openMyList.
       await openMyList(noun);
       const card = await screen.findByTestId('unpublished-card');
       await userEvent.click(within(card).getByTestId('unpublished-publish'));

@@ -4,17 +4,30 @@
 // rehydrate, the Buzz workflow money path + balance, shared storage, consent,
 // and the 0.30 publish/gated bridges).
 //
-// 🔴 ONE PAGE, NO TOP-LEVEL TABS. There used to be a `SegmentedControl` routing
-// between three views (Combos / Prompts / Grid) and a `view` state behind it; both
-// are gone. The page now renders three SECTIONS in a fixed order — grids (with the
-// runnable matrix and the flat all-grids list), then matchups, then prompts — each
-// marked with `data-mb-section` so a ledger test fails when the set grows or
-// shrinks. Contribution is one `ContributeMenu` where the strip used to be.
+// 🔴 A SIDEBAR AND ONE SURFACE AT A TIME. Three generations of IA have passed through
+// this file and each retired the last one's premise, so all three are named:
+//   1. a top-level `SegmentedControl` routing between three views (Combos / Prompts /
+//      Grid), with a `view` state behind it — deleted, because it put the thing the
+//      block is FOR behind a click (§11.5, criterion 9);
+//   2. ONE PAGE, NO TABS: three simultaneous `data-mb-section` sections plus a
+//      `ContributeMenu` dropdown where the strip had been. That page rendered 2166 CSS
+//      px and the host's iframe — sized to the VIEWPORT inside an `overflow: hidden`
+//      parent — clipped two of the three sections out of every store screenshot;
+//   3. now: a SIDEBAR (`SideNav`) choosing Home vs My Benchmarks, and on Home a BOARD
+//      SUBNAV (`BoardNav`) mounting exactly ONE community board. There is a `view`
+//      state again and it is NOT the one that was deleted: Home always renders the grid
+//      and its runnable matrix, so nothing the block is for is behind a click.
 //
-// The matchup and prompt sections KEEP their own My/Community sub-tabs, drafts,
-// archive and quota machinery: those lists are what the vote ranking is cast on,
-// and the ranking is what decides the Top Grid's members. Folding them away is
-// what would starve it.
+// 🔴 THE UNSELECTED SURFACES ARE UNMOUNTED, NOT HIDDEN, and every absence that creates
+// is asserted as an absence (`boardNav.test.tsx`, `sideNav.test.tsx`,
+// `myBenchmarks.test.tsx`). `data-mb-section` is still the ledger marker, and
+// `capture-landmarks.test.tsx` now pins the SET per destination rather than one list.
+//
+// 🔴 THE PER-BOARD My/Community SUB-TABS ARE GONE, AND THE MACHINERY BEHIND THEM IS NOT.
+// Drafts, archive and quota all moved to My Benchmarks (`MyPublished`, `MyGridsView`),
+// which is also where `ARCHIVE_NOTE`'s promise — "stays in Community for everyone
+// including you" — is true again. The community boards still carry the vote lists the
+// Top Grid's members come out of; folding THOSE away is what would starve it.
 //
 // Submit flows are modals; so are the matchup/prompt DETAIL views the grid's
 // group band and column headers open. The hooks are
@@ -101,7 +114,7 @@ import {
 } from '@civitai/blocks-react/ui';
 
 import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
-import { COMPACT_ATTR, compactTapTargetCss } from './compact.js';
+import { COMPACT_ATTR, LAYOUT_ATTR, compactTapTargetCss, layoutCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
 import { paintTheme } from './bootTheme.js';
@@ -127,6 +140,7 @@ import {
   combinationToInput,
   DEFAULT_TOP_N,
   flattenConfigs,
+  isOwnRow,
   promptToInput,
   reconcileOptimistic,
   resolveCell,
@@ -169,6 +183,13 @@ import {
   unpubGridToInput,
 } from './lib/unpubGrids.js';
 import {
+  buildTopGrid,
+  missingMembersNotice,
+  resolveGridRows,
+  TOP_GRID_NAME,
+  type GridEntry,
+} from './lib/gridEntries.js';
+import {
   parsePointer,
   publishedPointer,
   publishPointerFailedNotice,
@@ -177,8 +198,11 @@ import {
 import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
-import { ContributeMenu } from './components/ContributeMenu.js';
+import { BoardNav, type Board } from './components/BoardNav.js';
+import { GridOpenPanel } from './components/GridOpenPanel.js';
 import { MatchupBody } from './components/MatchupBody.js';
+import { MyGridsView } from './components/MyGridsView.js';
+import { SideNav, type MainView } from './components/SideNav.js';
 import { MatchupsView } from './components/MatchupsView.js';
 import { PromptBody } from './components/PromptBody.js';
 import { PromptsView } from './components/PromptsView.js';
@@ -452,6 +476,34 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // for is behind a click at all.
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const closeModal = useCallback(() => setModal({ kind: 'none' }), []);
+
+  // ---- navigation ----
+  //
+  // 🔴 THERE IS A `view` STATE AGAIN, AND IT IS NOT THE ONE THE IA REFACTOR DELETED.
+  // The old `view` routed between three TOP-LEVEL TABS (Combos / Prompts / Grid),
+  // which put the thing the block is FOR behind a click; §11.5 and criterion 9 are
+  // what killed it. This one selects between HOME — which always renders the grid and
+  // its runnable matrix — and MY BENCHMARKS, the viewer's own work. The grid is still
+  // not behind a click, and the lists that feed it are still on Home.
+  //
+  // 🔴 NEITHER VALUE IS PERSISTED. No KV write, no URL, no deep-linking (operator
+  // decision, YAGNI): a reload opens on Home ▸ Grids.
+  const [view, setView] = useState<MainView>({ kind: 'home' });
+  const [board, setBoard] = useState<Board>('grids');
+
+  /**
+   * Which grid is OPEN, by shared key. `null` means the Top Grid.
+   *
+   * 🔴 IT LIVES HERE, ABOVE THE VIEW SWITCH, AND THAT IS A MONEY-PATH DECISION. It
+   * was a `useState` inside `GridsView`. Navigating to My Benchmarks unmounts the
+   * grid the way a reload does — but WITHOUT the rehydrate — so a `useState` down
+   * there would reset to the Top Grid on the way back, and a cell whose generation is
+   * still live would be stalled on a grid nobody is looking at: charged, running,
+   * invisible. `runs` and the poll loop were already App-owned; this was the one piece
+   * of the open-grid identity that was not, and the view-switch cases in
+   * `money-path.test.tsx` are what hold it.
+   */
+  const [openGridKey, setOpenGridKey] = useState<string | null>(null);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
   // is the `topN` state behind it. It was the only consumer of matchup and prompt
   // votes, and it let two viewers of ONE shared board be told different absolute
@@ -2097,6 +2149,33 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   );
   const archivedKeys = useMemo(() => new Set(archived), [archived]);
   const quotaLine = formatQuota(quota);
+  /** The viewer's OWN published grids — the same `isOwnRow` predicate the cards use. */
+  const ownGrids = useMemo(() => grids.filter((g) => isOwnRow(g, viewer?.id ?? null)), [grids, viewer?.id]);
+
+  // ---- the OPEN grid, resolved ONCE ----
+  //
+  // 🔴 IT IS RESOLVED HERE AND NOWHERE ELSE, and the reason is a bug shape rather
+  // than tidiness. Two consumers need to agree about which grid is open: the panel
+  // that RENDERS it and the list that EXCLUDES it. `openGridKey` can name a grid that
+  // has since been withdrawn — by its author in another tab, or by this viewer from
+  // the list — and the panel falls back to the Top Grid in that case. A list that
+  // applied its own `key !== openGridKey` test would then find no match, keep the Top
+  // Grid in the list, and show the same grid twice: once in the panel, once as a card.
+  // So the fallback happens once and `GridsView` is handed the RESOLVED key.
+  const topGrid = useMemo(() => buildTopGrid(combinations, prompts), [combinations, prompts]);
+  const openEntry: GridEntry = useMemo(() => {
+    if (openGridKey === null) return topGrid;
+    const row = grids.find((g) => g.key === openGridKey);
+    return row ? { system: false, row } : topGrid;
+  }, [openGridKey, grids, topGrid]);
+  const openResolved = useMemo(
+    () => resolveGridRows(openEntry, combinations, prompts),
+    [openEntry, combinations, prompts],
+  );
+  const openMissing = missingMembersNotice(openResolved, boardTruncated);
+  const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
+  /** The resolved key `GridsView` filters against — `null` iff the panel shows the Top Grid. */
+  const openKeyResolved = openEntry.system ? null : openEntry.row.key;
 
   const publishMatchupById = useCallback(
     async (localId: string) => {
@@ -2199,6 +2278,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           desktop rendering is byte-for-byte what it was. Scoped to this root by
           the COMPACT_ATTR selector, so it can never leak into the host page. */}
       {isMobile && <style data-testid="compact-styles">{compactTapTargetCss()}</style>}
+      {/* 🔴 THE LAYOUT SHEET IS UNCONDITIONAL, and that is not an inconsistency with
+          the line above. It carries the WIDE case — sidebar beside content — and the
+          compact sheet OVERRIDES it to a single column. A sheet mounted only on narrow
+          viewports could not express the wide case at all, and putting the wide case in
+          an inline `style` would make it unbeatable: an inline declaration outranks
+          every author rule that is not `!important`. Two rules in two sheets, no
+          `!important` anywhere. */}
+      <style data-testid="layout-styles">{layoutCss()}</style>
       <div style={contentStyle} data-testid="app-content">
         <Group
           justify="space-between"
@@ -2287,181 +2374,294 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           </Alert>
         )}
 
-        {/* ---- SECTION 1 of 3: GRIDS (the runnable matrix + the flat all-grids
-             list). FIRST, because it is the app's primary object and everything
-             below exists to feed it.
+        {/* ================= THE PAGE BODY: SIDEBAR + ONE SURFACE =================
 
-             `minWidth: 0` for the same reason `contentStyle` carries it: this box
-             is a grid item holding the wide results matrix, and its default
-             content-based minimum would re-introduce the blowout one level below
-             the containment in `contentStyle`. ---- */}
-        <section
-          data-mb-section="grids"
-          data-testid="section-grids"
-          style={{ minWidth: 0, display: 'grid', gap: 14 }}
-        >
-          <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
-            <GridsView
-              grids={grids}
-              combinations={combinations}
-              prompts={prompts}
-              /* The preview strips' source. One batched gated read per card —
-                 see GridPreview for the budget and why it reuses GatedCell. */
-              results={results}
-              GatedCell={deps.GatedCell}
-              /* The page's one contribution affordance, rendered on the open
-                 grid's title row — where the tab strip used to be. */
-              headerAction={
-                <ContributeMenu
-                  onSubmitMatchup={() => setModal({ kind: 'combo' })}
-                  onSubmitPrompt={() => setModal({ kind: 'prompt' })}
-                  /* 🔴 The SAME callback `onNewUnpublished` gets — see
-                     `openNewGrid` for why one predicate rather than two. */
-                  onBuildGrid={openNewGrid}
-                />
-              }
-              votedKeys={votedKeys}
-              viewerId={viewer?.id ?? null}
-              loading={loading}
-              error={error}
-              /* 🔴 The SAME flag the `board-truncated-notice` above is rendered
-                 from. A grid's members are resolved against the rows this scan
-                 READ, so when it stopped early a "missing" member may simply be
-                 unread — and the notice must not tell the viewer its author
-                 removed it. */
-              boardTruncated={boardTruncated}
-              onVote={onVote}
-              onUnvote={onUnvote}
-              onRequireAuth={requireAuth}
-              onWithdraw={withdrawGrid}
-              onReport={reportRow}
-              unpublished={unpublishedGrids}
-              quotaLine={quotaLine}
-              /* 🔴 NO `archivedKeys`/`onArchive`/`onUnarchive` HERE, and that is a
-                 deliberate narrowing rather than a dropped feature. Archive is an
-                 author-side hide of the viewer's own row from THEIR OWN list
-                 (§11.3); the grids section renders the COMMUNITY board, where an
-                 archived row is supposed to stay visible to everyone including the
-                 archiver — which is exactly what `ARCHIVE_NOTE` promises in words.
-                 The flag is still read, still written, and still passed to the two
-                 surfaces that have a My/Community split. See `GridsView`'s header. */
-              onNewUnpublished={openNewGrid}
-              onEditUnpublished={editGridById}
-              onDiscardUnpublished={deleteUnpubGrid}
-              onPublishUnpublished={publishGridById}
-              /* 🔴 The matrix is rendered HERE, not inside GridsView, because
-                 every prop below it is money-shaped (the estimate → confirm →
-                 submit → poll path and the Buzz gate). A browse surface has no
-                 business holding those. `matchups`/`prompts` arrive already
-                 RESOLVED against the live board, so a withdrawn member simply
-                 is not among them — and the count of what is gone is disclosed
-                 by the view that resolved them. */
-              renderMatrix={(matchups, gridPrompts) => (
-                <ResultsGrid
-                  configs={flattenConfigs(matchups)}
-                  prompts={gridPrompts}
-                  results={results}
-                  runs={runs}
-                  c={c}
-                  buzzTotal={buzzTotal}
-                  /* 🔴 THE TWO PROPS THAT MAKE AN UNKNOWN BALANCE RECOVERABLE.
-                     `buzzTotal === null` alone cannot tell "still loading" from
-                     "the read failed", and the grid has to say different things
-                     about those. `refetch` is the hook's own escape hatch — the
-                     app used neither it nor `error`, which is why a single
-                     failed mount read was permanent until a page reload. */
-                  buzzBalanceLoading={buzz.loading}
-                  onRetryBalance={buzz.refetch}
-                  GatedCell={deps.GatedCell}
-                  onRunCell={beginRun}
-                  onConfirmRun={confirmRun}
-                  onResumeRun={resumeRun}
-                  onCancelRun={cancelRun}
-                  /* 🔴 THESE USED TO BE `setView(...)`. There is no view state, and
-                     a tab jump was only ever a way of reaching the submit form —
-                     so they open it. */
-                  onAddCombination={() => setModal({ kind: 'combo' })}
-                  onAddPrompt={() => setModal({ kind: 'prompt' })}
-                  /* Drill-in: the group BAND opens the matchup, a COLUMN header
-                     opens the prompt. Config rows stay inert — see
-                     `ResultsGridProps.onOpenMatchup`. */
-                  onOpenMatchup={(comboKey) => setModal({ kind: 'matchup-detail', comboKey })}
-                  onOpenPrompt={(promptKey) => setModal({ kind: 'prompt-detail', promptKey })}
-                />
-              )}
-            />
-          </Stack>
-        </section>
+             🔴 WHAT REPLACED WHAT, IN ORDER, BECAUSE THE HISTORY IS THE ARGUMENT:
+             a three-tab `SegmentedControl` strip (one view mounted) → one page with
+             three simultaneous sections and a `ContributeMenu` dropdown → this: a
+             SIDEBAR choosing Home vs the viewer's own work, and on Home a BOARD
+             SUBNAV choosing which single community board is mounted.
 
-        {/* ---- SECTION 2 of 3: MATCHUPS. Keeps its own My/Community sub-tabs and
-             its whole unpublished/archive/quota machinery: this list is where the
-             votes that decide the Top Grid's ROWS are cast. ---- */}
-        <section
-          data-mb-section="matchups"
-          data-testid="section-matchups"
-          style={{ minWidth: 0, display: 'grid', gap: 14 }}
-        >
-          <MatchupsView
-            combinations={combinations}
-            includedKeys={includedComboKeys}
-            votedKeys={votedKeys}
-            viewerId={viewer?.id ?? null}
-            loading={loading}
-            error={error}
-            onSubmitNew={() => setModal({ kind: 'combo' })}
-            onVote={onVote}
-            onUnvote={onUnvote}
-            onRequireAuth={requireAuth}
-            onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
-            onWithdraw={withdrawCombination}
-            onReport={reportRow}
-            unpublished={unpublishedMatchups}
-            quotaLine={quotaLine}
-            archivedKeys={archivedKeys}
-            onNewUnpublished={() =>
-              setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
-            }
-            onEditUnpublished={editMatchupById}
-            onDiscardUnpublished={deleteDraft}
-            onPublishUnpublished={publishMatchupById}
-            onArchive={archiveRow}
-            onUnarchive={unarchiveRow}
-          />
-        </section>
+             🔴 THE UNSELECTED SURFACES ARE UNMOUNTED, NOT HIDDEN. Every absence this
+             layout creates is asserted as an absence (`boardNav.test.tsx`,
+             `sideNav.test.tsx`): a `display: none` would satisfy a visibility check,
+             keep every hidden section's testids resolving, and keep its gated image
+             reads running — the read budget the preview suites defend is a claim about
+             what is MOUNTED.
 
-        {/* ---- SECTION 3 of 3: PROMPTS — the COLUMN side of the same story. ---- */}
-        <section
-          data-mb-section="prompts"
-          data-testid="section-prompts"
-          style={{ minWidth: 0, display: 'grid', gap: 14 }}
+             🔴 AND THE ONE-PAGE LAYOUT COST THE STORE LISTING SOMETHING MEASURABLE,
+             which is part of why this is worth doing: the host sizes the iframe to the
+             VIEWPORT inside an `overflow: hidden` parent, the three-section page came
+             to 2166 CSS px, and `section-matchups` (y 1175..1482) and `section-prompts`
+             (y 1500..2142) sat below the iframe edge at EVERY tested viewport height
+             (900/1100/1400 → iframe 752/952/1253). Mounting one board at a time is the
+             only change that can put them back in frame. ⚠️ NOT YET RE-MEASURED —
+             that needs a released artifact, and it is owed. ================== */}
+        <div
+          {...{ [LAYOUT_ATTR]: 'true' }}
+          data-testid="app-layout"
         >
-          <PromptsView
-            prompts={prompts}
-            includedKeys={includedPromptKeys}
-            votedKeys={votedKeys}
-            viewerId={viewer?.id ?? null}
-            loading={loading}
-            error={error}
-            onSubmitNew={() => setModal({ kind: 'prompt' })}
-            onVote={onVote}
-            onUnvote={onUnvote}
-            onRequireAuth={requireAuth}
-            onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
-            onWithdraw={withdrawPrompt}
-            onReport={reportRow}
-            unpublished={unpublishedPrompts}
-            quotaLine={quotaLine}
-            archivedKeys={archivedKeys}
-            onNewUnpublished={() =>
-              setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
-            }
-            onEditUnpublished={editPromptById}
-            onDiscardUnpublished={deleteUnpubPrompt}
-            onPublishUnpublished={publishPromptById}
-            onArchive={archiveRow}
-            onUnarchive={unarchiveRow}
-          />
-        </section>
+          {/* 🔴 THE SIDEBAR HOLDS NO VIEW STATE — `view` is App's, which is what makes
+              an in-flight run survive a trip to My Benchmarks and back. See
+              `openGridKey` and `SideNav`'s own header. */}
+          <SideNav view={view} onSelect={setView} />
+
+          <div style={{ minWidth: 0, display: 'grid', gap: 14 }} data-testid="app-surface">
+            {view.kind === 'home' ? (
+              <>
+                {/* ---- THE OPEN GRID: always on Home, whichever board is selected.
+                     It is the app's primary object and the boards below it are what
+                     feed it, so it does not belong to any one of them.
+
+                     `minWidth: 0` for the same reason `contentStyle` carries it: this
+                     box is a grid item holding the wide results matrix, and its
+                     default content-based minimum would re-introduce the blowout one
+                     level below the containment in `contentStyle`. ---- */}
+                <section
+                  data-mb-section="open-grid"
+                  data-testid="section-open-grid"
+                  style={{ minWidth: 0, display: 'grid', gap: 14 }}
+                >
+                  <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
+                    <GridOpenPanel
+                      name={openName}
+                      system={openEntry.system}
+                      /* 🔴 Criterion 8 on the OPEN grid: the surviving members render
+                         below and this sentence carries the honest count of what is
+                         not there — built from the scan's truncation flag, so a
+                         member that was merely UNREAD is not reported as removed. */
+                      missing={openMissing}
+                    >
+                      {/* 🔴 THE MATRIX IS RENDERED HERE, not inside any browse
+                          surface, because every prop below it is money-shaped (the
+                          estimate → confirm → submit → poll path and the Buzz gate).
+                          `matchups`/`prompts` arrive already RESOLVED against the live
+                          board, so a withdrawn member simply is not among them. */}
+                      <ResultsGrid
+                        configs={flattenConfigs(openResolved.matchups)}
+                        prompts={openResolved.prompts}
+                        results={results}
+                        runs={runs}
+                        c={c}
+                        buzzTotal={buzzTotal}
+                        /* 🔴 THE TWO PROPS THAT MAKE AN UNKNOWN BALANCE RECOVERABLE.
+                           `buzzTotal === null` alone cannot tell "still loading" from
+                           "the read failed", and the grid has to say different things
+                           about those. `refetch` is the hook's own escape hatch — the
+                           app used neither it nor `error`, which is why a single
+                           failed mount read was permanent until a page reload. */
+                        buzzBalanceLoading={buzz.loading}
+                        onRetryBalance={buzz.refetch}
+                        GatedCell={deps.GatedCell}
+                        onRunCell={beginRun}
+                        onConfirmRun={confirmRun}
+                        onResumeRun={resumeRun}
+                        onCancelRun={cancelRun}
+                        /* 🔴 THESE USED TO BE `setView(...)` to a tab, then a modal
+                           open. They stay a modal open: the destination was only ever
+                           a way of reaching the submit form. */
+                        onAddCombination={() => setModal({ kind: 'combo' })}
+                        onAddPrompt={() => setModal({ kind: 'prompt' })}
+                        /* Drill-in: the group BAND opens the matchup, a COLUMN header
+                           opens the prompt. Config rows stay inert — see
+                           `ResultsGridProps.onOpenMatchup`. */
+                        onOpenMatchup={(comboKey) => setModal({ kind: 'matchup-detail', comboKey })}
+                        onOpenPrompt={(promptKey) => setModal({ kind: 'prompt-detail', promptKey })}
+                      />
+                    </GridOpenPanel>
+                  </Stack>
+                </section>
+
+                {/* 🔴 THE BOARD SUBNAV, WHERE THE "All grids" HEADING USED TO BE. One
+                    board is mounted; the other two are gone from the DOM. */}
+                <BoardNav value={board} onChange={setBoard} />
+
+                {board === 'grids' && (
+                  <section
+                    data-mb-section="grids"
+                    data-testid="section-grids"
+                    style={{ minWidth: 0, display: 'grid', gap: 14 }}
+                  >
+                    <GridsView
+                      grids={grids}
+                      combinations={combinations}
+                      prompts={prompts}
+                      /* The preview strips' source. One batched gated read per card —
+                         see GridPreview for the budget and why it reuses GatedCell. */
+                      results={results}
+                      GatedCell={deps.GatedCell}
+                      votedKeys={votedKeys}
+                      viewerId={viewer?.id ?? null}
+                      loading={loading}
+                      error={error}
+                      /* 🔴 The SAME flag the `board-truncated-notice` above is
+                         rendered from. A grid's members are resolved against the rows
+                         this scan READ, so when it stopped early a "missing" member
+                         may simply be unread — and the notice must not tell the viewer
+                         its author removed it. */
+                      boardTruncated={boardTruncated}
+                      /* 🔴 RESOLVED, not raw — see the prop's own docblock for the
+                         same-grid-twice bug a second resolution would create. */
+                      openKey={openKeyResolved}
+                      onOpen={setOpenGridKey}
+                      onVote={onVote}
+                      onUnvote={onUnvote}
+                      onRequireAuth={requireAuth}
+                      onWithdraw={withdrawGrid}
+                      onReport={reportRow}
+                    />
+                  </section>
+                )}
+
+                {board === 'matchups' && (
+                  <section
+                    data-mb-section="matchups"
+                    data-testid="section-matchups"
+                    style={{ minWidth: 0, display: 'grid', gap: 14 }}
+                  >
+                    <MatchupsView
+                      surface="community"
+                      combinations={combinations}
+                      includedKeys={includedComboKeys}
+                      votedKeys={votedKeys}
+                      viewerId={viewer?.id ?? null}
+                      loading={loading}
+                      error={error}
+                      onSubmitNew={() => setModal({ kind: 'combo' })}
+                      onVote={onVote}
+                      onUnvote={onUnvote}
+                      onRequireAuth={requireAuth}
+                      onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
+                      onWithdraw={withdrawCombination}
+                      onReport={reportRow}
+                    />
+                  </section>
+                )}
+
+                {board === 'prompts' && (
+                  <section
+                    data-mb-section="prompts"
+                    data-testid="section-prompts"
+                    style={{ minWidth: 0, display: 'grid', gap: 14 }}
+                  >
+                    <PromptsView
+                      surface="community"
+                      prompts={prompts}
+                      includedKeys={includedPromptKeys}
+                      votedKeys={votedKeys}
+                      viewerId={viewer?.id ?? null}
+                      loading={loading}
+                      error={error}
+                      onSubmitNew={() => setModal({ kind: 'prompt' })}
+                      onVote={onVote}
+                      onUnvote={onUnvote}
+                      onRequireAuth={requireAuth}
+                      onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
+                      onWithdraw={withdrawPrompt}
+                      onReport={reportRow}
+                    />
+                  </section>
+                )}
+              </>
+            ) : (
+              /* ================= MY BENCHMARKS =================
+
+                 🔴 THIS IS WHERE THE "My" HALF OF §11.1 LIVES NOW, and where ARCHIVE
+                 lives with it. The per-board My/Community sub-tabs are deleted: "my
+                 work" is one destination rather than a toggle repeated on each board,
+                 and `ARCHIVE_NOTE`'s promise — an archived row "stays in Community for
+                 everyone including you" — only makes sense once there is a My list
+                 that is not the community board. ================== */
+              <section
+                data-mb-section={`my-${view.noun}`}
+                data-testid={`section-my-${view.noun}`}
+                style={{ minWidth: 0, display: 'grid', gap: 14 }}
+              >
+                {view.noun === 'grid' && (
+                  <MyGridsView
+                    ownGrids={ownGrids}
+                    combinations={combinations}
+                    prompts={prompts}
+                    boardTruncated={boardTruncated}
+                    viewerId={viewer?.id ?? null}
+                    loading={loading}
+                    archivedKeys={archivedKeys}
+                    unpublished={unpublishedGrids}
+                    quotaLine={quotaLine}
+                    onRequireAuth={requireAuth}
+                    onWithdraw={withdrawGrid}
+                    onArchive={archiveRow}
+                    onUnarchive={unarchiveRow}
+                    onNewUnpublished={openNewGrid}
+                    onEditUnpublished={editGridById}
+                    onDiscardUnpublished={deleteUnpubGrid}
+                    onPublishUnpublished={publishGridById}
+                  />
+                )}
+
+                {view.noun === 'matchup' && (
+                  <MatchupsView
+                    surface="my"
+                    combinations={combinations}
+                    includedKeys={includedComboKeys}
+                    votedKeys={votedKeys}
+                    viewerId={viewer?.id ?? null}
+                    loading={loading}
+                    error={error}
+                    onSubmitNew={() => setModal({ kind: 'combo' })}
+                    onVote={onVote}
+                    onUnvote={onUnvote}
+                    onRequireAuth={requireAuth}
+                    onEdit={(combo) => setModal({ kind: 'combo', edit: combo })}
+                    onWithdraw={withdrawCombination}
+                    onReport={reportRow}
+                    unpublished={unpublishedMatchups}
+                    quotaLine={quotaLine}
+                    archivedKeys={archivedKeys}
+                    onNewUnpublished={() =>
+                      setModal({ kind: 'draft', localId: newDraftLocalId(), existing: false })
+                    }
+                    onEditUnpublished={editMatchupById}
+                    onDiscardUnpublished={deleteDraft}
+                    onPublishUnpublished={publishMatchupById}
+                    onArchive={archiveRow}
+                    onUnarchive={unarchiveRow}
+                  />
+                )}
+
+                {view.noun === 'prompt' && (
+                  <PromptsView
+                    surface="my"
+                    prompts={prompts}
+                    includedKeys={includedPromptKeys}
+                    votedKeys={votedKeys}
+                    viewerId={viewer?.id ?? null}
+                    loading={loading}
+                    error={error}
+                    onSubmitNew={() => setModal({ kind: 'prompt' })}
+                    onVote={onVote}
+                    onUnvote={onUnvote}
+                    onRequireAuth={requireAuth}
+                    onEdit={(prompt) => setModal({ kind: 'prompt', edit: prompt })}
+                    onWithdraw={withdrawPrompt}
+                    onReport={reportRow}
+                    unpublished={unpublishedPrompts}
+                    quotaLine={quotaLine}
+                    archivedKeys={archivedKeys}
+                    onNewUnpublished={() =>
+                      setModal({ kind: 'unpub-prompt', localId: newUnpubPromptLocalId(), existing: false })
+                    }
+                    onEditUnpublished={editPromptById}
+                    onDiscardUnpublished={deleteUnpubPrompt}
+                    onPublishUnpublished={publishPromptById}
+                    onArchive={archiveRow}
+                    onUnarchive={unarchiveRow}
+                  />
+                )}
+              </section>
+            )}
+          </div>
+        </div>
 
         {/* ---- DRILL-IN DETAIL: what the grid's group band and column headers open.
              🔴 A DETAIL VIEW, NOT AN EDIT FORM. Most viewers do not own the row they

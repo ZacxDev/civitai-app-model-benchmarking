@@ -215,8 +215,11 @@ afterEach(() => {
  * 🔴 THE REAL COMPONENT, NOT A STUB. The whole claim is that the preview reuses
  * `GatedCell`'s read path — its one batched call, its timeout, its retry, its
  * telemetry. A stubbed cell would make every count below a fact about the stub.
- * `renderMatrix` is a placeholder: the matrix is the App's business and would drag
- * the money path into a browse-surface test for nothing.
+ * ⚠️ `renderMatrix` IS GONE FROM THE PROPS, and so is the open grid's whole panel:
+ * `GridsView` is the community BOARD now, nothing more. The matrix moved to
+ * `GridOpenPanel`, which `App` renders above the board subnav. `openKey={null}` below
+ * means "the system Top Grid is the one open" — the default — so the Top Grid is NOT
+ * listed and only the two published grids are.
  */
 function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
   return (
@@ -235,7 +238,8 @@ function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
       onRequireAuth={vi.fn()}
       onWithdraw={vi.fn()}
       onReport={vi.fn()}
-      renderMatrix={() => <div data-testid="matrix-stub" />}
+      openKey={null}
+      onOpen={vi.fn()}
     />
   );
 }

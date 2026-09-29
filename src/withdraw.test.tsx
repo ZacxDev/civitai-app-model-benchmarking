@@ -20,7 +20,7 @@ import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
 import { UNPUB_GRID_PREFIX, unpubGridKey } from './lib/grids.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openMyList, openView } from './test-helpers.js';
 import type { CombinationData, GridData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -182,7 +182,7 @@ describe('withdraw: the ownership guard', () => {
     });
     await renderApp({ shared });
 
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     const cards = await screen.findAllByTestId('prompt-card');
     const mine = cards.find((el) => within(el).queryByText('My Prompt'))!;
     const theirs = cards.find((el) => within(el).queryByText('Their Prompt'))!;
@@ -199,7 +199,7 @@ describe('withdraw: the author removes their OWN prompt', () => {
     const { shared, withdraws } = fakeShared({ seed: [row('p1', 'My Prompt', VIEWER_ID, promptData)] });
     await renderApp({ shared });
 
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     const card = await screen.findByTestId('prompt-card');
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     expect(withdraws).toEqual([]);
@@ -397,7 +397,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     });
     await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     // Baseline AFTER mount: the My-tab load legitimately lists both prefixes once
     // on load, so the claim is that the WITHDRAW adds none to the MATCHUP prefix —
     // not that there are zero. Counting from zero here would pin the mount effect.
@@ -453,7 +453,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     });
     await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     expect(store.has(unpubPromptKey('up1'))).toBe(true);
 
     const card = await screen.findByTestId('prompt-card');
@@ -643,7 +643,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     const { appStorage, sets } = fakeAppStorage();
     await renderApp({ shared, appStorage });
 
-    await screen.findByTestId('section-prompts');
+    await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
     fireEvent.change(within(form).getByTestId('prompt-name'), {
@@ -751,7 +751,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     // though the store holds a renderable unsubmitted record — i.e. the render
     // state really did miss the store. Without this the test could pass with a
     // fully-loaded list and prove nothing about the store lookup.
-    await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
+    await openMyList('matchup');
     await screen.findByTestId('unpublished-empty');
     expect(store.has(draftKey(BODY_LOCAL_ID))).toBe(true);
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
@@ -761,7 +761,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     // and the records load normally. That is not hypothetical — it is what the
     // first version of this test did, and this control is what caught it.
     expect(listCalls.map((c) => c?.prefix)).toContain(DRAFT_PREFIX);
-    await userEvent.click(screen.getByTestId('subtab-community-matchup'));
+    await openView('Matchups');
 
     const card = await screen.findByTestId('matchup-card');
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
