@@ -50,6 +50,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { MyGridsView } from './components/MyGridsView.js';
@@ -432,14 +433,19 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     viewerId: number | null;
     unpublished?: UnpublishedGrid[];
     onPublishUnpublished?: (localId: string) => Promise<void> | void;
+    loading?: boolean;
+    error?: string | null;
+    /** Override the published set — `[]` is what a FAILED read leaves behind. */
+    ownGrids?: GridRow[];
   }) {
     return (
       <MyGridsView
-        ownGrids={opts.viewerId == null ? [] : [gridRow('gk-own', opts.viewerId)]}
+        ownGrids={opts.ownGrids ?? (opts.viewerId == null ? [] : [gridRow('gk-own', opts.viewerId)])}
         combinations={[matchup('mk-a')]}
         prompts={[promptRow('qk-1')]}
         viewerId={opts.viewerId}
-        loading={false}
+        loading={opts.loading ?? false}
+        error={opts.error ?? null}
         archivedKeys={new Set()}
         unpublished={opts.unpublished ?? []}
         onRequireAuth={vi.fn()}
@@ -504,5 +510,71 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     expect(screen.queryByTestId('my-grids-unpublished')).toBeNull();
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     expect(screen.queryByTestId('new-unpublished')).toBeNull();
+  });
+
+  // 🔴 A FAILED READ MUST NOT RENDER AS A CONFIRMED ZERO. This surface had NO `error`
+  // prop at all and `App` passed none, so a rejected `listAll` fell through to
+  // `my-published-empty` — "You have no published grids on the board right now" — an
+  // absence the app never observed. My ▸ Matchups renders `matchups-error` on the same
+  // failure, so grids was the one surface of three that answered a failure with a
+  // confident zero. The App-level half of this is in `myCommunity.test.tsx`.
+  it('🔴 surfaces a board-read FAILURE instead of "you have no published grids"', () => {
+    // `ownGrids: []` is precisely the state a failed read leaves behind — that is what
+    // made the empty line a lie rather than a mere gap.
+    render(view({ viewerId: VIEWER_ID, error: 'Could not read the board', ownGrids: [] }));
+    expect(screen.getByTestId('grids-error')).toHaveTextContent('Could not read the board');
+    // POSITIVE CONTROL that this is the same surface the empty line renders on — so the
+    // assertion above is about a state this component really reaches, not a fixture that
+    // rendered nothing. (The empty line still renders BESIDE the alert: `MyPublished` is
+    // told about `loading` only, and that is true of all three nouns — see the `error`
+    // prop's own docblock for why suppressing it is not bundled here.)
+    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+  });
+
+  it('🔴 says it is LOADING rather than showing an empty list while the read is in flight', () => {
+    render(view({ viewerId: VIEWER_ID, loading: true }));
+    expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
+    // …and the empty line is withheld while loading, which `MyPublished` already does.
+    expect(screen.queryByTestId('my-published-empty')).toBeNull();
+  });
+
+  // 🔴 AND THE APP HALF, BECAUSE A PROP THAT EXISTS IS NOT A GUARD. The three cases
+  // above render `MyGridsView` directly with an `error` they supply, so they would all
+  // stay green with `App` hardcoding `error={null}` — which is exactly the state this
+  // round found. What makes the wiring a fact is driving the FAILURE through the App and
+  // asserting it on all three My surfaces at once: one `listAll` feeds every one of
+  // them, so "the grid surface reports it" is only meaningful as "the same read, the
+  // same failure, on each of the three".
+  it('🔴 App SEAM: one failed listAll surfaces on ALL THREE My surfaces, grids included', async () => {
+    const failing = {
+      ...fakeShared({ seed: [] }).shared,
+      async list() {
+        throw new Error('board unavailable');
+      },
+    } as unknown as SharedStore;
+    mountApp({ shared: failing, appStorage: fakeAppStorage().appStorage }, {
+      id: VIEWER_ID,
+      username: 'me',
+    });
+
+    const grids = await openMyList('grid');
+    expect(await within(grids).findByTestId('grids-error')).toBeInTheDocument();
+
+    // The two siblings, on the SAME failure — the asymmetry that made this a defect
+    // rather than a missing feature. Asserted rather than assumed: if a future change
+    // drops any one of the three, this case names which.
+    const matchups = await openMyList('matchup');
+    expect(await within(matchups).findByTestId('matchups-error')).toBeInTheDocument();
+    const prompts = await openMyList('prompt');
+    expect(await within(prompts).findByTestId('prompts-error')).toBeInTheDocument();
+  });
+
+  it('🔴 an ANONYMOUS viewer sees the failure too — sign-in is not an answer to a failed read', () => {
+    // The status block is ABOVE the signed-out branch, matching `MatchupsView`. A read
+    // fails for an anonymous viewer as readily as for a signed-in one, and the sign-in
+    // panel would otherwise be the only thing on screen.
+    render(view({ viewerId: null, error: 'Could not read the board' }));
+    expect(screen.getByTestId('grids-error')).toHaveTextContent('Could not read the board');
+    expect(screen.getByTestId('my-signed-out-grid')).toBeInTheDocument();
   });
 });

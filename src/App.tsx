@@ -2681,6 +2681,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     boardTruncated={boardTruncated}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
+                    /* 🔴 THE SAME `error` EVERY OTHER SURFACE GETS. It used to be
+                       omitted here alone, so a failed `listAll` rendered
+                       `my-published-empty` — "You have no published grids on the board
+                       right now" — an absence the app never observed, while My ▸
+                       Matchups showed `matchups-error` on the same failure. */
+                    error={error}
                     archivedKeys={archivedKeys}
                     unpublished={unpublishedGrids}
                     quotaLine={quotaLine}

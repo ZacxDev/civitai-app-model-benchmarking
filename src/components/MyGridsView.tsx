@@ -64,7 +64,7 @@
 // affordance keyed off the same row — and the Top Grid, which has no shared row at
 // all, is not the viewer's and never appears here.
 
-import { Badge, Card, Group, Stack } from '@civitai/blocks-react/ui';
+import { Alert, Badge, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 
 import type { CombinationRow, GridRow, PromptRow, UnpublishedGrid } from '../types.js';
 import {
@@ -89,6 +89,25 @@ export interface MyGridsViewProps {
   boardTruncated?: boolean;
   viewerId: number | null;
   loading: boolean;
+  /**
+   * The board-read failure, or `null`.
+   *
+   * 🔴 IT WAS MISSING, AND THE ABSENCE WAS A LIE. `App` reads every surface's rows from
+   * ONE `listAll`, so when that read fails this surface had no way to say so — it fell
+   * through to `MyPublished`'s empty line, "You have no published grids on the board
+   * right now", which asserts a fact about the board that the app never observed. My ▸
+   * Matchups and My ▸ Prompts both render `matchups-error` / `prompts-error` on that
+   * same failure, so the grid surface was the only one of the three that answered a
+   * failed read with a confident zero.
+   *
+   * ⚠️ WHAT WIRING IT DOES *NOT* FIX, stated so nobody reads this as more than it is:
+   * the empty line still renders BESIDE the alert, because `MyPublished` is only told
+   * about `loading`, not about `error`. That is true of all three nouns — the matchup
+   * and prompt surfaces have always shown their own empty line next to their own error
+   * — so suppressing it is a `MyPublished` change with three callers, not a grid fix,
+   * and it is deliberately not bundled here.
+   */
+  error: string | null;
   archivedKeys: Set<string>;
   unpublished: UnpublishedGrid[];
   quotaLine?: string | null;
@@ -109,6 +128,7 @@ export function MyGridsView({
   boardTruncated = false,
   viewerId,
   loading,
+  error,
   archivedKeys,
   unpublished,
   quotaLine = null,
@@ -121,9 +141,39 @@ export function MyGridsView({
   onDiscardUnpublished,
   onPublishUnpublished,
 }: MyGridsViewProps): React.JSX.Element {
+  /**
+   * The read's status, rendered on BOTH branches.
+   *
+   * 🔴 THE SAME SHAPE AND THE SAME TESTIDS AS THE COMMUNITY GRIDS BOARD, deliberately.
+   * `MatchupsView` reuses `matchups-error` / `matchups-loading` across its own two
+   * surfaces for the same reason: exactly one of Home and My Benchmarks is MOUNTED, so
+   * the ids cannot collide, and a second spelling would be a second thing to keep in
+   * step with the copy.
+   *
+   * 🔴 IT IS ABOVE THE SIGNED-OUT BRANCH TOO, matching `MatchupsView`. A read can fail
+   * for an anonymous viewer as easily as for a signed-in one, and the sign-in panel is
+   * not an answer to "the board could not be read".
+   */
+  const status = (
+    <>
+      {error && (
+        <Alert color="error" data-testid="grids-error">
+          {error}
+        </Alert>
+      )}
+      {loading && (
+        <Stack align="center" gap={10} style={{ padding: '28px 0' }}>
+          <Loader data-testid="grids-loading" />
+          <span style={metaText}>Loading grids…</span>
+        </Stack>
+      )}
+    </>
+  );
+
   if (viewerId == null) {
     return (
       <Stack gap={14} data-testid="my-grids-view">
+        {status}
         <MyTabSignedOut noun="grid" onRequireAuth={onRequireAuth} />
       </Stack>
     );
@@ -166,6 +216,7 @@ export function MyGridsView({
 
   return (
     <Stack gap={14} data-testid="my-grids-view">
+      {status}
       <Stack gap={10} data-testid="my-grids-unpublished" style={{ minWidth: 0 }}>
         <UnpublishedList
           /* 🔴 KEYED ON THE VIEWER — see the header for the swap this closes. */
