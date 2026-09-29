@@ -7,8 +7,16 @@
 // `ReportButton`, the ownership badge and the row's description. The consequence was
 // not cosmetic: a viewer could not upvote the grid they were reading, an author could
 // not withdraw it, and nobody could report it — with the recovery being to open a
-// DIFFERENT grid so the first came back to the list and got its buttons again. Voting
-// feeds `buildTopGrid`, so this is the ranking mechanic, not a nicety.
+// DIFFERENT grid so the first came back to the list and got its buttons again.
+//
+// 🔴 AND THE VOTE IS A RANKING MECHANIC, NOT A NICETY — but name the RIGHT ranking. A
+// GRID's `count` feeds `orderGridsByVotes`, which is the community grids list's whole
+// order (§7.1's tie-break included). It does NOT feed `buildTopGrid`: that reads
+// MATCHUP and PROMPT votes to pick the Top Grid's members, and a grid row's votes are
+// invisible to it. ⚠️ A draft of this paragraph said "voting feeds `buildTopGrid`",
+// which is false for every control this panel renders; recorded rather than quietly
+// swapped, because the two rankings are easy to conflate and the file next door
+// (`lib/gridEntries.ts`) keeps them deliberately separate.
 //
 // 🔴 WHAT THE SYSTEM ENTRY OFFERS: NOTHING OF THE THREE, AND IT IS DERIVED FROM THE
 // ENTRY. The Top Grid has no shared row, so there is no key to pass to `shared.vote`,
@@ -34,8 +42,16 @@
 // 🔴 NO TESTID THAT EXISTED WHEN THIS MARKUP LIVED IN `GridsView` WAS RENAMED —
 // `grid-open-panel`, `grid-open-title`, `grid-open-system-badge` and
 // `grid-missing-notice` are the originals. Extracting a component is not a reason to
-// rename a selector: `grid-open-panel` is addressed by `capture-landmarks.test.tsx` and
-// read by an external capture recipe.
+// rename a selector.
+//
+// ⚠️ THE REASON GIVEN FOR THAT USED TO BE A FALSE CROSS-REFERENCE: "`grid-open-panel`
+// is addressed by `capture-landmarks.test.tsx` and read by an external capture recipe".
+// It is NOT in that file — `git grep` finds `grid-open-panel` nowhere in it. What that
+// file's `LANDMARKS` ledger actually carries is `['section-open-grid', 'contains',
+// 'results-grid']`, i.e. the SECTION this panel sits inside, plus the matrix below it.
+// Whether an external recipe reads `grid-open-panel` itself cannot be checked from this
+// repo (the recipe lives elsewhere), so no claim is made about it either way. The
+// don't-rename rule stands on its own; it needed no borrowed authority.
 //
 // ⚠️ THE SET HAS SINCE GROWN, so do not read the paragraph above as "these four are all
 // of them" — it said exactly that for one round and was falsified by the very next

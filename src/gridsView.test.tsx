@@ -646,8 +646,11 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
 // so the moment the open grid stopped being listed, the grid a viewer is actually
 // READING became the one grid nobody could upvote, its author could not withdraw,
 // and nobody could report. The recovery was to open a DIFFERENT grid so the first
-// returned to the list and got its buttons back. Votes feed `buildTopGrid`, so the
-// missing control is the ranking mechanic.
+// returned to the list and got its buttons back. A grid's votes feed
+// `orderGridsByVotes` — this board's whole ordering — so the missing control was a
+// ranking mechanic. ⚠️ NOT `buildTopGrid`, which a draft of this paragraph named: that
+// one reads MATCHUP and PROMPT votes to pick the Top Grid's members and never sees a
+// grid row's count. See `GridOpenPanel.tsx`'s header, where the same slip is recorded.
 //
 // 🔴 WATCHED FAILING, MEASURED: with every production source swapped to `7410ca7`
 // (this stack's tip before this round) and these tests left in place, all FOUR cases

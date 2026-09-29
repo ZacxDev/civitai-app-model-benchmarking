@@ -222,10 +222,13 @@ describe('report — the board’s abuse seam', () => {
 // The fix is `App.reportedKeys` plus `reported={…}` per row — the hoist
 // `ReportButtonProps.reported`'s own JSDoc advises.
 //
-// 🔴 WATCHED FAILING, MEASURED: with the production sources at `7410ca7` and these two
-// cases in place, both go red — the first on
-// `getByTestId('matchup-report-done')` after the re-open, the second on
-// `grid-open-report-done` after the board switch.
+// 🔴 WATCHED FAILING, MEASURED: with every production source at `7410ca7` and these two
+// cases in place, both go red and the four cases above stay green. The first dies at the
+// RE-OPEN, on `getByTestId('matchup-report-done')` — at base the settled state does
+// appear on the first confirm and is then destroyed by the outside press, which is the
+// defect. The second dies EARLIER, on `grid-open-report`: the open grid has no Report
+// control at all at base, because `GridOpenPanel` renders none (see A1). So the two
+// failures are not the same shape, and only the first is a pure `reported`-wiring red.
 //
 // ⚠️ WHAT IS STILL NOT COVERED, AND IS NOT CLAIMED: a page RELOAD. `reportedKeys` is
 // session state in `App`, not a per-viewer `appStorage` record, so a reload re-offers

@@ -559,9 +559,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * 🔴 THE SET IS THE OPPOSITE OF `votedKeys` IN ONE IMPORTANT WAY, and it is worth
    * saying because the two sit next to each other: a vote is DERIVED from the row
    * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
-   * has no such field — `SharedListItem` carries no report equivalent — so the only
-   * possible source is the app's own record, and holding it is not a second copy of
-   * anything.
+   * has no such field, so the only possible source is the app's own record and holding
+   * it is not a second copy of anything. VERIFIED on the installed pin rather than taken
+   * from upstream's wording: `@civitai/sdk@0.8.0`'s `SharedItem`
+   * (`dist/shared-storage/index.d.ts:28`) declares exactly `key`, `authorUserId`,
+   * `value`, `count`, `createdAt`, `updatedAt`, `viewerVoted` — no `viewerReported` and
+   * nothing like it. (`ReportButtonProps.reported`'s JSDoc makes the same point about a
+   * type it calls `SharedListItem`; that is `@civitai/blocks-react`'s name for the same
+   * row, and this app reads the `@civitai/sdk` one.)
    *
    * ⚠️ IT IS SESSION STATE, NOT PERSISTED, AND THAT IS THE HONEST SCOPE OF THE FIX. A
    * reload still offers Report again on a row this viewer already reported; closing
