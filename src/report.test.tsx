@@ -279,7 +279,15 @@ describe('report — the settled outcome outlives the menu', () => {
     expect(within(otherMenu).getByTestId('matchup-report')).toBeInTheDocument();
     expect(within(otherMenu).queryByTestId('matchup-report-done')).toBeNull();
 
-    // ---- 3. ESCAPE, the other unconditional close, then re-open again.
+    // ---- 3. ESCAPE, the other unconditional close.
+    //
+    // ⚠️ RE-OPEN THE SETTLED ROW'S MENU FIRST, and that is not a spare step: opening the
+    // second row's menu just above was an OUTSIDE press for this one, so the panel
+    // Escape would otherwise close is the second row's — which has nothing settled in
+    // it. A draft did exactly that and read as covering Escape while exercising it
+    // against the wrong panel.
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
     menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
