@@ -14,9 +14,14 @@
 // is that no report affordance is OFFERED signed out; the rejection itself is
 // only observable in production. The two are not interchangeable.
 
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+
+import { productionReachable, scannedSources } from './lib/sourceScan.js';
 
 import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
@@ -345,5 +350,56 @@ describe('report — the settled outcome outlives the menu', () => {
     expect(within(back).getByTestId('grid-open-report-done')).toBeInTheDocument();
     expect(within(back).queryByTestId('grid-open-report')).toBeNull();
     expect(reports).toEqual([{ key: 'gk-theirs', reason: undefined }]);
+  });
+
+  // 🔴 THE SEAM NEITHER BEHAVIOURAL CASE ABOVE CAN SEE, and it is the one a compiler
+  // cannot see either. `ReportButtonProps.reported` is OPTIONAL, so a fifth
+  // `<ReportButton>` added anywhere — or an existing one that loses the prop in a
+  // refactor — type-checks fine and silently goes back to local-only settled state. The
+  // two cases above each drive ONE surface; "verified in isolation" is exactly the shape
+  // that leaves a third surface uncovered.
+  //
+  // 🔴 SO THIS PINS THE RELATIONSHIP, AS A LEDGER: every `<ReportButton` element in a
+  // production-reachable source, with whether it passes `reported`. It fails when the set
+  // GROWS (a new site, wired or not) and when it SHRINKS, and it names the file.
+  //
+  // ⚠️ IT IS STRUCTURAL AND THAT IS ITS CEILING: it proves the prop is PASSED, not that
+  // the value is right. The two behavioural cases above are what prove the value; this is
+  // what stops a THIRD site existing without one.
+  it('🔴 SEAM LEDGER: every production ReportButton is handed `reported`', () => {
+    const SRC = resolve(process.cwd(), 'src');
+    const reachable = productionReachable(resolve(SRC, 'main.tsx'));
+    const sites = scannedSources(SRC)
+      .filter((f) => reachable.has(f))
+      .flatMap((f) => {
+        const src = readFileSync(f, 'utf8');
+        const out: { file: string; reported: boolean }[] = [];
+        let i = src.indexOf('<ReportButton');
+        while (i !== -1) {
+          // Self-closing with no nested JSX at every site, so `/>` ends the element.
+          const end = src.indexOf('/>', i);
+          out.push({ file: relative(SRC, f), reported: /\breported=\{/.test(src.slice(i, end)) });
+          i = src.indexOf('<ReportButton', end);
+        }
+        return out;
+      })
+      .sort((a, b) => a.file.localeCompare(b.file));
+
+    // 🔴 VALIDATE THE INSTRUMENT BEFORE READING ITS VERDICT. An `every(…)` over an empty
+    // array is `true`: a scan that found nothing would report a perfect result. A
+    // NEGATIVE control too — the same regex on a site written without the prop must come
+    // back false, or "all wired" is a fact about the regex rather than about the tree.
+    expect(sites.length, 'the ReportButton scan found no sites').toBeGreaterThan(0);
+    expect(/\breported=\{/.test('<ReportButton noun="grid" onReport={x} />')).toBe(false);
+
+    expect(
+      sites,
+      'a ReportButton render site appeared, moved or lost `reported` — see App.reportedKeys',
+    ).toEqual([
+      { file: 'components/GridOpenPanel.tsx', reported: true },
+      { file: 'components/GridsView.tsx', reported: true },
+      { file: 'components/MatchupBody.tsx', reported: true },
+      { file: 'components/PromptBody.tsx', reported: true },
+    ]);
   });
 });

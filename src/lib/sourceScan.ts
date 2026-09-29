@@ -39,9 +39,11 @@ import { dirname, join, resolve } from 'node:path';
  *
  * 🔴 WHICH FILES THOSE ARE IS NOT WRITTEN DOWN HERE, ON PURPOSE. A draft of this
  * docstring enumerated five by name — and enumerating by hand is the exact defect this
- * module exists to close (the paragraph it replaced in `navigationDormancy.test.ts` had
- * been wrong twice, missing `test-setup.ts` and `manifest.ts`). The live, asserted list
- * is that file's `LEDGER` case, which COMPUTES it; read it there, never from a comment.
+ * module exists to close. The paragraph it replaced in `navigationDormancy.test.ts` went
+ * through two wrong versions: the first miscounted which of them are test-only, and the
+ * SECOND — the one that survived review — still omitted `test-setup.ts` and
+ * `manifest.ts` entirely. The live, asserted list is that file's `LEDGER` case, which
+ * COMPUTES it; read it there, never from a comment.
  */
 export function scannedSources(dir: string): string[] {
   const out: string[] = [];
