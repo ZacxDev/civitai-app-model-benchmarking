@@ -10,7 +10,7 @@
 // `fakeAppStorage` doubles below sit at the `deps` seam and are unaffected either
 // way — which is why most cases in this suite never touch the split at all.
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
@@ -98,6 +98,34 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
   }
   await openView(item === 'matchup' ? 'Matchups' : 'Prompts');
   await userEvent.click(await screen.findByTestId(`submit-${item}`));
+}
+
+/**
+ * OPEN a matchup/prompt row's ⋮ overflow menu, and return its panel.
+ *
+ * 🔴 WHY EVERY EDIT / REMOVE / REPORT CASE NOW GOES THROUGH HERE. The third IA pass
+ * moved those three controls off the row and into `components/Menu.tsx`, so
+ * `getByTestId('matchup-withdraw')` on a freshly rendered card finds NOTHING — the
+ * control is not hidden, it is unmounted until the menu opens. That is a genuine
+ * behaviour change and every affected case was updated to open the menu; putting the
+ * click here rather than at ~30 call sites keeps the route at ONE site, the way
+ * `openView` and `openMyList` already do for navigation that has moved twice.
+ *
+ * `scope` is the card (or section) the row lives in — required whenever more than one
+ * row is on screen, because the trigger testid is per-KIND, not per-row.
+ *
+ * ⚠️ THE PANEL IS LOOKED UP FROM `scope` TOO, and that is not redundant: only one
+ * menu can be open at a time (a second trigger's press is an outside-press for the
+ * first, which closes it), but scoping keeps a failure message pointing at the row
+ * the case is actually about.
+ */
+export async function openRowMenu(
+  noun: 'matchup' | 'prompt',
+  scope?: HTMLElement,
+): Promise<HTMLElement> {
+  const q = scope ? within(scope) : screen;
+  await userEvent.click(await q.findByTestId(`${noun}-menu`));
+  return q.findByTestId(`${noun}-menu-items`);
 }
 
 export const CKPT_SDXL: BlockResourceInfo = {

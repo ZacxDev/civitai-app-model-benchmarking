@@ -34,11 +34,10 @@ import { useState, type ReactNode } from 'react';
 
 import { Button, Group, Stack } from '@civitai/blocks-react/ui';
 
+import type { MyNoun } from '../types.js';
 import { ARCHIVE_NOTE } from '../lib/archive.js';
 import { metaText, mutedText } from '../theme.js';
 
-/** The object kind this panel is listing — the noun in its copy. */
-export type MyNoun = 'grid' | 'matchup' | 'prompt';
 
 export interface MyPublishedProps<Row> {
   noun: MyNoun;

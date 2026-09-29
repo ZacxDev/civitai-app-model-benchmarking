@@ -5,7 +5,15 @@
 // `section-matchups`, `section-prompts`; the page came to 2166 CSS px and the host's
 // iframe (sized to the VIEWPORT, inside an `overflow: hidden` parent) clipped two of
 // the three so badly they could not be photographed for the store listing at any
-// tested viewport height. Only ONE board is mounted now.
+// tested viewport height (900/1100/1400 → iframe 752/952/1253). Only ONE board is
+// mounted now.
+//
+// ⚠️ THE CLIPPING MEASUREMENT IS THE MOTIVE; "MOUNTING ONE BOARD FIXES IT" IS A
+// HYPOTHESIS AND HAS **NOT YET BEEN RE-MEASURED.** `App.tsx`'s body comment on the
+// same change carries this caveat and this one did not, so a reader who arrived here
+// first took an untested prediction for a result. Re-measuring needs a RELEASED
+// artifact — the capture recipe can only run against one — and it is owed. Nothing in
+// this repo can settle it: jsdom performs no layout.
 //
 // 🔴 THE UNSELECTED BOARDS ARE UNMOUNTED, NOT HIDDEN, and that is asserted by
 // ABSENCE (`src/boardNav.test.tsx`). A `display: none` would satisfy a visibility

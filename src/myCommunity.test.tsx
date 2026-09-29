@@ -22,7 +22,14 @@ import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openMyList, openView } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
@@ -357,9 +364,15 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     );
 
     // …and it sits with the control it describes, not on some other screen.
+    // 🔴 ARCHIVE STAYS OUTSIDE THE ⋮ MENU, deliberately — it is a caller-supplied
+    // slot the GRID cards fill too, and moving it in only on matchup/prompt rows
+    // would put the same control in two different places on two surfaces. See
+    // `MatchupBody`'s header.
     expect(screen.getByTestId('archive-action')).toBeInTheDocument();
-    // The true delete is still offered, and still separate (§11.3).
-    expect(screen.getByTestId('matchup-withdraw')).toBeInTheDocument();
+    // The true delete is still offered, and still separate (§11.3) — now one level
+    // down, inside the row's ⋮ menu.
+    const menu = await openRowMenu('matchup');
+    expect(within(menu).getByTestId('matchup-withdraw')).toBeInTheDocument();
   });
 
   it('🔴 SURVIVES A RELOAD: a stored archive is read back on mount', async () => {
@@ -459,6 +472,11 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     await waitFor(() => expect(keysOf('matchup-card')).toHaveLength(2));
     expect(screen.queryByTestId('matchup-edit')).toBeNull();
     expect(screen.queryByTestId('matchup-withdraw')).toBeNull();
+    // 🔴 AND NO ⋮ MENU ON EITHER ROW, which is the stronger claim the menu makes
+    // possible: an anonymous viewer is offered no Edit, no Remove AND no Report, so
+    // there is nothing for an overflow trigger to hold. Two nulls above could also
+    // be satisfied by two controls hidden inside a closed menu; this cannot.
+    expect(screen.queryAllByTestId('matchup-menu')).toHaveLength(0);
 
     // My is a sign-in prompt, and carries NO write affordance.
     await openMy();

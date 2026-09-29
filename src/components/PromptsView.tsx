@@ -20,9 +20,9 @@ import { MyTabSignedOut } from './MySignedOut.js';
 import { PromptBody } from './PromptBody.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
-/** The "Included" badge's tooltip — RE-EXPORTED from `PromptBody`, which now owns
- * the card body it annotates (the prompt detail modal renders the same badge). */
-export { INCLUDED_COLUMN_TOOLTIP } from './PromptBody.js';
+/* 🔴 `INCLUDED_COLUMN_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED with the
+   `prompt-included` badge — the mirror of the matchup side. See `PromptBody`'s
+   header; `prompts-included-summary` below is a different claim and is untouched. */
 
 /** Which surface of this view to render. See `MatchupsView.surface`. */
 export type PromptSurface = 'community' | 'my';
@@ -30,8 +30,20 @@ export type PromptSurface = 'community' | 'my';
 export interface PromptsViewProps {
   surface: PromptSurface;
   prompts: PromptRow[];
-  includedKeys: Set<string>;
+  /**
+   * How many columns are "included" — i.e. are members of the Top Grid.
+   *
+   * 🔴 A NUMBER, NOT A `Set<string>` — see `MatchupsView`'s prop of the same name for
+   * the record: the per-row Included badges are gone, so `.size` was the only reader
+   * left and the Set was a second representation of `includedPrompts.length`.
+   */
+  includedCount: number;
   votedKeys: Set<string>;
+  /**
+   * Shared keys this viewer has already REPORTED — see `MatchupsView`'s prop of the
+   * same name, and `App.reportedKeys` for the record itself.
+   */
+  reportedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
   error: string | null;
@@ -65,8 +77,9 @@ export interface PromptsViewProps {
 export function PromptsView({
   surface,
   prompts,
-  includedKeys,
+  includedCount,
   votedKeys,
+  reportedKeys,
   viewerId,
   loading,
   error,
@@ -96,8 +109,8 @@ export function PromptsView({
     <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
       <PromptBody
         prompt={prompt}
-        included={includedKeys.has(prompt.key)}
         voted={votedKeys.has(prompt.key)}
+        reported={reportedKeys.has(prompt.key)}
         viewerId={viewerId}
         onVote={onVote}
         onUnvote={onUnvote}
@@ -178,7 +191,7 @@ export function PromptsView({
       <Group justify="space-between" align="center" gap={12}>
         <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="prompts-included-summary">
           Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
-          overrides. {includedSummary(includedKeys.size, 'column')}
+          overrides. {includedSummary(includedCount, 'column')}
         </span>
         {/* 🔴 THE PUBLIC CREATE ROUTE FOR A PROMPT, and since the Contribute dropdown
             was deleted it is the primary one. */}

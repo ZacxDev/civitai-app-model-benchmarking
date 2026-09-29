@@ -26,6 +26,23 @@
 // (`@civitai/blocks-react/dist/testing.js`) so the PROP cannot express a viewer swap.
 // One of them changed SHAPE as well as address, and that is recorded where it sits: the
 // LATCH they were written against no longer exists.
+//
+// ── 🔴 COVERAGE LABEL, FOR THE DIRECT-RENDER CASES ──────────────────────────
+//
+// THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/myBenchmarks.test.tsx` and
+// `src/components/MyGridsView.tsx` were both added by `8a4b681`, and neither exists on
+// `origin/main`. So "0 of N red at base" is a STRUCTURAL fact about a new file, not a
+// coverage number. The direct-render cases in particular are INVARIANT GUARDS: they pin
+// properties of a component that had no previous address, so nothing in them can be a
+// regression guard over a fixed bug. Validate them by MUTATION, not by a red base.
+//
+// ⚠️ AND A METHOD WARNING. `git checkout <older-ref> -- <dir>` restores tracked files
+// but CANNOT DELETE files new in HEAD (verified directly in a scratch repo), so a "base"
+// built that way is a HYBRID tree and must not be described as a checkout of the older
+// commit. An earlier write-up of these cases did exactly that, and named the wrong branch
+// as the one lacking the component — `MyGridsView.tsx` is present on
+// `zach/ia-feedback-sidebar`, because that PR is what added it.
+// `src/sideNav.test.tsx` carries the same label.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -33,6 +50,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
+import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { MyGridsView } from './components/MyGridsView.js';
@@ -415,14 +433,19 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     viewerId: number | null;
     unpublished?: UnpublishedGrid[];
     onPublishUnpublished?: (localId: string) => Promise<void> | void;
+    loading?: boolean;
+    error?: string | null;
+    /** Override the published set — `[]` is what a FAILED read leaves behind. */
+    ownGrids?: GridRow[];
   }) {
     return (
       <MyGridsView
-        ownGrids={opts.viewerId == null ? [] : [gridRow('gk-own', opts.viewerId)]}
+        ownGrids={opts.ownGrids ?? (opts.viewerId == null ? [] : [gridRow('gk-own', opts.viewerId)])}
         combinations={[matchup('mk-a')]}
         prompts={[promptRow('qk-1')]}
         viewerId={opts.viewerId}
-        loading={false}
+        loading={opts.loading ?? false}
+        error={opts.error ?? null}
         archivedKeys={new Set()}
         unpublished={opts.unpublished ?? []}
         onRequireAuth={vi.fn()}
@@ -444,8 +467,24 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     // latch, because the page mounted the grid, matchup and prompt panels TOGETHER and
     // an always-present empty panel added a second copy of every `unpublished-*` testid
     // to the document. My Benchmarks mounts ONE noun at a time, so that collision cannot
-    // happen and the panel simply always renders — which cannot unmount mid-report at
-    // all, and that was the latch's other job.
+    // happen and the panel simply always renders.
+    //
+    // ⚠️ THIS PARAGRAPH USED TO END "— which cannot unmount mid-report at all, and that
+    // was the latch's other job". RETRACTED. It is FALSE: an unconditional panel closes
+    // the LIST-EMPTIED unmount path, but NAV is a second one — selecting Home or another
+    // My noun unmounts `MyGridsView` and takes `UnpublishedList`'s local publish `error`
+    // with it, and nothing brings it back. `MyGridsView`'s header, `gridsView.test.tsx`
+    // and `publishPointerFailure.test.tsx` all carry the retraction; this file was the
+    // FOURTH copy and the previous round's sweep missed it. It is also the surface a
+    // reader arriving from the test side lands on first.
+    //
+    // 🔴 A RETRACTION IS A TREE-WIDE SWEEP, NOT AN EDIT AT THE SITE YOU WERE LOOKING AT.
+    // Re-swept over NORMALISED comment text (markers stripped, whitespace collapsed, so
+    // a claim that wraps across `//` lines is still one string) with two
+    // differently-shaped patterns — `/cannot unmount mid-report/i` and
+    // `/latch.s other job/i` — and a positive control that the sweep HIT the three files
+    // already carrying the retraction. Four files matched the first pattern; three of
+    // them are retractions; this was the one assertion.
     render(view({ viewerId: VIEWER_ID, unpublished: [] }));
     expect(screen.getByTestId('my-grids-unpublished')).toBeInTheDocument();
     expect(screen.getByTestId('unpublished-empty')).toBeInTheDocument();
@@ -487,5 +526,73 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     expect(screen.queryByTestId('my-grids-unpublished')).toBeNull();
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     expect(screen.queryByTestId('new-unpublished')).toBeNull();
+  });
+
+  // 🔴 A FAILED READ MUST NOT RENDER AS A CONFIRMED ZERO. This surface had NO `error`
+  // prop at all and `App` passed none, so a rejected `listAll` fell through to
+  // `my-published-empty` — "You have no published grids on the board right now" — an
+  // absence the app never observed. My ▸ Matchups renders `matchups-error` on the same
+  // failure, so grids was the one surface of three that answered a failure with a
+  // confident zero. The App-level half is the `🔴 App SEAM` case a few below, IN THIS
+  // FILE. ⚠ A draft pointed at `myCommunity.test.tsx`; that file has no error-handling
+  // case at all (`grep -n error` → 0 hits over its 686 lines).
+  it('🔴 surfaces a board-read FAILURE instead of "you have no published grids"', () => {
+    // `ownGrids: []` is precisely the state a failed read leaves behind — that is what
+    // made the empty line a lie rather than a mere gap.
+    render(view({ viewerId: VIEWER_ID, error: 'Could not read the board', ownGrids: [] }));
+    expect(screen.getByTestId('grids-error')).toHaveTextContent('Could not read the board');
+    // POSITIVE CONTROL that this is the same surface the empty line renders on — so the
+    // assertion above is about a state this component really reaches, not a fixture that
+    // rendered nothing. (The empty line still renders BESIDE the alert: `MyPublished` is
+    // told about `loading` only, and that is true of all three nouns — see the `error`
+    // prop's own docblock for why suppressing it is not bundled here.)
+    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+  });
+
+  it('🔴 says it is LOADING rather than showing an empty list while the read is in flight', () => {
+    render(view({ viewerId: VIEWER_ID, loading: true }));
+    expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
+    // …and the empty line is withheld while loading, which `MyPublished` already does.
+    expect(screen.queryByTestId('my-published-empty')).toBeNull();
+  });
+
+  // 🔴 AND THE APP HALF, BECAUSE A PROP THAT EXISTS IS NOT A GUARD. The three cases
+  // above render `MyGridsView` directly with an `error` they supply, so they would all
+  // stay green with `App` hardcoding `error={null}` — which is exactly the state this
+  // round found. What makes the wiring a fact is driving the FAILURE through the App and
+  // asserting it on all three My surfaces at once: one `listAll` feeds every one of
+  // them, so "the grid surface reports it" is only meaningful as "the same read, the
+  // same failure, on each of the three".
+  it('🔴 App SEAM: one failed listAll surfaces on ALL THREE My surfaces, grids included', async () => {
+    const failing = {
+      ...fakeShared({ seed: [] }).shared,
+      async list() {
+        throw new Error('board unavailable');
+      },
+    } as unknown as SharedStore;
+    mountApp({ shared: failing, appStorage: fakeAppStorage().appStorage }, {
+      id: VIEWER_ID,
+      username: 'me',
+    });
+
+    const grids = await openMyList('grid');
+    expect(await within(grids).findByTestId('grids-error')).toBeInTheDocument();
+
+    // The two siblings, on the SAME failure — the asymmetry that made this a defect
+    // rather than a missing feature. Asserted rather than assumed: if a future change
+    // drops any one of the three, this case names which.
+    const matchups = await openMyList('matchup');
+    expect(await within(matchups).findByTestId('matchups-error')).toBeInTheDocument();
+    const prompts = await openMyList('prompt');
+    expect(await within(prompts).findByTestId('prompts-error')).toBeInTheDocument();
+  });
+
+  it('🔴 an ANONYMOUS viewer sees the failure too — sign-in is not an answer to a failed read', () => {
+    // The status block is ABOVE the signed-out branch, matching `MatchupsView`. A read
+    // fails for an anonymous viewer as readily as for a signed-in one, and the sign-in
+    // panel would otherwise be the only thing on screen.
+    render(view({ viewerId: null, error: 'Could not read the board' }));
+    expect(screen.getByTestId('grids-error')).toHaveTextContent('Could not read the board');
+    expect(screen.getByTestId('my-signed-out-grid')).toBeInTheDocument();
   });
 });

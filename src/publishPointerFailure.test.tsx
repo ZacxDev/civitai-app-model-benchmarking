@@ -125,21 +125,36 @@ const LOCAL_ID = 'l-halfpub';
  * deliberate — pay it and update the literal, having re-read whether the new
  * sentence still says the true thing about the store.
  *
- * 🔴 THE TAIL IS PER-NOUN, AND THIS FILE USED TO PIN THE STALE ONE AS CORRECT.
- * Every noun's notice ended "Find it under Published by you to edit or remove
- * it.", and after the IA refactor that sentence is true only for matchups and
- * prompts — they still render a "Published by you" heading. The grids section lost
- * its sub-tabs: a published grid lives in the one flat "All grids" list carrying a
- * `grid-own-badge` reading "Yours". Worse, this table asserted the notice VERBATIM
- * PER NOUN, so the guard was actively certifying the stale wording for the grid
- * arm. The grid sentence also does not promise an EDIT: `App.tsx` has
- * `updateCombination` and `updatePrompt` and no `updateGrid`, and the grid card
- * offers Withdraw/Archive/Vote/Report and no Edit.
+ * 🔴 THE TAIL IS PER-NOUN, AND THIS FILE HAS NOW CERTIFIED A STALE GRID ARM TWICE.
+ * That repetition is the finding, not the wording: a VERBATIM per-noun guard makes the
+ * copy a test fixture, so whatever it holds is asserted to be right, and the suite
+ * stays green over a sentence naming a heading nobody renders.
+ *
+ *   ROUND 1. Every noun ended "Find it under Published by you to edit or remove it."
+ *   The IA refactor deleted the grids My/Community sub-tabs, so for grids that heading
+ *   had no renderer. The grid arm became "Find it in All grids, badged Yours…".
+ *
+ *   ROUND 2 (this one). "All grids" is GONE — replaced by `BoardNav`, whose grids
+ *   segment is labelled "Grids"; `src/boardNav.test.tsx` asserts `queryByText('All
+ *   grids')` is null. So the grid arm named a deleted heading AGAIN, and this table was
+ *   again what certified it.
+ *
+ * ⚠️ AND THE ROUND-1 REASONING IS STALE TOO, which is why the grid arm goes BACK to
+ * "Published by you" rather than to some third surface: `MyPublished` renders that
+ * literal heading for ALL THREE nouns now, grids included (My Benchmarks ▸ Grids →
+ * `MyGridsView` → `MyPublished noun="grid"`). The only surviving per-noun difference is
+ * the EDIT clause, and that one is real: `App.tsx` has `updateCombination` and
+ * `updatePrompt` and NO `updateGrid`, and NO grid card on EITHER surface ever renders an
+ * Edit control. (The claim is deliberately the absence: what a grid card DOES render is
+ * conditional — Remove only for the viewer's own row, Report only for someone else's,
+ * Vote only for a non-system entry, Archive only on My Benchmarks — so two earlier
+ * drafts of this note wrote a union of those as if it were one card's contents. See
+ * `lib/unpublished.ts` for the full record.)
  */
 const WHERE_TO_FIND: Record<'matchup' | 'prompt' | 'grid', string> = {
   matchup: 'Find it under Published by you to edit or remove it.',
   prompt: 'Find it under Published by you to edit or remove it.',
-  grid: 'Find it in All grids, badged Yours. A published grid can be withdrawn, not edited.',
+  grid: 'Find it under Published by you to remove it — a published grid cannot be edited.',
 };
 
 const NOTICE_PRIVATE_COPY_REMOVED = (noun: 'matchup' | 'prompt' | 'grid'): string =>
@@ -418,5 +433,87 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     expect(kv.deleteAttempts, 'the happy path deleted the pointer it just wrote').not.toContain(
       storageKey,
     );
+  });
+});
+
+// ===========================================================================
+// 🔴 WHAT THE NOTICE DOES **NOT** SURVIVE — the nav, pinned as fact, not as a wish.
+// ===========================================================================
+//
+// `MyGridsView`'s header used to claim the unconditional panel "cannot unmount
+// mid-report at all — strictly stronger than a latch". It cannot unmount because the
+// LIST EMPTIED, which is what the latch was for and is genuinely closed. But the
+// sidebar added a second unmount path the latch never covered: selecting Home takes
+// `MyGridsView` down, and `UnpublishedList` holds its publish `error` in LOCAL state,
+// so the notice goes with it and is not re-derived on return.
+//
+// 🔴 THIS CASE ASSERTS THE GAP, NOT THE FIX. It is a characterisation test: it pins
+// today's behaviour so the retracted guarantee cannot quietly come back as prose, and
+// so that whoever hoists the error to `App` has something that turns red when they do
+// (at which point the expectation flips and this comment goes). Hoisting is deliberately
+// not done here — it moves state on the IRREVERSIBLE half of a publish.
+//
+// ⚠️ WHAT IT IS **NOT** EVIDENCE OF: any second public row. The notice's absence
+// changes what the viewer KNOWS, never how many times `append` ran — and that is
+// asserted below, so this case cannot be read as a money finding.
+//
+// ⚠️ Grid arm only, deliberately. All three nouns share `UnpublishedList` and the same
+// local `error`, so the mechanism is identical; a `describe.each` over three would be
+// three samples of one claim. The grid arm is the one whose header carried the false
+// guarantee.
+describe('🔴 the half-published notice does NOT survive a nav away (UNGUARDED, by design of nothing)', () => {
+  const GRID = OBJECTS.find((o) => o.noun === 'grid')!;
+
+  it('renders on My Benchmarks ▸ Grids, and a trip to Home destroys it', async () => {
+    const s = fakeShared({ seed: [] });
+    const kv = fakeAppStorage(
+      { [GRID.storageKey]: GRID.record },
+      {},
+      {
+        failSetTimes: 9,
+        failSetPrefix: GRID.prefix,
+        failSetError: HOST_ERROR,
+      },
+    );
+    mountApp({ shared: s.shared, appStorage: kv.appStorage });
+    await openMyList('grid');
+    const card = await screen.findByTestId('unpublished-card');
+    await userEvent.click(within(card).getByTestId('unpublished-publish'));
+    await waitFor(() => expect(s.appends).toHaveLength(1));
+
+    // PREMISE: the notice really rendered, with the real copy. Without this the
+    // absence below is satisfied by a publish that never reported anything.
+    const notice = await screen.findByTestId('unpublished-error');
+    expect(noticeText(notice)).toBe(NOTICE_PRIVATE_COPY_REMOVED('grid'));
+
+    // The nav away. `nav-home` is the destination a viewer reaches for after reading
+    // a notice about a row that is now on the community board.
+    await userEvent.click(await screen.findByTestId('nav-home'));
+    // ⚠️ ANCHOR ON `grid-open-panel`, NOT `results-grid`. This fixture's board is EMPTY
+    // (`shared: { seed: [] }`), so the Top Grid resolves to zero members and the matrix
+    // renders its own `grid-empty` instead — a `results-grid` wait here never resolves,
+    // which is a fixture fact and nothing to do with the claim. The panel is on Home
+    // unconditionally.
+    await screen.findByTestId('grid-open-panel');
+    // PREMISE, ASSERTED: the surface really is gone, so the null below is about the
+    // notice and not about a nav that navigated nowhere.
+    expect(screen.queryByTestId('my-grids-view')).toBeNull();
+    expect(screen.queryByTestId('unpublished-panel')).toBeNull();
+
+    // 🔴 THE GAP. Coming back re-mounts `UnpublishedList` with a fresh `error: null`.
+    await openMyList('grid');
+    await screen.findByTestId('unpublished-panel');
+    expect(
+      screen.queryByTestId('unpublished-error'),
+      'the notice SURVIVED the nav — if this is now true, hoisting has landed: flip this expectation and delete the retraction in MyGridsView.tsx',
+    ).toBeNull();
+
+    // …and the record is still retired, so the viewer is not re-offered Publish. The
+    // thing they lost is the EXPLANATION, not the protection.
+    expect(screen.queryByTestId('unpublished-card')).toBeNull();
+    expect(kv.store.has(GRID.storageKey)).toBe(false);
+    // 🔴 AND STILL EXACTLY ONE PUBLIC ROW. This is what makes the case above a
+    // discoverability finding rather than a money one.
+    expect(s.appends).toHaveLength(1);
   });
 });

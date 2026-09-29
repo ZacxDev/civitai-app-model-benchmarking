@@ -22,7 +22,13 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
-import { CKPT_SDXL, LORA_SDXL, immediateSleep, openView } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  LORA_SDXL,
+  immediateSleep,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 
 const comboSeed: CombinationData = {
   v: 2,
@@ -91,7 +97,12 @@ describe('submit a combination', () => {
 
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('My SDXL Combo');
-    expect(within(card).getByTestId('matchup-included')).toBeInTheDocument();
+    // 🔴 THE `matchup-included` BADGE IS GONE (the third IA pass — every badge went,
+    // on both modals, by operator decision). Asserted as ABSENCE FROM THE DOM rather
+    // than invisibility, with the card's own vote control as the in-band positive
+    // control so a card that failed to render cannot satisfy the null.
+    expect(within(card).getByTestId('matchup-vote')).toBeInTheDocument();
+    expect(within(card).queryByTestId('matchup-included')).toBeNull();
   });
 });
 
@@ -121,9 +132,12 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
 
     const card = await screen.findByTestId('prompt-card');
     expect(card).toHaveTextContent('Portrait Test');
-    // One Default badge (all ecosystems) + one override (Pony) badge.
-    expect(within(card).getByTestId('prompt-default-badge')).toBeInTheDocument();
-    expect(within(card).getAllByTestId('prompt-override-badge')).toHaveLength(1);
+    // 🔴 THE `Default` AND PER-ECOSYSTEM BADGES ARE GONE — this case used to assert
+    // one of each (the Pony override it just authored). The override itself still
+    // exists and the DETAIL view still labels it; only the card pills went.
+    expect(within(card).getByTestId('prompt-vote')).toBeInTheDocument();
+    expect(within(card).queryByTestId('prompt-default-badge')).toBeNull();
+    expect(within(card).queryAllByTestId('prompt-override-badge')).toHaveLength(0);
   });
 });
 
@@ -143,11 +157,17 @@ describe('edit-in-place: the author edits their OWN combination', () => {
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
-    // Author-scoped affordance: Edit only on the viewer's own row.
-    expect(within(mine).getByTestId('matchup-edit')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('matchup-edit')).toBeNull();
+    // Author-scoped affordance: Edit only on the viewer's own row. Both halves read
+    // the row's ⋮ menu now; `theirs` has a menu too (it offers Report to this
+    // signed-in non-owner), which is what makes the null below a guard decision
+    // rather than a missing menu.
+    const theirMenu = await openRowMenu('matchup', theirs);
+    expect(within(theirMenu).queryByTestId('matchup-edit')).toBeNull();
+    expect(within(theirMenu).getByTestId('matchup-report')).toBeInTheDocument();
 
     // Open the edit form (prefilled), rename, save.
+    await openRowMenu('matchup', mine);
+    expect(within(mine).getByTestId('matchup-edit')).toBeInTheDocument();
     await userEvent.click(within(mine).getByTestId('matchup-edit'));
     const form = await screen.findByTestId('matchup-form');
     const nameInput = within(form).getByTestId('matchup-name') as HTMLInputElement;
@@ -168,6 +188,7 @@ describe('edit-in-place: the author edits their OWN prompt', () => {
     renderApp({ seed: [{ value: { title: 'My Prompt', body: '[SDXL] x', data: promptSeed }, authorUserId: 99, voters: [1] }] });
     await openView('Prompts');
     const card = await screen.findByTestId('prompt-card');
+    await openRowMenu('prompt', card);
     await userEvent.click(within(card).getByTestId('prompt-edit'));
     const form = await screen.findByTestId('prompt-form');
     const nameInput = within(form).getByTestId('prompt-name') as HTMLInputElement;
@@ -194,11 +215,15 @@ describe('withdraw: the author removes their OWN combination (real SHARED_WITHDR
     expect(cards).toHaveLength(2);
     const mine = cards.find((el) => within(el).queryByText('Mine'))!;
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
-    // Author-scoped affordance: Remove only on the viewer's own row.
-    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
+    // Author-scoped affordance: Remove only on the viewer's own row — with the same
+    // in-band positive control on the row the viewer does NOT own.
+    const theirMenu = await openRowMenu('matchup', theirs);
+    expect(within(theirMenu).queryByTestId('matchup-withdraw')).toBeNull();
+    expect(within(theirMenu).getByTestId('matchup-report')).toBeInTheDocument();
 
     // Confirm-before-firing: arming the control alone removes nothing.
+    await openRowMenu('matchup', mine);
+    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
     await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
     expect(screen.getAllByTestId('matchup-card')).toHaveLength(2);
     await userEvent.click(within(mine).getByTestId('withdraw-confirm'));

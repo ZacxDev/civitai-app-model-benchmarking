@@ -20,7 +20,14 @@ import { App, type AppDeps } from './App.js';
 import { DRAFT_PREFIX, draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
 import { UNPUB_GRID_PREFIX, unpubGridKey } from './lib/grids.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openMyList, openView } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import type { CombinationData, GridData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -127,6 +134,7 @@ describe('withdraw: the author removes their OWN combination', () => {
     await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
 
     // Confirm-before-firing: the trigger alone must NOT have withdrawn anything.
@@ -142,6 +150,7 @@ describe('withdraw: the author removes their OWN combination', () => {
     await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-cancel'));
 
@@ -167,12 +176,20 @@ describe('withdraw: the ownership guard', () => {
     const theirs = cards.find((el) => within(el).queryByText('Theirs'))!;
 
     // The viewer's own row HAS the control — so the absence below is a guard
-    // decision, not a control that simply never renders.
-    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
+    // decision, not a control that simply never renders. Both controls live in the
+    // row's ⋮ menu now (the third IA pass), so each claim opens its own row's menu.
+    const myMenu = await openRowMenu('matchup', mine);
+    expect(within(myMenu).getByTestId('matchup-withdraw')).toBeInTheDocument();
+
     // 🔴 THE OWNERSHIP GUARD: someone else's row carries no withdraw control, and
     // no armed confirm behind it either.
-    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
-    expect(within(theirs).queryByTestId('withdraw-confirm')).toBeNull();
+    const theirMenu = await openRowMenu('matchup', theirs);
+    expect(within(theirMenu).queryByTestId('matchup-withdraw')).toBeNull();
+    expect(within(theirMenu).queryByTestId('withdraw-confirm')).toBeNull();
+    // 🔴 POSITIVE CONTROL, IN BAND. A menu that rendered nothing at all would
+    // satisfy the two nulls above, so pin the control that IS meant to be there on
+    // a row this signed-in viewer does not own.
+    expect(within(theirMenu).getByTestId('matchup-report')).toBeInTheDocument();
     expect(withdraws).toEqual([]);
   });
 
@@ -187,9 +204,13 @@ describe('withdraw: the ownership guard', () => {
     const mine = cards.find((el) => within(el).queryByText('My Prompt'))!;
     const theirs = cards.find((el) => within(el).queryByText('Their Prompt'))!;
 
-    expect(within(mine).getByTestId('prompt-withdraw')).toBeInTheDocument();
-    // 🔴 THE OWNERSHIP GUARD (prompts surface).
-    expect(within(theirs).queryByTestId('prompt-withdraw')).toBeNull();
+    const myMenu = await openRowMenu('prompt', mine);
+    expect(within(myMenu).getByTestId('prompt-withdraw')).toBeInTheDocument();
+    // 🔴 THE OWNERSHIP GUARD (prompts surface), with the same in-band positive
+    // control: Report is what this viewer SHOULD be offered on someone else's row.
+    const theirMenu = await openRowMenu('prompt', theirs);
+    expect(within(theirMenu).queryByTestId('prompt-withdraw')).toBeNull();
+    expect(within(theirMenu).getByTestId('prompt-report')).toBeInTheDocument();
     expect(withdraws).toEqual([]);
   });
 });
@@ -201,6 +222,7 @@ describe('withdraw: the author removes their OWN prompt', () => {
 
     await openView('Prompts');
     const card = await screen.findByTestId('prompt-card');
+    await openRowMenu('prompt', card);
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     expect(withdraws).toEqual([]);
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
@@ -314,6 +336,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
 
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -352,6 +375,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
 
       const card = await screen.findByTestId('matchup-card');
+      await openRowMenu('matchup', card);
       await userEvent.click(within(card).getByTestId('matchup-withdraw'));
       await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -407,6 +431,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     const promptsBefore = listsOf(UNPUB_PROMPT_PREFIX);
 
     const card = await screen.findByTestId('prompt-card');
+    await openRowMenu('prompt', card);
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -457,6 +482,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     expect(store.has(unpubPromptKey('up1'))).toBe(true);
 
     const card = await screen.findByTestId('prompt-card');
+    await openRowMenu('prompt', card);
     await userEvent.click(within(card).getByTestId('prompt-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -617,6 +643,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     expect(store.has(draftKey('l2'))).toBe(true);
     const cards = await screen.findAllByTestId('matchup-card');
     const target = cards.find((el) => el.getAttribute('data-key') === LIVE_KEY)!;
+    await openRowMenu('matchup', target);
     await userEvent.click(within(target).getByTestId('matchup-withdraw'));
     await userEvent.click(within(target).getByTestId('withdraw-confirm'));
 
@@ -694,6 +721,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
 
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -764,6 +792,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     await openView('Matchups');
 
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -811,6 +840,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
 
     expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));
 
@@ -845,6 +875,7 @@ describe('withdraw: the list reconciles', () => {
     await renderApp({ shared });
 
     const card = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', card);
     await userEvent.click(within(card).getByTestId('matchup-withdraw'));
     const listsBefore = listCalls.length;
     await userEvent.click(within(card).getByTestId('withdraw-confirm'));

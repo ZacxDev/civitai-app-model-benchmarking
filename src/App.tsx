@@ -184,6 +184,7 @@ import {
 } from './lib/unpubGrids.js';
 import {
   buildTopGrid,
+  gridMemberSummary,
   missingMembersNotice,
   resolveGridRows,
   TOP_GRID_NAME,
@@ -395,6 +396,25 @@ function inflightToRun(entry: InflightRun): CellRun {
   };
 }
 
+/**
+ * The empty reported-keys set, shared.
+ *
+ * 🔴 MODULE-LEVEL SO THE IDENTITY IS STABLE. `reportedKeys` below returns this whenever
+ * the stored record does not belong to the viewer on screen; a `new Set()` at that site
+ * would be a new object every render and would invalidate every `useMemo` and
+ * `React.memo` downstream of it, forever, for a value that never changes.
+ *
+ * ⚠️ IT IS NOT FROZEN, AND A DRAFT WRAPPED IT IN `Object.freeze` WHICH WOULD HAVE BEEN
+ * DECORATION. MEASURED: `Object.freeze(new Set()).add('x')` SUCCEEDS and the size becomes
+ * 1 — a Set's contents live in internal slots, not in own properties, so `freeze` does
+ * not protect them. A shared mutable empty Set is safe here for a different and
+ * checkable reason: every consumer of `reportedKeys` reads it with `.has()` only
+ * (`GridsView`, `GridOpenPanel`, `MatchupsView`, `PromptsView`, and the two detail
+ * modals — enumerated). If anything ever needs to WRITE to it, give that caller its own
+ * copy; do not reach for `freeze`, which would look like a guard and be none.
+ */
+const EMPTY_REPORTED: Set<string> = new Set<string>();
+
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
   const token = useBlockToken();
@@ -502,6 +522,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * invisible. `runs` and the poll loop were already App-owned; this was the one piece
    * of the open-grid identity that was not, and the view-switch cases in
    * `money-path.test.tsx` are what hold it.
+   *
+   * ⚠️ THE HOIST CLOSES THE VIEW-SWITCH HALF AND NOTHING MORE — say it that way, not
+   * as "it closes the charged-running-invisible bug". This value is not persisted (see
+   * the `view`/`board` note above), so a RELOAD still opens on the Top Grid and a
+   * stalled cell on a community grid is off-screen again. That half is not a
+   * regression — it was equally unpersisted inside `GridsView` — but it is also not
+   * fixed, and nothing in `money-path.test.tsx` covers the reload path. Persisting it
+   * is a separate decision; the rehydrate scan already makes such a cell safe from a
+   * second charge, so what is owed is discoverability, not money safety.
    */
   const [openGridKey, setOpenGridKey] = useState<string | null>(null);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
@@ -534,6 +563,64 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     () => new Set(items.filter((it) => it.viewerVoted).map((it) => it.key)),
     [items],
   );
+  /**
+   * Shared keys this viewer has REPORTED, this session.
+   *
+   * 🔴 IT IS HERE BECAUSE `ReportButton`'s LOCAL STATE STOPPED SURVIVING. The third IA
+   * pass moved Report into the row's `⋮` menu, and `components/Menu.tsx` unmounts its
+   * whole panel on any outside `mousedown` and on Escape — both unconditional. So the
+   * armed confirm, the "Could not send — try again?" line and the settled "Reported for
+   * review" note were all destroyed by the next click ANYWHERE, and re-opening the menu
+   * offered Report again as if nothing had happened. `report()` is not documented
+   * idempotent (unlike `vote`), so that is a duplicate report rather than a no-op.
+   * `ReportButtonProps.reported`'s own JSDoc advises exactly this hoist.
+   *
+   * 🔴 THE SET IS THE OPPOSITE OF `votedKeys` IN ONE IMPORTANT WAY, and it is worth
+   * saying because the two sit next to each other: a vote is DERIVED from the row
+   * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
+   * has no such field, so the only possible source is the app's own record and holding
+   * it is not a second copy of anything. VERIFIED on the installed pin rather than taken
+   * from upstream's wording: `@civitai/sdk@0.8.0`'s `SharedItem`
+   * (`dist/shared-storage/index.d.ts:28`) declares exactly `key`, `authorUserId`,
+   * `value`, `count`, `createdAt`, `updatedAt`, `viewerVoted` — no `viewerReported` and
+   * nothing like it. (`ReportButtonProps.reported`'s JSDoc makes the same point about a
+   * type it calls `SharedListItem`; that is `@civitai/blocks-react`'s name for the same
+   * row, and this app reads the `@civitai/sdk` one.)
+   *
+   * ⚠️ IT IS SESSION STATE, NOT PERSISTED, AND THAT IS THE HONEST SCOPE OF THE FIX. A
+   * reload still offers Report again on a row this viewer already reported; closing
+   * that needs a per-viewer `appStorage` record and is a write-path change with its own
+   * verification. What this DOES close is every in-session loss: a menu close, a
+   * re-open, a board switch, a sidebar navigation and a `list()` refresh.
+   */
+  const [reportedRecord, setReportedRecord] = useState<{
+    ownerId: number | null;
+    keys: Set<string>;
+  }>(() => ({ ownerId: null, keys: new Set<string>() }));
+  /**
+   * The set the views read — DERIVED, and empty unless the record belongs to the viewer
+   * on screen RIGHT NOW.
+   *
+   * 🔴 IT WAS AN EFFECT AND THE EFFECT LEAKED ONE PAINTED FRAME. The first version
+   * cleared the set from a `useEffect` cleanup keyed on `[viewer?.id]`. Passive effects
+   * flush AFTER paint, so viewer B's first frame rendered with viewer A's set — "Reported
+   * for review" against rows B has never reported, and no Report trigger — and only the
+   * frame after that was correct. No test could see it, because every `findBy*` flushes
+   * effects before asserting: the guard in `viewer-change.test.tsx` was green over a
+   * wrong frame. Found by an adversarial audit of this round, not by a test.
+   *
+   * 🔴 SO OWNERSHIP IS PART OF THE VALUE, and the answer is computed in RENDER. There is
+   * no window in which the wrong viewer's reports can reach the DOM, because there is no
+   * moment at which the stored set is read without its owner. This is the repo's standing
+   * preference for a deterministic fix over an effect, and it is the same shape as
+   * `votedKeys` above: derived from what is true now rather than mirrored and corrected.
+   *
+   * `EMPTY_REPORTED` is module-level so the identity is STABLE across renders — a fresh
+   * `new Set()` here would churn every `useMemo`/`memo` that takes this as a dependency.
+   * See its own docblock for why it is deliberately NOT `Object.freeze`d.
+   */
+  const reportedKeys =
+    reportedRecord.ownerId === (viewer?.id ?? null) ? reportedRecord.keys : EMPTY_REPORTED;
   const [runs, setRuns] = useState<Record<string, CellRun>>({});
   // Mirror of `runs` for reading the live workflowId outside a state updater
   // (resume-poll reads it without re-subscribing the callback to `runs`).
@@ -913,8 +1000,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // badge and the grid can never disagree about who is in.
   const includedCombos = useMemo(() => topByVotes(combinations, DEFAULT_TOP_N), [combinations]);
   const includedPrompts = useMemo(() => topByVotes(prompts, DEFAULT_TOP_N), [prompts]);
-  const includedComboKeys = useMemo(() => new Set(includedCombos.map((r) => r.key)), [includedCombos]);
-  const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
+  // 🔴 THE KEY SETS ARE GONE, AND SO ARE THE PROPS THAT CARRIED THEM. There used to be
+  // `includedComboKeys` / `includedPromptKeys` — two `useMemo`-built `Set`s handed to
+  // `MatchupsView` / `PromptsView` as `includedKeys`. Both views read exactly ONE thing
+  // off them, `.size`, because the third IA pass deleted the per-row "Included" badges
+  // that needed `has(key)`. Two derived Sets plus two props to carry a number
+  // `includedCombos.length` already holds is a second representation with nothing
+  // keeping it in step, so the views take the COUNT. Reintroduce a Set only if a
+  // per-row membership test comes back — and then derive it here, once, for both.
 
   /** Every matchup and prompt currently on the board, as `GridPicker` rows. */
   const matchupPickerItems = useMemo<GridPickerItem[]>(
@@ -973,23 +1066,39 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   /**
    * Start a NEW unpublished grid.
    *
-   * 🔴 ONE PREDICATE, STILL MORE THAN ONE ROUTE. The auth decision lives HERE and
-   * nowhere else, and that is the fix a real defect bought: the page used to reach
-   * this action from `Contribute ▸ Build a grid` (no auth condition at all) and
-   * from the grids section's own `grid-new` button (gated on `signedIn &&
-   * onNewUnpublished`), so the two disagreed — an anonymous viewer could open
-   * `grid-form` through the menu, fill it in, and have the save rejected at
-   * `appStorage.set`, while the sibling route ten pixels away simply hid itself.
+   * 🔴 THERE IS EXACTLY **ONE** CALLER, AND THE SIGN-IN BRANCH IS CURRENTLY
+   * UNREACHABLE. Say it first, because the argument below used to be presented as
+   * live and is not.
    *
-   * ⚠️ `grid-new` IS GONE (operator's call: superseded by `Contribute ▸ Grid`), so
-   * that specific pair no longer exists — but the reasoning is unchanged and still
-   * load-bearing, because there are still two callers: the menu item and
-   * `GridsView`'s private panel (`UnpublishedList`'s `new-unpublished`). Do not
-   * re-add a `signedIn` test at either: a predicate open-coded at N call sites is
-   * how these came to disagree in the first place.
+   * ⚠️ WHAT THIS DOCBLOCK CLAIMED AND WHY IT IS RETRACTED. It said "there are still
+   * two callers: the menu item and `GridsView`'s private panel", and rested a
+   * twenty-line 🔴 argument on that premise. Both halves are now false: this stack
+   * deleted `ContributeMenu` (so there is no menu item), and `GridsView` no longer
+   * renders the private panel at all — it moved to `MyGridsView`. The single caller
+   * is `MyGridsView.onNewUnpublished`, i.e. `UnpublishedList`'s `new-unpublished`.
+   * And that caller cannot press it anonymously: `MyGridsView` returns
+   * `MyTabSignedOut` for `viewerId == null` and renders no private panel, which
+   * `myBenchmarks.test.tsx` asserts as a positive fact ("an ANONYMOUS viewer gets the
+   * sign-in panel and no private panel at all"). So `if (!viewer)` below is dead on
+   * this tree and NOTHING IN THE SUITE COVERS IT.
    *
-   * An unauthorised press routes to sign-in, which is what the vote control already
-   * does (`onRequireAuth`) — the app's existing answer for "this needs an account".
+   * 🔵 THE BRANCH STAYS ANYWAY, and this is the explicit decision rather than an
+   * omission — DEFENCE IN DEPTH, labelled as such and not counted as coverage:
+   *
+   *   - the history it comes from is real. The page once reached this action from
+   *     `Contribute ▸ Build a grid` (no auth condition at all) AND from the grids
+   *     section's own `grid-new` button (gated on `signedIn && onNewUnpublished`), and
+   *     the two disagreed: an anonymous viewer could open the grid form through the
+   *     menu, fill it in, and have the save rejected at `appStorage.set`, while the
+   *     sibling route ten pixels away simply hid itself. Both routes are gone; the way
+   *     they came apart is not a hypothetical.
+   *   - deleting it makes the next caller's author decide the auth question again, at
+   *     their call site, which is precisely the N-copies shape that produced the
+   *     disagreement. One predicate in one place costs three lines.
+   *
+   * 🔴 SO: do not re-add a `signedIn` test at the call site, and do not read the
+   * branch as tested. An unauthorised press routes to sign-in, matching the vote
+   * control's `onRequireAuth` — the app's existing answer for "this needs an account".
    */
   const openNewGrid = useCallback(() => {
     if (!viewer) {
@@ -1191,13 +1300,43 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * to fall back on either — `update`/`withdraw` both reject for anyone but the
    * row's author, so escalation is the whole of what this app can offer.
    *
-   * Rejections propagate to `ReportButton`, which stays armed for a retry: a
-   * failed report that closed quietly would read as a filed one.
+   * 🔴 REJECTIONS PROPAGATE — the `await` is not swallowed, so `ReportButton` renders
+   * its "Could not send — try again?" line instead of settling: a failed report that
+   * closed quietly would read as a filed one. It also means `key` is recorded ONLY on
+   * the success path, below.
+   *
+   * ⚠️ A PREVIOUS VERSION OF THIS DOCBLOCK SAID THE CONTROL "STAYS ARMED FOR A RETRY",
+   * AND THE ⋮ MENU PARTIALLY FALSIFIED IT. The rejection does still reach the control
+   * and does still render the failure line — that half is unchanged and is pinned by
+   * `report.test.tsx`. What is NOT true any more is that the armed state PERSISTS:
+   * `components/Menu.tsx` unmounts its panel on any outside `mousedown` and on Escape,
+   * so the failure line survives only until the viewer's next click. Nothing here can
+   * fix that — `ReportButton`'s in-flight and failed states are its own local state and
+   * there is no prop for them, unlike `reported` — so the honest statement is that a
+   * REFUSED report is still discoverable while the menu is open and is lost on close,
+   * while a SUCCEEDED one is durable for the session through `reportedKeys`. Filing the
+   * failure half upstream would need a `failed`-style prop on `ReportButton`.
    */
-  const reportRow = useCallback(async (key: string) => {
-    await depsRef.current.shared.report(key);
-    depsRef.current.track('report');
-  }, []);
+  const reportRow = useCallback(
+    async (key: string) => {
+      await depsRef.current.shared.report(key);
+      depsRef.current.track('report');
+      // 🔴 AFTER the await, so a REFUSED report is not recorded as filed. See
+      // `reportedKeys` for why this record exists at all and what it does not survive.
+      //
+      // 🔴 AND IT STAMPS THE OWNER, which is what makes the read above derivable. A set
+      // stored without its owner has to be CLEARED by something when the viewer changes,
+      // and the only thing that can do that is an effect — which runs after paint. See
+      // `reportedKeys`.
+      const ownerId = viewer?.id ?? null;
+      setReportedRecord((prev) => {
+        const mine = prev.ownerId === ownerId;
+        if (mine && prev.keys.has(key)) return prev;
+        return { ownerId, keys: new Set(mine ? prev.keys : []).add(key) };
+      });
+    },
+    [viewer?.id],
+  );
 
   // ---- private write paths (see the per-viewer block above) ----
 
@@ -1907,6 +2046,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // viewer swap (the host can change viewer without remounting — see
   // `src/viewer-change.test.tsx`) AND on unmount, so neither a different account's
   // grant nor a remount can complete a press that is no longer anyone's.
+  //
+  // ⚠️ `reportedKeys` WAS CLEARED HERE FOR ONE ROUND AND IS NOT ANY MORE, deliberately.
+  // The hazard is real and identical — a report belongs to the viewer who filed it, and
+  // the swap does NOT remount, so viewer B must not arrive looking at "Reported for
+  // review" against rows they have never reported, with no Report trigger of their own.
+  // But AN EFFECT IS THE WRONG INSTRUMENT FOR IT: a passive effect's cleanup flushes
+  // after PAINT, so B's first committed frame still carried A's set and only the frame
+  // after that was right. `reportedKeys` is DERIVED in render now, from a record that
+  // stores its owner, so no such frame exists. Do not re-add a clear here — it would be a
+  // second, weaker spelling of a decision already made, and the two could disagree.
   useEffect(
     () => () => {
       pendingConsentRunRef.current = null;
@@ -2173,6 +2322,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [openEntry, combinations, prompts],
   );
   const openMissing = missingMembersNotice(openResolved, boardTruncated);
+  /**
+   * The open grid's "N matchups × N prompts" line.
+   *
+   * 🔴 THE SAME HELPER THE CARDS USE, over the SAME resolved rows. Excluding the open
+   * grid from the list took its member count off the page entirely — on a default load
+   * (Top Grid open, nothing published) there was no statement anywhere of how many
+   * members the matrix has. One helper, two surfaces, so the two can never disagree.
+   */
+  const openMembers = gridMemberSummary(openResolved);
   const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
   /** The resolved key `GridsView` filters against — `null` iff the panel shows the Top Grid. */
   const openKeyResolved = openEntry.system ? null : openEntry.row.key;
@@ -2424,13 +2582,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 >
                   <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
                     <GridOpenPanel
+                      /* 🔴 THE WHOLE ENTRY, not a `system` boolean — the panel's three
+                         row controls each need the row's KEY as well, and one object
+                         is what stops them naming two different grids. */
+                      entry={openEntry}
+                      viewerId={viewer?.id ?? null}
                       name={openName}
-                      system={openEntry.system}
+                      members={openMembers}
                       /* 🔴 Criterion 8 on the OPEN grid: the surviving members render
                          below and this sentence carries the honest count of what is
                          not there — built from the scan's truncation flag, so a
                          member that was merely UNREAD is not reported as removed. */
                       missing={openMissing}
+                      /* 🔴 THE OPEN GRID'S OWN CONTROLS, and they are the SAME
+                         callbacks the cards get. Excluding the open grid from the list
+                         took its card away, and the card was the only place vote /
+                         withdraw / report rendered — so the grid a viewer is actually
+                         reading was the one grid they could not act on. */
+                      votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
+                      onVote={onVote}
+                      onUnvote={onUnvote}
+                      onRequireAuth={requireAuth}
+                      onWithdraw={withdrawGrid}
+                      onReport={reportRow}
                     >
                       {/* 🔴 THE MATRIX IS RENDERED HERE, not inside any browse
                           surface, because every prop below it is money-shaped (the
@@ -2491,6 +2666,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       results={results}
                       GatedCell={deps.GatedCell}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2522,8 +2698,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     <MatchupsView
                       surface="community"
                       combinations={combinations}
-                      includedKeys={includedComboKeys}
+                      includedCount={includedCombos.length}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2547,8 +2724,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     <PromptsView
                       surface="community"
                       prompts={prompts}
-                      includedKeys={includedPromptKeys}
+                      includedCount={includedPrompts.length}
                       votedKeys={votedKeys}
+                      reportedKeys={reportedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
                       error={error}
@@ -2585,6 +2763,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     boardTruncated={boardTruncated}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
+                    /* 🔴 THE SAME `error` EVERY OTHER SURFACE GETS. It used to be
+                       omitted here alone, so a failed `listAll` rendered
+                       `my-published-empty` — "You have no published grids on the board
+                       right now" — an absence the app never observed, while My ▸
+                       Matchups showed `matchups-error` on the same failure. */
+                    error={error}
                     archivedKeys={archivedKeys}
                     unpublished={unpublishedGrids}
                     quotaLine={quotaLine}
@@ -2603,8 +2787,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   <MatchupsView
                     surface="my"
                     combinations={combinations}
-                    includedKeys={includedComboKeys}
+                    includedCount={includedCombos.length}
                     votedKeys={votedKeys}
+                    reportedKeys={reportedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
                     error={error}
@@ -2633,8 +2818,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   <PromptsView
                     surface="my"
                     prompts={prompts}
-                    includedKeys={includedPromptKeys}
+                    includedCount={includedPrompts.length}
                     votedKeys={votedKeys}
+                    reportedKeys={reportedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
                     error={error}
@@ -2684,8 +2870,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <MatchupBody
                 combo={detailMatchup}
                 detail
-                included={includedComboKeys.has(detailMatchup.key)}
                 voted={votedKeys.has(detailMatchup.key)}
+                reported={reportedKeys.has(detailMatchup.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}
                 onUnvote={onUnvote}
@@ -2708,8 +2894,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               <PromptBody
                 prompt={detailPrompt}
                 detail
-                included={includedPromptKeys.has(detailPrompt.key)}
                 voted={votedKeys.has(detailPrompt.key)}
+                reported={reportedKeys.has(detailPrompt.key)}
                 viewerId={viewer?.id ?? null}
                 onVote={onVote}
                 onUnvote={onUnvote}

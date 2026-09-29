@@ -42,15 +42,12 @@ import { MyPublished } from './MyPublished.js';
 import { MyTabSignedOut } from './MySignedOut.js';
 import { UnpublishedList } from './UnpublishedList.js';
 
-/**
- * The "Included" badge's tooltip.
- *
- * 🔴 RE-EXPORTED, NOT DEFINED HERE. It moved to `MatchupBody` with the card body
- * it annotates — the detail modal renders the same badge and must make the same
- * claim. The re-export keeps every existing importer (and the whole-string guard
- * in `IncludedSummary.test.tsx`) pointing at one definition.
- */
-export { INCLUDED_ROW_TOOLTIP } from './MatchupBody.js';
+/* 🔴 `INCLUDED_ROW_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED, along with the
+   `matchup-included` badge it annotated (the third IA pass — see `MatchupBody`'s
+   header). It is recorded rather than quietly dropped because the constant existed
+   to be pinned whole by a test: `IncludedSummary.test.tsx` names the case it
+   retired. The `matchups-included-summary` copy below is a DIFFERENT claim and is
+   untouched. */
 
 /** Which surface of this view to render. */
 export type MatchupSurface = 'community' | 'my';
@@ -66,8 +63,27 @@ export interface MatchupsViewProps {
    */
   surface: MatchupSurface;
   combinations: CombinationRow[];
-  includedKeys: Set<string>;
+  /**
+   * How many rows are "included" — i.e. are members of the Top Grid.
+   *
+   * 🔴 A NUMBER, NOT THE `Set<string>` IT REPLACED. It was a Set because the view
+   * rendered a per-row "Included" badge and had to ask `has(key)` per row. The third IA
+   * pass DELETED both badges (see `IncludedSummary.test.tsx`'s retirement note), which
+   * left `.size` as the only thing either view ever read — a `useMemo`-built Set and a
+   * prop carrying a number `includedCombos.length` already held. Passing the number is
+   * the same information with no second representation to keep in step.
+   */
+  includedCount: number;
   votedKeys: Set<string>;
+  /**
+   * Shared keys this viewer has already REPORTED.
+   *
+   * 🔴 A SET, THREADED THE SAME WAY `votedKeys` IS, and for the same reason: the
+   * per-row boolean is `has(key)` at the card, so no caller has to build one lookup per
+   * row. Where it comes FROM differs — see `App.reportedKeys`, and `MatchupBody.reported`
+   * for the menu-unmount defect it closes.
+   */
+  reportedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
   error: string | null;
@@ -101,8 +117,9 @@ export interface MatchupsViewProps {
 export function MatchupsView({
   surface,
   combinations,
-  includedKeys,
+  includedCount,
   votedKeys,
+  reportedKeys,
   viewerId,
   loading,
   error,
@@ -134,8 +151,8 @@ export function MatchupsView({
     <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
       <MatchupBody
         combo={combo}
-        included={includedKeys.has(combo.key)}
         voted={votedKeys.has(combo.key)}
+        reported={reportedKeys.has(combo.key)}
         viewerId={viewerId}
         onVote={onVote}
         onUnvote={onUnvote}
@@ -212,7 +229,7 @@ export function MatchupsView({
     <Stack gap={14} data-testid="matchups-view">
       <Group justify="space-between" align="center" gap={12}>
         <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="matchups-included-summary">
-          Submit and vote on checkpoint + LoRA matchups. {includedSummary(includedKeys.size, 'row')}
+          Submit and vote on checkpoint + LoRA matchups. {includedSummary(includedCount, 'row')}
         </span>
         {/* 🔴 THE PUBLIC CREATE ROUTE FOR A MATCHUP, and since the Contribute dropdown
             was deleted it is the primary one. It renders for an anonymous viewer too

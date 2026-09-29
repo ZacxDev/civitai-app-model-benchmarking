@@ -22,6 +22,9 @@
 // file observes geometry — every claim is about the DOM, the calls the app made,
 // and the text it rendered.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -306,9 +309,19 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(groups.some((g) => g.includes('Hotel'))).toBe(false);
     expect(groups.some((g) => g.includes('Golf'))).toBe(false);
 
-    // …and the member SUMMARY, which only a card carries: open the published grid
-    // so the Top Grid takes its place in the list. The count is read from the
-    // imported constant, never spelled as 5.
+    // 🔴 …AND THE MEMBER SUMMARY, ON THE OPEN PANEL, WHERE IT NOW LIVES. This is the
+    // DEFAULT surface: no click, nothing else published needed. It had to be added —
+    // excluding the open grid from the list removed the only place its count rendered,
+    // so on a default load the Top Grid's size was stated NOWHERE on the page. The
+    // count is read from the imported constant, never spelled as 5.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent(
+      `${DEFAULT_TOP_N} matchups × ${DEFAULT_TOP_N} prompts`,
+    );
+
+    // …and the CARD still carries it once the Top Grid is listed, which is a second
+    // surface and not a duplicate assertion: open the published grid so the Top Grid
+    // takes its place in the list. Kept rather than replaced — the panel assertion
+    // above cannot see a card that stopped rendering the badge.
     await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
     await openListed('gk-yank');
     const top = await waitFor(() =>
@@ -317,6 +330,123 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(within(top).getByTestId('grid-card-members')).toHaveTextContent(
       `${DEFAULT_TOP_N} matchups × ${DEFAULT_TOP_N} prompts`,
     );
+    // 🔴 AND THE PANEL NOW SHOWS THE *OTHER* GRID'S COUNT, not a frozen Top Grid one.
+    // `gk-yank` is 1 × 1, so a `members` prop wired to a constant — or to the Top Grid
+    // regardless of what is open — fails here. Without this the assertion above is
+    // satisfiable by a hardcoded string.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('1 matchup × 1 prompt');
+  });
+
+  it('🔴 SEAM: the App feeds the boards the SAME included count the Top Grid is built from', async () => {
+    // 🔴 THIS CASE EXISTS BECAUSE A MUTANT SURVIVED. `App` derives `includedCombos` /
+    // `includedPrompts` once and uses them for BOTH the Top Grid's members and the
+    // boards' "The top N by votes are showing as the grid's rows/columns" copy — the
+    // whole point of one computation being that the badge and the grid cannot disagree.
+    // Nothing asserted the second half through the App: MEASURED, replacing BOTH
+    // `includedCount={includedCombos.length}` call sites with `includedCount={0}` left
+    // the FULL suite green (58 files / 776 tests). `IncludedSummary.test.tsx` renders
+    // the views directly and passes its own number, so it is structurally blind to the
+    // App's wiring; this is the seam neither side owned.
+    //
+    // It is a RELATIONSHIP, not a component property: the number in the board copy must
+    // be the same `DEFAULT_TOP_N` the matrix above was built from, on BOTH axes.
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, OTHER] }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    // PREMISE: the board holds MORE than the cut admits, so `DEFAULT_TOP_N` is a real
+    // cut and not just "all of them" — otherwise a count wired to `combinations.length`
+    // would pass too.
+    expect(MATCHUPS.length).toBeGreaterThan(DEFAULT_TOP_N);
+    expect(PROMPTS.length).toBeGreaterThan(DEFAULT_TOP_N);
+
+    const matchups = await openView('Matchups');
+    expect(within(matchups).getByTestId('matchups-included-summary')).toHaveTextContent(
+      `The top ${DEFAULT_TOP_N} by votes are showing as the grid's rows in your view.`,
+    );
+
+    const prompts = await openView('Prompts');
+    expect(within(prompts).getByTestId('prompts-included-summary')).toHaveTextContent(
+      `The top ${DEFAULT_TOP_N} by votes are showing as the grid's columns in your view.`,
+    );
+
+    // …and back on Home the matrix really is that many rows, which is what makes the two
+    // numbers a RELATIONSHIP rather than two independent readings of the same constant.
+    await openView('Grids');
+    const matrix = await screen.findByTestId('results-grid');
+    expect(within(matrix).getAllByTestId('grid-group-matchup')).toHaveLength(DEFAULT_TOP_N);
+    expect(within(matrix).getAllByTestId('grid-col-header')).toHaveLength(DEFAULT_TOP_N);
+  });
+
+  // 🔴 THE CASE ABOVE IS NARROWER THAN ITS OWN HEADER, AND THIS CLOSES THE GAP. It says
+  // "the App feeds THE BOARDS", and there are FOUR `includedCount` call sites in
+  // `App.tsx`: `surface="community"` ×2 (the two it drives) and `surface="my"` ×2, which
+  // it cannot see. MEASURED: mutating only a `my` site to `includedCount={0}` leaves the
+  // full suite green.
+  //
+  // 🔴 AND NO BEHAVIOURAL CASE CAN SEE THOSE TWO, WHICH IS WHY THIS GUARD IS STRUCTURAL.
+  // `includedCount` is read in exactly one place in each view — the community branch's
+  // `matchups-included-summary` / `prompts-included-summary` copy. The `my` branch
+  // returns before reaching it, so on that surface the prop renders NOTHING and the
+  // mutant is not a behaviour change at all. There is no DOM, no call and no string that
+  // differs; the only observable is the WIRING, so the wiring is what is asserted.
+  //
+  // ⚠️ DELETING THE TWO INERT SITES WAS CONSIDERED FIRST AND NOT TAKEN. Dead wiring is
+  // better removed than guarded — but `includedCount` is REQUIRED, and dropping it from
+  // the `my` call sites means making it optional, which reintroduces exactly the
+  // silent-degradation hazard `GridsView`'s `results` / `GatedCell` docblocks were
+  // written against: a community call site that forgets it would render "The top 0 by
+  // votes…" with no error and no failing test. Keeping it required and pinning the
+  // ledger is the cheaper side of that trade. If the `my` surface ever grows the copy,
+  // this ledger is already the thing that keeps the two derivations in step.
+  //
+  // 🔴 IT IS A LEDGER, NOT A COUNT — it fails when the set GROWS (a fifth site, wired to
+  // something else) and when it SHRINKS, and it pairs each site's `surface` with its
+  // expression so a community site wired to `includedPrompts.length` cannot pass by
+  // having the right number of rows.
+  it('🔴 SEAM, structurally: ALL FOUR board call sites read the same derivation', () => {
+    /** Every `<MatchupsView …/>` / `<PromptsView …/>` element in `App.tsx`. */
+    const sites = (): { component: string; surface: string; includedCount: string }[] => {
+      const src = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf8');
+      const out: { component: string; surface: string; includedCount: string }[] = [];
+      for (const component of ['MatchupsView', 'PromptsView']) {
+        let i = src.indexOf(`<${component}`);
+        while (i !== -1) {
+          // Both are self-closing with no nested JSX, so `/>` ends the element. `=>`
+          // inside an arrow-function prop does not match it.
+          const end = src.indexOf('/>', i);
+          const el = src.slice(i, end);
+          out.push({
+            component,
+            surface: el.match(/surface="([^"]*)"/)?.[1] ?? '(none)',
+            includedCount: el.match(/includedCount=\{([^}]*)\}/)?.[1] ?? '(none)',
+          });
+          i = src.indexOf(`<${component}`, end);
+        }
+      }
+      return out;
+    };
+
+    const found = sites();
+
+    // 🔴 VALIDATE THE INSTRUMENT BEFORE READING ITS VERDICT. A regex that matched
+    // nothing would produce an empty array, and `toEqual([])` against an empty ledger
+    // is the "a zero reads as a clean sweep" failure. So: the scan found sites at all,
+    // and every one of them yielded BOTH fields rather than the `(none)` sentinel.
+    expect(found.length, 'the App.tsx scan found no board call sites').toBeGreaterThan(0);
+    for (const s of found) {
+      expect(s.surface, `${s.component}: no surface= matched`).not.toBe('(none)');
+      expect(s.includedCount, `${s.component}: no includedCount= matched`).not.toBe('(none)');
+    }
+
+    expect(
+      found,
+      'a board call site changed — if you added one, wire it to the SAME derivation and ledger it here',
+    ).toEqual([
+      { component: 'MatchupsView', surface: 'community', includedCount: 'includedCombos.length' },
+      { component: 'MatchupsView', surface: 'my', includedCount: 'includedCombos.length' },
+      { component: 'PromptsView', surface: 'community', includedCount: 'includedPrompts.length' },
+      { component: 'PromptsView', surface: 'my', includedCount: 'includedPrompts.length' },
+    ]);
   });
 
   it('🔴 is PINNED FIRST once listed, and carries NO vote control, because it has no shared row', async () => {
@@ -443,6 +573,240 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     // different parent.
     expect(within(empty).queryByRole('button')).toBeNull();
     expect(screen.queryByTestId('grid-new')).toBeNull();
+  });
+
+  // 🔴 THE FILTER'S ONLY STATED REASON, NOW EXERCISED. `GridsView.openKey`'s docblock
+  // and `App`'s `openEntry` comment both argue that the resolution has to happen ONCE,
+  // in `App`, because a grid the viewer had open can be WITHDRAWN while they look at it:
+  // the panel falls back to the Top Grid, and a list applying its own
+  // `key !== openGridKey` test would find no match, keep the Top Grid listed, and show
+  // the same grid TWICE — once in the panel, once as a card. That duplication is exactly
+  // what `gridPreviewSeam.test.tsx` exists to keep off the page (a second gated read of
+  // the same ids), and nothing exercised the route that produces it.
+  //
+  // 🔴 IT IS REACHABLE WITHOUT A SECOND AUTHOR, and this round is what made it reachable
+  // in ONE tab: `GridOpenPanel` now carries Remove, so an author can withdraw the grid
+  // they are reading. The same state arrives from two other routes nothing here can
+  // drive — another tab's withdraw, and a `listAll` page cap dropping a row between
+  // polls — so this case is the cheap one of three, not the only one.
+  //
+  // 🔴 MUTATION-ISOLATED: replacing `openKey={openKeyResolved}` with
+  // `openKey={openGridKey}` in `App.tsx` — the raw key, i.e. the defect both comments
+  // describe — takes THIS case red on the card ledger and leaves the rest of the file
+  // green. Measured.
+  it('🔴 WITHDRAWING the open grid falls back to the Top Grid WITHOUT also listing it', async () => {
+    const MINE = row('gk-mine', 6, 'My grid', gridData(['mk-alpha'], ['qk-tango']), {
+      authorUserId: VIEWER_ID,
+    });
+    renderApp({
+      shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, MINE, TWO] }).shared,
+      appStorage: fakeAppStorage().appStorage,
+    });
+    await screen.findByTestId('grid-view');
+
+    // `gk-mine` (6) outranks `gk-two` (4), so this order is the vote order and not the
+    // seed order.
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-mine', 'gk-two']));
+    await openListed('gk-mine');
+    // PREMISE: the viewer's own grid really is the open one, and the Top Grid has taken
+    // its place in the list. Without this the fallback below would have nothing to do.
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
+    expect(screen.getByTestId('grid-open-title')).toHaveTextContent('My grid');
+
+    // Remove it from the panel — the route this round added.
+    const panel = screen.getByTestId('grid-open-panel');
+    await userEvent.click(within(panel).getByTestId('grid-open-withdraw'));
+    await userEvent.click(
+      within(screen.getByTestId('grid-open-panel')).getByTestId('withdraw-confirm'),
+    );
+
+    // The panel falls back to the Top Grid…
+    await waitFor(() => expect(screen.getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME));
+    // 🔴 …AND THE LIST DROPS IT AGAIN. This is the assertion the raw-key defect fails:
+    // with `openKey` carrying `'gk-mine'`, nothing in `communityEntries` matches it, so
+    // the Top Grid stays listed AND renders in the panel.
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-two']));
+    // Stated as the relationship too: EXACTLY ONE rendering of the Top Grid on the page.
+    expect(
+      screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === '__system__'),
+      'the Top Grid rendered in the panel AND as a card',
+    ).toEqual([]);
+    // …and the withdrawn grid is gone from both surfaces, not merely unlisted.
+    expect(cardKeys()).not.toContain('gk-mine');
+  });
+});
+
+// ===========================================================================
+// The OPEN grid's own controls
+// ===========================================================================
+//
+// 🔴 THE DEFECT THESE EXIST FOR, AND IT WAS SHIPPED BY THE EXCLUSION ABOVE.
+// `GridsView`'s `entryCard` was the ONLY place that rendered `VoteButton`,
+// `WithdrawButton`, `ReportButton`, the ownership badge and the row's description —
+// so the moment the open grid stopped being listed, the grid a viewer is actually
+// READING became the one grid nobody could upvote, its author could not withdraw,
+// and nobody could report. The recovery was to open a DIFFERENT grid so the first
+// returned to the list and got its buttons back. A grid's votes feed
+// `orderGridsByVotes` — this board's whole ordering — so the missing control was a
+// ranking mechanic. ⚠️ NOT `buildTopGrid`, which a draft of this paragraph named: that
+// one reads MATCHUP and PROMPT votes to pick the Top Grid's members and never sees a
+// grid row's count. See `GridOpenPanel.tsx`'s header, where the same slip is recorded.
+//
+// 🔴 WATCHED FAILING, MEASURED: with every production source swapped to `7410ca7`
+// (this stack's tip before this round) and these tests left in place, all FOUR cases
+// below go red. Each dies on its own missing control — `grid-open-description`,
+// `grid-open-own-badge`, `grid-open-system-note`, `grid-open-vote` — not on a shared
+// helper or a type error.
+//
+// ⚠️ THE "…AND THE OTHER **28** IN THIS FILE STAY GREEN" HALF OF THAT SENTENCE IS
+// RETRACTED, AND THE NUMBER WAS NEVER EVEN MEASURING THAT. Two independent audits of this
+// round converged on it. `28` is the count of `it()`s in `gridsView.test.tsx` AT BASE
+// (`git show 7410ca7:src/gridsView.test.tsx | grep -c '^\s*it('`) — i.e. the OLD file's
+// total, not "how many of the current cases stay green". The current file has 34.
+//
+// 🔴 AND THE REAL FIGURE IS FIVE, NOT FOUR. Re-measured mechanically by an auditor with
+// every production source this round touches swapped back to `7410ca7` and the CURRENT
+// test file kept: five cases go red — the four in this describe, PLUS the
+// withdraw-fallback case below, which clicks `grid-open-withdraw`, a control this round
+// INTRODUCED and which therefore cannot exist at base.
+//
+// Do not re-derive a number here. The measured claim is about the four cases in THIS
+// describe; whether any other case is red at base is that case's own business, and a
+// tally of the whole file rots on the next case anyone adds — as this one did, twice.
+//
+// ⚠️ ONE HALF OF THE SYSTEM CASE IS AN INVARIANT GUARD AND IS LABELLED AS ONE. Its
+// `queryByTestId(...).toBeNull()` assertions — FOUR before this note was written and
+// FIVE in the case as it stands — pass at base VACUOUSLY: at base no panel renders any
+// of those controls for any entry, so "absent on the Top Grid" is not yet a claim about
+// the Top Grid. (A draft said "three"; counted rather than remembered now.) What makes
+// them non-vacuous on THIS tree is the pair of cases above, which show the same panel
+// DOES render them for a published grid — the absence is a property of the ENTRY, and
+// the two halves only mean something together. The system case's own red-at-base half is
+// `grid-open-system-note`.
+//
+// 🔴 AND THE SYSTEM GATE IS DERIVED, NOT SPELLED. The last case publishes a grid
+// literally NAMED "Top Grid" and requires it to carry all three controls: a gate
+// written as a name comparison passes every other case here and fails that one.
+describe('🔴 the OPEN grid carries the controls its card used to', () => {
+  const MEMBERS = gridData(['mk-alpha'], ['qk-tango']);
+
+  it('ANOTHER author’s open grid: vote + report, no Remove, and the vote names ITS key', async () => {
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-zulu', 40, 'Loud grid', MEMBERS, { authorUserId: OTHER_ID, body: 'Zulu blurb' }),
+    ];
+    const { shared, votes } = sharedWithVotes(seed);
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-zulu']));
+    await openListed('gk-zulu');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent('Loud grid');
+    // The row's own words, which also only ever rendered on a card.
+    expect(within(panel).getByTestId('grid-open-description')).toHaveTextContent('Zulu blurb');
+
+    // 🔴 THE THREE GATES, ALL THREE ASSERTED — two presences and one absence, so a
+    // panel that rendered every control unconditionally fails here too.
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();
+    expect(within(panel).queryByTestId('grid-open-withdraw')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-own-badge')).toBeNull();
+
+    // 🔴 THE VOTE IS WIRED TO THE OPEN GRID'S KEY, not merely rendered. `40` is the
+    // seeded count and `VOTE_ANSWER` (123) is unlike every fixture count, so the
+    // number after the press can only have come from the host's answer.
+    expect(within(panel).getByTestId('vote-count')).toHaveTextContent('40');
+    await userEvent.click(within(panel).getByTestId('grid-open-vote'));
+    await waitFor(() => expect(votes).toEqual(['gk-zulu']));
+    await waitFor(() =>
+      expect(within(screen.getByTestId('grid-open-panel')).getByTestId('vote-count')).toHaveTextContent(
+        String(VOTE_ANSWER),
+      ),
+    );
+  });
+
+  it('the VIEWER’s OWN open grid: Remove + the Yours badge, and no Report', async () => {
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-mine', 5, 'My grid', MEMBERS, { authorUserId: VIEWER_ID }),
+    ];
+    const { shared, withdraws } = fakeShared({ seed });
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-mine']));
+    await openListed('gk-mine');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-own-badge')).toHaveTextContent('Yours');
+    expect(within(panel).getByTestId('grid-open-withdraw')).toBeInTheDocument();
+    // An author has a real Remove, so Report is not offered — the mirror of the rule
+    // the cards apply, from the same `isOwnRow` predicate.
+    expect(within(panel).queryByTestId('grid-open-report')).toBeNull();
+    // A vote control IS still offered on your own row: the community ranking includes
+    // it, which is the same decision the cards make.
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+
+    // 🔴 AND REMOVE REACHES `withdraw` WITH THIS GRID'S KEY, through the confirm step.
+    // Without this the Remove button could be inert or aimed at another row.
+    // ⚠ `withdraw-confirm` is a FIXED testid inside `WithdrawButton`, not derived from
+    // the trigger's — scoped to the panel so it cannot resolve against a card's.
+    await userEvent.click(within(panel).getByTestId('grid-open-withdraw'));
+    await userEvent.click(
+      within(screen.getByTestId('grid-open-panel')).getByTestId('withdraw-confirm'),
+    );
+    await waitFor(() => expect(withdraws).toContain('gk-mine'));
+  });
+
+  it('🔴 the SYSTEM entry offers NONE of the three, and says why in words', async () => {
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
+    const panel = await screen.findByTestId('grid-open-panel');
+
+    // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered, so
+    // the FIVE nulls below are not five ways of saying "nothing is on screen". (A draft
+    // said "three"; there are four controls plus the description.)
+    expect(within(panel).getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
+
+    expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-withdraw')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-report')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-own-badge')).toBeNull();
+
+    // …and it says so where the reader is, rather than leaving the absence unexplained.
+    expect(within(panel).getByTestId('grid-open-system-note')).toHaveTextContent(
+      /cannot be voted on and it is not part of the vote order/i,
+    );
+    // A system entry has no description of its own, so that slot is the note and
+    // nothing else — an either/or, not both.
+    expect(within(panel).queryByTestId('grid-open-description')).toBeNull();
+  });
+
+  it('🔴 the gate is the ENTRY, not the NAME: a published grid called "Top Grid" keeps its controls', async () => {
+    // 🔴 THE ANTI-SPELLING CONTROL. `TOP_GRID_NAME` is imported, never typed, so this
+    // case cannot drift out of alignment with the constant it collides with. A gate
+    // written as `name === TOP_GRID_NAME` (or `/top grid/i`) passes every other case
+    // in this describe and fails exactly here.
+    const seed = [
+      ...MATCHUPS,
+      ...PROMPTS,
+      row('gk-impostor', 3, TOP_GRID_NAME, MEMBERS, { authorUserId: OTHER_ID }),
+    ];
+    renderApp({ shared: fakeShared({ seed }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-impostor']));
+    await openListed('gk-impostor');
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
+    // It is NOT the system entry, so: no badge, no note, and all the controls a
+    // published grid by another author gets.
+    expect(within(panel).queryByTestId('grid-open-system-badge')).toBeNull();
+    expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
+    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
+    expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();
   });
 });
 
@@ -607,6 +971,11 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     expect(within(card).getByTestId('grid-card-members')).toHaveTextContent('3 matchups × 2 prompts');
 
     await userEvent.click(within(card).getByTestId('grid-open'));
+    // 🔴 THE SAME COUNT ON THE OPEN PANEL, from the same helper over the same resolved
+    // rows. This is the PLURAL/PLURAL arm of the open panel's summary: the card and the
+    // panel are two surfaces, and only pinning both catches one of them drifting to the
+    // AUTHORED lengths (4 × 8 here) instead of the resolved ones.
+    expect(await screen.findByTestId('grid-open-members')).toHaveTextContent('3 matchups × 2 prompts');
     const matrix = await screen.findByTestId('results-grid');
     const rows = within(matrix).getAllByTestId('grid-group-matchup').map((el) => el.textContent ?? '');
     expect(rows).toHaveLength(3);
@@ -652,6 +1021,10 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     await userEvent.click(within(card).getByTestId('grid-open'));
     await screen.findByTestId('results-grid');
     expect(screen.queryByTestId('grid-missing-notice')).toBeNull();
+    // 🔴 THE PLURAL/SINGULAR ARM on the open panel — `1 prompt`, not `1 prompts`. The
+    // 0.2.3 live defect this repo already paid for was a number/verb disagreement, and
+    // a summary pinned only in the plural cannot see it.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('2 matchups × 1 prompt');
   });
 
   it('survives a grid whose members are ALL gone — empty, disclosed, still no throw', async () => {
@@ -671,6 +1044,11 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     // The matrix's own empty state, not a crash and not a blank panel.
     expect(await screen.findByTestId('grid-empty')).toBeInTheDocument();
     expect(await screen.findByTestId('grid-missing-notice')).toBeInTheDocument();
+    // 🔴 THE ZERO ARM on the open panel: `0 matchups × 0 prompts` RENDERS, rather than
+    // the badge vanishing. An absent summary on an empty grid is indistinguishable from
+    // a summary that failed to render, which is the state this whole addition exists to
+    // remove.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('0 matchups × 0 prompts');
   });
 });
 
@@ -1149,6 +1527,12 @@ describe('the My / Community partition for grids (§11.1)', () => {
 // The cases went with the component, not away. One of them also changed shape rather
 // than address, and that is recorded there: the LATCH they were written against no
 // longer exists, because a dedicated surface can simply render the panel
-// unconditionally — which is strictly stronger than a latch and cannot unmount
-// mid-report at all.
+// unconditionally.
+//
+// ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH ADDED "which is strictly stronger than a
+// latch and cannot unmount mid-report at all". That is FALSE and the claim is retracted:
+// navigating to Home unmounts `MyGridsView` and takes `UnpublishedList`'s local publish
+// `error` with it. The unconditional panel closes the LIST-EMPTYING path only. See
+// `MyGridsView`'s own header for the full record, and
+// `src/publishPointerFailure.test.tsx` for the case that pins the real behaviour.
 // ===========================================================================

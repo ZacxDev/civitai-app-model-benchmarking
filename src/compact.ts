@@ -16,6 +16,13 @@
 // `min-height` is deliberate: CSS resolves a box's used height as
 // `max(min-height, height)`, so a `min-height` declaration beats the pack's
 // `height: 30px` without having to out-specify or !important it.
+//
+// ⚠️ AND THE FLOOR IS NO LONGER HEIGHT-ONLY — do not read the paragraph above as "this
+// sheet is about height". Every TEXT-BEARING control's label carries it past 44px
+// horizontally, so height was the only binding dimension until the `⋮` overflow trigger
+// arrived with no text at all. There is now a second, narrowly scoped rule flooring
+// `min-width` on {@link ICON_BUTTON_SELECTOR}; its docblock has the argument, the blast
+// radius, and the live reading that is still owed.
 
 /** Marks the block root when the compact (narrow-viewport) layout is active. */
 export const COMPACT_ATTR = 'data-mb-compact';
@@ -51,6 +58,83 @@ export const MOBILE_BREAKPOINT_PX = 720;
  * `SideNav.NAV_ITEM_ATTR` is the attribute; this is the bracketed form.
  */
 export const NAV_ITEM_SELECTOR = '[data-mb-nav-item]';
+
+/**
+ * The selector that reaches a {@link MenuItem}'s clickable element.
+ *
+ * 🔴 RE-ADDED, AND THE PREVIOUS COMMENT INVITED IT. The sidebar change deleted
+ * `ContributeMenu` — the only thing in this app or the pack that emitted
+ * `role="menuitem"` — and removed this selector from the rule, saying "if a menu
+ * ever comes back, so does the selector". One did: `components/Menu.tsx`, the ⋮
+ * overflow menu on every matchup and prompt row. Its items carry
+ * `padding: 8px 10px` around a 13px line — ~34px, under the floor, the same
+ * arithmetic the departed menu had.
+ *
+ * 🔴 DEFINED HERE AND IMPORTED BY `Menu.tsx`, not the other way round. This module
+ * is deliberately React-free (`useMediaQuery.ts` imports it, and a node-project
+ * test could), so pulling a `.tsx` component into its graph to fetch one string
+ * would be a real cost for no gain. The rule, the component's own focus queries and
+ * the reachability test all name it once, from here.
+ *
+ * It is the ROLE, not a testid: it pins a STATE (this element is an item in a menu)
+ * rather than a word a future component could spell differently — which is also what
+ * makes it survive the upstream `<civitai-menu-item>` swap, since that element sets
+ * the same role on its own light-DOM host.
+ *
+ * ⚠️ THE QUOTING IS DELIBERATE: single quotes inside, matching `[role='option']` in
+ * the same sheet. The guard this replaces asserted `not.toContain("[role='menuitem']")`
+ * — a check on a SPELLING, which a double-quoted `[role="menuitem"]` would have
+ * walked straight past while the selector was back in the rule. Keeping one spelling
+ * is what makes that guard's replacement meaningful.
+ */
+export const MENU_ITEM_SELECTOR = "[role='menuitem']";
+
+/**
+ * Marks a control whose whole visible content is an ICON — no text at all, with an
+ * `aria-label` carrying the accessible name.
+ *
+ * 🔴 IT EXISTS BECAUSE THE 44px FLOOR WAS HEIGHT-ONLY, AND NOTHING HAD NEEDED MORE.
+ * Every other tap target in this app carries TEXT: a pack `Button`'s label, a segment, a
+ * `role="option"` row, a nav item. `components/Menu.tsx`'s `⋮` trigger is the app's FIRST
+ * text-less control — a 14×14 `<svg>` plus an `aria-label`, inside a `size="sm"` pack
+ * Button — so width became a candidate short axis for the first time, and the existing
+ * rule (which is `min-height` only, and in which `min-width` appears nowhere) does not
+ * floor it.
+ *
+ * ⚠️ THE GEOMETRIC PREMISE IS NOT MEASURED, AND A DRAFT STATED IT AS FACT. It said "text
+ * makes a box WIDER than 44px on its own", which this repo cannot check — jsdom resolves
+ * no layout, and the pack's horizontal padding is not in this tree. The nearest
+ * counterexample is in-tree: `VoteButton` is a 12×12 glyph beside a `minWidth: 14`
+ * single-digit count, also `size="sm"`, and nothing says that clears 44px either. So the
+ * honest form is narrower: every other tap target carries a MULTI-CHARACTER label and has
+ * never been reported too narrow, the `⋮` trigger carries NONE, and `VoteButton`'s
+ * single-digit case is owed the same live reading as the trigger. Do not read the
+ * not-widened decision below as resting on a measurement.
+ *
+ * 🔴 IT IS AN ATTRIBUTE THIS APP SETS, NOT A ROLE, AND THAT IS A KNOWN WEAKNESS rather
+ * than a preference. "This control's content is an icon" is not a state ARIA exposes, so
+ * there is nothing role-shaped to pin and an upstream `<civitai-menu>` trigger will not
+ * carry this attribute. {@link NAV_ITEM_SELECTOR} has the same weakness — the swap
+ * ORPHANS both — and {@link MENU_ITEM_SELECTOR} is the one that avoids it, by pinning a
+ * role the upstream element sets on its own light-DOM host; its docblock carries that
+ * argument. (⚠ A draft said `NAV_ITEM_SELECTOR` "says so"; it does not — it is three
+ * lines about being exported once. The weakness is recorded in `compactTapTargetCss`'s
+ * selector notes instead.) The reachability case in `mobile-responsive.test.tsx` is what
+ * turns the orphan into a failure rather than into a silently dead rule.
+ *
+ * 🔴 SCOPED TO THE ONE CONTROL RATHER THAN ADDED TO THE SHARED RULE, deliberately. A
+ * blanket `min-width: 44px` on `[data-civitai-ui='button']` would reach every button in
+ * the app — including the ones inside the results matrix's own scroller — and jsdom can
+ * measure NONE of that (see the ⚠ below). Flooring exactly the control that is under
+ * the floor is the change whose blast radius can be reasoned about without layout.
+ *
+ * ⚠️ WHAT IS *NOT* VERIFIED, AND WHAT IS OWED: jsdom performs no layout, so nothing in
+ * this repo can observe the trigger's RENDERED width — only that this declaration is in
+ * the emitted sheet and that its selector matches the live node (i.e. the CASCADE). A
+ * LIVE READING AT ≤{@link MOBILE_BREAKPOINT_PX}px IS OWED for this control and has not
+ * been taken. Do not read the tests as coverage of the tap target's actual size.
+ */
+export const ICON_BUTTON_SELECTOR = '[data-mb-icon-button]';
 
 /** The sidebar's column width, in px, on a wide viewport. */
 export const SIDEBAR_WIDTH_PX = 172;
@@ -95,16 +179,25 @@ export const TOOLTIP_GAP_PX = 6;
  *     LITERAL so each move is a decision someone takes rather than a drift.
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
+ *   - `[role='menuitem']`            → `components/Menu.tsx`'s items (Edit, and any
+ *     future single-press row action). See {@link MENU_ITEM_SELECTOR}.
  *   - `[data-mb-nav-item]`           → `SideNav`'s items (Home, My Benchmarks, and
  *     the three sub-items). See {@link NAV_ITEM_SELECTOR}.
  *
- * ⚠️ `[role='menuitem']` IS GONE FROM THE RULE, and it is a deletion with a
- * measurement behind it rather than a tidy-up: `ContributeMenu` — the only thing in
- * this app or the pack that ever emitted `role="menuitem"` — is deleted, replaced by
- * `SideNav`. Enumerated before removing it, which is the discipline the third
- * correction below exists to enforce: `grep -r "role=\"menuitem\"" src/` returns
- * nothing, and the pack emits none either (that was the original reason the local
- * menu's items were missed). If a menu ever comes back, so does the selector.
+ * ⚠️ `[role='menuitem']` LEFT THIS RULE AND HAS COME BACK, and both moves were
+ * correct at the time. It left because `ContributeMenu` — then the only emitter of
+ * that role in this app or the pack — was deleted by the sidebar change, and the
+ * removal was enumerated rather than assumed (`grep` for the role returned nothing,
+ * and the pack emits none either). It is back because the third IA pass added
+ * `components/Menu.tsx`, the ⋮ overflow menu on every matchup and prompt row, whose
+ * items carry the same `padding: 8px 10px` around a 13px line — ~34px.
+ *
+ * 🔴 WHAT THE RULE DOES *NOT* HAVE TO COVER, and the reason it does not: a menu's
+ * two CONFIRM-FLOW controls (Remove, Report) are pack `Button`s hosted inside the
+ * panel, not menuitems — a two-step handshake is not expressible as one menuitem,
+ * and the pack's `ReportButton` exposes no role hook. They are already floored by
+ * the `[data-civitai-ui='button']` selector at the top of this list. Enumerate the
+ * panel's controls before concluding this rule covers all of them.
  *
  * 🔴 THE LAST TWO ARE THE TAP TARGETS THIS APP BUILDS ITSELF, and BOTH shipped
  * below the floor — the same defect twice, one surface apart:
@@ -352,9 +445,23 @@ export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-range],
 [${COMPACT_ATTR}='true'] [role='option'],
+[${COMPACT_ATTR}='true'] ${MENU_ITEM_SELECTOR},
 [${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR} {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
+}
+
+/* 🔴 THE ONE CONTROL WHERE **WIDTH** IS THE SHORT AXIS. Every selector in the rule
+   above is a TEXT-BEARING control, so its label already carries it past 44px
+   horizontally and min-height was the only binding dimension — which is why min-width
+   appears nowhere else in this sheet. The ⋮ overflow trigger
+   (${ICON_BUTTON_SELECTOR}) has no text at all: a 14x14 glyph inside a size="sm" pack
+   Button, with an aria-label for the name. ICON_BUTTON_SELECTOR's docblock in this file
+   says why this is a separate rule rather than a widening of the one above, and records
+   the LIVE <=${MOBILE_BREAKPOINT_PX}px READING THAT IS STILL OWED — jsdom performs no
+   layout, so nothing here observes the rendered width. */
+[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR} {
+  min-width: ${MIN_TAP_TARGET_PX}px;
 }
 
 /* 🔴 THE SIDEBAR COLLAPSES TO A TOP BAR under ${MOBILE_BREAKPOINT_PX}px.

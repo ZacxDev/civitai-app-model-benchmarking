@@ -355,8 +355,14 @@ describe('🔴 the matrix/card seam: the open grid has no card, so it cannot re-
     const cards = screen.getAllByTestId('grid-card');
     const withStrip = cards.filter((el) => within(el).queryByTestId('grid-preview') !== null);
     expect(withStrip).toEqual(cards);
-    // …and nothing anywhere on the page still says "shown above": that note was the
-    // open CARD's content, and there is no open card.
+    // ⚠️ THE ONE ARCHAEOLOGY MARKER FOR THE DELETED "shown above" NOTE, and it is
+    // labelled as such rather than counted as coverage. `grid-preview-shown-above`
+    // appears NOWHERE in `src`, so this pins a WORD, not a state: a note reintroduced
+    // under a different spelling would satisfy it. It is kept HERE, once — there were
+    // three of these — because this is the case whose subject IS the partition that
+    // removed the note's only host (the open card). The real claim is the two
+    // assertions above: the open entry is absent from the list, and every listed card
+    // carries a strip.
     expect(screen.queryAllByTestId('grid-preview-shown-above')).toEqual([]);
   });
 });

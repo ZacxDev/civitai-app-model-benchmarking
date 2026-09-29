@@ -281,13 +281,19 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
 [`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
 directly, for the one publish path all three share — and
-[`archive.ts`](src/lib/archive.ts) (the author-side hide). The two that are **not**
-pure logic are the transport seam described in
+[`archive.ts`](src/lib/archive.ts) (the author-side hide) and
+[`roving.ts`](src/lib/roving.ts) (the arrow-key index arithmetic the sidebar and the
+row menu share — it was open-coded in both and wrong in both the same way). The two
+that are **not** pure logic are the transport seam described in
 [Two transports, one block](#two-transports-one-block):
 [`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes
 from `@civitai/sdk` — the snapshot readers, the host-UI calls, and the three REST
 families) and [`sdk-transport.ts`](src/lib/sdk-transport.ts) (the adapter that lets
-ONE bridge transport serve both packages, so the block never stands up two).
+ONE bridge transport serve both packages, so the block never stands up two). One
+module is neither pure logic nor transport: [`sourceScan.ts`](src/lib/sourceScan.ts)
+reads `node:fs` and exists only for the structural test guards (the `src/` walker and
+the production-import walk they share). Nothing in production may import it, and
+`navigationDormancy.test.ts`'s scaffolding ledger asserts that it does not.
 
 <!-- lib-inventory:end -->
 

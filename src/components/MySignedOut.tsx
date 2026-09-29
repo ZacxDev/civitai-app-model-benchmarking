@@ -42,17 +42,31 @@
 
 import { Button, Stack } from '@civitai/blocks-react/ui';
 
+import type { MyNoun } from '../types.js';
 import { EmptyState } from './EmptyState.js';
 
-/**
- * The object kind this panel is standing in for — the discriminant in its testids.
- *
- * 🔴 THREE NOUNS. It was three, then two (the IA refactor deleted the grids sub-tabs
- * and `'grid'` outlived its only caller), and it is three again for a reason that is
- * stated rather than assumed: My Benchmarks has a Grids destination, and it renders
- * this panel when nobody is signed in.
- */
-export type MyNoun = 'grid' | 'matchup' | 'prompt';
+// ── WHY `MyNoun` HAS THREE MEMBERS — the history, not this panel's docs ──
+//
+// (⚠ Deliberately NOT `{@link MyNoun}`: that only resolves inside a JSDoc block, and this
+// one was demoted out of JSDoc on purpose — see the next paragraph. A live-looking link
+// tag in a `//` comment is a small claim that the tooling will honour it, and it will not.)
+//
+// ⚠️ THIS WAS A `/** … */` DOCBLOCK AND IT WAS ORPHANED. It documented the `MyNoun`
+// union while that union was DECLARED here; the declaration moved to `../types.js` and
+// the block stayed, which left a JSDoc opening "The object kind this panel is standing in
+// for" attached to `MyTabSignedOut` — i.e. tooling and readers both took it as the
+// COMPONENT's documentation, describing a noun rather than a panel. Demoted to a plain
+// comment so it documents nothing by accident. The content is unchanged and still worth
+// keeping: it is the reason the set is the size it is.
+//
+// 🔴 THREE NOUNS. It was three, then two (the IA refactor deleted the grids sub-tabs and
+// `'grid'` outlived its only caller), and it is three again for a reason that is stated
+// rather than assumed: My Benchmarks has a Grids destination, and it renders this panel
+// when nobody is signed in.
+//
+// ⚠️ THE UNION ITSELF IS NO LONGER DECLARED HERE. It was declared identically in this
+// file, `SideNav.tsx` and `MyPublished.tsx`; it lives in `../types.js` now, so the
+// "three nouns" decision is made in ONE place and this panel cannot fall behind it.
 
 export function MyTabSignedOut({
   noun,

@@ -16,12 +16,34 @@
 // ⚠ ROLE NOTE for anyone porting a query from the dropdown this replaced: its trigger
 // was `aria-haspopup="menu"` and its items were `role="menuitem"`. These are plain
 // `<button>`s inside a `role="list"`; `getAllByRole('menuitem')` finds nothing.
+//
+// ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
+//
+// THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/sideNav.test.tsx` and
+// `src/components/SideNav.tsx` were both added by `8a4b681`, and NEITHER exists on
+// `origin/main` (verified: `git ls-tree -r --name-only origin/main -- src` matches
+// neither). So there is no tree in which these cases exist and their subject does not —
+// "0 of 19 red at base" is a STRUCTURAL fact about a new file and says nothing about
+// coverage. **Do not count these cases as regression coverage.** They are INVARIANT
+// GUARDS on behaviour a hand-built nav has to provide and an upstream component would
+// have given for free, validated by MUTATION (break the behaviour, watch the case go
+// red) and never by a red base.
+//
+// ⚠️ AND A METHOD WARNING FOR WHOEVER TRIES TO TAKE A BASE READING ANYWAY.
+// `git checkout <older-ref> -- <dir>` RESTORES tracked files but CANNOT DELETE files
+// that are new in HEAD (verified directly, in a scratch repo: a file added in HEAD
+// survives `git checkout HEAD~1 -- src/`). So a "base" built that way is a HYBRID tree —
+// the older commit's tracked files PLUS every file HEAD added — and must not be
+// described as a checkout of the older commit. An earlier write-up of these cases did
+// exactly that, and also named the wrong branch as the one lacking the component.
+// To get a real base here, check out the ref itself in a clean worktree.
+// `src/myBenchmarks.test.tsx` carries the same label for its own cases.
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { NAV_DEPTH_STEP_PX, SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
+import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
 
 /**
  * The five items, as `[testid, visible label, depth, the view selecting it produces]`.
@@ -101,27 +123,85 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
     );
   });
 
-  it('🔴 expresses nesting as the UPSTREAM depth custom property, at the upstream step', async () => {
-    // 🔴 THE POINT OF PINNING THIS IS THE SWAP, not the pixels. Upstream
-    // `<civitai-nav-item>` carries `--civitai-nav-depth` at 14px per level; mirroring
-    // the same property NAME and the same STEP is what makes the indent survive an
-    // element swap untouched. A `paddingLeft` alone would have to be re-derived.
-    //
-    // ⚠️ jsdom resolves no layout, so this reads the DECLARED custom property, never a
-    // rendered offset.
+  // ───────────────────────────────────────────────────────────────────────────
+  // 🔴 DELETED: 'expresses nesting as the UPSTREAM depth custom property, at the
+  // upstream step'. RE-ADD IT AT SWAP TIME — it is not retired, it is premature.
+  //
+  // It asserted that every item declares `--civitai-nav-depth` equal to its depth, and
+  // that `NAV_DEPTH_STEP_PX` is 14. It CANNOT observe what its name claims. Its only
+  // comparand for "the upstream step" was `NAV_DEPTH_STEP_PX`, imported from the
+  // component under test, and the pinned `@civitai/components@0.4.1` installed here
+  // SHIPS NO NAV ELEMENT AT ALL — so drift from the real 0.8.1 / 0.9.0 shape (a
+  // different property name, a different step, or depth expressed some other way) is
+  // structurally invisible to it. It could only ever fail if someone edited this repo's
+  // own constant, which is not the hazard the case was written for.
+  //
+  // What to do instead, when the five-package bump lands (`SideNav.tsx`'s header has the
+  // gate): re-add it with the REAL element as the comparand — mount a
+  // `<civitai-nav-item>` at two depths and read the property off it, then assert this
+  // file's mirror agrees. That is a relationship between two things and can be red.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 🔴 THE INDENT WAS DEAD ON ARRIVAL, AND THIS IS THE CASE THAT WOULD HAVE SEEN IT.
+   *
+   * `itemStyle` set `paddingLeft: calc(...)` and then, LATER IN THE SAME OBJECT,
+   * `padding: '6px 10px'`. React serialises a style object in INSERTION ORDER, so the
+   * shorthand reset `padding-left` and every row rendered at 10px — Home, My Benchmarks
+   * and its three sub-items all at the same inset, i.e. no visual hierarchy in the
+   * page's only primary navigation. Measured before the fix with
+   * `renderToStaticMarkup`: emitted
+   * `padding-left:calc(10px + 14px);…;padding:6px 10px`, effective `padding-left` 10px
+   * at depths 0, 1 AND 2 where 10/24/38px was intended.
+   *
+   * 🔴 IT SHIPPED BECAUSE THE WITNESS WAS POINTED AT THE WRONG PROPERTY. The deleted
+   * case above asserted `--civitai-nav-depth` — which NOTHING IN THIS TREE CONSUMES —
+   * so it stayed green while the visible indent was gone. Assert the property that
+   * MOVES THE ROW.
+   *
+   * 🔴 LITERALS, NOT `NAV_DEPTH_STEP_PX`. Deriving the expectation from the component's
+   * own constant is precisely what made the deleted case unable to fail. jsdom folds the
+   * sum, so `calc(10px + 14px)` reads back as `calc(24px)`; the shorthand mutant reads
+   * back as a bare `10px`, which differs from the depth-0 literal too — so even the
+   * depth-0 row discriminates.
+   *
+   * This asserts a DECLARED value, which jsdom does give. It is NOT a layout claim:
+   * jsdom computes no layout, so whether the indent is legible on screen is still owed
+   * to a live reading.
+   */
+  it('🔴 indents by DEPTH on the property that actually moves the row', async () => {
     renderNav();
     await expand();
 
-    expect(NAV_DEPTH_STEP_PX).toBe(14);
-    for (const [testid, , depth] of ITEMS) {
-      expect(
-        screen.getByTestId(testid).style.getPropertyValue('--civitai-nav-depth'),
-        `${testid} does not declare its depth`,
-      ).toBe(String(depth));
+    // Positive control first: a nav whose rows did not render would satisfy every
+    // assertion below vacuously.
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+
+    const paddingLeftOf = (testid: string) => screen.getByTestId(testid).style.paddingLeft;
+
+    // ⚠️ AND NOT `style.padding`. A draft of this case also asserted the shorthand was
+    // EMPTY, on the assumption that writing four longhands leaves it unset. MEASURED in
+    // jsdom 25.0.1, that is false — CSSOM SYNTHESISES it, and four longhands report
+    // `padding: "6px 10px 6px calc(24px)"`. So an empty-shorthand assertion cannot tell
+    // "no shorthand was written" from "four longhands were", i.e. it could never have
+    // discriminated the bug. `padding-left` is the whole discriminator: the broken tree
+    // reports a bare `10px`, this one reports `calc(...)`.
+    //
+    // Depth 0 — the two top-level rows.
+    expect(paddingLeftOf('nav-home')).toBe('calc(10px)');
+    expect(paddingLeftOf('nav-my')).toBe('calc(10px)');
+
+    // Depth 1 — every sub-item, indented by exactly one step.
+    for (const testid of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
+      expect(paddingLeftOf(testid), `${testid} lost its depth indent`).toBe('calc(24px)');
     }
-    // …and the two levels really differ, so the property is not a constant.
-    const depths = new Set(ITEMS.map(([, , d]) => d));
-    expect(depths.size).toBe(2);
+
+    // 🔴 And the RELATIONSHIP, stated independently of the literals above: a sub-item is
+    // not indented the same as its parent. That is the sentence the feature is about, and
+    // it goes red on any mutation that flattens the nav however it spells the values.
+    expect(screen.getByTestId('nav-my-grid').style.paddingLeft).not.toBe(
+      screen.getByTestId('nav-my').style.paddingLeft,
+    );
   });
 
   it('shows the expandable state as a CHEVRON, and moves it in both directions', async () => {

@@ -31,7 +31,15 @@
 //   - an item's expandable state shown as a CHEVRON;
 //   - nesting expressed as a DEPTH VALUE — upstream's custom property is
 //     `--civitai-nav-depth`, at 14px per level. This file sets the same property
-//     name and the same step, so the indent survives the swap untouched.
+//     name and the same step, so the DECLARATION survives the swap untouched.
+//     🔴 BUT IT IS INERT ON THIS TREE AND THE SENTENCE USED TO IMPLY OTHERWISE. It
+//     read "so the INDENT survives the swap untouched", which reads as "the custom
+//     property is what indents a row". It is not: NOTHING in this tree consumes
+//     `--civitai-nav-depth` (verified by `git grep` across `src`), and `padding-left`
+//     is the only thing that moves a row here — which is exactly how the indent came
+//     to be dead at every level while looking correct in the source. `itemStyle`'s
+//     comment carries that measurement. Same defect class as `Menu.tsx`'s upstream
+//     block: a second-hand upstream mechanism written up as if it were live here.
 //   - `aria-current` on the active item.
 //
 // 🔴 TWO KNOWN SNAGS, both of which cost work at swap time and neither of which is a
@@ -74,10 +82,19 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import type { MyNoun } from '../types.js';
+import { rovingTarget } from '../lib/roving.js';
 import { radius, token } from '../theme.js';
 
-/** Which of the viewer's own object kinds a My Benchmarks sub-item names. */
-export type MyNoun = 'grid' | 'matchup' | 'prompt';
+/**
+ * Which of the viewer's own object kinds a My Benchmarks sub-item names.
+ *
+ * 🔴 RE-EXPORTED, NOT RE-DECLARED. The union lived here AND in `MyPublished.tsx` AND in
+ * `MySignedOut.tsx`, three identical copies with nothing keeping them in step. It is
+ * declared once in `../types.js` now; this re-export keeps the name reachable from the
+ * nav module, which is where `MainView` needs it.
+ */
+export type { MyNoun };
 
 /**
  * The selected view.
@@ -119,10 +136,28 @@ export interface SideNavProps {
 /** One row of the nav. `depth` is expressed the way upstream expresses it. */
 function itemStyle(depth: number, active: boolean): React.CSSProperties {
   return {
-    // 🔴 THE CUSTOM PROPERTY IS UPSTREAM'S NAME AND STEP, so the indent is
-    // byte-identical after the swap and the `padding-left` below can simply go.
+    // 🔴 NO `padding` SHORTHAND IN THIS OBJECT, AND THAT IS THE WHOLE POINT.
+    // It read `paddingLeft: calc(…)` followed LATER by `padding: '6px 10px'`, and
+    // React serialises a style object in INSERTION ORDER — so the shorthand reset
+    // `padding-left` to 10px and the depth indent was DEAD at every level.
+    // Measured with `renderToStaticMarkup`, the emitted declaration was
+    //   `padding-left:calc(10px + 14px);…;padding:6px 10px;padding-right:10px`
+    // and the effective `padding-left` came out **10px for depth 0, 1 AND 2**
+    // where 10/24/38px was intended. Every row rendered at the same inset, so the
+    // sidebar — this page's only primary navigation — had no visual hierarchy,
+    // in the wide rail and in the <=720px top bar alike.
+    //
+    // 🔴 THE CUSTOM PROPERTY IS WHY NOBODY NOTICED, and it did not save it:
+    // NOTHING in this tree consumes `--civitai-nav-depth`. It is upstream's name
+    // and step, set so the eventual `<civitai-nav-item>` swap inherits the same
+    // indent — but on THIS tree `padding-left` is the only thing that moves a row.
+    // Setting the property LOOKED like the mechanism while being inert decoration.
+    //
+    // So the four sides are spelled out individually. Reintroducing `padding:`
+    // here silently re-breaks the indent; `sideNav.test.tsx`'s depth case is what
+    // catches that, and it asserts the DECLARED value (readable in jsdom) rather
+    // than a computed layout (which jsdom cannot give).
     ['--civitai-nav-depth' as string]: String(depth),
-    paddingLeft: `calc(10px + ${depth * NAV_DEPTH_STEP_PX}px)`,
     appearance: 'none',
     display: 'flex',
     alignItems: 'center',
@@ -133,8 +168,10 @@ function itemStyle(depth: number, active: boolean): React.CSSProperties {
     fontSize: 13,
     fontWeight: active ? 600 : 400,
     cursor: 'pointer',
-    padding: '6px 10px',
+    paddingTop: 6,
+    paddingBottom: 6,
     paddingRight: 10,
+    paddingLeft: `calc(10px + ${depth * NAV_DEPTH_STEP_PX}px)`,
     borderRadius: radius.sm,
     border: '1px solid transparent',
     background: active ? token.surface : 'transparent',
@@ -191,9 +228,12 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
     );
     if (items.length === 0) return;
     e.preventDefault();
+    // 🔴 SHARED WITH `Menu`'s panel through `lib/roving.ts` — the two were open-coded
+    // copies of the same expression and wrong in the same way (ArrowUp from outside
+    // the set landed second-to-last, because `indexOf` is -1 there).
     const i = items.indexOf(document.activeElement as HTMLElement);
     const step = e.key === 'ArrowDown' ? 1 : -1;
-    items[(i + step + items.length) % items.length]!.focus();
+    items[rovingTarget(items.length, i, step)]!.focus();
   };
 
   /**

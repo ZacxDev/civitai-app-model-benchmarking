@@ -16,12 +16,44 @@
 //
 // 🔴 "Matchup" is the USER-FACING name only. The wire value stays
 // `data.kind: 'combination'` and the parsed row type is still `CombinationRow`.
+//
+// ── 🔴 THE THIRD IA PASS: BADGES OUT, ACTIONS INTO A MENU, TITLES INTO LINKS ──
+//
+// Three operator decisions, recorded here because each DELETED something a test
+// used to assert and none of them is a refactor:
+//
+//   1. EVERY BADGE IS GONE — `matchup-included` (with its tooltip), the
+//      `matchup-config-count` pill, and the per-ecosystem pills, which carried no
+//      testid. The row's identity is its NAME; four pills beside it were reading
+//      as chrome. The prompt side lost its badges in the same pass (the operator
+//      confirmed the ecosystem pills there go too), so the two modals are
+//      symmetric. Consequence worth stating: `INCLUDED_ROW_TOOLTIP` had no render
+//      site left and is DELETED, and the case in `IncludedSummary.test.tsx` that
+//      pinned its whole string is RETIRED — see that file for why retiring it
+//      rather than retargeting it is the honest move. The `matchups-included-
+//      summary` COPY is a different thing and is untouched.
+//   2. EDIT / REMOVE / REPORT MOVED INTO A `⋮` MENU (`./Menu.tsx`). They are
+//      row-level overflow actions and three buttons on a list row out-shouted the
+//      row itself. `extraActions` (Archive / Unarchive in the My list) stays
+//      OUTSIDE the menu on purpose: it is a caller-supplied slot that the GRID
+//      cards also fill, and moving it in only here would make the same control
+//      live in two different places on two surfaces.
+//   3. RESOURCE TITLES GO THROUGH `ResourceName`, WHICH RENDERS PLAIN TEXT.
+//      🔴 THIS SHIPPED AS LINKS AND THE LINKS WERE REMOVED BEFORE RELEASE — said
+//      here rather than quietly reverted, because the next person to read this
+//      modal will have the same idea. All three routes out of a block's sandboxed
+//      iframe are shut, and the one that is *permitted* (a popup) would land the
+//      viewer on civitai.com LOGGED OUT, because the popup inherits an opener with
+//      no `allow-same-origin`. Measured on the live iframe:
+//      `sandbox="allow-scripts allow-forms"`, i.e. `trustTier: 'unverified'`. The
+//      whole record, and what would unlock it, is in `./ResourceName.tsx`'s header;
+//      filed as `civitai/civitai` #5209. (It used to point at `lib/resourceLink.ts`,
+//      which is deleted.) Nothing here may advertise an action it cannot perform.
 
 import type { ReactNode } from 'react';
 
-import { Badge, Button, Group, Stack } from '@civitai/blocks-react/ui';
+import { Group, Stack } from '@civitai/blocks-react/ui';
 import { ReportButton } from '@civitai/blocks-react/ui';
-import { Tooltip } from '@civitai/components-react';
 
 import { Fragment } from 'react';
 
@@ -29,31 +61,24 @@ import type { CombinationRow } from '../types.js';
 import { isOwnRow } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { metaText, mutedText, token } from '../theme.js';
+import { Menu, MenuControl, MenuItem } from './Menu.js';
+import { ResourceName } from './ResourceName.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
-/**
- * The "Included" badge's tooltip.
- *
- * 🔴 EXPORTED SO A TEST CAN PIN THE WHOLE STRING. It is a CLAIM about what the
- * badge means, and this claim has now been wrong TWICE. First it read "Change how
- * many in the Grid tab", naming the per-viewer `Slider` that 527 deleted. Then it
- * read "build a grid in the Grids tab" — and the IA refactor deleted the tab
- * strip, so there is no Grids *tab* to go to; the grids list is a section on the
- * one page. A keyword guard would have stayed green through both rewords; the
- * whole normalised string is what makes the claim machine-readable, and a
- * cosmetic reword failing the test is the price of that.
- */
-export const INCLUDED_ROW_TOOLTIP =
-  'Included: currently in the top by votes, so its model configs are rows of the ' +
-  'system-owned Top Grid — ranked over the entries this app has loaded. To pick ' +
-  'your own rows, build a grid in the Grids section on this page.';
-
 export interface MatchupBodyProps {
   combo: CombinationRow;
-  /** Is this matchup in the top-N that forms the Top Grid's rows? */
-  included: boolean;
   voted: boolean;
+  /**
+   * This viewer has already REPORTED this row.
+   *
+   * 🔴 IT COMES FROM `App`, NOT FROM `ReportButton`'s LOCAL STATE, and moving Report
+   * into the `⋮` menu is what made that necessary: `Menu` unmounts its panel on any
+   * outside `mousedown` and on Escape, so a settled "Reported for review" lasted until
+   * the viewer's next click and the menu then offered Report again. `report()` is not
+   * documented idempotent, so that is a duplicate report. See `App.reportedKeys`.
+   */
+  reported: boolean;
   viewerId: number | null;
   /**
    * Render the FULL config list instead of the one-line summary.
@@ -66,9 +91,9 @@ export interface MatchupBodyProps {
   onVote: (key: string) => Promise<number> | void;
   onUnvote: (key: string) => Promise<number> | void;
   onRequireAuth: () => void;
-  /** Edit — rendered only for the author. Omitted by callers with no edit path. */
+  /** Edit — offered only to the author. Omitted by callers with no edit path. */
   onEdit?: (combo: CombinationRow) => void;
-  /** Withdraw — rendered only for the author. */
+  /** Withdraw — offered only to the author. */
   onWithdraw?: (key: string) => Promise<void> | void;
   onReport: (key: string) => Promise<void>;
   /** Caller-supplied extra control (Archive / Unarchive in the My list). */
@@ -77,8 +102,8 @@ export interface MatchupBodyProps {
 
 export function MatchupBody({
   combo,
-  included,
   voted,
+  reported,
   viewerId,
   detail = false,
   onVote,
@@ -90,36 +115,18 @@ export function MatchupBody({
   extraActions,
 }: MatchupBodyProps): React.JSX.Element {
   const isOwn = isOwnRow(combo, viewerId);
-  // Distinct ecosystems across the combo's configs (in first-seen order).
-  const ecos: string[] = [];
-  for (const cfg of combo.data.configs) {
-    const e = ecosystemForBaseModel(cfg.checkpoint.baseModel);
-    if (!ecos.includes(e)) ecos.push(e);
-  }
+  // Author-scoped affordances — see isOwnRow (the one ownership guard). Report is
+  // their mirror: offered only on rows the viewer does NOT own, and only when
+  // signed in (the host rejects an anonymous report, and an owner has Remove).
+  // Filing does NOT hide the row; see ReportButton.
+  const canEdit = isOwn && onEdit !== undefined;
+  const canWithdraw = isOwn && onWithdraw !== undefined;
+  const canReport = !isOwn && viewerId != null;
 
   return (
     <Group justify="space-between" align="flex-start">
       <Stack gap={4} style={{ minWidth: 0 }}>
-        <Group gap={8}>
-          <strong>{combo.name || `#${combo.key}`}</strong>
-          {included && (
-            <Tooltip label={INCLUDED_ROW_TOOLTIP}>
-              <span tabIndex={0} style={{ display: 'inline-flex', borderRadius: 999, cursor: 'help' }}>
-                <Badge color="success" variant="light" data-testid="matchup-included">
-                  Included
-                </Badge>
-              </span>
-            </Tooltip>
-          )}
-          <Badge variant="light" data-testid="matchup-config-count">
-            {combo.data.configs.length} config{combo.data.configs.length === 1 ? '' : 's'}
-          </Badge>
-          {ecos.map((e) => (
-            <Badge key={e} variant="light" size="sm">
-              {ecosystemMeta(e).label}
-            </Badge>
-          ))}
-        </Group>
+        <strong>{combo.name || `#${combo.key}`}</strong>
         {combo.description && <span style={mutedText}>{combo.description}</span>}
         {detail ? (
           <Stack gap={6} data-testid="matchup-detail-configs" style={{ marginTop: 4 }}>
@@ -130,11 +137,14 @@ export function MatchupBody({
                 data-testid="matchup-detail-config"
                 style={{ paddingLeft: 10, borderLeft: `2px solid ${token.border}` }}
               >
-                <span style={{ fontSize: 13, fontWeight: 600 }}>
-                  {cfg.label?.trim() ||
+                <ResourceName
+                  name={
+                    cfg.label?.trim() ||
                     cfg.checkpoint.modelName ||
-                    `Checkpoint #${cfg.checkpoint.versionId}`}
-                </span>
+                    `Checkpoint #${cfg.checkpoint.versionId}`
+                  }
+                  style={{ fontSize: 13, fontWeight: 600 }}
+                />
                 <span style={metaText}>
                   {ecosystemMeta(ecosystemForBaseModel(cfg.checkpoint.baseModel)).label}
                   {cfg.checkpoint.versionName ? ` · ${cfg.checkpoint.versionName}` : ''}
@@ -144,7 +154,14 @@ export function MatchupBody({
                     {cfg.loras.map((l, i) => (
                       <Fragment key={`${l.versionId}:${i}`}>
                         {i > 0 && ' · '}
-                        {l.modelName ?? `LoRA #${l.versionId}`} @ {l.weight}
+                        {/* 🔴 `l.modelId` IS DELIBERATELY NOT READ HERE. It is
+                            stored and round-tripped (see `LoraRef.modelId`) so the
+                            data is accumulating for the day the trust tier changes
+                            — but a field that exists is not an affordance, and
+                            rendering a link off it today would be the dead control
+                            `ResourceName`'s header forbids. */}
+                        <ResourceName name={l.modelName ?? `LoRA #${l.versionId}`} />
+                        {` @ ${l.weight}`}
                       </Fragment>
                     ))}
                   </span>
@@ -167,30 +184,36 @@ export function MatchupBody({
         )}
       </Stack>
       <Group gap={6} align="center">
-        {/* Author-scoped affordances — see isOwnRow (the one ownership guard). */}
-        {isOwn && onEdit && (
-          <Button size="sm" variant="subtle" onClick={() => onEdit(combo)} data-testid="matchup-edit">
-            Edit
-          </Button>
-        )}
         {extraActions}
-        {isOwn && onWithdraw && (
-          <WithdrawButton
-            noun="matchup"
-            onWithdraw={() => onWithdraw(combo.key)}
-            data-testid="matchup-withdraw"
-          />
-        )}
-        {/* Escalation, and the mirror image of the two above: offered only on rows
-            the viewer does NOT own, and only when signed in — the host rejects an
-            anonymous report, and an owner has Remove. Filing does NOT hide the
-            row; see ReportButton. */}
-        {!isOwn && viewerId != null && (
-          <ReportButton
-            noun="matchup"
-            onReport={() => onReport(combo.key)}
-            data-testid="matchup-report"
-          />
+        {(canEdit || canWithdraw || canReport) && (
+          <Menu
+            label="Matchup actions"
+            data-testid="matchup-menu"
+            panelTestId="matchup-menu-items"
+          >
+            {canEdit && (
+              <MenuItem label="Edit" onSelect={() => onEdit!(combo)} data-testid="matchup-edit" />
+            )}
+            {canWithdraw && (
+              <MenuControl>
+                <WithdrawButton
+                  noun="matchup"
+                  onWithdraw={() => onWithdraw!(combo.key)}
+                  data-testid="matchup-withdraw"
+                />
+              </MenuControl>
+            )}
+            {canReport && (
+              <MenuControl>
+                <ReportButton
+                  noun="matchup"
+                  reported={reported}
+                  onReport={() => onReport(combo.key)}
+                  data-testid="matchup-report"
+                />
+              </MenuControl>
+            )}
+          </Menu>
         )}
         <VoteButton
           count={combo.count}

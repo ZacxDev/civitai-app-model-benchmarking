@@ -15,11 +15,13 @@
 import { useState } from 'react';
 import { Button, Group } from '@civitai/blocks-react/ui';
 
+import type { MyNoun } from '../types.js';
 import { metaText } from '../theme.js';
 
 export interface WithdrawButtonProps {
-  /** What the row is, for the accessible name + confirm copy. */
-  noun: 'matchup' | 'prompt' | 'grid';
+  /** What the row is, for the accessible name + confirm copy. The shared
+   * {@link MyNoun} union — see `src/types.ts`. */
+  noun: MyNoun;
   /** Fires ONLY after the viewer confirms. */
   onWithdraw: () => Promise<void> | void;
   'data-testid'?: string;
