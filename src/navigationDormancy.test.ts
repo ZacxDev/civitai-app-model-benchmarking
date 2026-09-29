@@ -47,12 +47,20 @@ import { describe, expect, it } from 'vitest';
  * only produce a false RED, never a false green — so it is left as is and described
  * accurately instead of narrowed.
  *
- * 🔴 AND TWO OF THOSE FOUR REALLY ARE PRODUCTION-REACHABLE, which is the positive reason
- * not to narrow it: `src/main.tsx` imports `./Harness.js` STATICALLY (the harness is
- * selected by a runtime env flag, not by a conditional import), and `Harness.tsx` pulls
- * in `demo-data.ts` — so both sit in the production entry's dependency graph. Only
- * `test-helpers.tsx` and `test-harness.tsx` are genuinely test-only. Do not "fix" the
- * filter to match the old sentence.
+ * 🔴 AND THREE OF THOSE FOUR REALLY ARE PRODUCTION-REACHABLE, which is the positive
+ * reason not to narrow it. The chain, traced rather than assumed: `src/main.tsx` imports
+ * `./Harness.js` STATICALLY (the harness is selected by a runtime env flag, not by a
+ * conditional import), and `Harness.tsx` imports BOTH `./test-harness.js` AND
+ * `./demo-data.js`. So `Harness.tsx`, `test-harness.tsx` and `demo-data.ts` all sit in
+ * the production entry's dependency graph. Only `test-helpers.tsx` is genuinely
+ * test-only — nothing outside a `*.test.*` file imports it (the two non-test files that
+ * match its name mention it in PROSE, which is exactly the confusion the stripper below
+ * exists for). Do not "fix" the filter to match the old sentence.
+ *
+ * ⚠️ A draft of this paragraph said TWO of four and named `test-harness.tsx` as
+ * test-only. Wrong: it is reached through `Harness.tsx`. Corrected by following the
+ * imports instead of guessing from the file name — which is the whole hazard a name like
+ * "test-harness" creates.
  */
 function scannedSources(dir: string): string[] {
   const out: string[] = [];

@@ -97,15 +97,21 @@ export type PublishableNoun = 'matchup' | 'prompt' | 'grid';
  *   grid arm diverge — "there is no Published by you for grids" — is false again.
  *
  * 🔴 SO THE ONLY SURVIVING DIVERGENCE IS THE EDIT CLAUSE, and it is real: `App.tsx`
- * has `updateCombination` and `updatePrompt` and NO `updateGrid`, and NEITHER grid card
- * offers an Edit — `GridsView`'s community card offers Open / Remove / Report / Vote,
- * and `MyGridsView`'s own card offers Remove plus `MyPublished`'s Archive. (Stated as
- * two cards on purpose: an earlier draft of this paragraph listed
- * "Remove, Archive, Vote and Report" as one card's controls, and no single card has all
- * four — Archive is only on the viewer's own surface, Vote and Report only on the
- * community board.) A published grid can be withdrawn and rebuilt, not edited — so
- * "to edit or remove it" would send the viewer looking for a control this app does not
- * have.
+ * has `updateCombination` and `updatePrompt` and NO `updateGrid`. The claim worth making
+ * is the ABSENCE, because it holds on every grid card in every case: NO grid card, on
+ * either surface, ever renders an Edit control. What they DO render is conditional and
+ * therefore not a list — `GridsView`'s community card always has Open, plus Remove only
+ * when the row is the viewer's, Report only when it is NOT and they are signed in, and
+ * Vote only for a non-system entry; `MyGridsView`'s own card has Remove plus whichever
+ * of Archive / Unarchive `MyPublished` supplies.
+ *
+ * ⚠️ TWO EARLIER DRAFTS GOT THIS WRONG IN THE SAME WAY, by writing a UNION of
+ * conditional controls as though it were one card's contents ("Remove, Archive, Vote and
+ * Report"). No single card has all of those. State the absence, which is unconditional;
+ * enumerating affordances invites exactly this error.
+ *
+ * A published grid can be withdrawn and rebuilt, not edited — so "to edit or remove it"
+ * would send the viewer looking for a control this app does not have.
  *
  * ⚠️ WHAT WAS DROPPED FROM THE GRID ARM AND WHY. "badged Yours" was true — the
  * `grid-own-badge` survives — but it points at the COMMUNITY board, a different
