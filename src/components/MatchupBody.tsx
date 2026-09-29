@@ -38,11 +38,17 @@
 //      OUTSIDE the menu on purpose: it is a caller-supplied slot that the GRID
 //      cards also fill, and moving it in only here would make the same control
 //      live in two different places on two surfaces.
-//   3. RESOURCE TITLES ARE LINKS in the DETAIL view only — see `ResourceLink`,
-//      and read `lib/resourceLink.ts` for what the host actually does with the
-//      path, which is measured and is not what the docs say. The card summary
-//      stays plain text: it is a list row that already has a drill-in, and a row
-//      of links inside a clickable band is two competing affordances.
+//   3. RESOURCE TITLES GO THROUGH `ResourceName`, WHICH RENDERS PLAIN TEXT.
+//      🔴 THIS SHIPPED AS LINKS AND THE LINKS WERE REMOVED BEFORE RELEASE — said
+//      here rather than quietly reverted, because the next person to read this
+//      modal will have the same idea. All three routes out of a block's sandboxed
+//      iframe are shut, and the one that is *permitted* (a popup) would land the
+//      viewer on civitai.com LOGGED OUT, because the popup inherits an opener with
+//      no `allow-same-origin`. Measured on the live iframe:
+//      `sandbox="allow-scripts allow-forms"`, i.e. `trustTier: 'unverified'`. The
+//      whole record, and what would unlock it, is in `lib/resourceLink.ts`; filed
+//      as `civitai/civitai` #5209. Nothing here may advertise an action it cannot
+//      perform.
 
 import type { ReactNode } from 'react';
 
@@ -56,7 +62,7 @@ import { isOwnRow } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { metaText, mutedText, token } from '../theme.js';
 import { Menu, MenuControl, MenuItem } from './Menu.js';
-import { ResourceLink } from './ResourceLink.js';
+import { ResourceName } from './ResourceName.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
@@ -120,17 +126,12 @@ export function MatchupBody({
                 data-testid="matchup-detail-config"
                 style={{ paddingLeft: 10, borderLeft: `2px solid ${token.border}` }}
               >
-                {/* `checkpoint.modelId` is REQUIRED on the wire (and a row whose
-                    checkpoint lacks it does not parse at all — see
-                    `parseCheckpoint`), so a checkpoint title is always a link. */}
-                <ResourceLink
+                <ResourceName
                   name={
                     cfg.label?.trim() ||
                     cfg.checkpoint.modelName ||
                     `Checkpoint #${cfg.checkpoint.versionId}`
                   }
-                  modelId={cfg.checkpoint.modelId}
-                  versionId={cfg.checkpoint.versionId}
                   style={{ fontSize: 13, fontWeight: 600 }}
                 />
                 <span style={metaText}>
@@ -142,15 +143,13 @@ export function MatchupBody({
                     {cfg.loras.map((l, i) => (
                       <Fragment key={`${l.versionId}:${i}`}>
                         {i > 0 && ' · '}
-                        {/* 🔴 `LoraRef.modelId` IS OPTIONAL AND ALWAYS WILL BE for
-                            rows published before it existed — `ResourceLink`
-                            renders those as plain, un-underlined text rather than
-                            as a link that goes nowhere. */}
-                        <ResourceLink
-                          name={l.modelName ?? `LoRA #${l.versionId}`}
-                          modelId={l.modelId}
-                          versionId={l.versionId}
-                        />
+                        {/* 🔴 `l.modelId` IS DELIBERATELY NOT READ HERE. It is
+                            stored and round-tripped (see `LoraRef.modelId`) so the
+                            data is accumulating for the day the trust tier changes
+                            — but a field that exists is not an affordance, and
+                            rendering a link off it today would be the dead control
+                            `ResourceName`'s header forbids. */}
+                        <ResourceName name={l.modelName ?? `LoRA #${l.versionId}`} />
                         {` @ ${l.weight}`}
                       </Fragment>
                     ))}
