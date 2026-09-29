@@ -1,30 +1,53 @@
-# Handoff: IA refactor landed, 0.4.6 live, 0.4.7 unreleased — 2026-09-27
+# Handoff: model-benchmarking IA — sidebar/subnav/modals, 0.4.9 — 2026-09-29
+
+⚠️ **Slug is `ia-refactor-landed` for continuity — the EFFORT is this app block's IA work,
+and this doc is updated in place rather than forked.** The one-page-IA arc it was named
+for CLOSED 2026-09-28; two further operator feedback rounds opened the arc below. Ranks 4
+and 5 are carried forward from that arc and are still live — do not drop them.
 
 ## Run this first — the index, one command
 ```bash
 cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
 ```
+Terse pointers this doc does not carry, curated by past sessions and outliving it.
 🔴 RECALL, NOT LIVE OBSERVATION — every line is a pointer to VERIFY, never a current
-reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
+reading, and it may describe a gotcha already fixed. Non-blocking: if it exits non-zero,
+print the stderr line and carry on.
+
+⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** (nothing
+resolved). An unknown session id answers 200 with an empty array, so that zero cannot
+distinguish "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `e05f120`**, clean, synced with `origin/main`. No worktrees. No claims held.
-  (Updated 2026-09-28: the `int/pr53-merge-test` worktree used for rank 2 and a stray
-  `/tmp/audit-pr53-r1` left by an earlier #53 audit were both removed; both were clean, and
-  the stray was checked with `git status -s` before removal rather than assumed empty.)
-- **PR #53 is OPEN and unmerged**, test-merged green — see rank 2. Merging it is a separate
-  call nobody has made.
-- **0.4.7 is LIVE** — `approved/live`, rc 0 (read unpiped), serving
-  `assets/index-nlC3M9Z1.js` (414,348 B). `main` and the released version agree.
-- **Store listing updated and moderator-approved** — three screenshots captured against
-  live 0.4.7. The three that depicted the deleted tab strip are gone.
-- **Capture recipe re-measured and merged** — `civitai/civitai` `d9dc5ba` (PR #5183).
-- ⚠️ The base clone's `node_modules` is **stale** (blocks-react 0.46.0 against a `^0.51.0`
-  pin), so `pnpm run typecheck` fails there until `pnpm install`. Every gate number in this
-  doc was measured in a freshly-installed worktree.
-- **No `clawgate-task:` field** — `clawgate_handoff.sh resolve` exited **5** (nothing
-  resolved). An unknown session id answers 200 with an empty array, so that zero cannot
-  distinguish "touched no task" from "wrong id". It is not a clean bill of health.
+- **`main` = `e8775c0`**, clean, synced with `origin/main`. Base clone freshly installed.
+- **Three PRs merged this session**, each verified by CONTENT on `origin/main` (never by
+  ancestry — a squash merge makes `merge-base --is-ancestor` false forever):
+  - **#59** `0a06df2` — drop `grid-new` (both sites), relabel Contribute to
+    `Grid`/`Matchup`/`Prompt` with explicit `aria-label`s, exclude the open grid from the
+    all-grids list, take Archive off the community board.
+  - **#60** `c5863b0` — local `SideNav` (Home + expandable My Benchmarks), `BoardNav`
+    mounting ONE community board, `MyPublished`/`MyGridsView`, My/Community sub-tabs
+    removed, 720px top-bar collapse, version → 0.4.9.
+  - **#61** `e8775c0` — extracted `Menu` + two ⋮ menus, SVG vote glyph + tooltip, ALL
+    badges removed from both detail modals *and* the list cards, grid-title underlines,
+    optional `LoraRef.modelId`, resource links removed as unshippable.
+- **Gates on `main`, measured by me in the base clone:** typecheck rc 0 · `pnpm test`
+  rc 0 = **59 files / 804 tests** · `git ls-files | grep -cE '\.test\.tsx?$'` = 59 =
+  collected · build rc 0, **440.22 kB**.
+- **0.4.9 is APPROVED and BUILDING — NOT LIVE.** `pubreq_01M3PX578J3B4A7K95P1D6HMM2`,
+  source `e8775c0`. Measured ~25 min after approval and still `approved/building`
+  (`app_state.py … 0.4.9` rc **1**).
+- **Production still serves 0.4.8.** Measured on the served bundle
+  `assets/index-PwE4InET.js`: `side-nav` 0, `board-nav` 0, `nav-my-grid` 0,
+  `grid-open-members` 0, with the positive control firing in the same grep
+  (`section-grids` 1, `grid-open-panel` 1, `contribute-trigger` 1). ⚠️ Do NOT use
+  `resource-name` as a discriminator — it reads 2 in the 0.4.8 bundle.
+- **Store listing is now STALE.** Its three screenshots depict the 0.4.7 one-page IA,
+  which this stack replaces. Listing media is not version-scoped, so they are stale
+  rather than broken.
+- Leftover worktree: `civitai-app-model-benchmarking-release049` (detached at `e8775c0`,
+  clean) — the submit worktree. Remove it when done.
+- Claim `mb-sidebar-ia-feedback` is still HELD. Release it when this arc closes.
 
 ## What landed
 - **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
@@ -42,59 +65,49 @@ reading. Non-blocking: if it exits non-zero, print the stderr line and carry on.
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. ✅ **RETIRED 2026-09-28 — the dropped "make it full-width" instruction.** Put to the
-   operator directly (the one-question unblock the investigation called for). **Answer:
-   drop it — superseded.** Whatever it referred to no longer exists or no longer matters
-   after the 0.4.7 one-page IA refactor. No layout change is owed. The investigation block
-   below is kept for its ruled-out evidence and is CLOSED; do not re-open it or re-derive
-   the shell-width reading, which was already disproven.
-2. ✅ **DONE 2026-09-28 — PR #53 test-merged against `main`, all gates green.** 🔴 **The
-   premise was STALE and the doc said the risk backwards.** #53 had already merged
-   `origin/main` twice by the time this was ranked — `bb1980c` took in the 0.4.7 release
-   (so the IA refactor `b413500` IS an ancestor of the PR head `acc2ef0`, verified with
-   `git merge-base --is-ancestor`) and `acc2ef0` took in #55. The only commit `main` held
-   that #53 lacked was `e05f120`, **docs-only**.
-   **Measured** on `int/pr53-merge-test` (worktree off `origin/main`, fresh
-   `pnpm install --frozen-lockfile` rc 0, `.envrc` copied + `direnv allow`), merging
-   `origin/zach/sdk-port-model-benchmarking`:
-   - textual merge rc 0, `ort`, no conflicts, 38 files / +3440 −308;
-   - `pnpm run typecheck` **rc 0**;
-   - `pnpm test` **rc 0 — 52 files / 699 tests**, and 52 matches
-     `git ls-files | grep -cE '\.test\.tsx?$'` = 52 exactly, so nothing was silently
-     uncollected (that equality is also what proves BOTH vitest projects ran — a project
-     that did not run would drop its files from the count);
-   - `pnpm build` **rc 0**, `index-CsAdVJvV.js` **434.18 kB** (gzip 123.41 kB).
-   🔴 **The decisive check, and it is stronger than the suite:**
-   `git diff --name-only acc2ef0 HEAD` on the merged tree returns **`claudedocs/` only**.
-   The merged tree is byte-identical to the PR head on every non-docs path, so there was
-   **no semantic merge surface at all** — the disjoint-file break shape this rank existed
-   to catch cannot apply, and a gate on the merged tree and a gate on the PR branch are
-   here the SAME measurement. Nothing about #53's own correctness is claimed by this; it
-   says only that merging it into `main` introduces nothing a gate can see.
-   ⚠️ **Instrument validated before the green was believed** (the suite's zero was
-   otherwise uncontrolled). Negative control: deleted `if (opts?.signal) return opts;`
-   from `withDeadline` in `src/lib/sdk-runtime.ts` — the exact clobber its doc-comment
-   forbids — with `node_modules/.vite` cleared first per the stale-transform-cache gotcha.
-   Result **rc 1, 1 failed**, and it died for the RIGHT reason: `|dom|
-   src/lib/sdk-runtime.test.tsx > group 3 … > honours a CALLER's signal rather than
-   substituting the default deadline`, at `sdk-runtime.test.tsx:580`. Tree restored, clean.
-   ⚠️ **Bundle growth is the one number worth an operator's eye:** 434.18 kB against the
-   **414.20 kB recorded in this doc** for `1d5fc9d` = **+19.98 kB (+4.8%)**. Provenance
-   differs — 414.20 was measured in a prior session's worktree, 434.18 here — so treat it
-   as the SDK port's approximate cost, not a controlled A/B. Re-measure both in one tree
-   if the number ever has to carry weight.
-   **Not merged.** Test-merging was the ask; merging #53 is a separate call and was not
-   authorised. `int/pr53-merge-test` was a scratch branch and is deleted.
-3. **Contribute menu still does NOT use the upstream component** — the literal ask was
-   "use same upstream component as native site's nav Create button". It is a local
-   `src/components/ContributeMenu.tsx` (388 lines). Blocked on `civitai-app-starters`
-   **issue #485** (jsdom implements no part of the popover API `<civitai-menu>` mounts
-   with; the panel testid the capture contract needs is inside upstream's shadow root).
+1. **Verify 0.4.9 actually went live, as two separate claims.** Deployed ≠ verified.
+   `app_state.py model-benchmarking 0.4.9` rc **0** read UNPIPED, **and** the served
+   bundle carrying `side-nav`/`board-nav`/`grid-open-members` with a positive control in
+   the same grep. Repo `civitai-app-model-benchmarking`.
+   forcing: gate — the release is submitted and approved but unverified; the arc's
+   closing-condition is this check and it currently FAILS.
+2. **Get a human to LOOK at it, at desktop width and at ≤720px.** 🔴 Nothing in this
+   repo can judge any of it: jsdom performs no layout. Unjudged: the sidebar's depth
+   indent (fixed this session, but only its DECLARED value is asserted), the top-bar
+   collapse under 720px, the ⋮ trigger's rendered WIDTH (the 44px floor is height-only
+   and this is the app's first text-less control), the new `grid-open-members` summary
+   beside the title, the vote SVG at a single-digit count, and the grid-title underlines.
+   forcing: user — the operator asked for these visual changes; no automated check in
+   this repo can answer whether any of them reads correctly.
+3. **Repair the store listing.** The capture recipe in `civitai/civitai`
+   `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` pins
+   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — **both are
+   deleted by this stack**, so the recipe fails at step 1. Needs a PR there, a re-shoot,
+   and a second moderator approval. 🔵 Possible upside worth measuring first: because
+   `BoardNav` mounts one board at a time the page should be far shorter than the 2166
+   CSS px that clipped `section-matchups`/`section-prompts` out of frame, so this may
+   ADD screenshots rather than only repair one. That is a HYPOTHESIS and needs the
+   released artifact.
+   forcing: regression — the live listing depicts a UI that no longer exists, and the
+   tool that would re-shoot it is broken by this change.
+4. **Contribute menu still does NOT use the upstream component** — CARRIED FORWARD from
+   the closed one-page-IA arc, still live. The ask was "use same upstream component as
+   native site's nav Create button". The dropdown is now gone entirely (replaced by
+   `SideNav` + the ⋮ `Menu`), so re-read the ask before acting: what survives is the
+   local `src/components/Menu.tsx`. Blocked on `civitai-app-starters` **issue #485** —
+   `<civitai-menu>` throws on MOUNT in any non-browser DOM (`:popover-open` is evaluated
+   on the first update because `open` has a constructor default), and upgrading jsdom
+   only moves the failure to `panel.showPopover is not a function`; its panel also has no
+   app-settable testid. 🔵 Note the NAV elements are NOT blocked by #485 (no popover API).
    forcing: gate — #485 closing, or a real-browser test runner for this repo.
-4. **The five-package bump — parked.** See its own section below; patch preserved outside
-   this public repo. Note `civitai-app-starters` **PR #487** (`loading`/`decoding` on
-   `CivitaiImage`) is a PREREQUISITE of it, not a cost of it, and is still OPEN.
-   forcing: gate — #487 merging and releasing, plus either blocker in #485.
+5. **The five-package bump — parked.** CARRIED FORWARD, still live. Patch preserved
+   outside this public repo at
+   `/home/zach/workspace/civit/.parked/mb-five-package-bump-perpath-b778de4.patch`.
+   `civitai-app-starters` **PR #487** (`loading`/`decoding` on `CivitaiImage`) is a
+   PREREQUISITE, still OPEN. 🔵 Its prize has CHANGED since it was parked: deleting
+   `ContributeMenu.tsx` is no longer the prize (that file is gone), but the bump is now
+   what unlocks the real `<civitai-nav-list>`/`<civitai-nav-item>` swap for `SideNav`.
+   forcing: gate — #487 merging and releasing.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
 
@@ -307,25 +320,129 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   positional selector that worked for 0.4.6 would have approved someone else's app.
   Identify the row BY CONTENT and re-assert it immediately before the click.
 
+- 🔴 **RESOURCE LINKS ARE IMPOSSIBLE FROM AN APP BLOCK TODAY — all three routes measured
+  shut, do not re-derive this.** (a) `useCivitaiNavigate(path,'current')` — the host
+  rewrites every `NAVIGATE` path to `/apps/run/<slug>/<cleaned>` and shallow-pushes
+  (`civitai/civitai` `PageBlockHost.tsx:1883`); the payload's `target` is read **zero**
+  times. It is DELIBERATE: that file's security posture at `:175` says a block "can
+  deep-link WITHIN its page but can't push the host off to an arbitrary route".
+  (b) `'new_tab'` — the host never implements it. (c) `<a target="_blank">` built from
+  the SDK transport's `hostOrigin` — `allow-popups` IS grantable, but without
+  `allow-popups-to-escape-sandbox` (absent from `ALLOWED_SANDBOX_TOKENS`, stripped by
+  `intersectSandbox`) the popup INHERITS the opener's sandbox. **Measured live on the
+  running host page: `sandbox="allow-scripts allow-forms"`, no `allow-same-origin`, i.e.
+  `trustTier='unverified'`** — so the tab would load civitai.com at an opaque origin,
+  logged out. 🔵 **The unlock is a TRUST-TIER change, not a code change.** Filed as
+  `civitai/civitai#5209` with the measurement. `LoraRef.modelId` and its round-trip were
+  KEPT so the data accrues from today (another author's shared rows can never be
+  migrated); `lib/resourceLink.ts` was DELETED because a 4-line string builder has no
+  retroactivity cost.
+- 🔴 **A SQUASH MERGE BREAKS A STACK, AND THE CHILDREN MUST BE REBASED `--onto`.** After
+  merging #59, retargeting #60 to `main` immediately went `CONFLICTING/DIRTY` — the
+  squash is a new commit with different parents, so the children genuinely do not descend
+  from it. The recipe that worked, twice:
+  `git rebase --onto origin/main <old-parent-tip>` (replays ONLY the child's own
+  commits), verify the gates on the result, then `git push --force-with-lease=<branch>:<old-sha>`.
+  🔴 And **retarget to `main` BEFORE force-pushing**, not after — see the CI gotcha below.
+- 🔴 **A FORCE-PUSH DURING THE PARENT'S MERGE CAN DROP THE CI EVENT ENTIRELY.** #61's
+  rebased head got **zero** check-runs for 5+ minutes while every other head got one.
+  The zero was proven real by running the same query against #60's known-green head as a
+  **positive control** (`build=success`), which separated "no CI ran" from "my query is
+  wrong". Remedy: `gh pr close` + `gh pr reopen` fires `pull_request: reopened` and CI
+  runs. Do not merge on a `CLEAN` mergeStateStatus alone — that is a CONFLICT signal and
+  says nothing about CI having finished.
+- 🔴 **THE MODERATOR QUEUE HELD TWO APPS, AND THE OTHER ONE WAS FIRST.** `prompt-lab` sat
+  ABOVE `model-benchmarking` in oldest-first order, so a positional selector would have
+  approved someone else's submission to production. Identify the row **by content**,
+  refuse unless exactly one matches, and re-assert immediately before the click.
+  Confirmation it worked: `prompt-lab` was still `pending` afterwards.
+- 🔴 **THE APPROVE BUTTON IS PARTIALLY COVERED BY THE SITE'S OWN STICKY BOTTOM BAR.**
+  `Approve + build` sits at y≈1082 h=36 in a pinned action bar; the site footer
+  (`FOOTER.sticky`, 45px, opaque, `z-50`) covers everything below y=1089, so the button's
+  CENTRE — which the click op targets — lands on the bar. `elementFromPoint` returns a
+  DIV, not the button. The window cannot scroll (`scrollHeight - clientHeight == 0`).
+  Remedy that worked and changes no layout: set `pointer-events: none` on the sticky
+  footer, re-hit-test, click, then RESTORE it. Hit-test before every approval click.
+- 🔴 **THE WHOLE SESSION'S PATTERN: every defect that mattered PASSED CI, and none would
+  have been caught by reading the code.** Five guards proved less than they claimed:
+  (1) the sidebar depth indent was DEAD — `padding: '6px 10px'` after `paddingLeft` in
+  the same style object, and React serialises in INSERTION ORDER, so every nav row sat at
+  10px; the only witness asserted `--civitai-nav-depth`, **which nothing in this tree
+  consumes**. (2) `money-path` §5 case 1 was VACUOUS — its spend-attempt helper pressed
+  Run, which set `confirming`, which made the cell render as `running`, so the helper
+  REPAIRED both observables the case then asserted. (3) the no-navigation guard pinned
+  the MECHANISM (`NAVIGATE`) not the STATE, so `window.open` and `window.location.href`
+  handlers both survived. (4) `includedCount={0}` at two of four call sites left the full
+  suite green. (5) a report test switched BOARDS rather than unmounting, so its mutant
+  stayed green. **The lesson that generalises: ask what property your witness actually
+  reads, and whether anything consumes it.**
+- 🔴 **jsdom SYNTHESISES the `padding` shorthand from four longhands**
+  (`"6px 10px 6px calc(24px)"`), so `style.padding === ''` cannot distinguish "no
+  shorthand written" from "four longhands written" and can never catch the override bug.
+  It also FOLDS `calc()`: `calc(10px + 14px)` reads back as `calc(24px)`. Assert
+  `paddingLeft` against LITERALS — deriving the expectation from the component's own
+  `NAV_DEPTH_STEP_PX` is exactly what made the deleted guard unable to fail.
+- 🔴 **`Object.freeze` on a `Set` is decoration** — it does not prevent `.add()`/
+  `.delete()`. Found by an independent auditor on this session's own reported-keys work.
+- 🔴 **LSP/editor diagnostics in this repo were WRONG SEVEN TIMES this session** —
+  phantom `Cannot find module 'react'` waves, jest-dom matchers "missing", and a filename
+  reported in the wrong case (which sent me chasing a non-existent `gridsview.tsx`).
+  `tsc --noEmit` in a correctly-installed tree is the ONLY arbiter. Do not act on one.
+- 🔴 **`find` does NOT follow pnpm's symlinks.** `find node_modules/@civitai -name '*.d.ts'`
+  yielded **2** files; `find -L` yielded **150**. That blindness made me report "there is
+  no navigation API" when `useCivitaiNavigate` was sitting in the installed
+  `blocks-react@0.51.0`. Always run a positive control before believing a zero.
+- ⚠️ **A rank's premise rots while it sits in the queue** (carried forward, still true):
+  re-derive it before working it. `git merge-base --is-ancestor` plus
+  `git log --oneline <pr-head>..origin/main` costs one command and can collapse the task.
+- **Decided (operator, 2026-09-29):** badges are removed from the list CARDS as well as
+  the detail modals · the open-grid panel carries vote/withdraw/report (the Top Grid,
+  being a system entry, offers none) · reported-keys are hoisted to `App` so the settled
+  state survives a menu close · the sidebar is LOCAL, mirroring the upstream
+  `civitai-nav-list`/`civitai-nav-item` contract, with the swap deferred.
+- 🔵 **The upstream nav elements are jsdom-safe** — `<civitai-nav-list>`/
+  `<civitai-nav-item>` use no popover API, so starters **#485 does NOT block them** (it
+  blocks `<civitai-menu>`). The swap is gated only on the five-package bump, whose own
+  prerequisite is starters **PR #487**, still open. Two snags at swap time: upstream puts
+  the clickable at `part="link"`/`part="button"` inside its shadow root, and its ~32px
+  height is below this repo's 44px floor.
+
 ## How to verify
-- Gates (worktree WITH `node_modules`): `pnpm run typecheck && pnpm test && pnpm build` —
-  **50 files / 624 tests**, and the 50 must match `git ls-files | grep -cE '\.test\.tsx?$'`
-  exactly. Both vitest projects, read separately; exit codes from files, not through a pipe
-  (per-test output goes to **stderr** here, under ~29k lines of pre-existing jsdom CSS
-  noise).
-- Ship check: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py
-  model-benchmarking <version>` (rc 0 = live, **unpiped**) plus the fleet skill's
-  served-bundle grep with a token you know is present as the positive control.
+- Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build`
+  — **59 files / 804 tests**, and 59 must equal `git ls-files | grep -cE '\.test\.tsx?$'`.
+  Read BOTH vitest projects separately; exit codes from files, not through a pipe.
+- Release: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.9`
+  rc 0 = live, **read UNPIPED**.
+- Served bundle, with the positive control in the SAME command:
+  ```bash
+  B=$(curl -s https://model-benchmarking.civit.ai/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+  curl -s "https://model-benchmarking.civit.ai/$B" > /tmp/live.js
+  for t in side-nav board-nav grid-open-members; do echo "$t $(grep -c $t /tmp/live.js)"; done   # expect >0
+  for t in section-grids grid-open-panel; do echo "CONTROL $t $(grep -c $t /tmp/live.js)"; done  # expect >0
+  ```
+- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth
+  gated — no local, harness or test run proves a cell charged correctly), and anything
+  about LAYOUT or appearance (jsdom performs no layout). Say so plainly rather than
+  reporting a green suite as if it covered either.
 ## Goal
-Ship the one-page IA refactor for `model-benchmarking` and get it live, then restore the
-store listing that the refactor invalidated.
-- **closing-condition:** `check` — `app_state.py model-benchmarking 0.4.7` exits 0, the
-  served bundle carries `section-grids`/`contribute-trigger` with `view-switch-*` at 0
-  (positive control present), and `civitai app listing status` shows three screenshots
-  taken against 0.4.7. ✅ **ALL THREE MET 2026-09-28.**
-  ⚠ Restored here — an earlier rewrite of this doc dropped the field entirely. The arc is
-  CLOSED against it. Everything in `Next steps` below is either a NEW arc (the dropped
-  instruction) or a pre-existing deferral; none of it extends this condition.
+Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
+Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
+vote glyph, no badges in the detail modals — and release it as 0.4.9.
+- **closing-condition:** `check` — `app_state.py model-benchmarking 0.4.9` exits **0**
+  (`approved/live`, read UNPIPED), **and** the served bundle at
+  `https://model-benchmarking.civit.ai/` carries `side-nav`, `board-nav` and
+  `grid-open-members` with a positive control present in the same grep.
+  🔴 **NOT MET as of 2026-09-29.** Approved, still `building`; production serves 0.4.8.
+- ✅ **The PRIOR arc is CLOSED and its condition was MET 2026-09-28** — carried forward so
+  the closure is not lost when this section is replaced again. That arc was "ship the
+  one-page IA refactor and get it live, then restore the store listing"; all three of its
+  checks passed (`app_state.py … 0.4.7` rc 0, the served bundle carrying
+  `section-grids`/`contribute-trigger` with `view-switch-*` at 0, three screenshots taken
+  against 0.4.7). Two of its ranks also closed and must NOT be re-opened: the dropped
+  "make it full-width" instruction (operator: **drop it, superseded** — the CLOSED block
+  under Open investigations carries the ruled-out evidence, and the shell-width reading is
+  disproven, do not re-derive it), and the PR #53 SDK-port test-merge (green, merged as
+  0.4.8).
 
 ## Standing deferrals (not queued)
 🔴 **Deliberately NOT ranks.** Nothing external is asking for either, so under this doc's own
@@ -393,3 +510,71 @@ tree at close time and still holds (`contentStyle` carries no `maxWidth`; the on
   ✅ **Done 2026-09-28. Answer: drop it — superseded. See the CLOSED banner above.**
 
 </details>
+
+### 0.4.9 approved but stuck in `building` for 25+ minutes
+- as-of: 2026-09-29
+- **Symptom + exact repro:** `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.9`
+  prints `model-benchmarking 0.4.9 approved/building`, rc **1**, unchanged across ~50
+  polls over ~25 minutes. The CLI's own text says approval usually deploys "in a few
+  minutes".
+- **Observed (with values):** approval landed 2026-09-29 ~10:43 CDT (the review page
+  showed "Submission approved. Returning to the review queue."). `civitai app status`
+  lists `model-benchmarking 0.4.9 approved building e8775c0`. The served bundle is
+  still `assets/index-PwE4InET.js` (434,453 B) and carries none of the four 0.4.9-only
+  tokens while the positive control fires. `via: measurement`
+- **Ruled out:** *"it deployed and my check is wrong"* — the bundle grep carries a
+  positive control in the same command (`section-grids` 1, `grid-open-panel` 1,
+  `contribute-trigger` 1), so the four zeros are real and not a broken pattern.
+  `via: measurement`
+- **Ruled out:** *"the wrong commit was submitted"* — `civitai app status` reports
+  SOURCE `e8775c0`, which is `origin/main`'s tip. `via: command`
+- **Leading hypothesis:** an ordinary slow platform build (the builder runs
+  `block.manifest.json`'s `buildCommand` on its own image, cold, and CI is a different
+  environment), OR a stalled/failed build the state field has not yet reflected.
+  Nothing observed distinguishes them.
+- **Next probe:** `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.9`
+  read UNPIPED (a pipe reports `tail`'s rc, which is how a pending gets called live).
+  If still `building` after another hour, check the platform build log / Tekton side —
+  the app-blocks platform skill in `talos-infra` owns that surface, not this repo.
+
+### An unexplained SECOND publish request for 0.4.9
+- as-of: 2026-09-29
+- **Symptom + exact repro:** `civitai app status model-benchmarking` reports
+  `Publish request: pubreq_01M3PXAZQKRAE1M8SXKE9XGCGX`, `Status: withdrawn`,
+  `Submitted: 2026-09-29 10:43 CDT`, `Deploy state: -`.
+- **Observed (with values):** `civitai app submit --yes` was run **exactly once** this
+  session and returned `pubreq_01M3PX578J3B4A7K95P1D6HMM2` at ~10:39. That first one is
+  the `approved building e8775c0` row. The second, at 10:43 — the same minute as the
+  approval click — has **no source sha** and is withdrawn. `civitai app status` with no
+  argument shows both rows. `via: command`
+- **Ruled out:** *"I submitted twice"* — one `submit` invocation, one returned pubreq id,
+  recorded in the transcript. `--package-only` was run once before it and writes only a
+  `.zip`. `via: command`
+- **Leading hypothesis:** the approval flow supersedes the open request and records the
+  superseded one as `withdrawn`; the 10:43 timestamp matching the approval click is the
+  main support. UNVERIFIED — this is a guess about platform behaviour, not a reading.
+- **Next probe:** compare against another app's approval in the same window —
+  `civitai app status` (no arg) already lists `yt-thumbnail` and `sensei` rows; check
+  whether every approved version there also carries a paired `withdrawn` row of the same
+  version. If it does, this is normal platform bookkeeping and the investigation closes.
+## Defects (batched)
+Round-1 audit findings that were reported and deliberately NOT fixed. Fix as one batch.
+🔴 Each is a claim from an audit, not a measurement of mine — re-verify before acting.
+- **#59 — pressing `grid-open` dumps keyboard focus on `<body>`.** The card holding the
+  just-clicked button unmounts (it is filtered out of the list), and no focus management
+  was added. At base the button survived as `Showing`/`aria-pressed="true"`. This repo
+  already treats the hazard as real (`ContributeMenu.tsx:127`) and asserts focus with
+  `toHaveFocus` in three suites. NOT in the fix round's brief — still open.
+- **#60 — `nav-my-group` is a `role="list"` rendered as a direct child of another
+  `role="list"`**, so AT reads a flat 2-item list then an unrelated 3-item one; the
+  parent/child relation is not conveyed. `sideNav.test.tsx` encodes the flattening as
+  correct.
+- **#61 — `document.location.href = …` escapes the no-navigation guard.** Narrow: a bare
+  `location.href` IS caught; only the explicit `document.` spelling escapes, and an
+  `<a href>` created inside a handler is invisible to jsdom. Both documented in-file with
+  a surviving mutant proving the gap's exact size.
+- **#61 — `MyPublished` renders an empty line beside the error** on all three nouns;
+  suppressing it is a `MyPublished` change with three callers.
+- **#59 — three scaffolding simplifications** (a fixture-distinctness assertion that can
+  only fire if the test's own table is edited; two of three `grid-preview-shown-above`
+  archaeology markers; a criterion-10 tail duplicated at the node tier).
