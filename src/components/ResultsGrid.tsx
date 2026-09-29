@@ -364,7 +364,23 @@ function ColumnHeader({
   };
   const inner = (
     <>
-      <div style={{ fontWeight: 600, fontSize: 13, color: token.text }}>{name}</div>
+      {/* 🔴 UNDERLINED, AND THAT IS THE WHOLE AFFORDANCE. This header opens the
+          prompt detail modal, and until now the only thing saying so was
+          `cursor: pointer` — invisible until the pointer is already on it, and
+          absent entirely on a touch device. The underline is on the NAME only:
+          underlining the vote count below would read as a second link. */}
+      <div
+        data-testid="grid-col-header-name"
+        style={{
+          fontWeight: 600,
+          fontSize: 13,
+          color: token.text,
+          textDecoration: 'underline',
+          textUnderlineOffset: '2px',
+        }}
+      >
+        {name}
+      </div>
       <div style={{ fontSize: 11, color: token.dimmed, marginTop: 2 }}>▲ {prompt.count}</div>
     </>
   );
@@ -451,7 +467,15 @@ function GroupBand({
       <span aria-hidden="true" style={{ color: token.dimmed, fontSize: 10 }}>
         ▸
       </span>
-      <span>{name}</span>
+      {/* Underlined for the same reason as the column header: the band is the ONLY
+          drill-in on a config row, and `cursor: pointer` is not an affordance a
+          touch viewer can see. The name only — not the glyph, not the count. */}
+      <span
+        data-testid="grid-group-matchup-name"
+        style={{ textDecoration: 'underline', textUnderlineOffset: '2px' }}
+      >
+        {name}
+      </span>
       <span style={{ color: token.dimmed, fontWeight: 600 }}>▲ {row.comboCount}</span>
     </>
   );

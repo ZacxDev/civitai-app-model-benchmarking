@@ -14,16 +14,28 @@
 // is that no report affordance is OFFERED signed out; the rejection itself is
 // only observable in production. The two are not interchangeable.
 
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+
+import { productionReachable, scannedSources } from './lib/sourceScan.js';
 
 import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
-import type { CombinationData } from './types.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
+import type { CombinationData, GridData, PromptData } from './types.js';
 
 const VIEWER_ID = 99;
 const OTHER_ID = 7;
@@ -100,12 +112,19 @@ describe('report — the board’s abuse seam', () => {
     const theirs = cards.find((c) => c.textContent?.includes('Someone else’s combo'))!;
     const mine = cards.find((c) => c.textContent?.includes('My combo'))!;
 
+    // 🔴 BOTH CONTROLS NOW LIVE IN THE ROW'S ⋮ MENU (the third IA pass), so each
+    // half of this claim needs its own row's menu opened. The ownership rule is
+    // unchanged; only where the controls are rendered moved.
+    const theirMenu = await openRowMenu('matchup', theirs);
     // Their row: report offered, remove NOT (it is not the viewer's to withdraw).
-    expect(within(theirs).getByTestId('matchup-report')).toBeInTheDocument();
-    expect(within(theirs).queryByTestId('matchup-withdraw')).toBeNull();
-    // Own row: remove offered, report NOT.
-    expect(within(mine).getByTestId('matchup-withdraw')).toBeInTheDocument();
-    expect(within(mine).queryByTestId('matchup-report')).toBeNull();
+    expect(within(theirMenu).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(theirMenu).queryByTestId('matchup-withdraw')).toBeNull();
+
+    // Own row: remove offered, report NOT. Opening this menu closes the other
+    // (an outside press), which is why the two are asserted in sequence.
+    const myMenu = await openRowMenu('matchup', mine);
+    expect(within(myMenu).getByTestId('matchup-withdraw')).toBeInTheDocument();
+    expect(within(myMenu).queryByTestId('matchup-report')).toBeNull();
   });
 
   it('🔴 offers NO report affordance to a signed-out viewer (the host rejects those)', async () => {
@@ -114,6 +133,12 @@ describe('report — the board’s abuse seam', () => {
 
     const card = await screen.findByTestId('matchup-card');
     expect(within(card).queryByTestId('matchup-report')).toBeNull();
+    // 🔴 AND NO MENU AT ALL, which is STRONGER than the line above and is the
+    // claim the ⋮ menu made possible: with no Edit, no Remove and no Report to
+    // offer, an anonymous viewer on someone else's row gets no overflow trigger
+    // rather than an empty one. An empty menu would be a control that promises
+    // actions and has none.
+    expect(within(card).queryByTestId('matchup-menu')).toBeNull();
 
     // 🔴 POSITIVE CONTROL, in-band. A missing testid is indistinguishable from a
     // row that never rendered its action group at all, and that is exactly how
@@ -140,8 +165,13 @@ describe('report — the board’s abuse seam', () => {
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
-    await userEvent.click(within(card).getByTestId('matchup-report'));
-    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
+    const menu = await openRowMenu('matchup', card);
+    // 🔴 THE WHOLE HANDSHAKE HAPPENS INSIDE THE OPEN PANEL. Every press is an
+    // INSIDE press, so the menu's outside-press close never fires and the confirm
+    // step is reachable — the reason `ReportButton` is hosted in the panel as
+    // itself rather than flattened into a single `role="menuitem"`.
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
 
     await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
     expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
@@ -164,8 +194,9 @@ describe('report — the board’s abuse seam', () => {
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track }, { id: VIEWER_ID, username: 'me' });
 
     const card = await screen.findByTestId('matchup-card');
-    await userEvent.click(within(card).getByTestId('matchup-report'));
-    await userEvent.click(screen.getByTestId('matchup-report-confirm'));
+    const menu = await openRowMenu('matchup', card);
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
 
     await waitFor(() =>
       expect(screen.getByTestId('matchup-report-prompt')).toHaveTextContent(/could not send/i),
@@ -176,5 +207,241 @@ describe('report — the board’s abuse seam', () => {
     expect(reports).toHaveLength(1);
     // …and nothing was tracked as a filed report.
     expect(track).not.toHaveBeenCalledWith('report');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 THE SETTLED STATE AND THE ⋮ MENU'S UNCONDITIONAL CLOSE
+// ---------------------------------------------------------------------------
+//
+// 🔴 WHAT THIS FILE COULD NOT SEE, AND THE DEFECT THAT HID IN IT. Every case above
+// asserts INSIDE the still-open panel, so all of them passed while the outcome of a
+// report was being destroyed by the viewer's next click. `components/Menu.tsx` closes
+// on any outside `mousedown` and on Escape, both UNCONDITIONALLY, and closing unmounts
+// the panel — so `ReportButton`'s local `done` went with it and re-opening the menu
+// offered Report again as if nothing had happened. `report()` is not documented
+// idempotent the way `vote` is (`ReportButtonProps.reported` says so), so that is a
+// second filing of the same row rather than a no-op. Before the ⋮ menu existed the
+// control sat inline on the card and survived.
+//
+// The fix is `App.reportedKeys` plus `reported={…}` per row — the hoist
+// `ReportButtonProps.reported`'s own JSDoc advises.
+//
+// 🔴 WATCHED FAILING, MEASURED: with every production source at `7410ca7` and these two
+// cases in place, both go red and the four cases above stay green. The first dies at the
+// RE-OPEN, on `getByTestId('matchup-report-done')` — at base the settled state does
+// appear on the first confirm and is then destroyed by the outside press, which is the
+// defect. The second dies EARLIER, on `grid-open-report`: the open grid has no Report
+// control at all at base, because `GridOpenPanel` renders none (see A1). So the two
+// failures are not the same shape, and only the first is a pure `reported`-wiring red.
+//
+// ⚠️ WHAT IS STILL NOT COVERED, AND IS NOT CLAIMED: a page RELOAD. `reportedKeys` is
+// session state in `App`, not a per-viewer `appStorage` record, so a reload re-offers
+// Report on a row this viewer already reported. Nor is the FAILURE line durable — it is
+// `ReportButton`'s own local state with no prop, so a refused report's "Could not send"
+// still dies on the next click. Both are stated in `App.reportRow`'s docblock.
+describe('report — the settled outcome outlives the menu', () => {
+  it('🔴 survives an outside-press close, an Escape close, a re-open and a view switch', async () => {
+    const { shared, reports } = fakeShared({
+      seed: [
+        combo('theirs', OTHER_ID, 'Someone else’s combo'),
+        combo('other', OTHER_ID, 'A second combo nobody reported'),
+      ],
+    });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+
+    const cardFor = (text: string) =>
+      screen.getAllByTestId('matchup-card').find((c) => c.textContent?.includes(text))!;
+
+    await waitFor(() => expect(screen.getAllByTestId('matchup-card')).toHaveLength(2));
+    let menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
+    await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
+
+    // ---- 1. AN OUTSIDE PRESS. This is the path that destroyed it: `Menu`'s
+    //         `mousedown` listener closes with no condition on what the panel holds.
+    await userEvent.click(screen.getByTestId('app-content'));
+    await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
+    // PREMISE, not decoration: the panel really is unmounted, so the re-open below is a
+    // fresh mount rather than a query against markup that never went away.
+    expect(screen.queryByTestId('matchup-report-done')).toBeNull();
+
+    // ---- 2. RE-OPEN: still settled, and Report is NOT offered a second time.
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toHaveTextContent(/reported for review/i);
+    expect(within(menu).queryByTestId('matchup-report')).toBeNull();
+
+    // 🔴 …AND IT IS KEYED BY THE ROW, not global. The second combo — never reported —
+    // still offers its own Report. Without this, "settled" could be a single boolean
+    // and every row on the board would show as reported after one report.
+    const otherMenu = await openRowMenu('matchup', cardFor('A second combo nobody reported'));
+    expect(within(otherMenu).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(otherMenu).queryByTestId('matchup-report-done')).toBeNull();
+
+    // ---- 3. ESCAPE, the other unconditional close.
+    //
+    // ⚠️ RE-OPEN THE SETTLED ROW'S MENU FIRST, and that is not a spare step: opening the
+    // second row's menu just above was an OUTSIDE press for this one, so the panel
+    // Escape would otherwise close is the second row's — which has nothing settled in
+    // it. A draft did exactly that and read as covering Escape while exercising it
+    // against the wrong panel.
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
+    menu = await openRowMenu('matchup', cardFor('Someone else’s combo'));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
+
+    // ---- 4. A VIEW SWITCH, which unmounts the whole board. `reportedKeys` lives in
+    //         `App`, above the switch, which is what makes this pass.
+    await openMyList('matchup');
+    await openView('Matchups');
+    menu = await openRowMenu('matchup', await waitFor(() => cardFor('Someone else’s combo')));
+    expect(within(menu).getByTestId('matchup-report-done')).toBeInTheDocument();
+    expect(within(menu).queryByTestId('matchup-report')).toBeNull();
+
+    // 🔴 THE POINT OF ALL FOUR: exactly ONE report reached the host. The fake records
+    // ATTEMPTS, so a second filing would show up here even if it had succeeded.
+    expect(reports).toEqual([{ key: 'theirs', reason: undefined }]);
+  });
+
+  it('🔴 the OPEN GRID’s report settles and survives a SIDEBAR navigation', async () => {
+    // The grid surface has no ⋮ menu — its controls are inline in `GridOpenPanel` — so
+    // the unmount that can destroy a settled report here is a SIDEBAR navigation: leaving
+    // Home unmounts the whole `view.kind === 'home'` branch, `section-open-grid`
+    // included. (The other reset is `key={row.key}` changing when a different grid is
+    // opened, which is why the panel's `ReportButton` carries that key.)
+    //
+    // 🔴 THIS CASE USED TO SWITCH BOARDS, AND THAT PROVED NOTHING. MEASURED by an
+    // adversarial audit of this round: `section-open-grid` is a SIBLING of the
+    // `board === …` sections inside the one Home branch (`App.tsx`), so a board switch
+    // RE-RENDERS the panel and never unmounts it — and a React re-render does not reset
+    // local state. Under the mutant that deletes `reported=` from `GridOpenPanel.tsx`,
+    // the board-switch version stayed GREEN (1 failed / 803 passed, and the sole failure
+    // was the SEAM LEDGER below); the control's own `done` had simply survived. The
+    // positive control was the same deletion in `MatchupBody.tsx`, which took 2 cases red.
+    // Routed through `openMyList('grid')` it is a real unmount and discriminates.
+    //
+    // ⚠ `parseGrid` returns null unless BOTH member lists are non-empty, so the seed
+    // carries a real prompt row as well — a grid with no columns is simply not listed.
+    const promptData: PromptData = { v: 3, kind: 'prompt', default: { prompt: 'a portrait', params: {} } };
+    const gridData: GridData = { v: 1, kind: 'grid', matchupKeys: ['theirs'], promptKeys: ['qk-one'] };
+    const { shared, reports } = fakeShared({
+      seed: [
+        combo('theirs', OTHER_ID, 'Someone else’s combo'),
+        {
+          key: 'qk-one',
+          authorUserId: OTHER_ID,
+          count: 1,
+          viewerVoted: false,
+          value: { title: 'A prompt', body: '', data: promptData },
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        } as unknown as SharedItem,
+        {
+          key: 'gk-theirs',
+          authorUserId: OTHER_ID,
+          count: 4,
+          viewerVoted: false,
+          value: { title: 'Their grid', body: '', data: gridData },
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+        } as unknown as SharedItem,
+      ],
+    });
+    mountApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() }, { id: VIEWER_ID, username: 'me' });
+
+    // Open the published grid, so the panel is showing a row that CAN be reported (the
+    // default open entry is the system Top Grid, which offers no Report at all).
+    const openGrid = await waitFor(() =>
+      screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-theirs')!,
+    );
+    await userEvent.click(within(openGrid).getByTestId('grid-open'));
+
+    const panel = await screen.findByTestId('grid-open-panel');
+    await userEvent.click(within(panel).getByTestId('grid-open-report'));
+    await userEvent.click(within(panel).getByTestId('grid-open-report-confirm'));
+    await waitFor(() => expect(screen.getByTestId('grid-open-report-done')).toBeInTheDocument());
+
+    // 🔴 A SIDEBAR NAVIGATION AND BACK — a real UNMOUNT of the whole Home branch, which
+    // is the only thing on this surface that can destroy the control's local state.
+    await openMyList('grid');
+    // PREMISE, not decoration: the panel really did leave the DOM, so the assertion
+    // below is about a fresh mount rather than a node that never went away.
+    expect(screen.queryByTestId('grid-open-panel')).toBeNull();
+    await openView('Grids');
+
+    const back = await screen.findByTestId('grid-open-panel');
+    expect(within(back).getByTestId('grid-open-report-done')).toBeInTheDocument();
+    expect(within(back).queryByTestId('grid-open-report')).toBeNull();
+    expect(reports).toEqual([{ key: 'gk-theirs', reason: undefined }]);
+  });
+
+  // 🔴 THE SEAM NEITHER BEHAVIOURAL CASE ABOVE CAN SEE, and it is the one a compiler
+  // cannot see either. `ReportButtonProps.reported` is OPTIONAL, so a fifth
+  // `<ReportButton>` added anywhere — or an existing one that loses the prop in a
+  // refactor — type-checks fine and silently goes back to local-only settled state. The
+  // two cases above each drive ONE surface; "verified in isolation" is exactly the shape
+  // that leaves a third surface uncovered.
+  //
+  // 🔴 SO THIS PINS THE RELATIONSHIP, AS A LEDGER: every `<ReportButton` element in a
+  // production-reachable source, with whether it passes `reported`. It fails when the set
+  // GROWS (a new site, wired or not) and when it SHRINKS, and it names the file.
+  //
+  // 🔴 MEASURED, AND THE NUMBER IS THE POINT: with `reported={reported}` deleted from
+  // `PromptBody.tsx` and this case in place, the full suite reports **1 failed, 803
+  // passed** — this ledger is the ONLY case that notices. So before it existed, the
+  // prompt surface's `reported` wiring was covered by nothing at all.
+  // ⚠️ `defb9da`'s commit message phrased that as "804/804 with the wiring gone", which
+  // is wrong arithmetic: without this case the suite is 803 tests, and what was measured
+  // is the 803 that stayed green beside it. The message is pushed and cannot be amended
+  // without a force-push, so the correction lives here.
+  //
+  // ⚠️ IT IS STRUCTURAL AND THAT IS ITS CEILING: it proves the prop is PASSED, not that
+  // the value is right. The two behavioural cases above are what prove the value on the
+  // two surfaces they drive; this is what stops a THIRD site existing without one.
+  //
+  // 🔴 AND BOTH OF THOSE CASES HAD TO EARN THAT, which is worth recording because one of
+  // them did not at first. The grid case originally switched BOARDS, and a board switch
+  // does not unmount `GridOpenPanel` — so it stayed green under the `reported` mutant and
+  // proved only that the control renders and settles. Re-routed through a sidebar
+  // navigation (a real unmount), the mutant now takes it AND this ledger red: measured,
+  // 2 failed / 802 passed, matching the matchup case's shape exactly.
+  it('🔴 SEAM LEDGER: every production ReportButton is handed `reported`', () => {
+    const SRC = resolve(process.cwd(), 'src');
+    const reachable = productionReachable(resolve(SRC, 'main.tsx'));
+    const sites = scannedSources(SRC)
+      .filter((f) => reachable.has(f))
+      .flatMap((f) => {
+        const src = readFileSync(f, 'utf8');
+        const out: { file: string; reported: boolean }[] = [];
+        let i = src.indexOf('<ReportButton');
+        while (i !== -1) {
+          // Self-closing with no nested JSX at every site, so `/>` ends the element.
+          const end = src.indexOf('/>', i);
+          out.push({ file: relative(SRC, f), reported: /\breported=\{/.test(src.slice(i, end)) });
+          i = src.indexOf('<ReportButton', end);
+        }
+        return out;
+      })
+      .sort((a, b) => a.file.localeCompare(b.file));
+
+    // 🔴 VALIDATE THE INSTRUMENT BEFORE READING ITS VERDICT. An `every(…)` over an empty
+    // array is `true`: a scan that found nothing would report a perfect result. A
+    // NEGATIVE control too — the same regex on a site written without the prop must come
+    // back false, or "all wired" is a fact about the regex rather than about the tree.
+    expect(sites.length, 'the ReportButton scan found no sites').toBeGreaterThan(0);
+    expect(/\breported=\{/.test('<ReportButton noun="grid" onReport={x} />')).toBe(false);
+
+    expect(
+      sites,
+      'a ReportButton render site appeared, moved or lost `reported` — see App.reportedKeys',
+    ).toEqual([
+      { file: 'components/GridOpenPanel.tsx', reported: true },
+      { file: 'components/GridsView.tsx', reported: true },
+      { file: 'components/MatchupBody.tsx', reported: true },
+      { file: 'components/PromptBody.tsx', reported: true },
+    ]);
   });
 });

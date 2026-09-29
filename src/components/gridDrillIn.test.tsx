@@ -209,6 +209,33 @@ describe('the matchup group band opens the matchup', () => {
     expect(band.style.gridColumn).toBe('1 / -1');
   });
 
+  it('🔴 UNDERLINES the matchup NAME, and only the name', () => {
+    // 🔴 WHY THIS IS A GUARD AND NOT A STYLE NIT. `cursor: pointer` was this band's
+    // ONLY affordance, and a pointer cursor is invisible until the pointer is already
+    // on the control — and never appears at all on a touch device. The operator asked
+    // for an underline for exactly that reason: without it nothing says the text is a
+    // control.
+    //
+    // ⚠️ RETRACTED: this used to add "and it is the same argument `ResourceLink` makes".
+    // `ResourceLink` does not exist, and its successor `ResourceName` makes the OPPOSITE
+    // argument — it renders resource titles with an explicit `textDecoration: 'none'`
+    // precisely because they are NOT controls. Citing it here inverted it. The band
+    // genuinely is a control (it opens the matchup detail), which is what earns the
+    // underline.
+    //
+    // ⚠ jsdom performs NO layout, so this reads the DECLARED inline style. It cannot
+    // say the underline is VISIBLE, only that the app declares it.
+    renderGrid();
+    const band = screen.getAllByTestId('grid-group-matchup')[0]!;
+    const name = within(band).getByTestId('grid-group-matchup-name');
+    expect(name).toHaveTextContent('Anime Showdown');
+    expect(name).toHaveStyle({ textDecoration: 'underline' });
+
+    // 🔴 AND ONLY THE NAME. The band also carries a disclosure glyph and the vote
+    // count; underlining those would read as three separate links on one control.
+    expect(['', 'none']).toContain(band.style.textDecoration);
+  });
+
   it('activates from the keyboard, which is what being a button buys', async () => {
     const { onOpenMatchup } = renderGrid();
     const band = screen.getAllByTestId('grid-group-matchup')[1]!;
@@ -254,6 +281,17 @@ describe('the prompt column header opens the prompt', () => {
     await userEvent.click(screen.getByTestId('grid-corner'));
     expect(onOpenPrompt).toHaveBeenCalledTimes(0);
     expect(onOpenMatchup).toHaveBeenCalledTimes(0);
+  });
+
+  it('🔴 UNDERLINES the prompt NAME, and only the name', () => {
+    // The column-header half of the same claim — see the band case above for why an
+    // underline rather than `cursor: pointer` alone.
+    renderGrid();
+    const header = screen.getAllByTestId('grid-col-header')[0]!;
+    const name = within(header).getByTestId('grid-col-header-name');
+    expect(name).toHaveStyle({ textDecoration: 'underline' });
+    // The vote-count line beside it must NOT be underlined — one link per control.
+    expect(['', 'none']).toContain(header.style.textDecoration);
   });
 
   it('carries an accessible name naming the prompt', () => {

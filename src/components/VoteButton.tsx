@@ -8,6 +8,74 @@
 
 import { useState } from 'react';
 import { Button } from '@civitai/blocks-react/ui';
+import { Tooltip } from '@civitai/components-react';
+
+/**
+ * The tooltips, as literals a test pins whole.
+ *
+ * 🔴 THEY STATE THE ACTION, NOT THE STATE. A tooltip reading "Votes" or "12 votes"
+ * would restate what the count beside it already says; what a viewer does not know
+ * from looking is what pressing it DOES, and that it is a toggle.
+ *
+ * 🔴 AND THEY ARE NOT THE ACCESSIBLE NAME. `Tooltip` wires `aria-describedby` to a
+ * `role="tooltip"` bubble (measured in `@civitai/components-react`'s
+ * `Tooltip.d.ts`), so this text is a DESCRIPTION layered on the button's explicit
+ * `aria-label`. That matters twice over: the count lives in the aria-label, so a
+ * tooltip that became the name would either announce the count a second time or
+ * replace a meaningful name with a decorative one.
+ */
+export const VOTE_TOOLTIP = 'Upvote — press again to take your vote back';
+export const UNVOTE_TOOLTIP = 'Remove your vote';
+
+/**
+ * The vote glyph.
+ *
+ * 🔴 AN SVG, NOT THE `▲` CHARACTER IT REPLACED — **ON THIS CONTROL ONLY.** A text
+ * triangle is rendered by whatever font the host's theme resolves, so its weight, size
+ * and vertical alignment drifted against the count beside it, and on a font without the
+ * glyph it fell back to a tofu box. The path below is a filled chevron/arrowhead on a
+ * 12×12 box, `fill="currentColor"` so it follows the Button's own text colour in
+ * both the `filled` (voted) and `light` (not voted) variants and in either theme —
+ * no hardcoded colour anywhere.
+ *
+ * 🔴 THE CLAIM IS NARROWED TO THIS CONTROL BECAUSE AN EARLIER VERSION OF IT WAS WIDER
+ * THAN THE CHANGE. It argued the general case — "a font-resolved glyph drifts and can
+ * fall back to tofu" — while text triangles still ship at four other rendered sites,
+ * which reads as a tree-wide convention that was never applied. The remaining sites are
+ * KNOWN AND DELIBERATE, not an oversight, and they are named here so the next reader
+ * does not have to re-find them:
+ *
+ *   - `components/ResultsGrid.tsx` — `▲ {prompt.count}` on the column header, and
+ *     `▲ {row.comboCount}` on the matchup group band;
+ *   - `components/ResultsGrid.tsx` — `▸`, the matchup band's `aria-hidden` marker;
+ *   - `components/SideNav.tsx` — `▾` / `▸`, the group's `aria-hidden` chevron.
+ *
+ * ⚠️ DO NOT CONVERT THEM AS A TIDY-UP — but do not read that as "the argument does not
+ * apply there", because for two of them it does. The two `▲ {count}` sites sit beside a
+ * NUMBER, which is the exact condition the drift argument names, so converting them
+ * would be a real improvement; it is simply one nobody asked for. The two chevrons are
+ * the weak case: decorative, `aria-hidden`, and with no adjacent number to misalign
+ * against. Either way it is a separate, asked-for change with its own visual check,
+ * which nothing in this repo can perform (jsdom resolves no fonts and no layout).
+ *
+ * `aria-hidden` because it carries no information the `aria-label` does not: the
+ * button's name already says "Upvote (12)" / "Remove your vote (12)". An
+ * un-hidden decorative glyph is one more thing a screen reader reads out.
+ */
+const voteGlyph = (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="currentColor"
+  >
+    {/* An upward arrowhead over a short stem — readable at 12px, where a thin
+        outlined arrow is not. */}
+    <path d="M6 1.2 1.4 6.4h2.6v4.4h4V6.4h2.6z" />
+  </svg>
+);
 
 export interface VoteButtonProps {
   count: number;
@@ -46,23 +114,27 @@ export function VoteButton({
   };
 
   return (
-    <Button
-      size="sm"
-      variant={voted ? 'filled' : 'light'}
-      loading={busy}
-      onClick={handle}
-      data-testid={testId ?? 'vote-button'}
-      data-voted={voted ? 'true' : 'false'}
-      aria-pressed={voted}
-      aria-label={voted ? `Remove your vote (${count})` : `Upvote (${count})`}
-      leftSection={<span aria-hidden="true">▲</span>}
-    >
-      <span
-        data-testid="vote-count"
-        style={{ fontVariantNumeric: 'tabular-nums', minWidth: 14, textAlign: 'center' }}
+    <Tooltip label={voted ? UNVOTE_TOOLTIP : VOTE_TOOLTIP}>
+      <Button
+        size="sm"
+        variant={voted ? 'filled' : 'light'}
+        loading={busy}
+        onClick={handle}
+        data-testid={testId ?? 'vote-button'}
+        data-voted={voted ? 'true' : 'false'}
+        aria-pressed={voted}
+        /* 🔴 THE ACCESSIBLE NAME, AND IT CARRIES THE COUNT. The `<Tooltip>` above
+           contributes `aria-describedby`, never the name — see VOTE_TOOLTIP. */
+        aria-label={voted ? `Remove your vote (${count})` : `Upvote (${count})`}
+        leftSection={voteGlyph}
       >
-        {count}
-      </span>
-    </Button>
+        <span
+          data-testid="vote-count"
+          style={{ fontVariantNumeric: 'tabular-nums', minWidth: 14, textAlign: 'center' }}
+        >
+          {count}
+        </span>
+      </Button>
+    </Tooltip>
   );
 }

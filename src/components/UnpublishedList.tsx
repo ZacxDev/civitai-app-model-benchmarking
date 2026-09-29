@@ -17,6 +17,7 @@
 import { useState } from 'react';
 import { Alert, Badge, Button, Card, Group, Stack } from '@civitai/blocks-react/ui';
 
+import type { MyNoun } from '../types.js';
 import { metaText, mutedText } from '../theme.js';
 
 /** One unpublished record, flattened to what this list renders. */
@@ -31,8 +32,9 @@ export interface UnpublishedItem {
 
 export interface UnpublishedListProps {
   items: UnpublishedItem[];
-  /** What the object is, for the accessible names and the empty-state copy. */
-  noun: 'matchup' | 'prompt' | 'grid';
+  /** What the object is, for the accessible names and the empty-state copy.
+   * The shared {@link MyNoun} union — one declaration, five former spellings. */
+  noun: MyNoun;
   /** The host-reported private-storage line, or null while unread/anonymous. */
   quotaLine?: string | null;
   onNew: () => void;

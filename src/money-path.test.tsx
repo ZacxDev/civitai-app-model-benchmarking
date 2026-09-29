@@ -1175,3 +1175,344 @@ describe('#3 estimate rejection: a workflow that cannot be priced fails honestly
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// #5 THE VIEW SWITCH — navigating away from the grid and back must not charge again.
+// ---------------------------------------------------------------------------
+//
+// 🔴 WHY THIS BLOCK EXISTS AT ALL. The sidebar makes the grid UNMOUNTABLE without a
+// reload: selecting My Benchmarks takes down the whole Home surface, including
+// `ResultsGrid`, the way a reload does — but WITHOUT the rehydrate that a reload runs.
+// Two distinct failure modes fall out of that, and neither had any coverage before this
+// block, because until the board/sidebar change there were no views to switch between:
+//
+//   (a) the poll loop lives in the unmounted subtree → the viewer is charged and the
+//       result is lost;
+//   (b) coming back re-offers the cell as empty-and-runnable → the viewer is charged
+//       TWICE.
+//
+// ⚠️ HONEST LABELLING, AND THIS MATTERS MORE THAN THE CASES. Neither failure mode is
+// reachable on this tree, and these are therefore NOT regression guards for a bug that
+// existed: `runs`, `inFlightRef`, `driveToResult` and the claim/persist path are all
+// owned by `App`, which stays mounted across every view switch, so unmounting
+// `ResultsGrid` takes down a RENDERER and nothing else. They are SEAM guards on a
+// relationship the sidebar created — "the run survives the switch" — and they are
+// validated by MUTATION rather than by a red base, because a base with no view switch
+// cannot run them at all.
+//
+// 🔴 MEASURED, AND AN EARLIER VERSION OF THIS PARAGRAPH SAID IT BACKWARDS. It claimed
+// "case 1 and case 2 go red on the CELL STATE and case 1 additionally goes red on the
+// submit COUNT". Re-measured here, on this tree, under the mutant it names — clearing
+// `runs` when the view changes (`onSelect={(v) => { setRuns({}); setView(v); }}` at the
+// `<SideNav>` call site in `App.tsx`), `node_modules/.vite` cleared first.
+//
+// BEFORE the capture fix described below — i.e. the tree the old paragraph was written
+// against, and the tree it got backwards:
+//
+//   case 1 (still POLLING)  — GREEN on every assertion it made. See below.
+//   case 2 (STALLED)        — RED on the MONEY assertion, `submit` called 1×.
+//                             THIS IS THE DOUBLE CHARGE, and case 2 is still the only
+//                             case that observes it.
+//   case 3 (OPEN GRID)      — RED on the CELL STATE, `cell-stalled` absent.
+//
+// AFTER it, re-measured on the same mutant: all three go RED, and case 1 fails on its
+// OWN assertion (`the cell came back empty and runnable`) rather than incidentally.
+//
+// 🔴 WHY CASE 1 WAS BLIND, because the reason is a trap and not a detail. The mutant
+// DOES do its damage there: probed directly, the cell is `data-state="empty"` with
+// `run-cell` present the moment `goHome()` returns — failure mode (b), exactly. But
+// `tryToSpendAgain()` then presses Run, `beginRun` writes `status: 'confirming'`, and
+// `ResultsGrid` renders EVERY non-idle status as `data-state="running"` — so the helper
+// repaired both observables the case went on to assert. The submit COUNT stays at 1
+// because the in-memory `inFlightRef` claim from the live run refuses the second
+// `confirmRun`; that half is unchanged and is not a defect. Money-first ordering is
+// still right (see `tryToSpendAgain`'s header), so the fix was to CAPTURE the re-offer
+// BEFORE the press and assert the captured value AFTER the money.
+//
+// 🔴 SO: CASE 2 IS THE ONLY CASE THAT CATCHES AN ACTUAL SECOND CHARGE. Anyone pruning
+// this block from this header must not read case 2 as "the state-only one" and keep
+// case 1 as "the count guard" — that is backwards, and it deletes the only money
+// assertion in the block that a runs-clearing regression can move.
+//
+// 🔴 AND THE THIRD CASE IS THE ONE THAT CHANGED PRODUCTION CODE. `openGridKey` was a
+// `useState` inside `GridsView`; it is `App`'s now. Without that hoist, returning from
+// My Benchmarks resets the open grid to the Top Grid, so a viewer who started a run
+// inside a community grid comes back to a DIFFERENT matrix with their stalled cell
+// nowhere on screen: charged, still running, invisible, and the only route back is to
+// remember which grid it was. No double charge — the claim is intact in KV — but a
+// generation the viewer paid for and cannot collect, which is the same shape as the
+// adopted-cell-cannot-resume bug this file already guards.
+//
+// ⚠️ AND IT CLOSES THE VIEW-SWITCH HALF ONLY — do not read case 3 as closing the
+// charged-running-invisible shape. `openGridKey` is NOT PERSISTED (no KV write, no URL —
+// operator decision, YAGNI), so after a RELOAD the app opens on the Top Grid and a
+// stalled cell on a community grid is off-screen again, exactly as before. That half is
+// unchanged by this stack rather than introduced by it: `openGridKey` was equally
+// unpersisted as `GridsView`'s own `useState`. Persisting it is a separate decision
+// nobody has made, and no case in this block covers the reload path.
+describe('#5 the view switch: a live run survives a trip to My Benchmarks', () => {
+  /** A second prompt, so a community grid can name a DIFFERENT cell from the Top Grid. */
+  const promptTwo: PromptData = {
+    v: 3,
+    kind: 'prompt',
+    default: { prompt: 'a quiet street', params: { cfgScale: 5, steps: 30 } },
+  };
+  const CK2 = 'c1::cfgSeed::p2';
+
+  function seedWithGrid(): SharedItem[] {
+    return [
+      ...seedRows(),
+      { key: 'p2', authorUserId: 8, count: 1, viewerVoted: false, value: { title: 'Second Prompt', body: '', data: promptTwo }, createdAt: new Date(0), updatedAt: new Date(0) },
+      {
+        key: 'gk-other',
+        authorUserId: 8,
+        count: 9,
+        viewerVoted: false,
+        value: {
+          title: 'Other grid',
+          body: '',
+          data: { v: 1, kind: 'grid', matchupKeys: ['c1'], promptKeys: ['p2'] },
+        },
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+    ];
+  }
+
+  /** Sidebar → My Benchmarks ▸ Grids. */
+  async function goToMyGrids(): Promise<void> {
+    const trigger = await screen.findByTestId('nav-my');
+    if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+    await userEvent.click(await screen.findByTestId('nav-my-grid'));
+    // 🔴 THE PREMISE, ASSERTED: the grid really did unmount. Without this the cases
+    // below could pass against a nav that navigates nowhere, which is the one way "the
+    // run survived the switch" is satisfied by there being no switch.
+    await waitFor(() => expect(screen.queryByTestId('results-grid')).toBeNull());
+    expect(screen.queryByTestId('grid-cell')).toBeNull();
+  }
+
+  async function goHome(): Promise<void> {
+    await userEvent.click(await screen.findByTestId('nav-home'));
+    await screen.findByTestId('results-grid');
+  }
+
+  /**
+   * ATTEMPT the double charge, and report whether the app let it through.
+   *
+   * 🔴 THIS EXISTS BECAUSE ORDER IS LOAD-BEARING AND THE FIRST DRAFT GOT IT WRONG. The
+   * cases below were written state-first — "the cell is still running" — and under the
+   * mutant they died on THAT, so the SPEND assertion, which is the claim that names the
+   * money, never executed. Doing what a viewer would do (press Run, press Confirm) puts
+   * the count on the path rather than after a guard that already failed.
+   *
+   * A no-op when the cell is not runnable, which is the correct end state — so the
+   * caller must also assert the STATE. The two are different claims: a cell can look
+   * right while an effect behind it spends, and it can look wrong while nothing does.
+   */
+  async function tryToSpendAgain(): Promise<void> {
+    const grid = screen.getByTestId('results-grid');
+    const run = within(grid).queryByTestId('run-cell');
+    if (!run) return;
+    await userEvent.click(run);
+    const confirm = within(grid).queryByTestId('cell-confirm-run');
+    if (confirm) await userEvent.click(confirm);
+    // 🔴 IT FLUSHES, IT DOES NOT ASSERT. A `waitFor` on the confirm control unmounting
+    // was here first, and MEASURED under the runs-clearing mutant it made the HELPER
+    // the thing that failed — killing the case before its own money assertion ran,
+    // which is exactly the "died for the wrong reason" shape. (The app refuses the
+    // second confirm from its in-memory claim and leaves the control mounted, so the
+    // wait could never resolve.) Anything this helper asserts is an assertion the
+    // caller did not write.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it('🔴 a run still POLLING is still running when the viewer comes back, and never re-submits', async () => {
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, store } = fakeAppStorage();
+    renderApp({
+      shared,
+      appStorage,
+      estimate: async () => estimateSnap,
+      submit,
+      // Never terminal, so the run is genuinely still in flight across the switch.
+      poll: () => new Promise<BlockWorkflowSnapshot>(() => {}),
+      publish: async () => [],
+    });
+
+    await toConfirming();
+    await userEvent.click(screen.getByTestId('cell-confirm-run'));
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    // The claim is durable before we go anywhere — otherwise this case is about a run
+    // that was never recorded, which is a different bug.
+    await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(true));
+
+    await goToMyGrids();
+    await goHome();
+
+    /**
+     * 🔴 A READ, NOT AN ASSERTION, AND THAT IS THE WHOLE POINT. `tryToSpendAgain()`
+     * below presses Run, which writes `status: 'confirming'` — and `ResultsGrid`
+     * renders every non-idle status as `data-state="running"`, so the press REPAIRS
+     * both observables this case used to assert afterwards. MEASURED: under the
+     * runs-clearing mutant the cell really is `empty` with `run-cell` present right
+     * here, and every post-helper assertion was still green.
+     *
+     * Capturing it keeps the money assertion first (see `tryToSpendAgain`'s header for
+     * why that ordering is not negotiable) while still observing the re-offer, because
+     * a `const` cannot fail the test before the count is read.
+     */
+    const reOfferedBeforePress = screen.queryByTestId('run-cell') !== null;
+    /**
+     * 🔴 THE CELL SET IS COUNTED, NOT FIRST-MATCHED, AND THE WEAKER FORM WAS A REAL
+     * HAZARD. This read was `within(grid).getByTestId('grid-cell')` and became
+     * `querySelector('[data-testid="grid-cell"]')`, which silently takes the FIRST
+     * match. Equivalent today — §5's seed is one cell — and silently WRONG the moment
+     * that seed grows one, because it would then report some other cell's state under
+     * this cell's assertion.
+     *
+     * ⚠️ AND THE THROWING FORM IS *NOT* SIMPLY RESTORED, deliberately. `getByTestId`
+     * throws on 0 matches AND on >1, and it would throw HERE — above
+     * `tryToSpendAgain()`. That kills the case before the money count is read, which is
+     * the exact "died for the wrong reason" shape this section's own helper header
+     * forbids. So the ambiguity is captured as a VALUE and surfaces at the assertion
+     * below instead: a set of any size other than one produces a string no
+     * `toBe('running')` can match, and the failure message names the count.
+     */
+    const cellsBeforePress = within(screen.getByTestId('results-grid')).queryAllByTestId('grid-cell');
+    const stateBeforePress =
+      cellsBeforePress.length === 1
+        ? cellsBeforePress[0]!.getAttribute('data-state')
+        : `AMBIGUOUS: ${cellsBeforePress.length} grid-cell(s), expected exactly 1`;
+
+    // 🔴 THE MONEY ASSERTIONS GO FIRST, and `tryToSpendAgain` is what puts them on the
+    // path: press Run and Confirm exactly as a viewer would, then count. A state
+    // assertion placed above this would kill a mutant on the SYMPTOM and leave the
+    // charge unmeasured.
+    await tryToSpendAgain();
+    expect(
+      submit,
+      'the view switch re-offered a live generation and the app spent again — double charge',
+    ).toHaveBeenCalledTimes(1);
+    // …and the claim was neither cleared nor duplicated by the round trip.
+    expect(store.has(INFLIGHT_KEY)).toBe(true);
+
+    // 🔴 …AND THE CELL WAS NOT EMPTY AND RUNNABLE WHEN WE CAME BACK, which is the state
+    // that INVITES the press above. Read from the values CAPTURED before the press, for
+    // the reason stated there: asserting the live DOM here measures what the helper did,
+    // not what the view switch did. This is the assertion that fails independently of
+    // the count — on this tree the in-memory `inFlightRef` claim survives the switch and
+    // would refuse a second `confirmRun` even if the cell were re-offered, so the count
+    // alone stays green over a cell that came back runnable.
+    expect(
+      reOfferedBeforePress,
+      'the cell came back empty and runnable — the only thing between that and a second charge is an in-memory claim that a reload would not have',
+    ).toBe(false);
+    expect(
+      stateBeforePress,
+      'the live run stopped rendering as in-flight across the view switch',
+    ).toBe('running');
+  });
+
+  it('🔴 a STALLED run is still resumable after the round trip — poll, never submit', async () => {
+    const submit = vi.fn(async () => processingSnap);
+    const poll = vi.fn(async () => succeededSnap('wf-prior'));
+    const { shared } = fakeShared({ seed: seedRows() });
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll, publish: async () => [9001, 9002] });
+
+    const grid = await screen.findByTestId('results-grid');
+    await waitFor(() => expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument());
+
+    await goToMyGrids();
+    await goHome();
+
+    // 🔴 THE SPEND ASSERTION FIRST, AND THIS IS THE CASE WHERE IT BITES. A rehydrated
+    // run leaves NOTHING in the in-memory `inFlightRef` — that set is populated by
+    // `confirmRun`/`resumeRun`, not by the mount scan — and the scan COMPLETED, so
+    // `confirmRun`'s pre-spend store read is stood down. If the view switch re-offered
+    // this cell there is no layer left: pressing Run charges a second time for a
+    // generation that is already running. `tryToSpendAgain` presses it.
+    await tryToSpendAgain();
+    expect(
+      submit,
+      'the view switch re-offered a rehydrated run and the app SPENT — this is the double charge, with no backstop between it and the viewer',
+    ).not.toHaveBeenCalled();
+
+    // Still stalled, still not runnable — the rehydrate is a MOUNT effect keyed on
+    // `[ready, viewer?.id]`, so it does not re-run on a view switch and the state has to
+    // have survived in `App` rather than been re-read.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('results-grid')).getByTestId('cell-stalled')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('run-cell')).toBeNull();
+
+    // 🔴 AND RESUME STILL WORKS. This is the half that would break if the switch had
+    // dropped the workflowId while keeping the cell in a stalled-looking state: the
+    // control renders, the press does nothing, and the viewer is charged for a
+    // generation they can never collect. (Same shape as the adopted-cell case above.)
+    await userEvent.click(screen.getByTestId('cell-resume-run'));
+    await waitFor(() => expect(screen.getByTestId('grid-cell')).toHaveAttribute('data-state', 'result'), {
+      timeout: 3000,
+    });
+    expect(poll, 'resume after the round trip polled nothing').toHaveBeenCalledWith('wf-prior');
+    expect(submit, 'resume after the round trip re-submitted — double charge').not.toHaveBeenCalled();
+    await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
+  });
+
+  it('🔴 the OPEN GRID survives the round trip, so a stalled cell is still on screen', async () => {
+    // 🔴 THE CASE THE HOIST EXISTS FOR. `openGridKey` was `GridsView`'s `useState`;
+    // navigating away unmounts that component, so coming back reset the open grid to the
+    // Top Grid. A viewer who started a run inside a community grid would return to a
+    // different matrix with their in-flight cell nowhere on screen — charged, running,
+    // invisible.
+    //
+    // ⚠️ SCOPE, STATED SO THIS CASE IS NOT READ AS MORE: it covers the VIEW SWITCH, not
+    // a RELOAD. `openGridKey` is not persisted, so a reload still opens on the Top Grid
+    // with a community grid's stalled cell off-screen — see the §5 header.
+    const submit = vi.fn(async () => processingSnap);
+    const { shared } = fakeShared({ seed: seedWithGrid() });
+    // The in-flight run is on the OTHER grid's cell (c1 × p2), which the Top Grid also
+    // contains — so the discriminator is the OPEN GRID'S IDENTITY, not the cell's
+    // presence. Asserted both ways below.
+    const { appStorage } = fakeAppStorage({
+      [`inflight:v1:${CK2}`]: { workflowId: 'wf-other', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p2', ecosystem: 'SDXL' },
+    });
+    renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap('wf-other'), publish: async () => [] });
+
+    await screen.findByTestId('results-grid');
+    // Open the community grid. Its card is in the all-grids list; the Top Grid is the
+    // one currently open and is therefore NOT listed.
+    const card = await waitFor(() => {
+      const el = screen.getAllByTestId('grid-card').find((c) => c.getAttribute('data-key') === 'gk-other');
+      expect(el, 'the community grid never rendered').toBeTruthy();
+      return el!;
+    });
+    await userEvent.click(within(card).getByTestId('grid-open'));
+    await waitFor(() => expect(screen.getByTestId('grid-open-title')).toHaveTextContent('Other grid'));
+    // PREMISE: this grid's matrix is ONE cell, the Top Grid's is TWO — so the two are
+    // distinguishable by content as well as by title.
+    await waitFor(() => expect(screen.getAllByTestId('grid-cell')).toHaveLength(1));
+    expect(screen.getByTestId('cell-stalled')).toBeInTheDocument();
+
+    await goToMyGrids();
+    await goHome();
+
+    // 🔴 THE SAME GRID IS STILL OPEN…
+    expect(
+      screen.getByTestId('grid-open-title'),
+      'the open grid reset on the way back — a stalled cell is now on a matrix nobody is looking at',
+    ).toHaveTextContent('Other grid');
+    expect(screen.queryByTestId('grid-open-system-badge')).toBeNull();
+    // …so the stalled cell the viewer paid for is STILL ON SCREEN, and it is the only
+    // cell, which is what proves the matrix is this grid's and not the Top Grid's.
+    expect(screen.getAllByTestId('grid-cell')).toHaveLength(1);
+    expect(screen.getByTestId('cell-stalled')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-cell')).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+  });
+});

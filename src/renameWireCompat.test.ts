@@ -24,14 +24,17 @@
 // (`ResultData.comboKey`, the `draft:v1:` appStorage prefix), and a structural
 // ledger over the 24 renamed testids.
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+
+import { productionReachable, scannedSources } from './lib/sourceScan.js';
 
 import {
   buildCombinationPayload,
   checkpointFromPick,
+  loraFromPick,
   parseCombination,
   parseResult,
   recordKind,
@@ -39,7 +42,7 @@ import {
   type RawSharedItem,
 } from './lib/benchmark.js';
 import { DRAFT_PREFIX } from './lib/drafts.js';
-import { CKPT_SDXL } from './test-helpers.js';
+import { CKPT_SDXL, LORA_SDXL } from './test-helpers.js';
 
 // ---------------------------------------------------------------------------
 // The frozen fixtures. These are BYTES, not builder output — a snapshot of the
@@ -197,6 +200,153 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     expect(reread!.data.kind).toBe('combination');
   });
 
+  // -------------------------------------------------------------------------
+  // 🔴 `LoraRef.modelId` — ADDED LATE, SO IT IS OPTIONAL FOREVER.
+  //
+  // The resource-link change stores a LoRA's model id so its title can be a link.
+  // Every LoRA already on the shared board was written WITHOUT it, and nothing can
+  // ever rewrite those rows (`shared.update`/`withdraw` are author-scoped, and the
+  // board is cross-viewer). So the field is permanently optional, and a parse that
+  // rejected or threw on its absence would empty the board for every viewer with no
+  // recovery path — the same class of unrecoverable break the `kind: 'combination'`
+  // literal is pinned against, one field down.
+  //
+  // BOTH DIRECTIONS are covered, because each is blind to the other's failure:
+  // reading an OLD row that lacks it, and round-tripping a NEW row that has it.
+  // -------------------------------------------------------------------------
+  it('🔴 READ: a LoRA with NO `modelId` still parses, and gains no phantom one', () => {
+    // `PRE_RENAME_V1_ROW`'s LoRA carries `modelId: 800`, so it cannot serve here —
+    // this needs a row whose LoRA genuinely lacks the field, which is what every row
+    // published before the resource-link change looks like. Written out as BYTES for
+    // the reason the frozen fixtures above are: a fixture produced by this repo's own
+    // builder would grow the field alongside the code and stay green through exactly
+    // the break it is meant to catch.
+    const preModelIdLora: RawSharedItem = {
+      key: 'shared_01HZQ8NOMODELID',
+      count: 1,
+      authorUserId: 9,
+      viewerVoted: false,
+      value: {
+        title: 'Pre-modelId LoRA stack',
+        body: '',
+        data: {
+          v: 2,
+          kind: 'combination',
+          configs: [
+            {
+              id: 'cfg_old',
+              checkpoint: { versionId: 3003, modelId: 700, baseModel: 'Flux.1 D' },
+              loras: [{ versionId: 4004, weight: 0.6, minStrength: 0, maxStrength: 1 }],
+            },
+          ],
+        },
+      },
+    } as unknown as RawSharedItem;
+
+    const parsed = parseCombination(preModelIdLora);
+    // The row is READABLE — the claim that matters, and the one whose failure would
+    // be unrecoverable.
+    expect(parsed).not.toBeNull();
+    expect(parsed!.data.configs).toHaveLength(1);
+    const lora = parsed!.data.configs[0]!.loras[0]!;
+    expect(lora.versionId).toBe(4004);
+    expect(lora.weight).toBe(0.6);
+    // 🔴 AND NO PHANTOM VALUE IS INVENTED. A parse that defaulted `modelId` to 0, or
+    // to the checkpoint's 700, would put a WRONG model id on the wire for this row,
+    // permanently and unfixably — the row belongs to its author, so no later build can
+    // correct it. The field must be ABSENT, not falsy.
+    //
+    // ⚠️ RETRACTED, BECAUSE IT NAMED A UI CONSEQUENCE THAT DOES NOT EXIST: this used to
+    // say the default "would make `ResourceLink` render a LINK TO THE WRONG MODEL —
+    // worse than plain text, because a wrong link cannot be told from a right one by
+    // looking". `ResourceLink` was removed before release; `ResourceName` renders every
+    // resource as plain text whatever `modelId` says, so nothing renders a link at all
+    // today. The DATA argument above is the real one and it is strictly stronger — it
+    // does not depend on when, or whether, a caller ever appears (`civitai/civitai`
+    // **#5209**).
+    expect(lora.modelId).toBeUndefined();
+    expect('modelId' in lora).toBe(false);
+  });
+
+  it('🔴 WRITE→READ: a LoRA WITH `modelId` survives publish and re-read', () => {
+    const built = buildCombinationPayload({
+      name: 'Linked LoRA',
+      description: 'written after the resource-link change',
+      configs: [
+        {
+          id: 'cfg_new',
+          checkpoint: checkpointFromPick(CKPT_SDXL),
+          loras: [loraFromPick(LORA_SDXL)],
+        },
+      ],
+    });
+
+    // What the BUILDER emits — the wire bytes another viewer's client will read.
+    const wire = built.data as {
+      configs: { loras: { versionId: number; modelId?: number }[] }[];
+    };
+    // Literals, not `LORA_SDXL.modelId`: an expectation read out of the same fixture
+    // the implementation read cannot check it.
+    expect(wire.configs[0]!.loras[0]!.modelId).toBe(900);
+    expect(wire.configs[0]!.loras[0]!.versionId).toBe(2002);
+
+    const reread = parseCombination({
+      key: 'k',
+      count: 0,
+      authorUserId: 1,
+      viewerVoted: false,
+      value: built,
+    } as unknown as RawSharedItem);
+    expect(reread).not.toBeNull();
+    const lora = reread!.data.configs[0]!.loras[0]!;
+    expect(lora.modelId).toBe(900);
+    // 🔴 DISTINCT FROM THE CHECKPOINT'S, on purpose. `CKPT_SDXL.modelId` is 500 and
+    // `LORA_SDXL.modelId` is 900, so a parse (or a builder) that copied the
+    // checkpoint's id onto the LoRA fails here. Fixtures whose values could coincide
+    // cannot see that mutant at all.
+    expect(reread!.data.configs[0]!.checkpoint.modelId).toBe(500);
+  });
+
+  it('🔴 a LoRA `modelId` that is NOT a number is dropped, not carried through', () => {
+    // `data` is an opaque, unmoderated blob written by other clients (and by older
+    // revisions of this one). A string or null carried through here would sit in the
+    // parsed `LoraRef` as a non-number `modelId`, which the TYPE says cannot happen —
+    // so every future consumer is entitled to assume it. Dropping it at the parse is
+    // what makes that assumption true.
+    //
+    // ⚠️ RETRACTED: this used to justify the case by "a string or null here reaching
+    // `ResourceLink` would build `/models/null`". There is no `ResourceLink` and no
+    // consumer of `modelId` at all — see the field's docblock in `src/types.ts`. The
+    // type-integrity argument above is what the case actually rests on.
+    const junk: RawSharedItem = {
+      key: 'shared_01HZQ8JUNK',
+      count: 0,
+      authorUserId: 9,
+      viewerVoted: false,
+      value: {
+        title: 'Junk modelId',
+        body: '',
+        data: {
+          v: 2,
+          kind: 'combination',
+          configs: [
+            {
+              id: 'cfg_junk',
+              checkpoint: { versionId: 3003, modelId: 700, baseModel: 'Flux.1 D' },
+              loras: [{ versionId: 4004, modelId: 'nope', weight: 0.5 }],
+            },
+          ],
+        },
+      },
+    } as unknown as RawSharedItem;
+
+    const parsed = parseCombination(junk);
+    expect(parsed).not.toBeNull();
+    const lora = parsed!.data.configs[0]!.loras[0]!;
+    expect(lora.versionId).toBe(4004);
+    expect('modelId' in lora).toBe(false);
+  });
+
   it('🔴 `ResultData.comboKey` and the result payload version are unrenamed', () => {
     // Read straight off the frozen fixture: the field NAME is the wire contract.
     const raw = PRE_RENAME_RESULT_ROW.value.data as Record<string, unknown>;
@@ -234,13 +384,11 @@ const RENAMED_TESTIDS = [
   'grid-group-matchup',
   'matchup-cancel',
   'matchup-card',
-  'matchup-config-count',
   'matchup-config-summary',
   'matchup-description',
   'matchup-edit',
   'matchup-errors',
   'matchup-form',
-  'matchup-included',
   'matchup-name',
   'matchup-report',
   'matchup-submit',
@@ -254,48 +402,102 @@ const RENAMED_TESTIDS = [
   'matchups-view',
   'submit-matchup',
   // ---- added by the IA refactor, and `view-switch-matchups` removed by it ----
-  // 🔴 THE LEDGER IS THE SET, SO IT MOVES WHEN THE SURFACE DOES — deliberately,
-  // in one place, with the reason written down. The IA refactor deleted the
-  // top-level tab strip (so `view-switch-matchups` has no renderer any more) and
-  // added four matchup-spelled landmarks:
+  // 🔴 THE LEDGER IS THE SET, SO IT MOVES WHEN THE SURFACE DOES — deliberately, in one
+  // place, with the reason written down. TWO generations of movement are recorded here,
+  // because the second one retired three names the first one added.
+  //
+  // The IA refactor deleted the top-level tab strip (so `view-switch-matchups` has no
+  // renderer any more) and added:
   //   - `section-matchups`        the page section that replaced the tab;
-  //   - `contribute-item-matchup` the Contribute menu item that replaced its
-  //                               submit route — NOT in this list, because the
-  //                               scan below cannot see it (it reaches the DOM
-  //                               through a variable). That gap is bounded and
-  //                               asserted by its own case at the end of this
-  //                               describe block rather than left silent;
+  //   - `contribute-item-matchup` the Contribute menu item that replaced its submit
+  //                               route — NEVER in this list, because the scan below
+  //                               cannot see it (it reached the DOM through a variable).
+  //                               That gap was bounded by its own case at the end of
+  //                               this describe block; the component is now DELETED and
+  //                               that case points at `SideNav` instead;
   //   - `matchup-detail*`         the drill-in modal the grid's group band opens;
-  //   - `subtab-*-matchup`        the sub-tab strip, which had to become
-  //                               object-scoped once matchups and prompts are
-  //                               mounted TOGETHER (see SubTabs.tsx).
+  //   - `subtab-*-matchup`        the sub-tab strip, which had to become object-scoped
+  //                               once matchups and prompts were mounted TOGETHER.
+  //
+  // 🔴 THE SIDEBAR CHANGE THEN DELETED THE SUB-TAB STRIP OUTRIGHT — "my work" is a
+  // sidebar destination, not a per-board toggle — so `subtabs-matchup`,
+  // `subtab-my-matchup` and `subtab-community-matchup` have NO RENDERER and are removed
+  // from this ledger. Three names in, three out; the count is coincidence, not a rule.
+  // The three that replace them:
+  //   - `board-nav-matchups`      the board subnav segment that mounts this board
+  //                               (PLURAL — it names a board, not an object kind);
+  //   - `section-my-matchup`      the viewer's own matchup surface;
+  //   - `my-published-matchup`    that surface's own published-rows list.
+  'board-nav-matchups',
   'matchup-detail',
   'matchup-detail-config',
   'matchup-detail-configs',
+  'my-published-matchup',
+  // ---- added by the THIRD IA pass, which also retired two ----
+  // 🔴 TWO NAMES OUT, THREE IN, and the arithmetic is written down because the
+  // length assertion below is a literal someone has to move on purpose:
+  //   OUT `matchup-included`     — the Included badge and its whole-string tooltip are
+  //                               DELETED (every badge went, both modals, operator
+  //                               decision). `IncludedSummary.test.tsx` records which
+  //                               case that retired and why it was not retargeted.
+  //   OUT `matchup-config-count` — the "N configs" pill, deleted with the rest.
+  //   IN  `matchup-menu`         — the row's ⋮ overflow TRIGGER. Edit, Remove and
+  //                               Report moved behind it, so ~30 test call sites now
+  //                               open it first (`openRowMenu` in `test-helpers.tsx`).
+  //   IN  `matchup-menu-items`   — that menu's PANEL. 🔴 It reaches the DOM through
+  //                               `Menu`'s `panelTestId` prop, NOT a `data-testid=`
+  //                               attribute, so the scan had to grow a third pattern
+  //                               to see it at all — see `PANEL_TESTIDS` below. That
+  //                               is a WIDENING of the scan, not an exemption from it:
+  //                               the id is in this ledger like every other.
+  //   IN  `grid-group-matchup-name` — the underlined NAME inside the grid's matchup
+  //                               band. The band itself keeps `grid-group-matchup`
+  //                               (an external capture recipe CLICKS it); the child
+  //                               exists so a test can pin the underline on the name
+  //                               rather than on the whole button, which also carries
+  //                               the vote count.
   'my-sign-in-matchup',
   'my-signed-out-matchup',
+  'grid-group-matchup-name',
+  'matchup-menu',
+  'matchup-menu-items',
   'section-matchups',
-  'subtab-community-matchup',
-  'subtab-my-matchup',
-  'subtabs-matchup',
+  'section-my-matchup',
 ] as const;
 
-/** Every production (non-test) `.ts`/`.tsx` file under src/. */
-function productionSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      out.push(...productionSources(full));
-    } else if (/\.tsx?$/.test(entry) && !entry.includes('.test.')) {
-      out.push(full);
-    }
-  }
-  return out;
-}
-
 const SRC = resolve(process.cwd(), 'src');
-const PROD_SOURCE = productionSources(SRC)
+/**
+ * Every file the PRODUCTION ENTRY actually reaches, concatenated.
+ *
+ * 🔴 IT USED TO BE A LOCAL WALKER CALLED `productionSources`, SEMANTICALLY IDENTICAL TO
+ * `navigationDormancy.test.ts`'s `scannedSources` (same body and regex, differing only in
+ * the name and in brace style), and the duplication rotted exactly as
+ * this repo's "one rule, one place" rule predicts: the docstring on the other copy was
+ * corrected to say the filter is WIDER than production, and this copy kept the sentence
+ * "Every production (non-test) `.ts`/`.tsx` file under src/" that had just been found
+ * wrong. The walker is `lib/sourceScan.ts` now, imported by both.
+ *
+ * 🔴 AND THE FILTER IS GENUINELY NARROWED HERE, which the other caller's is not. This
+ * scan feeds `ALL_TESTIDS`, a LEDGER whose docstring claims "every testid a production
+ * source renders" — and the old walker handed it `src/test-helpers.tsx`, which renders
+ * three ids of its own (`gated-cell`, `result-image`, `result-hidden`). A ledger that can
+ * certify an id only a TEST HELPER renders is asserting something it cannot back, which
+ * is the same class of defect as the rest of this file.
+ *
+ * ⚠️ NO ID LEAVES THE SET TODAY, MEASURED, so this is a correctness fix with no
+ * behavioural change: all three of those ids are ALSO rendered by
+ * `components/GatedCell.tsx`, so the helper only ever contributed duplicates. The
+ * 33-entry matchup assertion and the `>100` control below are unaffected — verified by
+ * running the file before and after the narrowing.
+ *
+ * ⚠️ WHAT "REACHABLE" MEANS HERE IS AN IMPORT WALK FROM `src/main.tsx`, heuristics and
+ * all — see `productionReachable`. It keeps `Harness.tsx`, `test-harness.tsx` and
+ * `demo-data.ts`, which ARE in the entry's graph (the harness is chosen by a runtime env
+ * flag, not a conditional import) and therefore genuinely can render a production id.
+ */
+const REACHABLE = productionReachable(resolve(SRC, 'main.tsx'));
+const PROD_SOURCE = scannedSources(SRC)
+  .filter((f) => REACHABLE.has(f))
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n');
 /**
@@ -313,12 +515,59 @@ const PROD_SOURCE = productionSources(SRC)
 const LITERAL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/data-testid="([^"]*)"/g)).map(
   (m) => m[1],
 );
-/** `data-testid={`stem-${expr}`}` → one entry per member of `NOUNS`. */
+/**
+ * `data-testid={`stem-${expr}`}` → one entry per member of the union `expr` ranges over.
+ *
+ * 🔴 THE UNION IS CHOSEN BY THE VARIABLE'S NAME, AND IT USED TO BE HARDCODED TO ONE
+ * UNION. Every templated testid was expanded over `NOUNS` — which was right while every
+ * template was `${noun}`, and became WRONG the moment `BoardNav` introduced
+ * `board-nav-${board}`: the scan produced `board-nav-matchup` (an id nothing renders)
+ * and never produced `board-nav-matchups` (the id it does). A ledger built on that is
+ * asserting fiction in both directions at once.
+ *
+ * 🔴 AND AN UNKNOWN VARIABLE FAILS LOUDLY rather than being silently mis-expanded —
+ * see the `unknown templated testid variable` case. Adding a third union is a two-line
+ * change; guessing which one a new variable means is how the above happened.
+ */
 const NOUNS = ['matchup', 'prompt', 'grid'] as const;
-const TEMPLATED_TESTIDS = Array.from(
-  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{[^}]*\}`\}/g),
-).flatMap((m) => NOUNS.map((n) => `${m[1]}${n}`));
-const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS];
+const BOARDS = ['matchups', 'prompts', 'grids'] as const;
+const TEMPLATE_UNIONS: Record<string, readonly string[]> = { noun: NOUNS, board: BOARDS };
+/**
+ * 🔴 THE EXPRESSION MAY BE A MEMBER ACCESS, and the union is keyed on its LAST
+ * segment. `App` renders `section-my-${view.noun}`, so a pattern that only accepted a
+ * bare identifier matched nothing there — and a template the scan does not match is a
+ * set of ids that silently leaves `ALL_TESTIDS`, which is the same blind spot in a new
+ * shape (measured: `section-my-matchup` was missing from the scan while being rendered).
+ * Taking the last segment is a heuristic, and it is a SAFE one only because the
+ * known-union guard below turns anything unexpected into a failure rather than a zero.
+ */
+const TEMPLATED_MATCHES = Array.from(
+  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{\s*([A-Za-z_$][\w$.]*)\s*\}`\}/g),
+).map((m) => ({ stem: m[1]!, variable: m[2]!.split('.').pop()! }));
+const TEMPLATED_TESTIDS = TEMPLATED_MATCHES.flatMap(({ stem, variable }) =>
+  (TEMPLATE_UNIONS[variable] ?? []).map((v) => `${stem}${v}`),
+);
+/**
+ * `panelTestId="literal"` → the PANEL id of a `components/Menu.tsx` dropdown.
+ *
+ * 🔴 A THIRD PATTERN, AND IT IS A WIDENING OF THE SCAN RATHER THAN AN EXEMPTION
+ * FROM IT. `Menu` carries two test hooks — the ⋮ trigger's (`data-testid`) and its
+ * panel's — because one component cannot spell two ids under one attribute name,
+ * and deriving the panel's from the trigger's would be a template over a variable
+ * this scan's own union-guard does not know. The consequence is that the panel ids
+ * ARE production-source literals but sit under a prop name the first pattern cannot
+ * see, so `matchup-menu-items` would have been rendered on every matchup row while
+ * being absent from `ALL_TESTIDS` — the exact "an empty match set reads as a clean
+ * sweep" failure this whole file is built against, in a fourth shape.
+ *
+ * Reading the prop name is sound for the same reason reading `data-testid` is: the
+ * literal is at the CALL SITE, in production source. It is not a pass-through the
+ * scan already sees, because the attribute name differs.
+ */
+const PANEL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/panelTestId="([^"]*)"/g)).map(
+  (m) => m[1],
+);
+const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS, ...PANEL_TESTIDS];
 
 describe('527 Phase 1 — the renamed testid ledger', () => {
   // The positive control for every claim below: if this number is 0 the scan
@@ -333,11 +582,38 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     expect(TEMPLATED_TESTIDS.length, 'the templated-testid scan matched nothing').toBeGreaterThan(
       0,
     );
-    expect(TEMPLATED_TESTIDS).toContain('subtab-my-matchup');
+    // Two live examples, one per union, so a mapping that lost either half fails here.
+    expect(TEMPLATED_TESTIDS).toContain('my-signed-out-matchup');
+    expect(TEMPLATED_TESTIDS).toContain('board-nav-matchups');
+    // 🔴 POSITIVE CONTROL ON THE THIRD PATTERN, for the same reason as the second:
+    // a `panelTestId=` regex that matched nothing would silently drop both ⋮ panels
+    // out of `ALL_TESTIDS`, and the ledger assertion below would pass while covering
+    // neither. A non-zero count is what proves the pattern CAN see them, and the two
+    // literals are what prove it sees the right ones.
+    expect(PANEL_TESTIDS.length, 'the panelTestId scan matched nothing').toBeGreaterThan(0);
+    expect(PANEL_TESTIDS.slice().sort()).toEqual(['matchup-menu-items', 'prompt-menu-items']);
   });
 
-  it('renders exactly the 32 matchup-spelled testids of the §11.4 map, as extended', () => {
-    expect(RENAMED_TESTIDS).toHaveLength(32);
+  it('🔴 every templated testid variable maps to a KNOWN union', () => {
+    // 🔴 THE GUARD ON THE SCAN ITSELF. A variable the mapping does not know contributes
+    // ZERO entries, so its ids vanish from `ALL_TESTIDS` and every ledger assertion
+    // below silently stops covering them — an empty match set reading as a clean sweep,
+    // which is the failure this whole file is built against. MEASURED as the real thing
+    // rather than a hypothetical: `board-nav-${board}` was expanded over the NOUN union
+    // for one round, which invented `board-nav-matchup` and hid `board-nav-matchups`.
+    const seen = TEMPLATED_MATCHES.map((m) => m.variable);
+    // POSITIVE CONTROL: the scan found some.
+    expect(seen.length).toBeGreaterThan(0);
+    for (const variable of seen) {
+      expect(
+        TEMPLATE_UNIONS[variable],
+        `unknown templated testid variable \`${variable}\` — add its union to TEMPLATE_UNIONS`,
+      ).toBeDefined();
+    }
+  });
+
+  it('renders exactly the 33 matchup-spelled testids of the §11.4 map, as extended', () => {
+    expect(RENAMED_TESTIDS).toHaveLength(33);
     const found = new Set(ALL_TESTIDS.filter((t) => /matchup/.test(t)));
     expect([...found].sort()).toEqual([...RENAMED_TESTIDS].sort());
   });
@@ -373,21 +649,48 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     //   - `testId` (EmptyState, GridPicker) is a PROP PASS-THROUGH. The literal is
     //     supplied by the caller, in production source, so the scan above already
     //     sees it. Not a blind spot at all.
-    //   - `testid` (ContributeMenu) comes from a table LOCAL to the component, so
-    //     no call site carries the literal and the scan cannot reach it. That is
-    //     the one genuine gap, and the literal check below closes it.
+    //   - `testid` (SideNav — previously ContributeMenu) comes from a table LOCAL to
+    //     the component, so no call site carries the literal and the scan cannot reach
+    //     it. That is the one genuine gap, and the literal check below closes it.
+    //
+    // ⚠️ THE OWNER OF THE THIRD ENTRY MOVED. It was `ContributeMenu`'s three-item table;
+    // that component is deleted and `SideNav`'s My Benchmarks sub-items are driven by
+    // the same shape, so the gap is the same size in a different file. The COUNT is
+    // unchanged, which is exactly why a count alone would not have noticed the move —
+    // hence a ledger of names plus the file-scoped literal check below.
+    //
+    // ⚠️ THE THIRD IA PASS ADDED THREE MORE, ALL PASS-THROUGHS — i.e. the harmless
+    // kind, and the reason this list is names rather than a number:
+    //   - `testId`      ×2 — `Menu`'s ⋮ trigger and `MenuItem`. Both literals are
+    //                        supplied at the call site under `data-testid="…"`, so the
+    //                        first scan pattern already sees them.
+    //   - `panelTestId`     — `Menu`'s panel. Its literal is at the call site too, but
+    //                        under a DIFFERENT attribute name, which is why the scan
+    //                        grew `PANEL_TESTIDS`. Not a blind spot either, now.
+    // What is NOT here, and must never be: a menu whose items come from a table local
+    // to the component. That would be the `SideNav` shape of gap all over again.
     expect(indirect.slice().sort(), 'a new indirect data-testid appeared — ledger it').toEqual([
+      'panelTestId',
+      'testId',
+      'testId',
       'testId',
       'testId',
       'testid',
     ]);
 
-    const menu = readFileSync(resolve(SRC, 'components/ContributeMenu.tsx'), 'utf8');
+    const nav = readFileSync(resolve(SRC, 'components/SideNav.tsx'), 'utf8');
     // POSITIVE CONTROL: the file really was read.
-    expect(menu.length).toBeGreaterThan(1_000);
-    for (const id of ['contribute-item-matchup', 'contribute-item-prompt', 'contribute-item-grid']) {
-      expect(menu, `${id} is not declared in ContributeMenu`).toContain(`'${id}'`);
+    expect(nav.length).toBeGreaterThan(1_000);
+    for (const id of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
+      expect(nav, `${id} is not declared in SideNav`).toContain(`'${id}'`);
     }
-    expect(menu).not.toMatch(/'contribute-item-(?!matchup'|prompt'|grid')/);
+    expect(nav).not.toMatch(/'nav-my-(?!grid'|matchup'|prompt')/);
+
+    // 🔴 AND THE DELETED COMPONENT'S IDS ARE GONE FROM THE WHOLE PRODUCTION TREE, not
+    // merely from this one file. The scan above cannot see a variable-driven testid, so
+    // "no `contribute-item-*` in ALL_TESTIDS" would have been true even while the menu
+    // still existed — this is the check that is not vacuous.
+    expect(PROD_SOURCE).not.toContain('contribute-item-');
+    expect(PROD_SOURCE).not.toContain('contribute-trigger');
   });
 });

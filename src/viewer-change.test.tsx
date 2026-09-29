@@ -36,7 +36,14 @@ import { Harness } from './test-harness.js';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
 import type { SharedItem } from '@civitai/sdk';
 
-import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  fakeGatedCell,
+  immediateSleep,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
 
 /** The live viewer, swapped between renders without remounting the block. `null`
@@ -312,5 +319,58 @@ describe('viewer change without a remount — the re-run route', () => {
       setAttempts.filter((s) => s.key === INFLIGHT_KEY),
       'a write was attempted for an anonymous viewer — the host rejects those, so the claim must not even try',
     ).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The same swap, on a NON-money path: the reported-keys record.
+// ---------------------------------------------------------------------------
+//
+// 🔴 WHY IT BELONGS IN THIS FILE RATHER THAN `report.test.tsx`. The swap needs the
+// file-scoped `useBlockContext` mock above, which is the only construction in the repo
+// that can change the viewer WITHOUT remounting; a `Harness` `viewer` prop cannot
+// express it (see this file's header). `report.test.tsx` has no such mock, so the case
+// would be unreachable there.
+//
+// 🔴 WHAT IT PINS. `App.reportedKeys` is session state ABOVE the swap, so unlike
+// `UnpublishedList`'s publish error it cannot be reset with `key={viewerId}` — the
+// cleanup on `[viewer?.id]` is the only thing that clears it. Without that line viewer
+// B arrives looking at "Reported for review" against a row they have never reported
+// and, worse, with NO Report control of their own: `ReportButton` renders the settled
+// span instead of the trigger, so the affordance is gone rather than merely wrong.
+describe('viewer change without a remount — the reported-keys record', () => {
+  it('🔴 does not carry viewer A’s reports over to viewer B', async () => {
+    const { shared, reports } = fakeShared({ seed: seedRows() });
+    const { appStorage } = fakeAppStorage();
+    const node = block({ shared, appStorage });
+    const view = render(node);
+
+    // Viewer A (99) reports `c1`, which is authored by 7 — so it is reportable.
+    await screen.findByTestId('grid-view');
+    const matchups = await openView('Matchups');
+    let menu = await openRowMenu('matchup', await within(matchups).findByTestId('matchup-card'));
+    await userEvent.click(within(menu).getByTestId('matchup-report'));
+    await userEvent.click(within(menu).getByTestId('matchup-report-confirm'));
+    await waitFor(() => expect(screen.getByTestId('matchup-report-done')).toBeInTheDocument());
+    expect(reports).toEqual([{ key: 'c1', reason: undefined }]);
+
+    // ⚠ CLOSE THE MENU FIRST, and it is not tidiness: `Menu`'s `open` is local state
+    // that a rerender does not touch, so leaving it open makes the re-open below a
+    // TOGGLE — the panel closes and `openRowMenu` times out looking for it. Measured.
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('matchup-menu-items')).toBeNull());
+
+    // …and the host swaps the viewer without remounting. A FRESH element, for the
+    // reason the sign-out case above records: `rerender(node)` with a referentially
+    // identical element can bail out of the subtree entirely.
+    viewerBox.current = { id: 1234, username: 'b' };
+    view.rerender(block({ shared, appStorage }));
+
+    const board = await screen.findByTestId('section-matchups');
+    menu = await openRowMenu('matchup', await within(board).findByTestId('matchup-card'));
+    // 🔴 B GETS THEIR OWN TRIGGER BACK, which is the stronger half: a stale settled
+    // note would not merely mislead, it would REMOVE the affordance.
+    expect(within(menu).getByTestId('matchup-report')).toBeInTheDocument();
+    expect(within(menu).queryByTestId('matchup-report-done')).toBeNull();
   });
 });

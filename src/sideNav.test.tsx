@@ -1,0 +1,402 @@
+// The SIDEBAR NAV — the control that replaced the `ContributeMenu` dropdown, which
+// replaced the top-level tab strip.
+//
+// 🔴 IT IS A HAND-BUILT NAV, so the behaviour an upstream component would have given
+// us for free has to be asserted here: the item ledger, `aria-current` on the active
+// item AND on the collapsed group's trigger, the chevron as the expandable state,
+// arrow-key movement, Enter/Space activation, and Escape collapsing AND returning focus
+// to the trigger. Until the five-package bump lands (see `SideNav.tsx`), these
+// assertions are the only thing standing between "a nav" and "a div with some buttons".
+//
+// ⚠️ WHAT THIS FILE CANNOT SETTLE. jsdom performs NO LAYOUT, so nothing here observes
+// whether the sidebar reads as a sidebar, whether the indent is visible, or whether it
+// becomes a usable top bar on a phone. The depth assertion below is on the CUSTOM
+// PROPERTY, not on a rendered offset. Live measurement is owed and has not been done.
+//
+// ⚠ ROLE NOTE for anyone porting a query from the dropdown this replaced: its trigger
+// was `aria-haspopup="menu"` and its items were `role="menuitem"`. These are plain
+// `<button>`s inside a `role="list"`; `getAllByRole('menuitem')` finds nothing.
+//
+// ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
+//
+// THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/sideNav.test.tsx` and
+// `src/components/SideNav.tsx` were both added by `8a4b681`, and NEITHER exists on
+// `origin/main` (verified: `git ls-tree -r --name-only origin/main -- src` matches
+// neither). So there is no tree in which these cases exist and their subject does not —
+// "0 of 19 red at base" is a STRUCTURAL fact about a new file and says nothing about
+// coverage. **Do not count these cases as regression coverage.** They are INVARIANT
+// GUARDS on behaviour a hand-built nav has to provide and an upstream component would
+// have given for free, validated by MUTATION (break the behaviour, watch the case go
+// red) and never by a red base.
+//
+// ⚠️ AND A METHOD WARNING FOR WHOEVER TRIES TO TAKE A BASE READING ANYWAY.
+// `git checkout <older-ref> -- <dir>` RESTORES tracked files but CANNOT DELETE files
+// that are new in HEAD (verified directly, in a scratch repo: a file added in HEAD
+// survives `git checkout HEAD~1 -- src/`). So a "base" built that way is a HYBRID tree —
+// the older commit's tracked files PLUS every file HEAD added — and must not be
+// described as a checkout of the older commit. An earlier write-up of these cases did
+// exactly that, and also named the wrong branch as the one lacking the component.
+// To get a real base here, check out the ref itself in a clean worktree.
+// `src/myBenchmarks.test.tsx` carries the same label for its own cases.
+
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
+
+/**
+ * The five items, as `[testid, visible label, depth, the view selecting it produces]`.
+ *
+ * 🔴 LITERALS ON EVERY SIDE, and deliberately NOT derived from the component's own
+ * tables — a mapping read out of the implementation agrees with a wrong implementation.
+ * `SIDE_NAV_ITEMS` is cross-checked against this table below rather than used to build
+ * it.
+ */
+const ITEMS = [
+  ['nav-home', 'Home', 0, { kind: 'home' }],
+  ['nav-my', 'My Benchmarks', 0, null],
+  ['nav-my-grid', 'Grids', 1, { kind: 'my', noun: 'grid' }],
+  ['nav-my-matchup', 'Matchups', 1, { kind: 'my', noun: 'matchup' }],
+  ['nav-my-prompt', 'Prompts', 1, { kind: 'my', noun: 'prompt' }],
+] as const satisfies ReadonlyArray<readonly [string, string, number, MainView | null]>;
+
+function renderNav(view: MainView = { kind: 'home' }) {
+  const onSelect = vi.fn();
+  const r = render(<SideNav view={view} onSelect={onSelect} />);
+  return { onSelect, rerender: (v: MainView) => r.rerender(<SideNav view={v} onSelect={onSelect} />) };
+}
+
+/** Open the group, from any starting state. */
+async function expand(): Promise<void> {
+  const trigger = screen.getByTestId('nav-my');
+  if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+}
+
+describe('SideNav — the structure the upstream swap has to preserve', () => {
+  it('is a landmark <nav> with an accessible name, wrapping a role="list"', () => {
+    renderNav();
+    const nav = screen.getByTestId('side-nav');
+    expect(nav.tagName).toBe('NAV');
+    // A literal: a `<nav>` with no name is one of several unlabelled landmarks to a
+    // screen reader user, which is the state this app was in before there was a nav.
+    expect(nav).toHaveAccessibleName('Model Benchmarking sections');
+    expect(within(nav).getByRole('list')).toBe(screen.getByTestId('side-nav-list'));
+  });
+
+  it('🔴 LEDGER: the collapsed nav holds EXACTLY two items, and the expanded one five', async () => {
+    renderNav();
+
+    // Collapsed: Home and the group trigger. Fails when an item is ADDED as loudly as
+    // when one is removed — the primary navigation is a decision, not a drift.
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    expect(screen.queryByTestId('nav-my-group')).toBeNull();
+    for (const [testid] of ITEMS.slice(2)) expect(screen.queryByTestId(testid)).toBeNull();
+
+    await expand();
+
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(5);
+    expect(items.map((el) => el.firstElementChild?.getAttribute('data-testid'))).toEqual(
+      ITEMS.map(([t]) => t),
+    );
+    expect(items.map((el) => el.textContent)).toEqual(
+      // The trigger's text includes its chevron glyph, so compare by containment there.
+      items.map((el, i) => (i === 1 ? el.textContent : ITEMS[i]![1])),
+    );
+    for (const [testid, label] of ITEMS) {
+      expect(screen.getByTestId(testid)).toHaveTextContent(label);
+    }
+
+    // …and nothing else in the nav is a control at all: every focusable descendant IS
+    // one of the five. A sixth button that forgot its attribute would slip the ledger
+    // above and still be tabbable.
+    const focusable = Array.from(
+      screen.getByTestId('side-nav').querySelectorAll('button, a[href], [tabindex]'),
+    );
+    expect(focusable.map((el) => el.getAttribute('data-testid'))).toEqual(ITEMS.map(([t]) => t));
+
+    // The component's own exported ledger agrees with this table. Cross-checked, not
+    // used to build it — the table above is the contract.
+    expect(SIDE_NAV_ITEMS.map((i) => [i.testid, i.label, i.depth])).toEqual(
+      ITEMS.map(([t, label, depth]) => [t, label, depth]),
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 🔴 DELETED: 'expresses nesting as the UPSTREAM depth custom property, at the
+  // upstream step'. RE-ADD IT AT SWAP TIME — it is not retired, it is premature.
+  //
+  // It asserted that every item declares `--civitai-nav-depth` equal to its depth, and
+  // that `NAV_DEPTH_STEP_PX` is 14. It CANNOT observe what its name claims. Its only
+  // comparand for "the upstream step" was `NAV_DEPTH_STEP_PX`, imported from the
+  // component under test, and the pinned `@civitai/components@0.4.1` installed here
+  // SHIPS NO NAV ELEMENT AT ALL — so drift from the real 0.8.1 / 0.9.0 shape (a
+  // different property name, a different step, or depth expressed some other way) is
+  // structurally invisible to it. It could only ever fail if someone edited this repo's
+  // own constant, which is not the hazard the case was written for.
+  //
+  // What to do instead, when the five-package bump lands (`SideNav.tsx`'s header has the
+  // gate): re-add it with the REAL element as the comparand — mount a
+  // `<civitai-nav-item>` at two depths and read the property off it, then assert this
+  // file's mirror agrees. That is a relationship between two things and can be red.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 🔴 THE INDENT WAS DEAD ON ARRIVAL, AND THIS IS THE CASE THAT WOULD HAVE SEEN IT.
+   *
+   * `itemStyle` set `paddingLeft: calc(...)` and then, LATER IN THE SAME OBJECT,
+   * `padding: '6px 10px'`. React serialises a style object in INSERTION ORDER, so the
+   * shorthand reset `padding-left` and every row rendered at 10px — Home, My Benchmarks
+   * and its three sub-items all at the same inset, i.e. no visual hierarchy in the
+   * page's only primary navigation. Measured before the fix with
+   * `renderToStaticMarkup`: emitted
+   * `padding-left:calc(10px + 14px);…;padding:6px 10px`, effective `padding-left` 10px
+   * at depths 0, 1 AND 2 where 10/24/38px was intended.
+   *
+   * 🔴 IT SHIPPED BECAUSE THE WITNESS WAS POINTED AT THE WRONG PROPERTY. The deleted
+   * case above asserted `--civitai-nav-depth` — which NOTHING IN THIS TREE CONSUMES —
+   * so it stayed green while the visible indent was gone. Assert the property that
+   * MOVES THE ROW.
+   *
+   * 🔴 LITERALS, NOT `NAV_DEPTH_STEP_PX`. Deriving the expectation from the component's
+   * own constant is precisely what made the deleted case unable to fail. jsdom folds the
+   * sum, so `calc(10px + 14px)` reads back as `calc(24px)`; the shorthand mutant reads
+   * back as a bare `10px`, which differs from the depth-0 literal too — so even the
+   * depth-0 row discriminates.
+   *
+   * This asserts a DECLARED value, which jsdom does give. It is NOT a layout claim:
+   * jsdom computes no layout, so whether the indent is legible on screen is still owed
+   * to a live reading.
+   */
+  it('🔴 indents by DEPTH on the property that actually moves the row', async () => {
+    renderNav();
+    await expand();
+
+    // Positive control first: a nav whose rows did not render would satisfy every
+    // assertion below vacuously.
+    expect(screen.getAllByRole('listitem')).toHaveLength(5);
+
+    const paddingLeftOf = (testid: string) => screen.getByTestId(testid).style.paddingLeft;
+
+    // ⚠️ AND NOT `style.padding`. A draft of this case also asserted the shorthand was
+    // EMPTY, on the assumption that writing four longhands leaves it unset. MEASURED in
+    // jsdom 25.0.1, that is false — CSSOM SYNTHESISES it, and four longhands report
+    // `padding: "6px 10px 6px calc(24px)"`. So an empty-shorthand assertion cannot tell
+    // "no shorthand was written" from "four longhands were", i.e. it could never have
+    // discriminated the bug. `padding-left` is the whole discriminator: the broken tree
+    // reports a bare `10px`, this one reports `calc(...)`.
+    //
+    // Depth 0 — the two top-level rows.
+    expect(paddingLeftOf('nav-home')).toBe('calc(10px)');
+    expect(paddingLeftOf('nav-my')).toBe('calc(10px)');
+
+    // Depth 1 — every sub-item, indented by exactly one step.
+    for (const testid of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
+      expect(paddingLeftOf(testid), `${testid} lost its depth indent`).toBe('calc(24px)');
+    }
+
+    // 🔴 And the RELATIONSHIP, stated independently of the literals above: a sub-item is
+    // not indented the same as its parent. That is the sentence the feature is about, and
+    // it goes red on any mutation that flattens the nav however it spells the values.
+    expect(screen.getByTestId('nav-my-grid').style.paddingLeft).not.toBe(
+      screen.getByTestId('nav-my').style.paddingLeft,
+    );
+  });
+
+  it('shows the expandable state as a CHEVRON, and moves it in both directions', async () => {
+    renderNav();
+    const trigger = screen.getByTestId('nav-my');
+    const chevron = () => screen.getByTestId('nav-my-chevron').textContent;
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    const collapsedGlyph = chevron();
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    // 🔴 BOTH DIRECTIONS, and the two glyphs asserted DIFFERENT rather than by literal:
+    // the character is cosmetic, the state change is not, and a chevron that never moves
+    // is the defect (a static glyph reads as decoration and tells a sighted reader
+    // nothing about whether pressing did anything).
+    expect(chevron()).not.toBe(collapsedGlyph);
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(chevron()).toBe(collapsedGlyph);
+
+    // The chevron is hidden from the a11y tree — `aria-expanded` is what carries the
+    // state there, and announcing the glyph as text would be noise.
+    expect(screen.getByTestId('nav-my-chevron')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('points aria-controls at the group it opens, and only while it is open', async () => {
+    renderNav();
+    const trigger = screen.getByTestId('nav-my');
+    expect(trigger).not.toHaveAttribute('aria-controls');
+    await userEvent.click(trigger);
+    expect(trigger.getAttribute('aria-controls')).toBe(
+      screen.getByTestId('nav-my-group').getAttribute('id'),
+    );
+  });
+});
+
+describe('SideNav — aria-current follows the view', () => {
+  it('marks Home current on the default view, and nothing else', () => {
+    renderNav({ kind: 'home' });
+    expect(screen.getByTestId('nav-home')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('nav-my')).not.toHaveAttribute('aria-current');
+  });
+
+  it('marks the active LEAF current, and un-marks Home', async () => {
+    const { rerender } = renderNav({ kind: 'home' });
+    rerender({ kind: 'my', noun: 'matchup' });
+
+    expect(screen.getByTestId('nav-home')).not.toHaveAttribute('aria-current');
+    // The group auto-opens for a My view, so the leaf is in the tree to be marked.
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('nav-my-matchup')).toHaveAttribute('aria-current', 'page');
+    // EXACTLY one current item — the assertion a per-item check cannot make.
+    expect(document.querySelectorAll('[aria-current]')).toHaveLength(1);
+    // …and the siblings are NOT marked, so the attribute discriminates.
+    expect(screen.getByTestId('nav-my-grid')).not.toHaveAttribute('aria-current');
+    expect(screen.getByTestId('nav-my-prompt')).not.toHaveAttribute('aria-current');
+  });
+
+  it('🔴 moves aria-current to the TRIGGER when the group is collapsed on a My view', async () => {
+    // 🔴 THE STATE THAT IS EASY TO LEAVE UNLABELLED. Collapsing the group does NOT
+    // navigate (a disclosure that also changes what you are looking at is two actions on
+    // one press), so a viewer can be ON a My view with the group shut — at which point
+    // the active leaf is not in the accessibility tree at all and a nav with no current
+    // item tells a screen reader user nothing about where they are. ARIA allows the
+    // nearest rendered ancestor to carry it.
+    const { onSelect, rerender } = renderNav({ kind: 'home' });
+    rerender({ kind: 'my', noun: 'prompt' });
+    await userEvent.click(screen.getByTestId('nav-my'));
+
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-current', 'page');
+    expect(document.querySelectorAll('[aria-current]')).toHaveLength(1);
+    // 🔴 AND COLLAPSING NAVIGATED NOWHERE. This is the half that makes the case above
+    // necessary rather than hypothetical.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does NOT mark the trigger current when the group is collapsed on HOME', () => {
+    // The negative control for the case above: `aria-current` on the trigger must mean
+    // "you are inside this group", not "this group is shut".
+    renderNav({ kind: 'home' });
+    expect(screen.getByTestId('nav-my')).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('SideNav — each item selects its own view, and only its own', () => {
+  for (const [testid, , , expected] of ITEMS) {
+    if (expected === null) continue;
+    it(`${testid} selects ${JSON.stringify(expected)} exactly once`, async () => {
+      const { onSelect } = renderNav();
+      await expand();
+      await userEvent.click(screen.getByTestId(testid));
+
+      // EXACT count and EXACT payload: "was called" alone is satisfied by a nav that
+      // fires the same view from every item.
+      expect(onSelect).toHaveBeenCalledTimes(1);
+      expect(onSelect).toHaveBeenCalledWith(expected);
+    });
+  }
+
+  it('the group trigger selects NO view — it is a disclosure, not a destination', async () => {
+    const { onSelect } = renderNav();
+    await userEvent.click(screen.getByTestId('nav-my'));
+    expect(screen.getByTestId('nav-my-group')).toBeInTheDocument();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('SideNav — the keyboard', () => {
+  it('moves with the arrow keys, over the items that are actually rendered', async () => {
+    renderNav();
+    // Collapsed: two items, and the cycle is over those two only — a roving index over
+    // a stale list would step onto an unmounted node and focus would land on <body>.
+    screen.getByTestId('nav-home').focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-my')).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-home')).toHaveFocus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(screen.getByTestId('nav-my')).toHaveFocus();
+
+    // Expanded: the three sub-items join the cycle, in DOM order.
+    await userEvent.keyboard('{Enter}');
+    await screen.findByTestId('nav-my-group');
+    screen.getByTestId('nav-my').focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-my-grid')).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-my-matchup')).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    // Past the last item it wraps to the first.
+    expect(screen.getByTestId('nav-home')).toHaveFocus();
+  });
+
+  it('activates with Enter AND with Space', async () => {
+    // Both, because they are two different keys on a native `<button>` and a component
+    // that grew its own `onKeyDown` handling is exactly where one of them gets dropped.
+    const { onSelect } = renderNav();
+    await expand();
+    screen.getByTestId('nav-my-grid').focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'my', noun: 'grid' });
+
+    onSelect.mockClear();
+    screen.getByTestId('nav-my-prompt').focus();
+    await userEvent.keyboard(' ');
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'my', noun: 'prompt' });
+  });
+
+  it('🔴 Escape collapses the group AND returns focus to the trigger', async () => {
+    // 🔴 THE FOCUS RETURN IS THE HALF THAT GETS DROPPED, and this repo has the receipt:
+    // `ContributeMenu`'s `close(refocus)` exists for exactly this. The focused sub-item
+    // is unmounted by the collapse, so without an explicit restore the ring lands on
+    // `<body>` and a keyboard viewer is dumped at the top of the document with the group
+    // they just used no longer reachable by Tab from where they are.
+    const { onSelect } = renderNav();
+    await expand();
+    screen.getByTestId('nav-my-matchup').focus();
+
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.queryByTestId('nav-my-group')).toBeNull();
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('nav-my')).toHaveFocus();
+    // Escape is a dismissal, not a choice.
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('Escape on a COLLAPSED nav does nothing and does not swallow the key', async () => {
+    // The nav shares the document with modals that also want Escape, so it must only
+    // claim the key when it has something to close. A handler that always stopped
+    // propagation would make the grid form's own Escape inert — a data-loss shape this
+    // repo has already paid for once (`gridsView.test.tsx`'s picker case).
+    const { onSelect } = renderNav();
+    screen.getByTestId('nav-home').focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('SideNav — the selection is NOT persisted', () => {
+  it('a fresh mount opens on Home, whatever was selected before', async () => {
+    // 🔴 AN OPERATOR DECISION (YAGNI), pinned so it is not "fixed" later by accident:
+    // no KV write, no URL, no deep-linking. A remount is what a reload looks like from
+    // this component's side, and it must land on Home.
+    const { rerender } = renderNav({ kind: 'home' });
+    rerender({ kind: 'my', noun: 'grid' });
+    expect(screen.getByTestId('nav-my-grid')).toHaveAttribute('aria-current', 'page');
+
+    // A genuinely fresh mount, not a rerender.
+    const fresh = render(<SideNav view={{ kind: 'home' }} onSelect={vi.fn()} />);
+    const nav = within(fresh.container).getByTestId('side-nav');
+    expect(within(nav).getByTestId('nav-home')).toHaveAttribute('aria-current', 'page');
+    // …and the group is shut again, so nothing about the previous selection survived.
+    expect(within(nav).getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+  });
+});

@@ -16,9 +16,128 @@
 // `min-height` is deliberate: CSS resolves a box's used height as
 // `max(min-height, height)`, so a `min-height` declaration beats the pack's
 // `height: 30px` without having to out-specify or !important it.
+//
+// ⚠️ AND THE FLOOR IS NO LONGER HEIGHT-ONLY — do not read the paragraph above as "this
+// sheet is about height". Every TEXT-BEARING control's label carries it past 44px
+// horizontally, so height was the only binding dimension until the `⋮` overflow trigger
+// arrived with no text at all. There is now a second, narrowly scoped rule flooring
+// `min-width` on {@link ICON_BUTTON_SELECTOR}; its docblock has the argument, the blast
+// radius, and the live reading that is still owed.
 
 /** Marks the block root when the compact (narrow-viewport) layout is active. */
 export const COMPACT_ATTR = 'data-mb-compact';
+
+/**
+ * Marks the sidebar-plus-content grid, so the layout lives in a STYLESHEET rather
+ * than in an inline style.
+ *
+ * 🔴 IT HAS TO BE A STYLESHEET, and the reason is cascade mechanics rather than
+ * taste: an inline `style` declaration outranks every author rule that is not
+ * `!important`, so a `grid-template-columns` set inline on this element could not be
+ * overridden by the compact block below. Putting BOTH the wide and the narrow
+ * declaration in one sheet is what lets the narrow one win by being more specific,
+ * with no `!important` anywhere — the same discipline `min-height` uses against the
+ * pack's `height: 30px`.
+ */
+export const LAYOUT_ATTR = 'data-mb-layout';
+
+/**
+ * The viewport width, in px, at or below which the compact layout applies.
+ *
+ * 🔴 IMPORTED BY `useMediaQuery.ts`, NOT COPIED INTO IT. The hook's media query and
+ * this sheet's comment are the same number, and a number stated twice is a number
+ * that drifts — this repo already keeps the node major in exactly one place
+ * (`.nvmrc`) for the same reason, with a lockstep test to prove it.
+ */
+export const MOBILE_BREAKPOINT_PX = 720;
+
+/**
+ * The selector that reaches a `SideNav` item's clickable element.
+ *
+ * Exported so the rule, the component and the reachability test all name it once.
+ * `SideNav.NAV_ITEM_ATTR` is the attribute; this is the bracketed form.
+ */
+export const NAV_ITEM_SELECTOR = '[data-mb-nav-item]';
+
+/**
+ * The selector that reaches a {@link MenuItem}'s clickable element.
+ *
+ * 🔴 RE-ADDED, AND THE PREVIOUS COMMENT INVITED IT. The sidebar change deleted
+ * `ContributeMenu` — the only thing in this app or the pack that emitted
+ * `role="menuitem"` — and removed this selector from the rule, saying "if a menu
+ * ever comes back, so does the selector". One did: `components/Menu.tsx`, the ⋮
+ * overflow menu on every matchup and prompt row. Its items carry
+ * `padding: 8px 10px` around a 13px line — ~34px, under the floor, the same
+ * arithmetic the departed menu had.
+ *
+ * 🔴 DEFINED HERE AND IMPORTED BY `Menu.tsx`, not the other way round. This module
+ * is deliberately React-free (`useMediaQuery.ts` imports it, and a node-project
+ * test could), so pulling a `.tsx` component into its graph to fetch one string
+ * would be a real cost for no gain. The rule, the component's own focus queries and
+ * the reachability test all name it once, from here.
+ *
+ * It is the ROLE, not a testid: it pins a STATE (this element is an item in a menu)
+ * rather than a word a future component could spell differently — which is also what
+ * makes it survive the upstream `<civitai-menu-item>` swap, since that element sets
+ * the same role on its own light-DOM host.
+ *
+ * ⚠️ THE QUOTING IS DELIBERATE: single quotes inside, matching `[role='option']` in
+ * the same sheet. The guard this replaces asserted `not.toContain("[role='menuitem']")`
+ * — a check on a SPELLING, which a double-quoted `[role="menuitem"]` would have
+ * walked straight past while the selector was back in the rule. Keeping one spelling
+ * is what makes that guard's replacement meaningful.
+ */
+export const MENU_ITEM_SELECTOR = "[role='menuitem']";
+
+/**
+ * Marks a control whose whole visible content is an ICON — no text at all, with an
+ * `aria-label` carrying the accessible name.
+ *
+ * 🔴 IT EXISTS BECAUSE THE 44px FLOOR WAS HEIGHT-ONLY, AND NOTHING HAD NEEDED MORE.
+ * Every other tap target in this app carries TEXT: a pack `Button`'s label, a segment, a
+ * `role="option"` row, a nav item. `components/Menu.tsx`'s `⋮` trigger is the app's FIRST
+ * text-less control — a 14×14 `<svg>` plus an `aria-label`, inside a `size="sm"` pack
+ * Button — so width became a candidate short axis for the first time, and the existing
+ * rule (which is `min-height` only, and in which `min-width` appears nowhere) does not
+ * floor it.
+ *
+ * ⚠️ THE GEOMETRIC PREMISE IS NOT MEASURED, AND A DRAFT STATED IT AS FACT. It said "text
+ * makes a box WIDER than 44px on its own", which this repo cannot check — jsdom resolves
+ * no layout, and the pack's horizontal padding is not in this tree. The nearest
+ * counterexample is in-tree: `VoteButton` is a 12×12 glyph beside a `minWidth: 14`
+ * single-digit count, also `size="sm"`, and nothing says that clears 44px either. So the
+ * honest form is narrower: every other tap target carries a MULTI-CHARACTER label and has
+ * never been reported too narrow, the `⋮` trigger carries NONE, and `VoteButton`'s
+ * single-digit case is owed the same live reading as the trigger. Do not read the
+ * not-widened decision below as resting on a measurement.
+ *
+ * 🔴 IT IS AN ATTRIBUTE THIS APP SETS, NOT A ROLE, AND THAT IS A KNOWN WEAKNESS rather
+ * than a preference. "This control's content is an icon" is not a state ARIA exposes, so
+ * there is nothing role-shaped to pin and an upstream `<civitai-menu>` trigger will not
+ * carry this attribute. {@link NAV_ITEM_SELECTOR} has the same weakness — the swap
+ * ORPHANS both — and {@link MENU_ITEM_SELECTOR} is the one that avoids it, by pinning a
+ * role the upstream element sets on its own light-DOM host; its docblock carries that
+ * argument. (⚠ A draft said `NAV_ITEM_SELECTOR` "says so"; it does not — it is three
+ * lines about being exported once. The weakness is recorded in `compactTapTargetCss`'s
+ * selector notes instead.) The reachability case in `mobile-responsive.test.tsx` is what
+ * turns the orphan into a failure rather than into a silently dead rule.
+ *
+ * 🔴 SCOPED TO THE ONE CONTROL RATHER THAN ADDED TO THE SHARED RULE, deliberately. A
+ * blanket `min-width: 44px` on `[data-civitai-ui='button']` would reach every button in
+ * the app — including the ones inside the results matrix's own scroller — and jsdom can
+ * measure NONE of that (see the ⚠ below). Flooring exactly the control that is under
+ * the floor is the change whose blast radius can be reasoned about without layout.
+ *
+ * ⚠️ WHAT IS *NOT* VERIFIED, AND WHAT IS OWED: jsdom performs no layout, so nothing in
+ * this repo can observe the trigger's RENDERED width — only that this declaration is in
+ * the emitted sheet and that its selector matches the live node (i.e. the CASCADE). A
+ * LIVE READING AT ≤{@link MOBILE_BREAKPOINT_PX}px IS OWED for this control and has not
+ * been taken. Do not read the tests as coverage of the tap target's actual size.
+ */
+export const ICON_BUTTON_SELECTOR = '[data-mb-icon-button]';
+
+/** The sidebar's column width, in px, on a wide viewport. */
+export const SIDEBAR_WIDTH_PX = 172;
 
 /**
  * Minimum short-axis size for a tap target, in px. 44 is the WCAG 2.5.5
@@ -51,14 +170,34 @@ export const TOOLTIP_GAP_PX = 6;
  * silently orphans a rule fails the suite rather than shipping 30px buttons):
  *   - `[data-civitai-ui='button']`   → every pack Button (vote, run-cell,
  *     confirm/cancel, withdraw, the modal form actions).
- *   - `[data-civitai-ui-segment]`    → the `SegmentedControl` segments. These used
- *     to be the top-level `view-switch` strip's tabs as well; the IA refactor
- *     deleted that strip, so the only segments left are the My/Community sub-tabs
- *     on the matchup and prompt sections (four of them, and the reachability
- *     ledger in `mobile-responsive.test.tsx` says so as a literal).
+ *   - `[data-civitai-ui-segment]`    → the `SegmentedControl` segments. Which
+ *     controls those ARE has now moved twice: the top-level `view-switch` strip's
+ *     three tabs, then the My/Community sub-tabs on the matchup and prompt sections
+ *     (four), and now the BOARD subnav's three (`BoardNav`) — the sub-tab strips are
+ *     deleted and "My" is a sidebar destination. The RULE never changed; the
+ *     reachability ledger in `mobile-responsive.test.tsx` carries the count as a
+ *     LITERAL so each move is a decision someone takes rather than a drift.
  *   - `[data-civitai-ui-range]`      → the LoRA weight `Slider` in `MatchupForm`.
  *   - `[role='option']`              → `GridPicker`'s option rows (527, §11.2).
- *   - `[role='menuitem']`            → `ContributeMenu`'s three items.
+ *   - `[role='menuitem']`            → `components/Menu.tsx`'s items (Edit, and any
+ *     future single-press row action). See {@link MENU_ITEM_SELECTOR}.
+ *   - `[data-mb-nav-item]`           → `SideNav`'s items (Home, My Benchmarks, and
+ *     the three sub-items). See {@link NAV_ITEM_SELECTOR}.
+ *
+ * ⚠️ `[role='menuitem']` LEFT THIS RULE AND HAS COME BACK, and both moves were
+ * correct at the time. It left because `ContributeMenu` — then the only emitter of
+ * that role in this app or the pack — was deleted by the sidebar change, and the
+ * removal was enumerated rather than assumed (`grep` for the role returned nothing,
+ * and the pack emits none either). It is back because the third IA pass added
+ * `components/Menu.tsx`, the ⋮ overflow menu on every matchup and prompt row, whose
+ * items carry the same `padding: 8px 10px` around a 13px line — ~34px.
+ *
+ * 🔴 WHAT THE RULE DOES *NOT* HAVE TO COVER, and the reason it does not: a menu's
+ * two CONFIRM-FLOW controls (Remove, Report) are pack `Button`s hosted inside the
+ * panel, not menuitems — a two-step handshake is not expressible as one menuitem,
+ * and the pack's `ReportButton` exposes no role hook. They are already floored by
+ * the `[data-civitai-ui='button']` selector at the top of this list. Enumerate the
+ * panel's controls before concluding this rule covers all of them.
  *
  * 🔴 THE LAST TWO ARE THE TAP TARGETS THIS APP BUILDS ITSELF, and BOTH shipped
  * below the floor — the same defect twice, one surface apart:
@@ -67,13 +206,31 @@ export const TOOLTIP_GAP_PX = 6;
  *     header there), so its rows are plain `<div role="option">` carrying
  *     `padding: 10px 12px` around a 14px line — ~37px, and the primary hit target
  *     of the whole grid-builder flow on a phone.
- *   - `ContributeMenu` is hand-built because no `@civitai/*` package this repo
- *     imports ships a React menu, so its items are `<button role="menuitem">`
- *     carrying `padding: 8px 10px` around a 13px line — ~34px, and it is the
- *     page's ONLY contribute affordance since the IA refactor deleted the tab
- *     strip. MEASURED at the pre-change base: computed `min-height` on the three
- *     live items was **0** (`mobile-responsive.test.tsx`, red before this
- *     selector existed, green after).
+ *   - `ContributeMenu` was hand-built because no `@civitai/*` package this repo
+ *     imports ships a React menu, so its items were `<button role="menuitem">`
+ *     carrying `padding: 8px 10px` around a 13px line — ~34px. MEASURED at the
+ *     pre-change base: computed `min-height` on the three live items was **0**
+ *     (`mobile-responsive.test.tsx`, red before that selector existed, green after).
+ *     That component is now deleted; the entry is kept because the LESSON is the
+ *     point and the next bullet is its third instance.
+ *   - `SideNav` is hand-built for the same reason one level up — the upstream
+ *     `<civitai-nav-list>` / `<civitai-nav-item>` are real but this repo is pinned to
+ *     `@civitai/components@0.4.1`, which ships neither (see `SideNav.tsx` for the
+ *     five-package bump that gates the swap). Its items are `<button>`s carrying
+ *     `padding: 6px 10px` around a 13px line — ~31px, and this nav is the page's ONLY
+ *     primary navigation. 🔴 AND THE SWAP WILL NOT FIX IT: upstream's own
+ *     `padding: 6px 10px` is ~32px, also below the floor, so the floor stays this
+ *     app's job either way.
+ *     🔴 THE SELECTOR IS NOT A ROLE HERE, and that is the one exception in this list
+ *     that has to be said out loud. `role="menuitem"` and `role="option"` pin a
+ *     STATE the upstream replacements also set, so those selectors survive a swap. A
+ *     nav item has no such role — it is a `<button>` inside a `role="list"` — so the
+ *     rule targets `[data-mb-nav-item]`, an attribute THIS APP puts on its own
+ *     buttons and which an upstream `<civitai-nav-item>` will NOT carry. That makes
+ *     it the one selector in this sheet that the swap ORPHANS, silently, and the
+ *     reachability case in `mobile-responsive.test.tsx` is what turns that into a
+ *     failure instead of 31px nav items. Do not read `[data-mb-nav-item]` as
+ *     swap-proof the way the two roles are.
  *
  * The three PACK-facing selectors above reach controls the pack renders, which is
  * exactly why both app-built ones were missed: the pack emits neither
@@ -288,9 +445,51 @@ export const compactTapTargetCss = (): string => `
 [${COMPACT_ATTR}='true'] [data-civitai-ui-segment],
 [${COMPACT_ATTR}='true'] [data-civitai-ui-range],
 [${COMPACT_ATTR}='true'] [role='option'],
-[${COMPACT_ATTR}='true'] [role='menuitem'] {
+[${COMPACT_ATTR}='true'] ${MENU_ITEM_SELECTOR},
+[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR} {
   min-height: ${MIN_TAP_TARGET_PX}px;
   height: auto;
+}
+
+/* 🔴 THE ONE CONTROL WHERE **WIDTH** IS THE SHORT AXIS. Every selector in the rule
+   above is a TEXT-BEARING control, so its label already carries it past 44px
+   horizontally and min-height was the only binding dimension — which is why min-width
+   appears nowhere else in this sheet. The ⋮ overflow trigger
+   (${ICON_BUTTON_SELECTOR}) has no text at all: a 14x14 glyph inside a size="sm" pack
+   Button, with an aria-label for the name. ICON_BUTTON_SELECTOR's docblock in this file
+   says why this is a separate rule rather than a widening of the one above, and records
+   the LIVE <=${MOBILE_BREAKPOINT_PX}px READING THAT IS STILL OWED — jsdom performs no
+   layout, so nothing here observes the rendered width. */
+[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR} {
+  min-width: ${MIN_TAP_TARGET_PX}px;
+}
+
+/* 🔴 THE SIDEBAR COLLAPSES TO A TOP BAR under ${MOBILE_BREAKPOINT_PX}px.
+   useIsMobile()'s own media query is (max-width: ${MOBILE_BREAKPOINT_PX}px) and that
+   hook is what stamps ${COMPACT_ATTR}, so this block and the hook cannot disagree
+   about the breakpoint — the number is imported from one place, never spelled twice.
+
+   ⚠️ NOTHING IN THIS REPO CAN VERIFY THAT IT LOOKS RIGHT. jsdom performs NO layout:
+   \`getBoundingClientRect()\` is all zeros and no grid is ever resolved, so the only
+   honest claim a test can make about these four declarations is that they are in the
+   emitted sheet and that their selectors match live nodes. LIVE MEASUREMENT AT
+   ≤${MOBILE_BREAKPOINT_PX}px IS OWED and has not been done. */
+[${COMPACT_ATTR}='true'] [${LAYOUT_ATTR}] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* The nav's rows become a horizontally scrolling strip. \`overflow-x: auto\` rather
+   than \`wrap\` so the bar keeps ONE row whatever the label lengths — a wrapping nav
+   changes the page's own height as the viewport narrows, which is the thing that put
+   two of the three community boards outside the host iframe's crop in the first
+   place. */
+[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'],
+[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  justify-content: start;
+  overflow-x: auto;
 }
 
 @supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) {
@@ -310,5 +509,25 @@ export const compactTapTargetCss = (): string => `
     max-width: none;
     transform: none;
   }
+}
+`;
+
+/**
+ * The LAYOUT stylesheet — sidebar beside content on a wide viewport, and nothing
+ * else. Mounted UNCONDITIONALLY (unlike {@link compactTapTargetCss}), because it
+ * carries the WIDE case: a sheet mounted only on narrow viewports cannot express
+ * "two columns here, one column there" without an inline style the narrow block
+ * would then be unable to beat. See {@link LAYOUT_ATTR}.
+ *
+ * ⚠️ jsdom resolves no grid, so a test can assert this text and that the selector
+ * matches a live node — never that the columns come out where they should.
+ */
+export const layoutCss = (): string => `
+[${LAYOUT_ATTR}] {
+  display: grid;
+  grid-template-columns: ${SIDEBAR_WIDTH_PX}px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  min-width: 0;
 }
 `;

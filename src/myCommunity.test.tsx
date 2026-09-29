@@ -22,7 +22,14 @@ import { Harness } from './test-harness.js';
 import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
@@ -106,22 +113,26 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
 const signedIn = { id: VIEWER_ID, username: 'me' };
 
 /**
- * 🔴 THE SUB-TAB HELPERS TAKE THE OBJECT NOW, and `openPromptsView` no longer
- * clicks anything. The IA refactor deleted the top-level tab strip: matchups and
- * prompts are SECTIONS of one page, both mounted at once, so (a) there is no
- * Prompts tab to click and (b) the sub-tab testids had to become object-scoped
- * (`subtab-my-prompt`) or every neutral query would resolve twice. A case that
- * means the prompt surface now SAYS so, instead of relying on which view happens
- * to be mounted — which is a stronger claim than the old code made.
+ * 🔴 THE THREE HELPERS ARE NAVIGATION AGAIN, AND THEY POINT SOMEWHERE ELSE. Their
+ * history, because each generation broke the last one's premise:
+ *   1. a top-level tab strip → `openPromptsView` clicked a tab, `openMy` clicked a
+ *      neutral `subtab-my`;
+ *   2. the one-page IA → all sections mounted at once, so `openPromptsView` stopped
+ *      clicking and the sub-tab testids had to become object-scoped
+ *      (`subtab-my-prompt`) or every neutral query resolved twice;
+ *   3. now → the SIDEBAR owns "my work" and a BOARD SUBNAV owns which community board
+ *      is mounted. `subtabs-*`, `subtab-my-*` and `subtab-community-*` DO NOT EXIST:
+ *      there is no per-board My/Community toggle at all, because that toggle was a
+ *      second spelling of a choice the sidebar already makes.
+ *
+ * So MY is `My Benchmarks ▸ <noun>` and COMMUNITY is `Home ▸ <board>`, and both are
+ * real navigations that unmount what they leave.
  */
 type Surface = 'matchup' | 'prompt';
-const openPromptsView = () => screen.findByTestId('section-prompts');
-const openMy = async (noun: Surface = 'matchup') => {
-  await userEvent.click(await screen.findByTestId(`subtab-my-${noun}`));
-  return screen.findByTestId(`subtabs-${noun}`);
-};
-const openCommunity = async (noun: Surface = 'matchup') =>
-  userEvent.click(await screen.findByTestId(`subtab-community-${noun}`));
+const openPromptsView = () => openView('Prompts');
+const openMy = (noun: Surface | 'grid' = 'matchup') => openMyList(noun);
+const openCommunity = (noun: Surface = 'matchup') =>
+  openView(noun === 'matchup' ? 'Matchups' : 'Prompts');
 
 /** The `data-key`s of every rendered card of the given testid, in DOM order. */
 const keysOf = (testid: string): string[] =>
@@ -179,23 +190,16 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
     await waitFor(() => expect(keysOf('prompt-card').sort()).toEqual(['p-mine', 'p-theirs']));
   });
 
-  it('counts the two sub-tabs from the same partition', async () => {
-    // The labels are the only thing a viewer sees before clicking, so a count
-    // that disagrees with the list is its own defect. Literal numbers: 1 own row
-    // of 2 published.
-    const { shared } = fakeShared({
-      seed: [
-        row('mine', 'My matchup', VIEWER_ID, comboData),
-        row('theirs', 'Their matchup', OTHER_ID, comboData),
-      ],
-    });
-    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('subtab-my-matchup')).toHaveTextContent('My (1)'),
-    );
-    expect(screen.getByTestId('subtab-community-matchup')).toHaveTextContent('Community (2)');
-  });
+  // ⚠️ "counts the two sub-tabs from the same partition" LIVED HERE AND HAS NO
+  // SUBJECT ANY MORE. It asserted that the strip's `My (1)` / `Community (2)` labels
+  // agreed with the lists behind them, on the reasoning that the labels are the only
+  // thing a viewer sees before clicking. There is no strip and there are no counts:
+  // "my work" is a sidebar destination whose label cannot disagree with a list because
+  // it names no number.
+  //
+  // 🔴 THE UNDERLYING CLAIM — that the partition itself is right — is what the two
+  // cases above assert, by reading the LISTS. That was always the stronger half; the
+  // count case was a guard on a label derived from them.
 });
 
 // ---------------------------------------------------------------------------
@@ -360,9 +364,15 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     );
 
     // …and it sits with the control it describes, not on some other screen.
+    // 🔴 ARCHIVE STAYS OUTSIDE THE ⋮ MENU, deliberately — it is a caller-supplied
+    // slot the GRID cards fill too, and moving it in only on matchup/prompt rows
+    // would put the same control in two different places on two surfaces. See
+    // `MatchupBody`'s header.
     expect(screen.getByTestId('archive-action')).toBeInTheDocument();
-    // The true delete is still offered, and still separate (§11.3).
-    expect(screen.getByTestId('matchup-withdraw')).toBeInTheDocument();
+    // The true delete is still offered, and still separate (§11.3) — now one level
+    // down, inside the row's ⋮ menu.
+    const menu = await openRowMenu('matchup');
+    expect(within(menu).getByTestId('matchup-withdraw')).toBeInTheDocument();
   });
 
   it('🔴 SURVIVES A RELOAD: a stored archive is read back on mount', async () => {
@@ -462,6 +472,11 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     await waitFor(() => expect(keysOf('matchup-card')).toHaveLength(2));
     expect(screen.queryByTestId('matchup-edit')).toBeNull();
     expect(screen.queryByTestId('matchup-withdraw')).toBeNull();
+    // 🔴 AND NO ⋮ MENU ON EITHER ROW, which is the stronger claim the menu makes
+    // possible: an anonymous viewer is offered no Edit, no Remove AND no Report, so
+    // there is nothing for an overflow trigger to hold. Two nulls above could also
+    // be satisfied by two controls hidden inside a closed menu; this cannot.
+    expect(screen.queryAllByTestId('matchup-menu')).toHaveLength(0);
 
     // My is a sign-in prompt, and carries NO write affordance.
     await openMy();
@@ -502,51 +517,58 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       // walk never visited.
       mountApp({ shared, appStorage, requestSignIn: () => (signInRequests += 1) }, null);
 
-      // ---- GRIDS: the first section ----
+      // ---- HOME ▸ GRIDS: the default surface ----
       await screen.findByTestId('grid-view');
-      // 🔴 BOTH ROUTES TO A NEW GRID ARE PRESSED HERE, and both used to be missing
-      // from this walk in opposite ways. `grid-new` was HIDDEN for an anonymous
-      // viewer, so the walk asserted its absence and pressed nothing; `Contribute ▸
-      // Build a grid` was rendered and completely UNGATED, and the walk never opened
-      // the menu — so this case's zero-write ledger held VACUOUSLY over the one
-      // route that could reach a private-store write. (Measured pre-fix: an
-      // anonymous viewer reached `grid-form` through the menu and had the save
-      // refused at `appStorage.set`.) Both now go through App's one `openNewGrid`
-      // and nudge sign-in, which is what the vote control already does.
-      await userEvent.click(await screen.findByTestId('grid-new'));
-      expect(screen.queryByTestId('grid-form'), 'the New grid button opened a form').toBeNull();
-      await userEvent.click(screen.getByTestId('contribute-trigger'));
-      await userEvent.click(await screen.findByTestId('contribute-item-grid'));
-      expect(screen.queryByTestId('grid-form'), 'the Contribute item opened a form').toBeNull();
-      // ⚠️ AN INVARIANT GUARD, NOT COVERAGE. The grids section lost its My/Community
-      // sub-tabs in the IA refactor, and `SubTabNoun` no longer has a `'grid'`
-      // variant at all — so no component in this repo can emit `my-sign-in-grid` and
-      // this query is vacuous BY CONSTRUCTION. Kept as a tripwire against a grids
-      // sub-tab coming back; it is not evidence about an anonymous viewer, and the
-      // two presses above are what this arm actually contributes.
-      expect(screen.queryByTestId('my-sign-in-grid')).toBeNull();
+      // 🔴 THE GRID CREATE ROUTE IS NOT ON THE COMMUNITY BOARD AT ALL ANY MORE, and
+      // that is the third position this walk has had to record. Generation 1:
+      // `grid-new` was HIDDEN for an anonymous viewer, so the walk asserted its
+      // absence and pressed nothing, while `Contribute ▸ Build a grid` was rendered,
+      // completely UNGATED, and never opened by this walk — so the zero-write ledger
+      // below held VACUOUSLY over the one route that could reach a private-store
+      // write. (Measured pre-fix: an anonymous viewer reached `grid-form` that way and
+      // had the save refused at `appStorage.set`.) Generation 2: both routes went
+      // through App's one `openNewGrid` and both nudged sign-in. Generation 3, here:
+      // `grid-new` is deleted, the Contribute dropdown is deleted, and creating a grid
+      // lives on My Benchmarks ▸ Grids — which for an anonymous viewer is the sign-in
+      // panel. Asserted as absences so a route REAPPEARING is a decision someone takes.
+      expect(screen.queryAllByTestId('grid-new')).toEqual([]);
+      expect(screen.queryAllByTestId('contribute-trigger')).toEqual([]);
+
+      // ---- MY BENCHMARKS ▸ GRIDS: the sign-in panel, and its one control ----
+      //
+      // 🔴 `my-sign-in-grid` IS REAL COVERAGE NOW. It was relabelled an INVARIANT
+      // GUARD — vacuous by construction — when the IA refactor removed the grids
+      // sub-tabs and the noun union lost its `'grid'` variant, so nothing in the repo
+      // could emit it. My Benchmarks ▸ Grids renders `MyTabSignedOut noun="grid"`, so
+      // the name is emittable again and this press exercises it.
+      await openMy('grid');
+      await screen.findByTestId('my-signed-out-grid');
+      await userEvent.click(await screen.findByTestId('my-sign-in-grid'));
+      // …and NOTHING on that surface offers a write.
+      expect(screen.queryByTestId('new-unpublished')).toBeNull();
+      expect(screen.queryByTestId('unpublished-publish')).toBeNull();
+      expect(screen.queryByTestId('archive-action')).toBeNull();
 
       // ---- MATCHUPS ----
       await openView('Matchups');
       await screen.findByTestId('matchups-view');
-      await openMy();
-      await userEvent.click(await screen.findByTestId('my-sign-in-matchup'));
-      await openCommunity();
-      // 🔴 UNGATED FOR ANON: `submit-matchup` renders for everyone. Open the form
-      // it raises and dismiss it — this is the path the old walk never entered.
+      // 🔴 UNGATED FOR ANON: `submit-matchup` renders for everyone, and since the
+      // Contribute dropdown was deleted it is the PRIMARY matchup create route rather
+      // than a secondary one. Open the form it raises and dismiss it.
       await userEvent.click(await screen.findByTestId('submit-matchup'));
       await screen.findByTestId('matchup-form');
       await userEvent.click(screen.getByTestId('matchup-cancel'));
+      await openMy('matchup');
+      await userEvent.click(await screen.findByTestId('my-sign-in-matchup'));
 
       // ---- PROMPTS ----
       await openPromptsView();
-      await openMy('prompt');
-      await userEvent.click(await screen.findByTestId('my-sign-in-prompt'));
-      await openCommunity('prompt');
-      // 🔴 Also ungated for anon.
+      // 🔴 Also ungated for anon, and also the primary route now.
       await userEvent.click(await screen.findByTestId('submit-prompt'));
       await screen.findByTestId('prompt-form');
       await userEvent.click(screen.getByTestId('prompt-cancel'));
+      await openMy('prompt');
+      await userEvent.click(await screen.findByTestId('my-sign-in-prompt'));
 
       // POSITIVE CONTROL on the walk: every unauthorised press really did reach the
       // host's sign-in request, so the empty write ledgers below are about surfaces
@@ -554,12 +576,14 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
       // `>=`: this is the walk's ledger, so a route appearing or disappearing should
       // be a decision someone takes.
       //
-      // FOUR, and each one named: `my-sign-in-matchup`, `my-sign-in-prompt`,
-      // `grid-new` and `Contribute ▸ Build a grid`. It was 3 while the grids view had
-      // sub-tabs of its own, then 2 when the IA refactor removed them and `grid-new`
-      // was hidden from anonymous viewers; it is 4 now that both grid routes render
-      // and nudge instead of one hiding and one dead-ending.
-      expect(signInRequests, 'an unauthorised press did not reach sign-in').toBe(4);
+      // THREE, and each one named: `my-sign-in-grid`, `my-sign-in-matchup` and
+      // `my-sign-in-prompt`. The history of this number IS the history of the grid
+      // create route: 3 while the grids view had sub-tabs of its own, 2 when the IA
+      // refactor removed them and `grid-new` was hidden from anonymous viewers, 4 when
+      // both grid routes rendered and nudged, 3 when `grid-new` went, and 3 again here
+      // — with a DIFFERENT third member. The grid CREATE routes are gone from every
+      // anonymous surface; My Benchmarks ▸ Grids contributes a sign-in press instead.
+      expect(signInRequests, 'an unauthorised press did not reach sign-in').toBe(3);
 
       // 🔴 NOT ONE write was attempted, on either store. `setAttempts` records
       // even a REJECTED `set`, which `sets` would not — so this cannot be
@@ -624,12 +648,11 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     await screen.findByTestId('matchups-view');
     noDraft('Matchups / Community');
 
-    await openMy();
-    await waitFor(() =>
-      expect(
-        within(screen.getByTestId('section-matchups')).getByTestId('unpublished-card'),
-      ).toBeInTheDocument(),
-    );
+    // 🔴 SCOPED TO THE SURFACE THAT IS MOUNTED, and the surface changed name. `openMy`
+    // navigates to My Benchmarks ▸ Matchups, whose section is `section-my-matchup`;
+    // `section-matchups` is the COMMUNITY board and is unmounted while we are here.
+    const mySection = await openMy();
+    await waitFor(() => expect(within(mySection).getByTestId('unpublished-card')).toBeInTheDocument());
     // 🔴 POSITIVE CONTROL ON THE SCAN: it can see this surface's own copy. Without
     // it, a scan reading an empty or unmounted DOM would report "no draft" and
     // prove nothing.
@@ -638,19 +661,18 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     noDraft('Matchups / My');
 
     // The private matchup form (the old "New draft" / "Save draft" modal).
-    // 🔴 SCOPED TO THE SECTION. Both private panels can be mounted at once now
-    // (one page, no view switch), so an unscoped `unpublished-edit` resolves twice.
-    await userEvent.click(
-      within(screen.getByTestId('section-matchups')).getByTestId('unpublished-edit'),
-    );
+    // ⚠️ THE SCOPING IS NO LONGER FORCED. It was, while both private panels could be
+    // mounted at once on one page, so an unscoped `unpublished-edit` resolved twice.
+    // My Benchmarks mounts one noun at a time; the scope is kept because it reads
+    // better and because it fails loudly if the surface is ever not the one expected.
+    await userEvent.click(within(mySection).getByTestId('unpublished-edit'));
     await screen.findByTestId('matchup-form');
     noDraft('the private matchup form');
     await userEvent.click(screen.getByTestId('matchup-cancel'));
 
     await openPromptsView();
     noDraft('Prompts / Community');
-    await openMy('prompt');
-    const promptsSection = screen.getByTestId('section-prompts');
+    const promptsSection = await openMy('prompt');
     await waitFor(() =>
       expect(within(promptsSection).getByTestId('unpublished-card')).toBeInTheDocument(),
     );

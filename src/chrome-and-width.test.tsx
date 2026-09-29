@@ -31,7 +31,9 @@ vi.mock('./components/ResultsGrid.js', () => ({
 }));
 
 const { App } = await import('./App.js');
-const { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep } = await import('./test-helpers.js');
+const { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } = await import(
+  './test-helpers.js',
+);
 
 /** Render the block. `balance` null => the host reports no balance at all. */
 function renderApp(balance: { blue: number; green: number; yellow: number } | null) {
@@ -62,38 +64,52 @@ function renderApp(balance: { blue: number; green: number; yellow: number } | nu
 }
 
 /**
- * The page's three top-level sections, in DOM order.
+ * Every top-level section this page can mount, WALKED — because only one community
+ * board is mounted at a time again.
  *
- * 🔴 IT USED TO CLICK A TAB PER VIEW. There was a `view-switch` strip whose
- * controls exposed `role="tab"`, and "in all three views" meant three clicks. The
- * IA refactor deleted the strip: the three sections are mounted TOGETHER, so the
- * "absent in every view" claim is now checked in ONE frame — which is a stronger
- * assertion than the walk it replaced, not a weaker one (a badge that appeared in
- * only one section would still be on screen here).
+ * 🔴 THIS HELPER HAS REVERSED TWICE AND THE WEAKENING IS DELIBERATE — say so rather
+ * than let a future reader read the walk as the original design. Generation 1: a
+ * `view-switch` strip whose controls exposed `role="tab"`, so "in all three views"
+ * meant three clicks. Generation 2: the one-page IA mounted all three sections
+ * together, so the claim was checked in ONE frame — strictly stronger, because a badge
+ * appearing in only one section was still on screen. Generation 3, here: the board
+ * subnav mounts one board at a time, so it is a walk again.
+ *
+ * ⚠️ WHAT THAT COSTS, PRECISELY: a one-frame check could not be fooled by a badge that
+ * renders on mount and then removes itself; a walk can, because each board is a fresh
+ * mount. Nothing in this app does that, and the alternative — keeping all three boards
+ * mounted — is the thing that put two of them outside the host iframe's crop. Recorded
+ * as a known weakening, not as an equivalent.
+ *
+ * The OPEN-GRID section is included: it is on Home whichever board is selected, and it
+ * is where the results matrix (and therefore the money path) lives.
  */
 async function sections() {
-  await screen.findByTestId('section-grids');
-  return [
-    screen.getByTestId('section-grids'),
-    screen.getByTestId('section-matchups'),
-    screen.getByTestId('section-prompts'),
-  ];
+  const out: HTMLElement[] = [];
+  out.push(await screen.findByTestId('section-open-grid'));
+  out.push(await openView('Grids'));
+  out.push(await openView('Matchups'));
+  out.push(await openView('Prompts'));
+  // Back to the default board, so a caller that goes on to read the grid finds it.
+  await openView('Grids');
+  return out;
 }
 
 describe('419 criterion 1 — the header Buzz badge does not render, in any view', () => {
   it('is absent on first paint even though the host DOES report a balance', async () => {
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('section-open-grid');
     expect(screen.queryByTestId('buzz-balance')).toBeNull();
   });
 
-  it('is absent with all three sections mounted', async () => {
+  it('is absent on every section the page can mount', async () => {
     renderApp({ blue: 0, green: 0, yellow: 5000 });
     const mounted = await sections();
-    // 🔴 THE PREMISE, asserted rather than assumed: all three really are on screen,
-    // so the absence below is an absence across the whole page and not an absence
-    // from whichever section happened to be rendered.
-    expect(mounted).toHaveLength(3);
+    // 🔴 THE PREMISE, asserted rather than assumed: every section really was visited,
+    // so the absence below is an absence across the whole page and not an absence from
+    // whichever section happened to be rendered. FOUR: the open grid plus the three
+    // community boards.
+    expect(mounted).toHaveLength(4);
     for (const section of mounted) {
       expect(within(section).queryByTestId('buzz-balance')).toBeNull();
     }
@@ -105,7 +121,7 @@ describe('419 criterion 1 — the header Buzz badge does not render, in any view
     // under a different testid, so pin the rendered STRING too. 5,000 is the
     // host balance above; `toLocaleString()` is what the old badge printed.
     renderApp({ blue: 0, green: 0, yellow: 5000 });
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('section-open-grid');
     expect(screen.queryByText(/5,000\s*Buzz/i)).toBeNull();
   });
 });

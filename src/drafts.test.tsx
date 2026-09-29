@@ -5,11 +5,18 @@
 // in IS the privacy — there is no visibility flag to set, and a shared row is
 // world-readable the instant it is appended.
 //
-// ⚠️ 527 MOVED THE SURFACE, NOT THE BOUNDARY. The separate "Drafts" panel is
-// gone; an unpublished matchup now sits in the **My** sub-tab of the Matchups view
-// carrying a **Publish** action, and the word "draft" appears in no rendered
-// string. The STORAGE is untouched: still `draft:v1:`, still a pointer after
-// publish (`renameWireCompat.test.ts` pins the prefix).
+// ⚠️ 527 MOVED THE SURFACE, NOT THE BOUNDARY, AND IT HAS MOVED AGAIN SINCE. The
+// separate "Drafts" panel is gone; an unpublished matchup carries a **Publish** action
+// wherever it is listed, and the word "draft" appears in no rendered string. The
+// STORAGE is untouched throughout: still `draft:v1:`, still a pointer after publish
+// (`renameWireCompat.test.ts` pins the prefix).
+//
+// 🔴 WHERE IT IS *NOW*: **My Benchmarks ▸ Matchups**, a SIDEBAR DESTINATION. This
+// paragraph said "the **My** sub-tab of the Matchups view" in the present tense, and
+// the sub-tab strip was deleted by the sidebar change — `subtab-my-matchup` and
+// `subtab-community-matchup` exist nowhere. The `openMy` helper below already carries
+// that correction, so for one round this file contradicted itself 80 lines apart.
+// Corrected here rather than only there: the header is what a reader lands on first.
 //
 // Acceptance criteria covered here (5 was STRUCK by operator decision on
 // 2026-08-30 — no unpublish, edit only; see docs/matchups.md §9 Q2):
@@ -29,7 +36,15 @@ import type { SharedItem, StorageClient } from '@civitai/sdk';
 import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
 import type { CombinationData } from './types.js';
 
@@ -75,15 +90,23 @@ async function renderApp(...args: Parameters<typeof mountApp>) {
   return r;
 }
 
-/** Switch to the My sub-tab of whichever view is mounted (§11.1). */
+/**
+ * Go to the viewer's own matchups (§11.1).
+ *
+ * ⚠️ IT IS A SIDEBAR DESTINATION NOW, NOT A SUB-TAB. `subtab-my-matchup` and
+ * `subtab-community-matchup` do not exist: the per-board My/Community strip is deleted
+ * and "my work" is `My Benchmarks ▸ Matchups`. The `my-panel` testid the old helper
+ * returned is unchanged and still the thing every case below queries into, so only
+ * these two functions had to move.
+ */
 async function openMy() {
-  await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
+  await openMyList('matchup');
   return screen.findByTestId('my-panel');
 }
 
-/** Switch to the Community sub-tab. */
+/** Go back to the community matchups board. */
 async function openCommunity() {
-  await userEvent.click(await screen.findByTestId('subtab-community-matchup'));
+  await openView('Matchups');
 }
 
 /** Drive the private matchup form: open it, name it, pick a checkpoint, save. */
@@ -255,7 +278,9 @@ describe('criterion 2: before publish, no other viewer can see it', () => {
     await screen.findByTestId('unpublished-card');
     authorView.unmount();
 
-    // The other viewer: same board, their own store — on BOTH sub-tabs.
+    // The other viewer: same board, their own store — on BOTH surfaces (the community
+    // Matchups board and My Benchmarks ▸ Matchups). ⚠ "on BOTH sub-tabs" is what this
+    // said; there are no sub-tabs, and `openMy()` below is a sidebar navigation.
     const otherView = await renderApp(
       { shared: board.shared, appStorage: otherStore.appStorage },
       OTHER_ID,
@@ -348,6 +373,7 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     // pointer used to stand in for (§11.1), so the pointer is storage-only now.
     await openMy();
     const own = await screen.findByTestId('matchup-card');
+    await openRowMenu('matchup', own);
     await userEvent.click(within(own).getByTestId('matchup-edit'));
     const form = await screen.findByTestId('matchup-form');
     const nameInput = within(form).getByTestId('matchup-name');

@@ -101,7 +101,7 @@
 // the negative control for the mobile arm: if they ever go red, "compact"
 // became unconditional and the seam stopped deciding anything.
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -111,13 +111,27 @@ import type { SharedItem } from '@civitai/sdk';
 import { App } from './App.js';
 import {
   COMPACT_ATTR,
+  ICON_BUTTON_SELECTOR,
+  LAYOUT_ATTR,
+  MENU_ITEM_SELECTOR,
   MIN_TAP_TARGET_PX,
+  MOBILE_BREAKPOINT_PX,
+  NAV_ITEM_SELECTOR,
   TOOLTIP_GAP_PX,
   TOOLTIP_GUTTER_PX,
   compactTapTargetCss,
+  layoutCss,
 } from './compact.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
+import {
+  contribute,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+  openView,
+} from './test-helpers.js';
 import { setViewport } from './test-setup.js';
 
 // ---------------------------------------------------------------------------
@@ -190,27 +204,28 @@ function renderApp() {
 /**
  * Every `role="tab"` segment on the page.
  *
- * 🔴 THESE ARE THE SUB-TABS NOW, AND THERE USED TO BE A TOP-LEVEL STRIP TOO. The
- * compact stylesheet's tap-target rule is aimed at `[data-civitai-ui-segment]`,
- * which the pack's `SegmentedControl` emits; the IA refactor deleted the
- * `view-switch` strip, so the segments that remain are the My/Community sub-tabs
- * on the matchup and prompt sections. The RULE is unchanged and so is the claim
- * this file makes about it — what changed is which controls it reaches, and the
- * ledger below is a literal so that is a decision rather than a drift.
+ * 🔴 WHICH CONTROLS THOSE ARE HAS MOVED TWICE, and the rule has not moved at all. The
+ * compact stylesheet's tap-target rule is aimed at `[data-civitai-ui-segment]`, which
+ * the pack's `SegmentedControl` emits. Generation 1: a three-tab top-level
+ * `view-switch` strip PLUS two My/Community sub-tab strips. Generation 2: the strip was
+ * deleted, leaving the four sub-tab segments. Generation 3, here: the sub-tab strips
+ * are deleted too — "my work" is a sidebar destination — and the only segments left
+ * are the BOARD subnav's three. The ledger below is a literal so each move is a
+ * decision someone takes rather than a drift.
  *
  * (Segments expose `role="tab"`, NOT `role="button"` — asking for "button" here
  * fails with "unable to find an accessible element", which reads exactly like the
  * app not rendering. It renders; the role differs.)
  */
 async function tabs() {
-  await screen.findByTestId('section-matchups');
+  await screen.findByTestId('board-nav');
   return screen.getAllByRole('tab');
 }
 
 /** Wait for the matrix to mount. The grids section is always rendered now — there
  * is no view to open. */
 async function openGrid() {
-  await screen.findByTestId('section-grids');
+  await screen.findByTestId('section-open-grid');
   return screen.findByTestId('results-grid');
 }
 
@@ -221,13 +236,34 @@ function minHeightPx(el: Element): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * `min-width` as a NUMBER of px, or 0 when nothing declares one.
+ *
+ * 🔴 THE SIBLING OF `minHeightPx`, AND READ THE SAME WAY FOR THE SAME REASON: what this
+ * observes is the CASCADE (which declaration wins for this element), never the geometry.
+ * jsdom resolves no layout, so `getBoundingClientRect().width` is 0 here whatever the
+ * sheet says.
+ *
+ * ⚠️ MEASURED BEFORE BEING TRUSTED, because a longhand's CSSOM behaviour is not
+ * something to assume: jsdom 25.0.1 SYNTHESISES the `padding` shorthand out of four
+ * longhands, so a draft guard elsewhere in this stack asserted an empty shorthand and
+ * could never have discriminated its bug. `min-width` has no shorthand and reads back as
+ * a plain `'44px'` from a document stylesheet — confirmed by the negative control in the
+ * WIDE-viewport case below, which reads 0 from the same helper on the same element.
+ */
+function minWidthPx(el: Element): number {
+  const raw = getComputedStyle(el).minWidth;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // ---------------------------------------------------------------------------
 
 describe('420 — narrow viewport: the compact layout is mounted through the seam', () => {
   it('stamps the compact attribute on the block root and mounts the stylesheet', async () => {
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('section-open-grid');
 
     expect(document.querySelector(`[${COMPACT_ATTR}='true']`)).not.toBeNull();
     expect(screen.getByTestId('compact-styles')).toBeInTheDocument();
@@ -240,27 +276,28 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
     // pin that each selector resolves to real, rendered controls.
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('section-matchups');
+    await screen.findByTestId('board-nav');
 
-    // 4 segments: the My/Community sub-tabs of the matchup section and of the
-    // prompt section, both mounted at once. It was 5 while a 3-tab `view-switch`
-    // strip sat above a single mounted view; the IA refactor deleted the strip and
-    // mounts both lists together. A literal rather than a `>= 3`: this is the
-    // reachability ledger, so a segment appearing or disappearing should be a
-    // decision someone takes on purpose.
+    // 3 segments: the BOARD subnav's Grids / Matchups / Prompts. It was 5 while a
+    // 3-tab `view-switch` strip sat above a single mounted view, then 4 when the IA
+    // refactor deleted the strip and mounted both My/Community sub-tab strips
+    // together, and it is 3 now that those strips are deleted and "my work" is a
+    // sidebar destination. A literal rather than a `>= 3`: this is the reachability
+    // ledger, so a segment appearing or disappearing should be a decision someone
+    // takes on purpose.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui-segment]`),
-    ).toHaveLength(4);
+    ).toHaveLength(3);
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui='button']`).length,
     ).toBeGreaterThan(0);
   });
 
-  it('gives every sub-tab segment a computed min-height of at least 44px', async () => {
+  it('gives every board-subnav segment a computed min-height of at least 44px', async () => {
     setViewport('mobile');
     renderApp();
     const t = await tabs();
-    expect(t).toHaveLength(4);
+    expect(t).toHaveLength(3);
     for (const tab of t) {
       expect(minHeightPx(tab)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
@@ -291,10 +328,14 @@ describe('420 — wide viewport: the desktop rendering is untouched', () => {
   it('mounts no compact stylesheet and leaves the root unstamped', async () => {
     setViewport('desktop');
     renderApp();
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('section-open-grid');
 
     expect(document.querySelector(`[${COMPACT_ATTR}='true']`)).toBeNull();
     expect(screen.queryByTestId('compact-styles')).toBeNull();
+    // 🔴 THE LAYOUT SHEET IS UNCONDITIONAL, and asserting it HERE is what stops the
+    // two being confused: the compact sheet is the narrow override, the layout sheet
+    // carries the wide case and must be present on BOTH viewports.
+    expect(screen.getByTestId('layout-styles')).toBeInTheDocument();
   });
 
   it('leaves the segment controls on the pack’s own sizing (no tap-target override)', async () => {
@@ -307,6 +348,24 @@ describe('420 — wide viewport: the desktop rendering is untouched', () => {
     for (const tab of t) {
       expect(minHeightPx(tab)).toBeLessThan(MIN_TAP_TARGET_PX);
     }
+  });
+
+  // 🔴 THE NEGATIVE CONTROL FOR `minWidthPx`, AND IT IS DOING TWO JOBS. (1) It is the
+  // mirror of the ⋮ reachability case: if the width floor also applied on a wide
+  // viewport, that case would be green whether or not the compact seam decided anything.
+  // (2) It VALIDATES THE HELPER — a `getComputedStyle().minWidth` that always returned
+  // `'44px'`, or always `''`, would satisfy the mobile assertion for the wrong reason.
+  // Reading 0 off the SAME element through the SAME helper is what proves the number
+  // moves with the sheet. jsdom's CSSOM was measured rather than assumed here, because a
+  // longhand's read-back behaviour is not safe to assume: in this same jsdom (25.0.1) the
+  // `padding` SHORTHAND is synthesised from its longhands, which falsified a draft guard
+  // elsewhere in this stack that asserted the shorthand was empty.
+  it('leaves the ⋮ trigger with NO width floor (negative control for minWidthPx)', async () => {
+    setViewport('desktop');
+    renderApp();
+    const matchups = await openView('Matchups');
+    const trigger = await within(matchups).findByTestId('matchup-menu');
+    expect(minWidthPx(trigger)).toBe(0);
   });
 });
 
@@ -501,9 +560,13 @@ describe('420 — the 44px figure itself', () => {
       </Harness>,
     );
 
-    await openView('Matchups');
-    await userEvent.click(await screen.findByTestId('subtab-my-matchup'));
-    await userEvent.click(await screen.findByTestId('matchup-edit'));
+    // The LoRA slider is only reachable through the author-scoped Edit affordance, and
+    // the viewer's own rows are a sidebar destination now rather than a sub-tab.
+    await openMyList('matchup');
+    // The Edit affordance is a ⋮ menu item now (the third IA pass), so the route to
+    // the LoRA weight slider grew one click. The premise of this case is unchanged.
+    const menu = await openRowMenu('matchup');
+    await userEvent.click(within(menu).getByTestId('matchup-edit'));
 
     const ranges = document.querySelectorAll(
       `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,
@@ -539,8 +602,9 @@ describe('420 — the 44px figure itself', () => {
     renderApp();
     await screen.findByTestId('grid-view');
 
-    // Grids is the default view (§11.5), so the builder is two clicks away.
-    await userEvent.click(await screen.findByTestId('grid-new'));
+    // Grids is the default view (§11.5), so the builder is two clicks away —
+    // through the Contribute menu since `grid-new` was removed from that surface.
+    await contribute('grid');
     await screen.findByTestId('grid-form');
     await userEvent.click(screen.getByTestId('grid-form-pick-rows'));
     await screen.findByTestId('grid-pick-rows');
@@ -555,64 +619,246 @@ describe('420 — the 44px figure itself', () => {
     }
   });
 
-  // 🔴 THE SECOND TAP TARGET THIS APP BUILDS ITSELF, AND IT ALSO SHIPPED UNDER THE
-  // FLOOR — the same defect as the option rows above, one surface later.
+  // 🔴 THE THIRD TAP TARGET THIS APP BUILDS ITSELF, AND IT ALSO SHIPS UNDER THE
+  // FLOOR — the same defect a third time, one surface later.
   //
-  // `ContributeMenu` is the page's single Contribute affordance (the control that
-  // replaced the top-level tab strip in the IA refactor), and its three items are
-  // hand-built `<button role="menuitem">` carrying `padding: '8px 10px'` around a
-  // 13px line at `lineHeight` normal — about 34px against the 44 every other
-  // control in the rule is held to. It was missed for EXACTLY the reason the
-  // option rows were: the rule's other selectors
-  // (`[data-civitai-ui='button']`, `[data-civitai-ui-segment]`,
-  // `[data-civitai-ui-range]`) all reach PACK-rendered controls, and the pack emits
-  // no `role="menuitem"` anywhere. `compact.ts`'s own header says an app-built tap
-  // target has slipped this selector list before; this is the third instance, and
-  // it is why the list is now audited by role rather than by memory.
+  // ⚠️ WHAT THIS PAIR OF CASES USED TO BE ABOUT: `ContributeMenu`'s three
+  // `<button role="menuitem">` items, `padding: 8px 10px` around a 13px line, ~34px.
+  // MEASURED at that change's base, computed `min-height` on the three live items was
+  // **0** — red before the selector existed, green after. That component is DELETED
+  // (the sidebar replaced it), and `[role='menuitem']` is out of the rule because
+  // nothing in this app or the pack emits that role any more. The SUBJECT moved to
+  // `SideNav`; the lesson did not move at all.
   //
-  // ⚠️ WHY THE SELECTOR IS `[role='menuitem']` AND NOT A TESTID, and why that
-  // choice is what makes this guard survive the upstream menu migration: the role
-  // pins the STATE (this element is an item in a menu), not a word a future
-  // component could spell differently. MEASURED against the upstream replacement
-  // that a later change may adopt — `@civitai/components@0.8.1`'s
-  // `<civitai-menu-item>` — `connectedCallback()` runs
-  // `this.setAttribute('role', 'menuitem')` on its own HOST, in LIGHT DOM. So this
-  // selector reaches the upstream element too, and a document-level `min-height`
-  // beats its `:host` rule (outer-tree styles win over `:host` regardless of
-  // specificity). Which matters, because the upstream element is NOT above the
-  // floor on its own: its `:host` is `padding: 7px 14px; font-size: 14px;
-  // line-height: 1.4` = 14 × 1.4 + 14 = **33.6px**. The floor is this app's job
-  // either way — the migration does not inherit it.
+  // `SideNav` is hand-built because this repo is pinned to `@civitai/components@0.4.1`,
+  // which ships no `<civitai-nav-item>` (the upstream element is real, at 0.8.1 — see
+  // `SideNav.tsx` for the five-package bump that gates the swap). Its items are plain
+  // `<button>`s carrying `padding: 6px 10px` around a 13px line — ~31px, and this nav
+  // is the page's ONLY primary navigation.
   //
-  // ⚠ jsdom does NO layout, so this asserts the CASCADE (computed `min-height` on
-  // the real rendered items), never the geometry — same ceiling as every case here.
-  it('SELECTOR REACHABILITY: the menuitem rule matches the live Contribute items', async () => {
+  // 🔴 AND THE SELECTOR IS *NOT* SWAP-PROOF, unlike the two roles above it. That is
+  // the one thing this pair has to say that its predecessor did not. `[role='option']`
+  // and the departed `[role='menuitem']` pin a STATE the upstream elements also set, so
+  // they survive an element swap. A nav item has no such role — it is a `<button>`
+  // inside a `role="list"` — so the rule targets `[data-mb-nav-item]`, an attribute
+  // THIS APP puts on its own buttons and which `<civitai-nav-item>` will not carry.
+  // Upstream's own padding is ~32px, also under the floor, so the swap does NOT retire
+  // this rule: it orphans the selector while leaving the need. This case is the only
+  // thing that turns that into a failure instead of 31px nav items.
+  //
+  // ⚠ jsdom does NO layout, so this asserts the CASCADE (computed `min-height` on the
+  // real rendered items), never the geometry — same ceiling as every case here.
+  it('SELECTOR REACHABILITY: the nav-item rule matches the live SideNav items', async () => {
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('side-nav');
 
-    // The items only exist while the menu is open — it is a popover, not a
-    // permanently mounted list, so the click is part of the reachability claim.
-    await userEvent.click(await screen.findByTestId('contribute-trigger'));
-    await screen.findByTestId('contribute-menu-items');
+    // The three My Benchmarks sub-items only exist while the group is expanded, so the
+    // click is part of the reachability claim — the same reason the menu case had to
+    // open the popover.
+    await userEvent.click(screen.getByTestId('nav-my'));
+    await screen.findByTestId('nav-my-group');
 
-    const items = document.querySelectorAll(`[${COMPACT_ATTR}='true'] [role='menuitem']`);
-    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the
-    // case passes vacuously — the failure mode this whole family exists to prevent.
-    // A literal 3 rather than `> 0`, because the menu's item count is a ledgered
-    // decision (`CONTRIBUTE_ITEMS` in ContributeMenu.tsx asserts the same set).
-    expect(items, 'the menuitem selector reached no live node').toHaveLength(3);
+    const items = document.querySelectorAll(`[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR}`);
+    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the case
+    // passes vacuously — the failure mode this whole family exists to prevent. A
+    // literal 5 rather than `> 0`, because the nav's item count is a ledgered decision
+    // (`SIDE_NAV_ITEMS` in `SideNav.tsx` asserts the same set): Home, My Benchmarks,
+    // and its three sub-items.
+    expect(items, 'the nav-item selector reached no live node').toHaveLength(5);
     for (const i of items) {
       expect(minHeightPx(i)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
     }
   });
 
-  it('the emitted stylesheet floors the Contribute items with the IMPORTED constant', () => {
-    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some
-    // future refactor of the case above stops opening the menu. Interpolated from
-    // the constant, never a second `44px` literal.
-    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] [role='menuitem']`);
+  it('the emitted stylesheet floors the SideNav items with the IMPORTED constant', () => {
+    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some future
+    // refactor of the case above stops expanding the group. Interpolated from the
+    // constants, never a second `44px` literal and never a second spelling of the
+    // attribute.
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR}`);
     expect(compactTapTargetCss()).toContain(`min-height: ${MIN_TAP_TARGET_PX}px`);
+    // 🔴 RETARGETED, DELIBERATELY, AND SAY SO RATHER THAN DELETE IT. This line used
+    // to be `expect(compactTapTargetCss()).not.toContain("[role='menuitem']")` — an
+    // ORPHAN guard: `ContributeMenu` was deleted, nothing emitted that role any more,
+    // and a rule left behind would have matched nothing while still satisfying every
+    // "the CSS says 44px" assertion. The third IA pass added `components/Menu.tsx`, so
+    // the role is emitted again and the selector is back in the sheet on purpose — the
+    // old assertion is now asserting the opposite of what the code should do, and
+    // keeping it would mean either reverting the tap floor or weakening the guard.
+    //
+    // 🔴 SO IT IS REPLACED BY THE SAME CLAIM IN THE LIVE DIRECTION, one case down:
+    // `SELECTOR REACHABILITY: the menuitem rule matches the live ⋮ menu items` reads
+    // the computed `min-height` off the real rendered items. That is strictly stronger
+    // than a substring check on the sheet — an orphan is caught by the reachability
+    // case going red at 0 matches, which the old `not.toContain` could never do while
+    // a menu existed.
+    //
+    // ⚠️ AND NOTE WHY THE OLD ASSERTION WAS ALSO WALKABLE: it pinned a SPELLING.
+    // `[role="menuitem"]` (double quotes) would have satisfied it with the selector
+    // fully live in the rule. `MENU_ITEM_SELECTOR` in `compact.ts` is single-quoted to
+    // match the sheet's other roles, and this case now interpolates the constant
+    // instead of spelling anything.
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] ${MENU_ITEM_SELECTOR}`);
+  });
+
+  // 🔴 THE FOURTH TAP TARGET THIS APP BUILDS ITSELF — the same defect a fourth time,
+  // and this one is a RETURN rather than a new surface. `ContributeMenu`'s
+  // `<button role="menuitem">` items were ~34px (`padding: 8px 10px` around a 13px
+  // line) and MEASURED at 0 computed `min-height` before the selector existed.
+  // `components/Menu.tsx` is a different component with the same box, so the same
+  // arithmetic applies — which is why `compact.ts` got the selector back rather than a
+  // new one invented for it.
+  //
+  // ⚠️ WHAT THIS CASE DOES NOT COVER, stated so nobody reads it as wider than it is:
+  // the menu's two CONFIRM-FLOW controls (Remove, Report) are pack `Button`s hosted in
+  // the panel, NOT menuitems, so this query cannot see them. They are floored by the
+  // `[data-civitai-ui='button']` selector at the top of the same rule, which the vote
+  // case a few describes up already exercises on a live node.
+  //
+  // ⚠ jsdom does NO layout, so this asserts the CASCADE (computed `min-height` on the
+  // real rendered items), never the geometry — the same ceiling as every case here.
+  it('SELECTOR REACHABILITY: the menuitem rule matches the live ⋮ menu items', async () => {
+    setViewport('mobile');
+    // 🔴 A LOCAL SEED AUTHORED BY THE VIEWER, and it is not optional. The shared
+    // `SEED` is authored by id 7 while the Harness viewer is 99, so on the COMMUNITY
+    // board the only menu entry is Report — a `MenuControl`, NOT a `role="menuitem"`
+    // — and this query would find zero on a perfectly healthy tree. `Edit` is the
+    // only single-press item, it is author-scoped, so an OWNED row is the one fixture
+    // that can exercise this selector at all. (Same reason the slider case above
+    // seeds its own owned row.)
+    const owned: SharedItem[] = [
+      {
+        key: 'c-owned',
+        count: 3,
+        authorUserId: 99, // === the Harness viewer below; Edit is author-scoped
+        value: {
+          title: 'Owned Combo',
+          body: '',
+          data: {
+            v: 2,
+            kind: 'combination', // 🔴 wire value, never renamed
+            configs: [
+              {
+                id: 'cfgOwned',
+                checkpoint: {
+                  versionId: 1001,
+                  modelId: 500,
+                  baseModel: 'SDXL 1.0',
+                  modelName: 'JuggernautXL',
+                },
+                loras: [],
+              },
+            ],
+          },
+        },
+        viewerVoted: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as SharedItem,
+    ];
+    const { shared } = fakeShared({ seed: owned });
+    render(
+      <Harness
+        viewer={{ id: 99, username: 'me' }}
+        theme="dark"
+        consentGranted
+        buzzBudget={1000}
+        buzzBalance={{ blue: 0, green: 0, yellow: 5000 }}
+        shared={{ seed: [] }}
+        showLog={false}
+      >
+        <App
+          deps={{
+            resolveResources: async () => [],
+            pollIntervalMs: 0,
+            sleep: immediateSleep,
+            shared,
+            appStorage: fakeAppStorage().appStorage,
+          }}
+        />
+      </Harness>,
+    );
+
+    await openView('Matchups');
+    const card = await screen.findByTestId('matchup-card');
+    const menu = await openRowMenu('matchup', card);
+
+    const items = menu.querySelectorAll(MENU_ITEM_SELECTOR);
+    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the case
+    // passes vacuously — the failure mode this whole family exists to prevent. A
+    // literal 1 rather than `> 0`, because the item set is a decision (Edit is the only
+    // single-press action on a row today; Remove and Report are confirm flows).
+    expect(items, 'the menuitem selector reached no live node').toHaveLength(1);
+    for (const i of items) {
+      expect(minHeightPx(i)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE ⋮ TRIGGER — THE FIRST CONTROL WHOSE SHORT AXIS IS **WIDTH**
+  // -------------------------------------------------------------------------
+  //
+  // 🔴 THE FLOOR WAS HEIGHT-ONLY, AND THAT HELD UNTIL THIS CONTROL EXISTED. Every
+  // selector in `compactTapTargetCss`'s first rule reaches a TEXT-BEARING control — a
+  // pack Button's label, a segment, a `role="option"` row, a nav item — and text carries
+  // a box past 44px horizontally on its own. So `min-width` appeared NOWHERE in that
+  // sheet as a tap-target declaration, and nothing noticed, because nothing needed it.
+  // `components/Menu.tsx`'s trigger is a 14×14 `<svg>` with an `aria-label` and no text
+  // at all, in a `size="sm"` pack Button: width is the short axis for the first time.
+  //
+  // 🔴 AND THE EXISTING REACHABILITY CASE DOES NOT COVER IT. That case measures
+  // `minHeightPx` on the menu's ITEMS — the things inside the open panel — not on the
+  // trigger that opens it. Two different elements, one of which had no width floor.
+  //
+  // ⚠️ WHAT THESE TWO CASES DO AND DO NOT CLAIM, and the distinction is the whole point
+  // of this block. They assert (a) the declaration is in the emitted sheet, and (b) its
+  // selector wins the CASCADE on the real rendered trigger. They assert NOTHING about
+  // the tap target's actual size: jsdom performs no layout, `getBoundingClientRect()` is
+  // all zeros, and no amount of CSSOM reading changes that. **A LIVE READING AT
+  // ≤720px IS OWED FOR THIS CONTROL AND HAS NOT BEEN TAKEN.** It is recorded here, in
+  // `ICON_BUTTON_SELECTOR`'s docblock and in the sheet's own comment, in all three
+  // places, because a claim that only lives in one is a claim that gets summarised away.
+  it('SELECTOR REACHABILITY: the icon-button rule matches the live ⋮ trigger', async () => {
+    setViewport('mobile');
+    renderApp();
+
+    // The COMMUNITY board is enough here: the trigger renders for any row the viewer can
+    // act on, and on this seed that is Report (`SEED` is authored by 7, the viewer is
+    // 99). No owned fixture needed — which is what separates this case from the menuitem
+    // one above, whose subject is author-scoped.
+    const matchups = await openView('Matchups');
+    const trigger = await within(matchups).findByTestId('matchup-menu');
+
+    // 🔴 POSITIVE CONTROL ON THE SELECTOR ITSELF, scoped to the compact root, before any
+    // measurement: a rule whose selector matches nothing still parses, is still in the
+    // document, and still satisfies every "the CSS says 44px" assertion.
+    const matched = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR}`,
+    );
+    expect(matched.length, 'the icon-button selector reached no live node').toBeGreaterThan(0);
+    expect([...matched], 'the ⋮ trigger is not among the matched nodes').toContain(trigger);
+
+    // 🔴 AND THE TRIGGER REALLY IS TEXT-LESS, which is the premise the whole rule rests
+    // on. If it ever grows a label, width stops being the short axis and this block's
+    // reason evaporates — better to fail here than to keep a rule whose motive is gone.
+    expect((trigger.textContent ?? '').trim(), 'the ⋮ trigger grew visible text').toBe('');
+    expect(trigger).toHaveAttribute('aria-label');
+
+    expect(minWidthPx(trigger)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+    // …and the height floor still reaches it through the pack-Button selector, so the
+    // new rule is an ADDITION rather than a replacement.
+    expect(minHeightPx(trigger)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
+  });
+
+  it('the emitted stylesheet floors the ⋮ trigger on WIDTH, with the IMPORTED constant', () => {
+    // The rule TEXT, so a selector deleted from `compact.ts` fails even if some future
+    // refactor stops mounting a menu. Both halves are interpolated, never spelled: the
+    // literal `44px` is pinned once, a few describes up.
+    expect(compactTapTargetCss()).toContain(
+      `[${COMPACT_ATTR}='true'] ${ICON_BUTTON_SELECTOR}`,
+    );
+    expect(compactTapTargetCss()).toContain(`min-width: ${MIN_TAP_TARGET_PX}px`);
   });
 
   it('the emitted stylesheet floors the option rows with the IMPORTED constant', () => {
@@ -936,8 +1182,17 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // attributes whether or not our rule exists. Its job is the one the three
     // cases above cannot do: the rule text is worthless if the pack renames its
     // attributes, so prove each selector reaches the real rendered tooltip.
-    // Needs no layout, only the DOM. The Combinations view badges its top-N
-    // "Included".
+    // Needs no layout, only the DOM.
+    //
+    // 🔴 WHICH TOOLTIP THIS REACHES HAS CHANGED, and the change nearly emptied the
+    // case. It used to be the "Included" badge on the Matchups board — and the third
+    // IA pass DELETED that badge, so the node this case depended on is gone. What
+    // keeps it alive is a different tooltip added in the same pass: `VoteButton` now
+    // wraps its control in one, and every card on this board has a vote control. That
+    // is a strictly better anchor than the badge was (a badge renders only for the
+    // top-N; a vote control renders on every row), but it is an ACCIDENT of the same
+    // change rather than a design — so if the vote tooltip ever goes, this case needs
+    // a new anchor, not a deletion.
     setViewport('mobile');
     renderApp();
     await openView('Matchups');
@@ -952,5 +1207,86 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
       `[${COMPACT_ATTR}='true'] [data-civitai-ui-tooltip-bubble]`,
     );
     expect(bubbles.length).toBeGreaterThan(0);
+  });
+});
+
+// ===========================================================================
+// THE SIDEBAR COLLAPSES TO A TOP BAR under the compact breakpoint.
+//
+// 🔴 READ THE CEILING BEFORE THE CASES. jsdom performs NO LAYOUT: it resolves no
+// grid, every box is 0x0, and `getBoundingClientRect()` is all zeros. So NOTHING in
+// this block observes whether the sidebar actually becomes a top bar. What it CAN
+// settle is exactly two things, and they are the two things that have historically
+// gone wrong here:
+//
+//   1. THE DECLARATIONS ARE IN THE EMITTED SHEET — so a rule silently dropped in a
+//      refactor fails a test instead of shipping a broken layout;
+//   2. THE SELECTORS MATCH LIVE NODES — so a rule that parses, sits in the document,
+//      and matches NOTHING fails too. `compact.ts`'s header records three separate
+//      rounds where "the rule is still there" was mistaken for "the rule still
+//      applies", each caught only by a reachability case like these.
+//
+// ⚠️ LIVE MEASUREMENT AT ≤720px IS OWED AND HAS NOT BEEN DONE. The existing numbers
+// at the top of this file came from headless Chromium against `pnpm run dev:harness`;
+// nothing equivalent has been run against the sidebar. Do not read a green here as
+// "the top bar works".
+// ===========================================================================
+
+describe('the sidebar → top-bar collapse (CSS text and reachability only)', () => {
+  it('emits the single-column override, scoped to the compact root', () => {
+    const css = compactTapTargetCss();
+    // The WHOLE declaration block, not a property name: a `grid-template-columns`
+    // whose value drifted to something two-column would satisfy a name check.
+    expect(css).toContain(`[${COMPACT_ATTR}='true'] [${LAYOUT_ATTR}] {`);
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr);');
+    // …and the nav's own rows go horizontal, which is what makes it a BAR.
+    expect(css).toContain(`[${COMPACT_ATTR}='true'] [data-testid='side-nav-list']`);
+    expect(css).toContain(`[${COMPACT_ATTR}='true'] [data-testid='nav-my-group']`);
+    expect(css).toContain('grid-auto-flow: column;');
+    expect(css).toContain('overflow-x: auto;');
+  });
+
+  it('the WIDE case lives in its own always-mounted sheet, and it is two columns', () => {
+    // 🔴 THE PAIR IS THE CLAIM. A single-column rule proves nothing on its own: if the
+    // wide case were also one column the "collapse" would be unconditional and the
+    // breakpoint would decide nothing. This is the negative control for the case above,
+    // the same way the desktop describe block is for the tap-target rule.
+    const css = layoutCss();
+    expect(css).toContain(`[${LAYOUT_ATTR}] {`);
+    expect(css).toContain('display: grid;');
+    expect(css).toMatch(/grid-template-columns: \d+px minmax\(0, 1fr\);/);
+    // …and the two really do differ, so the override is an override.
+    expect(css).not.toContain('grid-template-columns: minmax(0, 1fr);');
+  });
+
+  it('SELECTOR REACHABILITY: both sheets reach the live layout and nav nodes', async () => {
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('side-nav');
+
+    // 🔴 THE POSITIVE CONTROL THAT MAKES THE TWO TEXT CASES NON-VACUOUS: the selectors
+    // resolve against the real rendered tree. A rule aimed at an attribute the app
+    // stopped stamping would pass both cases above and reach nothing.
+    const layout = document.querySelectorAll(`[${COMPACT_ATTR}='true'] [${LAYOUT_ATTR}]`);
+    expect(layout, 'the layout selector reached no live node').toHaveLength(1);
+    expect(
+      document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-testid='side-nav-list']`),
+      'the nav-list selector reached no live node',
+    ).toHaveLength(1);
+    // Both sheets are actually in the document, not merely returned by a function.
+    expect(screen.getByTestId('compact-styles')).toBeInTheDocument();
+    expect(screen.getByTestId('layout-styles')).toBeInTheDocument();
+  });
+
+  it('the breakpoint is stated ONCE and the hook reads it', () => {
+    // 🔴 720 IS THE WCAG-adjacent boundary this repo already chose, and it used to be
+    // a literal inside `useMediaQuery.ts` while `compact.ts` merely described it in
+    // prose. Now the hook imports it. Pinned as the LITERAL here rather than compared
+    // against itself — an assertion that read the constant on both sides would pass at
+    // any value, which is the shape of a guard that pins nothing.
+    expect(MOBILE_BREAKPOINT_PX).toBe(720);
+    // …and the emitted sheet's own comment carries the same number, so the two cannot
+    // describe different breakpoints.
+    expect(compactTapTargetCss()).toContain('under 720px');
   });
 });

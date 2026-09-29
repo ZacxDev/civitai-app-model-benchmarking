@@ -93,6 +93,37 @@ export function communityGridEntries(topGrid: SystemGridEntry, grids: GridRow[])
   return [topGrid, ...orderGridsByVotes(grids).map((row): GridEntry => ({ system: false, row }))];
 }
 
+/**
+ * ONE SPELLING OF "WHICH GRID IS THIS", as the value `openGridKey` uses: `null` for the
+ * system Top Grid, the shared key for a published one.
+ *
+ * 🔴 IT EXISTS BECAUSE THE SAME TERNARY WAS OPEN-CODED THREE TIMES IN `GridsView`, in
+ * two different shapes — `entry.system ? '__system__' : entry.row.key` for the card's
+ * React/`data-key`, `entry.system ? null : entry.row.key` for the Open callback, and
+ * `entry.system ? openKey !== null : entry.row.key !== openKey` for the list filter. All
+ * three answer one question, and a predicate open-coded at N sites is typically wrong at
+ * N−1 of them. The filter is the one that matters: it decides whether the OPEN grid is
+ * ALSO listed, i.e. whether the same grid renders twice.
+ *
+ * `null` is the system entry's identity rather than a sentinel string because that is
+ * what `App`'s `openGridKey` holds — see {@link entryDomKey} for the one place a
+ * non-null string is needed instead.
+ */
+export function entryOpenKey(entry: GridEntry): string | null {
+  return entry.system ? null : entry.row.key;
+}
+
+/**
+ * The same identity as a NON-NULL string, for a React key / `data-key`.
+ *
+ * 🔴 A SEPARATE FUNCTION RATHER THAN A `?? '__system__'` AT THE CALL SITE, so the
+ * sentinel is written down exactly once. `'__system__'` is read by tests and by the
+ * card-lookup helpers; a second spelling of it is a silently-unfindable card.
+ */
+export function entryDomKey(entry: GridEntry): string {
+  return entryOpenKey(entry) ?? '__system__';
+}
+
 /** The authored member keys of either kind of entry, in authored order. */
 export function entryKeys(entry: GridEntry): { matchupKeys: string[]; promptKeys: string[] } {
   return entry.system
