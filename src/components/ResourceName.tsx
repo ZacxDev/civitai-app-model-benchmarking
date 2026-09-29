@@ -13,11 +13,31 @@
 // reaching for a link here; it is also why that module still exists.
 //
 // 🔴 THE RULE THIS ENFORCES: NOTHING MAY ADVERTISE AN ACTION IT CANNOT PERFORM.
-// The rendered span carries no underline, no pointer cursor, no `role`, no
-// handler. An underline that goes nowhere is indistinguishable from a broken
-// link, and a viewer who presses a dead control learns nothing — which is exactly
-// the argument that had already made an unlinkable LoRA render as plain text. The
+// The rendered span carries no underline, no pointer cursor, no `role`, and NO
+// HANDLER. An underline that goes nowhere is indistinguishable from a broken link,
+// and a viewer who presses a dead control learns nothing — which is exactly the
+// argument that had already made an unlinkable LoRA render as plain text. The
 // measurement simply widened that from "some resources" to "all of them".
+//
+// 🔴 WHICH TEST BACKS WHICH HALF OF THAT SENTENCE, because for one round it backed
+// only part of it and the comment did not say so:
+//   - the span, the missing role, the absent `<a>`/`<button>` and the
+//     `textDecoration: 'none'` → `ResourceName.test.tsx`, plus the subtree sweep in
+//     `matchupModalResources.test.tsx`'s "NONE of them is interactive".
+//   - 🔴 "NO HANDLER" → `matchupModalResources.test.tsx`'s "pressing every resource
+//     name navigates NOWHERE, by ANY channel". It presses every title in the real
+//     modal and asserts zero on `window.open`, `location.href` (including a bare
+//     `location`), `location.assign`, `location.replace` AND the host `NAVIGATE`
+//     message, each with its own positive control.
+//     ⚠ THIS CLAIM USED TO BE UNBACKED. The guard asserted only the absence of a
+//     `NAVIGATE` message — a MECHANISM, not a state — and two isolated mutants
+//     adding nothing but an `onClick` (`window.open(…)`, and
+//     `window.location.href = …`) SURVIVED a full green suite. The second is the
+//     dangerous one: same-frame navigation needs no sandbox token at all, so it
+//     would really have replaced this block with a logged-out civitai.com inside
+//     the app frame. That test's header records the two residual channels jsdom
+//     will not let it observe; read it before trusting this sentence further than
+//     it goes.
 //
 // ⚠ WHY A COMPONENT AT ALL, when the body is one `<span>`: so there is ONE place
 // a future reader lands when they think "these names should be clickable", with

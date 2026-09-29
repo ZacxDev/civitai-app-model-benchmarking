@@ -143,6 +143,145 @@ async function openMatchupDetail(): Promise<HTMLElement> {
   return screen.findByTestId('matchup-detail');
 }
 
+// ---------------------------------------------------------------------------
+// NAVIGATION INTERCEPTION — every channel this jsdom lets a test observe.
+//
+// 🔴 WHY THIS EXISTS, AND IT IS A GAP THAT WAS FOUND BY MUTATION, NOT BY REVIEW.
+// The first version of the behavioural case below asserted only that no `NAVIGATE`
+// message was emitted. That pins a MECHANISM, not a STATE — and two isolated
+// mutants walked straight past it. Each added ONLY an `onClick` to `ResourceName`,
+// keeping the `<span>`, keeping `textDecoration: 'none'`, touching nothing else:
+//
+//     onClick={() => window.open('https://civitai.com/models/1', '_blank')}
+//     onClick={() => { window.location.href = 'https://civitai.com/models/1' }}
+//
+// Both SURVIVED a full green suite (781 passed, rc 0): tag is `SPAN`, no `role`, no
+// `<a>` in the subtree, and neither emits a host message — while the element is
+// fully interactive and does exactly the broken thing the component exists to
+// prevent.
+//
+// 🔴 THE SECOND MUTANT IS THE SERIOUS ONE. Same-frame navigation needs NO sandbox
+// token at all — `allow-top-navigation` governs the TOP context, not the frame's
+// own — so `window.location.href = …` genuinely executes in production and replaces
+// the running block with civitai.com INSIDE the app frame, at an opaque origin,
+// logged out. A live, visible, broken state.
+//
+// ── 🔴 WHAT IS COVERED, AND WHAT IS NOT — MEASURED, NOT ASSUMED ──────────────
+//
+// Probed against this repo's jsdom (25.0.1) rather than reasoned about:
+//
+//   ✅ `window.open(...)`                     — plain assignment; stubbable.
+//   ✅ `window.location.href = …`             — see below.
+//   ✅ `window.location.assign/replace/reload`
+//   ✅ a BARE `location.href = …`             — resolves through `globalThis`, which
+//      IS `window` here, so it hits the same swapped property. Pinned by a positive
+//      control below rather than argued.
+//   ✅ `window.top.location` / `window.self.location` — `window.top === window` and
+//      `window.self === window` in jsdom, so both route to the swapped property.
+//      (In a real browser `top.location` is a different object, and writing it is
+//      gated by `allow-top-navigation`, which this block is not granted — so that
+//      channel is blocked in production regardless of this test.)
+//
+// 🔴 HOW, and why it is this shape: `window.location`'s OWN `href` descriptor is
+// `configurable: false` and so are `assign`/`replace`, so neither
+// `Object.defineProperty(window.location, 'href', …)` nor
+// `vi.spyOn(window.location, 'assign')` is possible — both throw `Cannot redefine
+// property`. But `window`'s own `location` descriptor IS `configurable: true`, so
+// the whole Location can be swapped for a recorder that DELEGATES every read to the
+// real one (the SDK transport reads `origin` during these presses) and records the
+// writes. Restored in a `finally`.
+//
+// ⚠️ AND A BEFORE/AFTER COMPARISON OF `location.href` WOULD HAVE BEEN VACUOUS — the
+// trap this probe avoided. Measured: a raw `window.location.href = 'https://…'` in
+// jsdom neither throws nor changes `href`. A guard reading the URL either side of
+// the click is green whatever the component does.
+//
+// 🔴 RESIDUAL GAPS, STATED BECAUSE A GUARD WHOSE DESCRIPTION OUTRUNS ITS
+// IMPLEMENTATION IS WORSE THAN NONE. Two channels are NOT covered, both measured:
+//
+//   ✗ `document.location.href = …`. `document`'s own `location` descriptor is
+//     `configurable: false` (redefining throws `Cannot redefine property:
+//     location`), and it is a SEPARATE object from `window.location` — verified:
+//     after swapping `window.location`, `document.location === window.location` is
+//     `false` and a write through `document.location` is NOT recorded. Narrow in
+//     practice: a bare `location.href` IS caught (see above), so only the explicit
+//     `document.` spelling escapes.
+//   ✗ a programmatically created-and-clicked `<a href>`. jsdom performs no
+//     navigation for it and reports nothing this recorder can see (measured: no
+//     throw, `href` unchanged). The subtree sweep in the case above catches an
+//     anchor that is RENDERED; one created in a handler is invisible.
+//
+// Neither is a shape anyone writes by accident while trying to make a title
+// clickable, which is the threat model here. They are real, and they are named.
+// ---------------------------------------------------------------------------
+
+interface NavRecorder {
+  open: string[];
+  href: string[];
+  assign: string[];
+  replace: string[];
+}
+
+function interceptNavigation(): { rec: NavRecorder; restore: () => void } {
+  const rec: NavRecorder = { open: [], href: [], assign: [], replace: [] };
+  const realOpen = window.open;
+  const realLoc = window.location;
+
+  window.open = ((url?: string | URL) => {
+    rec.open.push(String(url ?? ''));
+    return null;
+  }) as typeof window.open;
+
+  // Reads DELEGATE to the real Location — the SDK transport reads `origin` while
+  // these presses happen, and a stand-in that lied about it would break the App in
+  // a way that looks nothing like the thing under test.
+  const stand = {
+    get href() {
+      return realLoc.href;
+    },
+    set href(v: string) {
+      rec.href.push(v);
+    },
+    get origin() {
+      return realLoc.origin;
+    },
+    get protocol() {
+      return realLoc.protocol;
+    },
+    get host() {
+      return realLoc.host;
+    },
+    get hostname() {
+      return realLoc.hostname;
+    },
+    get port() {
+      return realLoc.port;
+    },
+    get pathname() {
+      return realLoc.pathname;
+    },
+    get search() {
+      return realLoc.search;
+    },
+    get hash() {
+      return realLoc.hash;
+    },
+    assign: (v: string) => rec.assign.push(v),
+    replace: (v: string) => rec.replace.push(v),
+    reload: () => rec.assign.push('reload()'),
+    toString: () => realLoc.href,
+  };
+  Object.defineProperty(window, 'location', { configurable: true, value: stand });
+
+  return {
+    rec,
+    restore: () => {
+      window.open = realOpen;
+      Object.defineProperty(window, 'location', { configurable: true, value: realLoc });
+    },
+  };
+}
+
 describe('the matchup detail modal renders its resources as plain text', () => {
   it('🔴 shows every resource name, and NONE of them is interactive', async () => {
     mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
@@ -171,20 +310,63 @@ describe('the matchup detail modal renders its resources as plain text', () => {
     expect(within(modal).queryAllByRole('link')).toHaveLength(0);
   });
 
-  it('🔴 pressing every resource name sends NO host navigation', async () => {
-    // The behavioural half. A `<span onClick>` carries no role and no tag a
-    // structural check would catch, so the only thing that settles it is pressing
-    // each one and watching the outbound stream.
+  it('🔴 pressing every resource name navigates NOWHERE, by ANY channel', async () => {
+    // The behavioural half, and the one that has to pin a STATE rather than a
+    // mechanism: a `<span onClick>` carries no role and no tag a structural check
+    // can see, so the only thing that settles it is pressing each title and
+    // watching every channel a handler could reach for. See the header above for
+    // which channels those are, which two mutants proved the earlier
+    // NAVIGATE-only version blind to, and what is still not covered.
     const { seen } = mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
     const modal = await openMatchupDetail();
 
     const titles = within(modal).getAllByTestId('resource-name');
     expect(titles.length, 'no resource titles rendered — the sweep below is vacuous').toBe(3);
-    for (const el of titles) await userEvent.click(el);
 
-    // 🔴 POSITIVE CONTROL ON THE OBSERVER. A zero from a `NAVIGATE` filter is
-    // indistinguishable from an observer wired to nothing, so prove it saw traffic
-    // first — the mock host reports the handshake and RESIZE regardless.
+    const { rec, restore } = interceptNavigation();
+    try {
+      // 🔴 POSITIVE CONTROL PER CHANNEL, BEFORE THE SWEEP. A zero from a spy is
+      // indistinguishable from a spy that was never installed, so each channel is
+      // fired once deliberately and its counter watched to move. The bare
+      // `location.href` line is doing double duty: it is the control for that
+      // channel AND the proof that an unqualified `location` resolves through the
+      // swapped property, which the header claims.
+      window.open('control://open', '_blank');
+      window.location.href = 'control://href';
+      location.href = 'control://bare-href';
+      window.location.assign('control://assign');
+      window.location.replace('control://replace');
+      expect(
+        { open: rec.open.length, href: rec.href.length, assign: rec.assign.length, replace: rec.replace.length },
+        'a navigation channel could not be observed — the zeros below would be meaningless',
+      ).toEqual({ open: 1, href: 2, assign: 1, replace: 1 });
+
+      // Instrument proven; zero it and run the real sweep.
+      rec.open.length = 0;
+      rec.href.length = 0;
+      rec.assign.length = 0;
+      rec.replace.length = 0;
+
+      for (const el of titles) await userEvent.click(el);
+
+      // 🔴 THE WHOLE RECORDER, IN ONE ASSERTION. Compared as an object rather than
+      // four separate `toHaveLength(0)` calls so a failure REPORTS THE URL a
+      // handler reached for — "expected { href: ['https://civitai.com/models/1'] }
+      // to equal {}" names the mutant; "expected 1 to be 0" does not.
+      expect(rec, 'a resource title navigated — nothing may advertise an action it cannot perform').toEqual(
+        { open: [], href: [], assign: [], replace: [] },
+      );
+    } finally {
+      // Restore BEFORE any assertion can throw past it — a leaked `window.location`
+      // stand-in would corrupt every later case in this file.
+      restore();
+    }
+
+    // …and the host message channel, which is a separate claim from the three
+    // above: `useCivitaiNavigate` does not touch `window.location` at all, it posts
+    // a message. 🔴 POSITIVE CONTROL ON THIS OBSERVER TOO — the mock host reports
+    // the handshake and RESIZE regardless, so a zero from the filter alone could
+    // equally mean an observer wired to nothing.
     expect(seen.length, 'the outbound observer saw nothing at all').toBeGreaterThan(0);
     expect(seen.filter((m) => m.type === 'NAVIGATE')).toHaveLength(0);
   });
