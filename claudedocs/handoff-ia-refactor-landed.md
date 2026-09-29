@@ -21,29 +21,38 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `67fb375`**, clean, synced. Version **0.4.11** in both `package.json` and
-  `block.manifest.json`.
-- ✅ **0.4.11 IS LIVE AND VERIFIED** — see the closing-condition above for both claims.
-- **Six PRs merged this arc.** #59 `0a06df2` (drop `grid-new`, relabel Contribute, unlist
-  the open grid, archive off the community board) · #60 `c5863b0` (`SideNav` + `BoardNav`
-  + My Benchmarks, sub-tabs removed, 720px top bar) · #61 `e8775c0` (extracted `Menu` +
-  two ⋮ menus, SVG vote glyph, all badges out of both modals AND the cards, grid-title
-  underlines, `LoraRef.modelId`, resource links removed) · #63 `8fc1adb` (→0.4.10) ·
-  #64 `67fb375` (→0.4.11). **#62 is THIS doc and is still OPEN.**
+- **`main` = `67fb375`**, clean. Version **0.4.11** in both `package.json` and
+  `block.manifest.json`. Session branch `docs/handoff-ia-sidebar-and-modals` (PR **#62**,
+  still OPEN, `MERGEABLE`/`CLEAN`) is where this doc is updated — `main`'s copy is the
+  pre-update version.
+- ✅ **0.4.11 IS LIVE, RE-VERIFIED 2026-09-29 late** — `app_state.py … 0.4.11` →
+  `approved/live` **rc 0** (unpiped); served bundle `assets/index-t70oWAUj.js` 440,492 B,
+  `side-nav` 2 · `board-nav` 1 · `grid-open-members` 1 · `nav-my-grid` 1, positive control
+  `section-grids` 1 / `grid-open-panel` 1, retired `contribute-trigger` 0 / `view-switch` 0.
+  **The arc's closing-condition is MET and the arc is CLOSED.**
+- 🔴 **0.4.9 IS STILL `approved/building`** (re-read this session, **rc 1**) — unchanged for
+  hours, still a live rollback hazard, still not withdrawable (`withdraw` targets PENDING).
+  Rank 3.
+- **NEW THIS SESSION — a live visual inventory + taste pass exists.** Artifact
+  **Contact Sheet 0.4.11**, https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
+  — 35 plates at 1440 / 718 / 390 px, **49 of 107 enumerated rendered states photographed**,
+  16 findings. Per group: shell 3/10 · SideNav 6/6 · boards 13/25 · My Benchmarks 7/14 ·
+  panel+modals+menus 10/18 · forms 4/13 · run cells 2/21. Source PNGs are in the gitignored
+  `.shots/` (38 files) and are **NOT committed** — they die with this checkout.
+- **Six PRs merged in the prior arc:** #59 `0a06df2` · #60 `c5863b0` · #61 `e8775c0` ·
+  #63 `8fc1adb` · #64 `67fb375`. #62 is this doc.
 - **Gates on `main`:** typecheck rc 0 · `pnpm test` rc 0 = **59 files / 804 tests** ·
-  59 = `git ls-files | grep -cE '\.test\.tsx?$'` = collected · build rc 0, 440.22 kB.
-- 🔴 **THREE RELEASE ATTEMPTS, AND ONLY THE THIRD LANDED.** 0.4.9 → `approved/building`
-  and NEVER left it (still `building` hours later). 0.4.10 → `approved/failed`. 0.4.11 →
-  `approved/live`. Same code in all three; see the Gotchas entry for the measured cause.
-- 🔴 **0.4.9 IS STILL `approved/building` AND IS A LIVE ROLLBACK HAZARD** — if its build
-  ever completes it deploys an OLDER bundle over 0.4.11. `civitai app withdraw` targets
-  PENDING requests and 0.4.9 is already approved, so it cannot be withdrawn from here.
-  Three versions are approved ahead of it. Rank 3.
-- **Store listing is STALE** — its screenshots depict the 0.4.7 one-page IA. Listing media
-  is not version-scoped, so stale rather than broken.
-- Worktree `civitai-app-model-benchmarking-release0411` (clean, detached at `67fb375`) is
-  where release status was read from. Remove when done.
-- Claim `mb-sidebar-ia-feedback` **still held**; release it once #62 merges.
+  59 = `git ls-files | grep -cE '\.test\.tsx?$'` · build rc 0, 440.22 kB. NOT re-run this
+  session — no source changed.
+- **Store listing is STALE** — screenshots depict the 0.4.7 one-page IA.
+- 🔴 **Worktree `civitai-app-model-benchmarking-release0411` STILL EXISTS** (confirmed by
+  `git worktree list` this session: detached at `67fb375`). It is where release status was
+  read from. Remove it when done — and note it holds no branch, so it blocks nothing.
+- Claim **`ia-refactor-landed-1`** is HELD (rank 1). The prior `mb-sidebar-ia-feedback`
+  claim is also still held; release both once #62 merges and rank 1 is judged.
+- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again this
+  session (nothing resolved). An unknown session id answers 200 with an empty array, so that
+  zero cannot distinguish "touched no task" from "wrong id". Not a clean bill of health.
 
 ## What landed
 - **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
@@ -61,46 +70,36 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. **Get a human to LOOK at the live app, at desktop width and at ≤720px.** 🔴 Nothing in
-   this repo can judge any of it: jsdom performs no layout. Unjudged on a LIVE 0.4.11:
-   the sidebar's depth indent (fixed this arc — only its DECLARED value is asserted), the
-   top-bar collapse under 720px, the ⋮ trigger's rendered WIDTH (the 44px floor is
-   height-only and this is the app's first text-less control), the `grid-open-members`
-   summary beside the title, the vote SVG at a single-digit count, and the grid-title
-   underlines. Repo `civitai-app-model-benchmarking`.
-   forcing: user — the operator asked for these visual changes; no automated check in
-   this repo can answer whether any of them reads correctly, and it is now live.
+1. **A human LOOKS at the live app — now with the contact sheet instead of a blank stare.**
+   The artifact above photographs 49 states at three widths and rules on all six items this
+   rank used to name. What is still owed is your JUDGEMENT on the 16 findings, not more
+   measurement. Repo `civitai-app-model-benchmarking`.
+   forcing: user — the operator asked for these visual changes; no automated check in this
+   repo can answer whether any of them reads correctly, and it is now live.
 2. **Repair the store listing.** The capture recipe in `civitai/civitai`
    `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` pins
-   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — **the served
-   0.4.11 bundle has `contribute-trigger` at 0**, so the recipe fails at step 1. Needs a
-   PR there, a re-shoot, and a second moderator approval. 🔵 Measure first: `BoardNav`
-   mounts one board at a time, so the page should be far shorter than the 2166 CSS px that
-   clipped `section-matchups`/`section-prompts` out of frame — this may ADD screenshots
-   rather than only repair one. Now testable against a released artifact.
+   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — the served 0.4.11
+   bundle has `contribute-trigger` at **0**, so the recipe fails at step 1. Needs a PR there,
+   a re-shoot, and a second moderator approval. 🔵 `BoardNav` mounts one board at a time, so
+   the page should be far shorter than the 2166 CSS px that clipped two sections out of
+   frame — this may ADD screenshots rather than only repair one.
    forcing: regression — the live listing depicts a UI that no longer exists, and the tool
    that would re-shoot it is broken by this change.
-3. **Watch 0.4.9, or get the platform to cancel it.** It has been `approved/building` for
-   hours and cannot be withdrawn from here (withdraw targets PENDING). If its build ever
-   completes it deploys an OLDER bundle over live 0.4.11. Detect with
+3. **Watch 0.4.9, or get the platform to cancel it.** Detect with
    `app_state.py model-benchmarking 0.4.9` and by re-running the served-bundle grep in
-   `How to verify` — a reappearance of `contribute-trigger` IS the rollback.
+   `How to verify` — a reappearance of `contribute-trigger` IS the rollback. 🔵 `building` vs
+   `deploying` is the discriminator: 0.4.11 went `building → deploying → live`, so a version
+   that never reaches `deploying` has not got past build/push.
    forcing: regression — a queued build that would revert a live, verified deployment.
-4. **Contribute menu still does NOT use the upstream component** — CARRIED FORWARD from
-   the closed one-page-IA arc, still live. Re-read the ask before acting: the dropdown is
-   GONE (replaced by `SideNav` + the ⋮ `Menu`), so what survives is local
-   `src/components/Menu.tsx`. Blocked on `civitai-app-starters` **issue #485** —
-   `<civitai-menu>` throws on MOUNT in any non-browser DOM and upgrading jsdom only moves
-   the failure to `panel.showPopover is not a function`; its panel has no app-settable
-   testid. 🔵 The NAV elements are NOT blocked by #485 (no popover API).
+4. **Contribute menu still does NOT use the upstream component.** The dropdown is GONE
+   (replaced by `SideNav` + the ⋮ `Menu`), so what survives is local `src/components/Menu.tsx`.
+   Blocked on `civitai-app-starters` **issue #485**. 🔵 The NAV elements are NOT blocked by
+   #485 (no popover API).
    forcing: gate — #485 closing, or a real-browser test runner for this repo.
-5. **The five-package bump — parked.** CARRIED FORWARD, still live. Patch outside this
-   public repo at
+5. **The five-package bump — parked.** Patch outside this public repo at
    `/home/zach/workspace/civit/.parked/mb-five-package-bump-perpath-b778de4.patch`.
-   `civitai-app-starters` **PR #487** is a PREREQUISITE, still OPEN. 🔵 Its prize has
-   CHANGED: deleting `ContributeMenu.tsx` is no longer it (that file is gone) — the bump
-   is now what unlocks the real `<civitai-nav-list>`/`<civitai-nav-item>` swap for
-   `SideNav`.
+   `civitai-app-starters` **PR #487** is a PREREQUISITE, still OPEN. 🔵 Its prize is now the
+   real `<civitai-nav-list>`/`<civitai-nav-item>` swap for `SideNav`.
    forcing: gate — #487 merging and releasing.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -445,23 +444,64 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   lost the earlier delta. The fix is to update ON the open PR's branch (rebased onto
   `main` first). Check `gh pr list --state open` before choosing where to run it.
 
+- 🔴 **`resume-state.sh`'s `handoff-read:` verdict WAS BACKWARDS HERE, AND FOLLOWING IT WOULD
+  HAVE FRAMED THE WHOLE SESSION ON A STALE DOC.** It called the working-tree copy STALE (660
+  lines vs 395 on `origin/main`) and pointed at the main copy. In fact the working tree was
+  AHEAD by two commits on open PR #62. It also therefore printed the WRONG closing-condition
+  (`0.4.7` instead of `0.4.11`) and a false `PR #53 framed as open` finding. **The
+  discriminator costs one command:** `git log --oneline origin/main..HEAD -- <doc>` — a
+  non-empty result means the working tree is ahead and the digest's staleness verdict is
+  inverted. Widest reading: **a line-count comparison cannot tell "behind" from "ahead"**, and
+  any tool that assumes the mainline is authoritative is wrong for the whole life of an open
+  docs PR. Related, and already in this doc: an open handoff PR makes `main` the wrong base.
+- 🔴 **A SCREENSHOT PASS DOES NOT NEED THE OPERATOR'S SCREEN.** The brief budgeted for
+  raise-once (record `PREV_WIN`/`PREV_WS`, restore both); the run achieved **ZERO raises** —
+  CDP screenshots work on a background tab and `browser activate` was never called. Focused
+  window `39845914` and workspace `1` read back identical. **Ask for zero before settling for
+  one**; they are different claims and the rules require naming which you achieved.
+- 🔴 **Light theme was obtained by a contained in-frame `data-theme="light"` override, NOT by
+  flipping the host colour scheme** — the host toggle writes `localStorage` for the whole
+  origin and would have changed the operator's other Civitai tabs. Any future capture pass
+  must do the same.
+- 🔴 **THE ARMED WITHDRAW CONFIRM MUST NOT BE PHOTOGRAPHED ON LIVE.** One stray click removes
+  a real published row, author-scoped and unrecoverable. It was skipped deliberately and
+  should stay skipped; capture it in the harness or not at all.
+- 🔴 **~10 RUN-CELL STATES ARE PHOTOGRAPHABLE NOWHERE WITH TODAY'S TOOLING** — `cell-progress`,
+  `cell-stalled`, `cell-failed`, `cell-insufficient`, `cell-balance-retry`, `cell-publishing`,
+  `cell-publish-preview`, `cell-resume-run`, `cell-unknown`, and `cell-confirm-run` past the
+  gate. Live needs real Buzz or a forced production failure; the harness renders gated cells
+  fail-closed (⚠ but see the Open investigations block — that premise is now in doubt). Only
+  the component tests reach them, via `fakeGatedCell()` at `src/test-helpers.tsx:498`. That
+  gap is itself the finding; closing it means a fixture/story page, which nobody has asked for.
+- 🔴 **`grep -c` on a `.d.ts` inside `node_modules` needs `-L` and a positive control** —
+  pnpm's real files live under `node_modules/.pnpm/…` and `node_modules/@civitai/<pkg>` is a
+  symlink; `find` without `-L` yields ~2 files where `find -L` yields ~150. Every zero quoted
+  in the Open investigations block above carries its control in the same command.
+- **Decided (this session):** taste-pass findings are filed as **DEFECTS, not ranks** — the
+  rank list stays at five so the live claims keep their identity. Fixing them is one batch,
+  and F9 should be fixed by CONSOLIDATING the surface-2 rule rather than patching the third
+  site.
+
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build`
   — **59 files / 804 tests**, and 59 must equal `git ls-files | grep -cE '\.test\.tsx?$'`.
   Read BOTH vitest projects separately; exit codes from files, not through a pipe.
-- Release: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.9`
-  rc 0 = live, **read UNPIPED**.
+- Release: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.11`
+  rc 0 = live, **read UNPIPED**. Same command with `0.4.9` is the rank-3 rollback watch.
 - Served bundle, with the positive control in the SAME command:
   ```bash
   B=$(curl -s https://model-benchmarking.civit.ai/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
   curl -s "https://model-benchmarking.civit.ai/$B" > /tmp/live.js
   for t in side-nav board-nav grid-open-members; do echo "$t $(grep -c $t /tmp/live.js)"; done   # expect >0
   for t in section-grids grid-open-panel; do echo "CONTROL $t $(grep -c $t /tmp/live.js)"; done  # expect >0
+  for t in contribute-trigger view-switch; do echo "RETIRED $t $(grep -c $t /tmp/live.js)"; done # expect 0
   ```
-- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth
-  gated — no local, harness or test run proves a cell charged correctly), and anything
-  about LAYOUT or appearance (jsdom performs no layout). Say so plainly rather than
-  reporting a green suite as if it covered either.
+- **The visual inventory:** https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
+  (Contact Sheet 0.4.11). ⚠️ Its source PNGs are in gitignored `.shots/` and are NOT
+  committed — the artifact is the only durable copy.
+- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth gated),
+  and anything about LAYOUT or appearance from inside the repo (jsdom performs no layout).
+  Layout claims now have ONE source: the contact sheet above, at the widths it names.
 ## Goal
 Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
 Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
@@ -637,24 +677,116 @@ retired — do not re-derive either.**
 - 🔵 **`building` vs `deploying` IS a discriminator** — 0.4.11 went
   `building → deploying → live`, so a version that never reaches `deploying` has not got
   past build/push. That is the state read worth making, and it is NOT "slow vs stuck".
+
+### Does the installed mock host serve gated images? `Harness.tsx:22-25` may be stale prose
+- as-of: 2026-09-29
+- **Symptom + exact repro:** `src/Harness.tsx:22-25` asserts "the 0.30 publish/gated hooks
+  have no mock-host scenario in the installed (pre-0.30) testing package, so the grid's gated
+  cells render fail-closed (hidden) in the harness". The taste pass reported this as factually
+  wrong. It decides whether ~10 run-cell states are capturable at all.
+- **Observed (with values):** installed is `@civitai/blocks-react@0.51.0` — the comment's
+  "(pre-0.30)" premise is stale by version number alone, **confirmed**. But the installed
+  `dist/testing.d.ts` is 3,989 B and contains **0** occurrences of `gated`, `Gated`,
+  `publish`, `Publish` or `image`, against a firing positive control in the SAME command
+  (`Harness` 9, `createMockHost` 3, `viewer` 1) — so the zeros are real and not a broken
+  pattern. `src/test-harness.tsx:17` confirms gated images ride the bridge `<Harness>`, not
+  the REST fake. `via: measurement`
+- **Ruled out:** *"the type surface settles it"* — `testing.d.ts` is a thin 4 KB re-export
+  surface; a scenario implemented at runtime need not be named there. **A type declaration is
+  not a code path**, and its silence is evidence about the `.d.ts`, not about the mock host.
+  `via: code`
+- **Leading hypothesis:** the comment's PREMISE is stale (confirmed) while its CONCLUSION may
+  still hold by accident — 0.51.0 may still not implement those scenarios. The taste pass ran
+  against the LIVE app and never booted the harness, so it is unclear what evidence it had;
+  treat its runtime claim as UNVERIFIED. 🔴 The same wrong constraint was written into this
+  session's own recon and into the agent's brief, so it has now propagated three times.
+- **Next probe:** boot it and look — `pnpm run dev:harness` then, in headless chromium,
+  grep the DOM for `result-image` / `result-hidden` / `result-pending` / `gated-loading`.
+  Present ⇒ the comment is wrong and must be corrected in-file; absent ⇒ the comment is right
+  for a stale reason and its "(pre-0.30)" clause should be rewritten. Either way the file
+  changes.
+
+### A 720px viewport reports `innerWidth: 721` and the block stays desktop
+- as-of: 2026-09-29
+- **Symptom + exact repro:** emulate a 720px-wide viewport against the live app; the block
+  reports `innerWidth: 721` and renders the desktop sidebar rather than the compact top bar.
+  Reproduced **3×**.
+- **Observed (with values):** `innerWidth` 721 at a requested 720. The breakpoint is
+  `MOBILE_BREAKPOINT_PX` in `src/compact.ts`, consumed by `src/useMediaQuery.ts` as
+  `(max-width: <n>px)` — an inclusive bound, so 721 legitimately fails it. The collapse DOES
+  fire at 718. `via: measurement`
+- **Leading hypothesis:** nothing has been eliminated yet — two rivals, and nothing observed
+  separates them — (a) OOPIF/CDP
+  emulation rounding, i.e. an artefact of how the block's iframe is sized inside the host
+  page, or (b) a real off-by-one in how the host sizes the frame, which would mean a physical
+  720px device gets the desktop layout. 🔴 An empty/ambiguous result cannot distinguish them;
+  do not pick the convenient one.
+- **Next probe:** the discriminator is a NON-EMULATED 720px width — a physical device, or a
+  real browser window resized to 720 outer width with the iframe's own `innerWidth` read from
+  inside the frame. If the frame reports 720 there, (a) is confirmed and this closes.
 ## Defects (batched)
-Round-1 audit findings that were reported and deliberately NOT fixed. Fix as one batch.
-🔴 Each is a claim from an audit, not a measurement of mine — re-verify before acting.
+🔴 Each is a claim from an audit or a taste pass, not a measurement of mine unless tagged
+VERIFIED. Re-verify before acting. Fix as batches, never one rank per finding.
+
+**Carried forward — round-1 audit findings, still open:**
 - **#59 — pressing `grid-open` dumps keyboard focus on `<body>`.** The card holding the
-  just-clicked button unmounts (it is filtered out of the list), and no focus management
-  was added. At base the button survived as `Showing`/`aria-pressed="true"`. This repo
-  already treats the hazard as real (`ContributeMenu.tsx:127`) and asserts focus with
-  `toHaveFocus` in three suites. NOT in the fix round's brief — still open.
-- **#60 — `nav-my-group` is a `role="list"` rendered as a direct child of another
-  `role="list"`**, so AT reads a flat 2-item list then an unrelated 3-item one; the
-  parent/child relation is not conveyed. `sideNav.test.tsx` encodes the flattening as
-  correct.
+  just-clicked button unmounts and no focus management was added. This repo already treats
+  the hazard as real (`ContributeMenu.tsx:127` — note that file is now GONE; the pattern
+  survives elsewhere) and asserts focus with `toHaveFocus` in three suites.
+- **#60 — `nav-my-group` is a `role="list"` as a direct child of another `role="list"`**, so
+  AT reads a flat 2-item list then an unrelated 3-item one. `sideNav.test.tsx` encodes the
+  flattening as correct.
 - **#61 — `document.location.href = …` escapes the no-navigation guard.** Narrow: a bare
-  `location.href` IS caught; only the explicit `document.` spelling escapes, and an
-  `<a href>` created inside a handler is invisible to jsdom. Both documented in-file with
-  a surviving mutant proving the gap's exact size.
-- **#61 — `MyPublished` renders an empty line beside the error** on all three nouns;
-  suppressing it is a `MyPublished` change with three callers.
-- **#59 — three scaffolding simplifications** (a fixture-distinctness assertion that can
-  only fire if the test's own table is edited; two of three `grid-preview-shown-above`
-  archaeology markers; a criterion-10 tail duplicated at the node tier).
+  `location.href` IS caught; only the explicit `document.` spelling escapes.
+- **#61 — `MyPublished` renders an empty line beside the error** on all three nouns.
+- **#59 — three scaffolding simplifications** (a fixture-distinctness assertion that can only
+  fire if the test's own table is edited; two of three `grid-preview-shown-above` markers; a
+  criterion-10 tail duplicated at the node tier).
+
+**NEW 2026-09-29 — live taste pass, 16 findings (see the artifact for plates).** Severity as
+reported by the pass; three were independently re-checked and are tagged VERIFIED.
+- **F1 HIGH — the active nav row has no visible highlight, in BOTH themes.** Measured
+  `rgb(26,27,30)` on `rgb(26,27,30)`. ✅ VERIFIED against code: `SideNav.tsx:177` is
+  `background: active ? token.surface : 'transparent'` over `border: '1px solid transparent'`
+  — if `surface` resolves to the page background there is no cue at all. The 14px depth
+  offset is then the ONLY structural cue in the nav.
+- **F2 HIGH — nav grouping is lost at ≤720 and the last item is clipped at 390.**
+  `compact.ts:482-493`. `padding-left` on a horizontal axis is just a gap, so five items read
+  as flat peers — nothing says Grids lives inside My Benchmarks. At 390 scrollWidth 437 vs
+  clientWidth 347 clips *Prompts*. No background/border, so the strip reads as body copy.
+- **F3 HIGH — card action row jumps horizontally with description length**, x=1271 vs x=233
+  within one list. `MatchupBody.tsx:127-128`.
+- **F4 HIGH — the ⋮ trigger's affordance.** Box is 44×30 at 1440 and 44×44 at ≤720 (the tap
+  floor HOLDS — that was the owed reading), but `variant="subtle"` leaves ~91% of the box
+  invisible, beside a bordered vote button. `Menu.tsx:295-308`.
+- **F5 MED — "Edit" left-aligned and "Remove" centred in the same panel**, and the panel
+  overhangs its card by 49px. `Menu.tsx:318,:396`, `WithdrawButton.tsx:39-51`.
+- **F6 MED — `grid-open-members` renders a COUNT as a status Badge.** 173×22 uppercase
+  primary-blue beside an identical system badge; two pills out-shout a 19px title, and it
+  orphans onto its own line at 390.
+- **F7 MED — a 365px dead band beside a 3-column matrix.** `ResultsGrid.tsx:272`.
+- **F8 MED — `unpublished-empty` is a lone sentence while four siblings use `EmptyState`.**
+  `UnpublishedList.tsx:118-120`.
+- **F9 MED — PLAYBOOK's own audit gate (b) FAILS on `main`.** `PromptBody.tsx:74` sets
+  `background: token.surface2`, and surface-2 resolves to the same value as `body` in light
+  theme, so the block loses its fill. 🔴 ✅ VERIFIED, and WORSE than reported: the repo
+  documents this exact hazard TWICE and violates it once — `theme.ts:45` ("identical to
+  `body` in light mode") and `GatedCell.tsx:278` ("NOT surface-2: in light theme surface-2
+  resolves to the same value"). A predicate open-coded at three sites, wrong at one. Fixing
+  it should CONSOLIDATE the rule, not patch the third site.
+- **F10 LOW — the group band pairs an underline with a `▸`** that promises expand and opens a
+  modal. Both underline styles render and correctly distinguish interactive headers from
+  inert row headers, but they are underlined-not-link-coloured.
+- **F11 LOW — the four forms disagree** on required markers, section headings and parameter
+  alignment.
+- **F12 LOW — GridPicker's focus ring reads as selection** against a "0 selected" label.
+- **F13 LOW — the destructive "Remove" is the quietest control on its row.**
+- **F14 LOW — `docs/screenshots/` is stale to `079592e` (2026-07-27), three IA generations
+  back**, and the Playwright script that produced its 13 PNGs was never committed, so there
+  is no repeatable way to regenerate them. ✅ VERIFIED.
+- **F15 LOW — PLAYBOOK.md's version pins are stale** (`blocks-react@0.35.2` / `theme@0.2.0` /
+  `app-sdk@0.26.0` vs installed `^0.51.0` / `^0.3.1` / `^0.42.0`). ✅ VERIFIED. Its second
+  half — that `Harness.tsx:22-25` is factually wrong — is only PARTLY established; see the
+  Open investigations block.
+- **F16 LOW/UNRESOLVED — at a 720px viewport the block reported `innerWidth: 721`** and
+  stayed desktop, reproduced 3×. Cause NOT established; see the Open investigations block.
