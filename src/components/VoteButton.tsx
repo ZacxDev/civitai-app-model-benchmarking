@@ -50,12 +50,13 @@ export const UNVOTE_TOOLTIP = 'Remove your vote';
  *   - `components/ResultsGrid.tsx` — `▸`, the matchup band's `aria-hidden` marker;
  *   - `components/SideNav.tsx` — `▾` / `▸`, the group's `aria-hidden` chevron.
  *
- * ⚠️ DO NOT CONVERT THEM AS A TIDY-UP. The operator asked for a vote icon; widening
- * that to four more sites is scope nobody requested, and the drift argument is weakest
- * exactly where the glyph is decorative and `aria-hidden` (the chevrons) — there is no
- * adjacent number for it to misalign against. If a converted glyph is ever wanted
- * elsewhere it is a separate, asked-for change with its own visual check, which nothing
- * in this repo can perform (jsdom resolves no fonts and no layout).
+ * ⚠️ DO NOT CONVERT THEM AS A TIDY-UP — but do not read that as "the argument does not
+ * apply there", because for two of them it does. The two `▲ {count}` sites sit beside a
+ * NUMBER, which is the exact condition the drift argument names, so converting them
+ * would be a real improvement; it is simply one nobody asked for. The two chevrons are
+ * the weak case: decorative, `aria-hidden`, and with no adjacent number to misalign
+ * against. Either way it is a separate, asked-for change with its own visual check,
+ * which nothing in this repo can perform (jsdom resolves no fonts and no layout).
  *
  * `aria-hidden` because it carries no information the `aria-label` does not: the
  * button's name already says "Upvote (12)" / "Remove your vote (12)". An

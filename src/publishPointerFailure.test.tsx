@@ -144,8 +144,10 @@ const LOCAL_ID = 'l-halfpub';
  * literal heading for ALL THREE nouns now, grids included (My Benchmarks ▸ Grids →
  * `MyGridsView` → `MyPublished noun="grid"`). The only surviving per-noun difference is
  * the EDIT clause, and that one is real: `App.tsx` has `updateCombination` and
- * `updatePrompt` and no `updateGrid`, and a grid card offers Remove/Archive/Vote/Report
- * and no Edit.
+ * `updatePrompt` and NO `updateGrid`, and neither grid card offers an Edit —
+ * `GridsView`'s community card is Open / Remove / Report / Vote, `MyGridsView`'s own
+ * card is Remove plus Archive. (Two cards, not one: no single card carries all of
+ * those, which an earlier draft of this note implied.)
  */
 const WHERE_TO_FIND: Record<'matchup' | 'prompt' | 'grid', string> = {
   matchup: 'Find it under Published by you to edit or remove it.',

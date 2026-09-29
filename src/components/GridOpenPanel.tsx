@@ -37,9 +37,16 @@ export interface GridOpenPanelProps {
    * 🔴 IT IS HERE BECAUSE EXCLUDING THE OPEN GRID FROM THE LIST TOOK IT OFF THE PAGE.
    * The count only ever rendered on a card, and the open grid has no card — so on a
    * default load (Top Grid open, nothing else published) the app showed a matrix with
-   * no statement anywhere of how many members it has. A viewer could not tell a grid
-   * whose members are all present from one that silently resolved short; the
-   * `missing` notice covers the second case only, and only when something IS missing.
+   * no statement anywhere of how many members it has. The count is information in its
+   * own right, which is why every card carries it; that is the whole reason, and it is
+   * the operator's.
+   *
+   * ⚠️ A DRAFT OF THIS DOCBLOCK ADDED "a viewer could not tell a grid whose members are
+   * all present from one that silently resolved short". RETRACTED — it is FALSE, and it
+   * is the exact error class the round that added this prop was fixing. They CAN tell:
+   * `missingMembersNotice` returns null iff nothing is missing, so the notice's presence
+   * and the shortfall are equivalent. Do not re-derive it; the size-is-information
+   * reason above needs no help.
    *
    * 🔴 BUILT BY THE CALLER, FROM THE RESOLVED ROWS — never counted from the authored
    * key lists. A grid's members are what survives resolution against the live board,

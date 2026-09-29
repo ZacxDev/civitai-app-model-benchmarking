@@ -45,9 +45,14 @@ import { describe, expect, it } from 'vitest';
  * `demo-data.ts` are test scaffolding and are scanned too, because none of them spells
  * `.test.`. For an ABSENCE check that is the SAFE direction — scanning extra files can
  * only produce a false RED, never a false green — so it is left as is and described
- * accurately instead of narrowed. Do not "fix" the filter to match the old sentence:
- * a scaffolding file that reached for `useCivitaiNavigate` would put the hook in the
- * bundle's dependency graph, which is exactly what this wants to know about.
+ * accurately instead of narrowed.
+ *
+ * 🔴 AND TWO OF THOSE FOUR REALLY ARE PRODUCTION-REACHABLE, which is the positive reason
+ * not to narrow it: `src/main.tsx` imports `./Harness.js` STATICALLY (the harness is
+ * selected by a runtime env flag, not by a conditional import), and `Harness.tsx` pulls
+ * in `demo-data.ts` — so both sit in the production entry's dependency graph. Only
+ * `test-helpers.tsx` and `test-harness.tsx` are genuinely test-only. Do not "fix" the
+ * filter to match the old sentence.
  */
 function scannedSources(dir: string): string[] {
   const out: string[] = [];
