@@ -1204,24 +1204,30 @@ describe('#3 estimate rejection: a workflow that cannot be priced fails honestly
 // "case 1 and case 2 go red on the CELL STATE and case 1 additionally goes red on the
 // submit COUNT". Re-measured here, on this tree, under the mutant it names — clearing
 // `runs` when the view changes (`onSelect={(v) => { setRuns({}); setView(v); }}` at the
-// `<SideNav>` call site in `App.tsx`), `node_modules/.vite` cleared first:
+// `<SideNav>` call site in `App.tsx`), `node_modules/.vite` cleared first.
 //
-//   case 1 (still POLLING)  — GREEN on every assertion it makes. See below.
+// BEFORE the capture fix described below — i.e. the tree the old paragraph was written
+// against, and the tree it got backwards:
+//
+//   case 1 (still POLLING)  — GREEN on every assertion it made. See below.
 //   case 2 (STALLED)        — RED on the MONEY assertion, `submit` called 1×.
-//                             THIS IS THE DOUBLE CHARGE, and case 2 is the only case
-//                             that observes it.
+//                             THIS IS THE DOUBLE CHARGE, and case 2 is still the only
+//                             case that observes it.
 //   case 3 (OPEN GRID)      — RED on the CELL STATE, `cell-stalled` absent.
 //
-// 🔴 WHY CASE 1 IS BLIND TO IT, because the reason is a trap and not a detail. The
-// mutant DOES do its damage there: probed directly, the cell is `data-state="empty"`
-// with `run-cell` present the moment `goHome()` returns — failure mode (b), exactly.
-// But `tryToSpendAgain()` then presses Run, `beginRun` writes `status: 'confirming'`,
-// and `ResultsGrid` renders EVERY non-idle status as `data-state="running"` — so the
-// helper repairs both observables the case goes on to assert. The submit COUNT stays at
-// 1 because the in-memory `inFlightRef` claim from the live run refuses the second
-// `confirmRun`. Money-first ordering is still right (see `tryToSpendAgain`'s header),
-// so the fix is to CAPTURE the re-offer before the press and assert the captured value
-// after the money — which case 1 now does, and which is what makes it red here too.
+// AFTER it, re-measured on the same mutant: all three go RED, and case 1 fails on its
+// OWN assertion (`the cell came back empty and runnable`) rather than incidentally.
+//
+// 🔴 WHY CASE 1 WAS BLIND, because the reason is a trap and not a detail. The mutant
+// DOES do its damage there: probed directly, the cell is `data-state="empty"` with
+// `run-cell` present the moment `goHome()` returns — failure mode (b), exactly. But
+// `tryToSpendAgain()` then presses Run, `beginRun` writes `status: 'confirming'`, and
+// `ResultsGrid` renders EVERY non-idle status as `data-state="running"` — so the helper
+// repaired both observables the case went on to assert. The submit COUNT stays at 1
+// because the in-memory `inFlightRef` claim from the live run refuses the second
+// `confirmRun`; that half is unchanged and is not a defect. Money-first ordering is
+// still right (see `tryToSpendAgain`'s header), so the fix was to CAPTURE the re-offer
+// BEFORE the press and assert the captured value AFTER the money.
 //
 // 🔴 SO: CASE 2 IS THE ONLY CASE THAT CATCHES AN ACTUAL SECOND CHARGE. Anyone pruning
 // this block from this header must not read case 2 as "the state-only one" and keep
