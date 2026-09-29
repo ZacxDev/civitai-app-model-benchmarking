@@ -363,6 +363,15 @@ describe('report — the settled outcome outlives the menu', () => {
   // production-reachable source, with whether it passes `reported`. It fails when the set
   // GROWS (a new site, wired or not) and when it SHRINKS, and it names the file.
   //
+  // 🔴 MEASURED, AND THE NUMBER IS THE POINT: with `reported={reported}` deleted from
+  // `PromptBody.tsx` and this case in place, the full suite reports **1 failed, 803
+  // passed** — this ledger is the ONLY case that notices. So before it existed, the
+  // prompt surface's `reported` wiring was covered by nothing at all.
+  // ⚠️ `defb9da`'s commit message phrased that as "804/804 with the wiring gone", which
+  // is wrong arithmetic: without this case the suite is 803 tests, and what was measured
+  // is the 803 that stayed green beside it. The message is pushed and cannot be amended
+  // without a force-push, so the correction lives here.
+  //
   // ⚠️ IT IS STRUCTURAL AND THAT IS ITS CEILING: it proves the prop is PASSED, not that
   // the value is right. The two behavioural cases above are what prove the value; this is
   // what stops a THIRD site existing without one.
