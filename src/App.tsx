@@ -399,12 +399,21 @@ function inflightToRun(entry: InflightRun): CellRun {
 /**
  * The empty reported-keys set, shared.
  *
- * 🔴 MODULE-LEVEL AND FROZEN SO THE IDENTITY IS STABLE. `reportedKeys` below returns this
- * whenever the stored record does not belong to the viewer on screen; a `new Set()` at
- * that site would be a new object every render and would invalidate every `useMemo` and
- * `React.memo` downstream of it on every render, for a value that never changes.
+ * 🔴 MODULE-LEVEL SO THE IDENTITY IS STABLE. `reportedKeys` below returns this whenever
+ * the stored record does not belong to the viewer on screen; a `new Set()` at that site
+ * would be a new object every render and would invalidate every `useMemo` and
+ * `React.memo` downstream of it, forever, for a value that never changes.
+ *
+ * ⚠️ IT IS NOT FROZEN, AND A DRAFT WRAPPED IT IN `Object.freeze` WHICH WOULD HAVE BEEN
+ * DECORATION. MEASURED: `Object.freeze(new Set()).add('x')` SUCCEEDS and the size becomes
+ * 1 — a Set's contents live in internal slots, not in own properties, so `freeze` does
+ * not protect them. A shared mutable empty Set is safe here for a different and
+ * checkable reason: every consumer of `reportedKeys` reads it with `.has()` only
+ * (`GridsView`, `GridOpenPanel`, `MatchupsView`, `PromptsView`, and the two detail
+ * modals — enumerated). If anything ever needs to WRITE to it, give that caller its own
+ * copy; do not reach for `freeze`, which would look like a guard and be none.
  */
-const EMPTY_REPORTED: Set<string> = Object.freeze(new Set<string>()) as Set<string>;
+const EMPTY_REPORTED: Set<string> = new Set<string>();
 
 export function App({ deps: depsOverride }: AppProps = {}) {
   const { ready, viewer, theme } = useBlockContext();
@@ -606,9 +615,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * preference for a deterministic fix over an effect, and it is the same shape as
    * `votedKeys` above: derived from what is true now rather than mirrored and corrected.
    *
-   * `EMPTY_REPORTED` is module-level and frozen so the identity is STABLE across renders
-   * — a fresh `new Set()` here would churn every `useMemo`/`memo` that takes this as a
-   * dependency.
+   * `EMPTY_REPORTED` is module-level so the identity is STABLE across renders — a fresh
+   * `new Set()` here would churn every `useMemo`/`memo` that takes this as a dependency.
+   * See its own docblock for why it is deliberately NOT `Object.freeze`d.
    */
   const reportedKeys =
     reportedRecord.ownerId === (viewer?.id ?? null) ? reportedRecord.keys : EMPTY_REPORTED;

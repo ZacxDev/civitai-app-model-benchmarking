@@ -659,12 +659,20 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
 // helper or a type error.
 //
 // ⚠️ THE "…AND THE OTHER **28** IN THIS FILE STAY GREEN" HALF OF THAT SENTENCE IS
-// RETRACTED, TWICE OVER. It was true of the file as it stood when the measurement was
-// taken (32 cases); the file has 34 now, so the arithmetic is stale — and, worse, one of
-// the two added since is the withdraw-fallback case below, which clicks
-// `grid-open-withdraw`, a control this round INTRODUCED. It cannot be green at base
-// either. Do not re-derive a number here: the measured claim is about the four cases in
-// THIS describe, and whether any other case is red at base is that case's own business.
+// RETRACTED, AND THE NUMBER WAS NEVER EVEN MEASURING THAT. Two independent audits of this
+// round converged on it. `28` is the count of `it()`s in `gridsView.test.tsx` AT BASE
+// (`git show 7410ca7:src/gridsView.test.tsx | grep -c '^\s*it('`) — i.e. the OLD file's
+// total, not "how many of the current cases stay green". The current file has 34.
+//
+// 🔴 AND THE REAL FIGURE IS FIVE, NOT FOUR. Re-measured mechanically by an auditor with
+// every production source this round touches swapped back to `7410ca7` and the CURRENT
+// test file kept: five cases go red — the four in this describe, PLUS the
+// withdraw-fallback case below, which clicks `grid-open-withdraw`, a control this round
+// INTRODUCED and which therefore cannot exist at base.
+//
+// Do not re-derive a number here. The measured claim is about the four cases in THIS
+// describe; whether any other case is red at base is that case's own business, and a
+// tally of the whole file rots on the next case anyone adds — as this one did, twice.
 //
 // ⚠️ ONE HALF OF THE SYSTEM CASE IS AN INVARIANT GUARD AND IS LABELLED AS ONE. Its
 // `queryByTestId(...).toBeNull()` assertions — FOUR before this note was written and
