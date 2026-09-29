@@ -7,47 +7,43 @@ and 5 are carried forward from that arc and are still live — do not drop them.
 
 ## Run this first — the index, one command
 ```bash
-cairn recall --repo /home/zach/workspace/civit/civitai-app-model-benchmarking
+$DEVRC/scripts/cairn-ops/read.sh recall --repo "/home/zach/workspace/civit/civitai-app-model-benchmarking"
 ```
 Terse pointers this doc does not carry, curated by past sessions and outliving it.
 🔴 RECALL, NOT LIVE OBSERVATION — every line is a pointer to VERIFY, never a current
-reading, and it may describe a gotcha already fixed. Non-blocking: if it exits non-zero,
-print the stderr line and carry on.
+reading, and it may describe a gotcha already fixed. `scope-absent`/`scope-empty` means
+nothing is recorded yet: ordinary, not an error, and not a clean bill of health.
+Non-blocking: if it exits non-zero, print the stderr line and carry on.
 
 ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** (nothing
-resolved). An unknown session id answers 200 with an empty array, so that zero cannot
-distinguish "touched no task" from "wrong id". It is not a clean bill of health.
+resolved) on both sessions of this arc, and `… field <doc>` exits **1** (none present).
+An unknown session id answers 200 with an empty array, so that zero cannot distinguish
+"touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `e8775c0`**, clean, synced with `origin/main`. Base clone freshly installed.
-- **Three PRs merged this session**, each verified by CONTENT on `origin/main` (never by
-  ancestry — a squash merge makes `merge-base --is-ancestor` false forever):
-  - **#59** `0a06df2` — drop `grid-new` (both sites), relabel Contribute to
-    `Grid`/`Matchup`/`Prompt` with explicit `aria-label`s, exclude the open grid from the
-    all-grids list, take Archive off the community board.
-  - **#60** `c5863b0` — local `SideNav` (Home + expandable My Benchmarks), `BoardNav`
-    mounting ONE community board, `MyPublished`/`MyGridsView`, My/Community sub-tabs
-    removed, 720px top-bar collapse, version → 0.4.9.
-  - **#61** `e8775c0` — extracted `Menu` + two ⋮ menus, SVG vote glyph + tooltip, ALL
-    badges removed from both detail modals *and* the list cards, grid-title underlines,
-    optional `LoraRef.modelId`, resource links removed as unshippable.
-- **Gates on `main`, measured by me in the base clone:** typecheck rc 0 · `pnpm test`
-  rc 0 = **59 files / 804 tests** · `git ls-files | grep -cE '\.test\.tsx?$'` = 59 =
-  collected · build rc 0, **440.22 kB**.
-- **0.4.9 is APPROVED and BUILDING — NOT LIVE.** `pubreq_01M3PX578J3B4A7K95P1D6HMM2`,
-  source `e8775c0`. Measured ~25 min after approval and still `approved/building`
-  (`app_state.py … 0.4.9` rc **1**).
-- **Production still serves 0.4.8.** Measured on the served bundle
-  `assets/index-PwE4InET.js`: `side-nav` 0, `board-nav` 0, `nav-my-grid` 0,
-  `grid-open-members` 0, with the positive control firing in the same grep
-  (`section-grids` 1, `grid-open-panel` 1, `contribute-trigger` 1). ⚠️ Do NOT use
-  `resource-name` as a discriminator — it reads 2 in the 0.4.8 bundle.
-- **Store listing is now STALE.** Its three screenshots depict the 0.4.7 one-page IA,
-  which this stack replaces. Listing media is not version-scoped, so they are stale
-  rather than broken.
-- Leftover worktree: `civitai-app-model-benchmarking-release049` (detached at `e8775c0`,
-  clean) — the submit worktree. Remove it when done.
-- Claim `mb-sidebar-ia-feedback` is still HELD. Release it when this arc closes.
+- **`main` = `67fb375`**, clean, synced. Version **0.4.11** in both `package.json` and
+  `block.manifest.json`.
+- ✅ **0.4.11 IS LIVE AND VERIFIED** — see the closing-condition above for both claims.
+- **Six PRs merged this arc.** #59 `0a06df2` (drop `grid-new`, relabel Contribute, unlist
+  the open grid, archive off the community board) · #60 `c5863b0` (`SideNav` + `BoardNav`
+  + My Benchmarks, sub-tabs removed, 720px top bar) · #61 `e8775c0` (extracted `Menu` +
+  two ⋮ menus, SVG vote glyph, all badges out of both modals AND the cards, grid-title
+  underlines, `LoraRef.modelId`, resource links removed) · #63 `8fc1adb` (→0.4.10) ·
+  #64 `67fb375` (→0.4.11). **#62 is THIS doc and is still OPEN.**
+- **Gates on `main`:** typecheck rc 0 · `pnpm test` rc 0 = **59 files / 804 tests** ·
+  59 = `git ls-files | grep -cE '\.test\.tsx?$'` = collected · build rc 0, 440.22 kB.
+- 🔴 **THREE RELEASE ATTEMPTS, AND ONLY THE THIRD LANDED.** 0.4.9 → `approved/building`
+  and NEVER left it (still `building` hours later). 0.4.10 → `approved/failed`. 0.4.11 →
+  `approved/live`. Same code in all three; see the Gotchas entry for the measured cause.
+- 🔴 **0.4.9 IS STILL `approved/building` AND IS A LIVE ROLLBACK HAZARD** — if its build
+  ever completes it deploys an OLDER bundle over 0.4.11. `civitai app withdraw` targets
+  PENDING requests and 0.4.9 is already approved, so it cannot be withdrawn from here.
+  Three versions are approved ahead of it. Rank 3.
+- **Store listing is STALE** — its screenshots depict the 0.4.7 one-page IA. Listing media
+  is not version-scoped, so stale rather than broken.
+- Worktree `civitai-app-model-benchmarking-release0411` (clean, detached at `67fb375`) is
+  where release status was read from. Remove when done.
+- Claim `mb-sidebar-ia-feedback` **still held**; release it once #62 merges.
 
 ## What landed
 - **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
@@ -65,48 +61,46 @@ distinguish "touched no task" from "wrong id". It is not a clean bill of health.
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. **Verify 0.4.9 actually went live, as two separate claims.** Deployed ≠ verified.
-   `app_state.py model-benchmarking 0.4.9` rc **0** read UNPIPED, **and** the served
-   bundle carrying `side-nav`/`board-nav`/`grid-open-members` with a positive control in
-   the same grep. Repo `civitai-app-model-benchmarking`.
-   forcing: gate — the release is submitted and approved but unverified; the arc's
-   closing-condition is this check and it currently FAILS.
-2. **Get a human to LOOK at it, at desktop width and at ≤720px.** 🔴 Nothing in this
-   repo can judge any of it: jsdom performs no layout. Unjudged: the sidebar's depth
-   indent (fixed this session, but only its DECLARED value is asserted), the top-bar
-   collapse under 720px, the ⋮ trigger's rendered WIDTH (the 44px floor is height-only
-   and this is the app's first text-less control), the new `grid-open-members` summary
-   beside the title, the vote SVG at a single-digit count, and the grid-title underlines.
+1. **Get a human to LOOK at the live app, at desktop width and at ≤720px.** 🔴 Nothing in
+   this repo can judge any of it: jsdom performs no layout. Unjudged on a LIVE 0.4.11:
+   the sidebar's depth indent (fixed this arc — only its DECLARED value is asserted), the
+   top-bar collapse under 720px, the ⋮ trigger's rendered WIDTH (the 44px floor is
+   height-only and this is the app's first text-less control), the `grid-open-members`
+   summary beside the title, the vote SVG at a single-digit count, and the grid-title
+   underlines. Repo `civitai-app-model-benchmarking`.
    forcing: user — the operator asked for these visual changes; no automated check in
-   this repo can answer whether any of them reads correctly.
-3. **Repair the store listing.** The capture recipe in `civitai/civitai`
+   this repo can answer whether any of them reads correctly, and it is now live.
+2. **Repair the store listing.** The capture recipe in `civitai/civitai`
    `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` pins
-   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — **both are
-   deleted by this stack**, so the recipe fails at step 1. Needs a PR there, a re-shoot,
-   and a second moderator approval. 🔵 Possible upside worth measuring first: because
-   `BoardNav` mounts one board at a time the page should be far shorter than the 2166
-   CSS px that clipped `section-matchups`/`section-prompts` out of frame, so this may
-   ADD screenshots rather than only repair one. That is a HYPOTHESIS and needs the
-   released artifact.
-   forcing: regression — the live listing depicts a UI that no longer exists, and the
-   tool that would re-shoot it is broken by this change.
+   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — **the served
+   0.4.11 bundle has `contribute-trigger` at 0**, so the recipe fails at step 1. Needs a
+   PR there, a re-shoot, and a second moderator approval. 🔵 Measure first: `BoardNav`
+   mounts one board at a time, so the page should be far shorter than the 2166 CSS px that
+   clipped `section-matchups`/`section-prompts` out of frame — this may ADD screenshots
+   rather than only repair one. Now testable against a released artifact.
+   forcing: regression — the live listing depicts a UI that no longer exists, and the tool
+   that would re-shoot it is broken by this change.
+3. **Watch 0.4.9, or get the platform to cancel it.** It has been `approved/building` for
+   hours and cannot be withdrawn from here (withdraw targets PENDING). If its build ever
+   completes it deploys an OLDER bundle over live 0.4.11. Detect with
+   `app_state.py model-benchmarking 0.4.9` and by re-running the served-bundle grep in
+   `How to verify` — a reappearance of `contribute-trigger` IS the rollback.
+   forcing: regression — a queued build that would revert a live, verified deployment.
 4. **Contribute menu still does NOT use the upstream component** — CARRIED FORWARD from
-   the closed one-page-IA arc, still live. The ask was "use same upstream component as
-   native site's nav Create button". The dropdown is now gone entirely (replaced by
-   `SideNav` + the ⋮ `Menu`), so re-read the ask before acting: what survives is the
-   local `src/components/Menu.tsx`. Blocked on `civitai-app-starters` **issue #485** —
-   `<civitai-menu>` throws on MOUNT in any non-browser DOM (`:popover-open` is evaluated
-   on the first update because `open` has a constructor default), and upgrading jsdom
-   only moves the failure to `panel.showPopover is not a function`; its panel also has no
-   app-settable testid. 🔵 Note the NAV elements are NOT blocked by #485 (no popover API).
+   the closed one-page-IA arc, still live. Re-read the ask before acting: the dropdown is
+   GONE (replaced by `SideNav` + the ⋮ `Menu`), so what survives is local
+   `src/components/Menu.tsx`. Blocked on `civitai-app-starters` **issue #485** —
+   `<civitai-menu>` throws on MOUNT in any non-browser DOM and upgrading jsdom only moves
+   the failure to `panel.showPopover is not a function`; its panel has no app-settable
+   testid. 🔵 The NAV elements are NOT blocked by #485 (no popover API).
    forcing: gate — #485 closing, or a real-browser test runner for this repo.
-5. **The five-package bump — parked.** CARRIED FORWARD, still live. Patch preserved
-   outside this public repo at
+5. **The five-package bump — parked.** CARRIED FORWARD, still live. Patch outside this
+   public repo at
    `/home/zach/workspace/civit/.parked/mb-five-package-bump-perpath-b778de4.patch`.
-   `civitai-app-starters` **PR #487** (`loading`/`decoding` on `CivitaiImage`) is a
-   PREREQUISITE, still OPEN. 🔵 Its prize has CHANGED since it was parked: deleting
-   `ContributeMenu.tsx` is no longer the prize (that file is gone), but the bump is now
-   what unlocks the real `<civitai-nav-list>`/`<civitai-nav-item>` swap for `SideNav`.
+   `civitai-app-starters` **PR #487** is a PREREQUISITE, still OPEN. 🔵 Its prize has
+   CHANGED: deleting `ContributeMenu.tsx` is no longer it (that file is gone) — the bump
+   is now what unlocks the real `<civitai-nav-list>`/`<civitai-nav-item>` swap for
+   `SideNav`.
    forcing: gate — #487 merging and releasing.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -407,6 +401,50 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   the clickable at `part="link"`/`part="button"` inside its shadow root, and its ~32px
   height is below this repo's 44px floor.
 
+- 🔴 **A RELEASE CAN FAIL ON THE REGISTRY PUSH AFTER BUILDING AND SCANNING CLEAN — READ
+  `Deploy detail`, NOT THE STATE STRING.** `approved/building` and `approved/failed` are
+  the only signals `app_state.py` gives, and neither distinguishes a slow build from a
+  dead one. `civitai app status model-benchmarking` carries a truncated `Deploy detail`
+  with the actual pipeline output, and that is where `crane push exit: 1` and the registry
+  i/o timeout live. 🔴 The generalisable error was mine: I reasoned from
+  *CI-is-a-different-environment* toward "the builder must be choking on our bundle" and
+  was wrong — `kaniko build exit: 0` sat directly above the network error the whole time.
+  **Read the failure output before theorising about the cause.** Three attempts, only the
+  third landed; the fix was a retry, not a code change.
+- 🔴 **`click ok = true` IS A CLAIM ABOUT DISPATCH, NOT ABOUT EFFECT — a THROTTLED tab
+  eats clicks silently.** A "Review" click on `/apps/review` returned ok, hit-tested clean
+  (`hitIsButton: true`, `disabled: false`) and did nothing; `visibilityState` was
+  `hidden`. Only a `browser wake` **immediately before** the click made it land. A `wake`
+  earlier in the same sequence is not enough — the tab re-throttles. Re-wake before every
+  click in a background tab, and verify the EFFECT on an independent surface: the
+  approval that mattered read `approved: false` in the DOM while `app_state.py` already
+  said `approved/building`.
+- 🔴 **THE APPROVE BUTTON CAN BE COVERED BY THE SITE'S OWN STICKY FOOTER, AND
+  `scrollIntoView` DOES NOT ALWAYS CLEAR IT.** On 0.4.9's page `Approve + build` sat at
+  y≈1082 h=36 while `FOOTER.sticky` (45px, opaque, `z-50`) covered everything below
+  y=1089, so the button's CENTRE — what the click op targets — landed on the bar, and the
+  window could not scroll (`scrollHeight - clientHeight == 0`). Remedy that changes no
+  layout: set `pointer-events: none` on the sticky footer, re-hit-test, click, RESTORE it.
+  ⚠️ On 0.4.10/0.4.11 the same page did NOT need it (`clearedBar: false`) — so **hit-test
+  every time rather than applying the workaround by habit.**
+- 🔴 **THE MODERATOR QUEUE HELD TWO APPS ON ALL THREE ATTEMPTS, WITH THE OTHER ONE FIRST.**
+  `prompt-lab` sat ABOVE `model-benchmarking` in oldest-first order every time, so a
+  positional selector would have approved someone else's submission to production.
+  Identify the row **by content**, refuse unless exactly one matches, re-assert
+  immediately before the click. Confirmation it worked: `prompt-lab` stayed `pending`
+  across all three.
+- 🔴 **A PUBLIC-REPO COMMIT MESSAGE IS A LEAK SURFACE, AND THE HOOK IS THE ONLY READER.**
+  `bash-guard` refused a commit whose message quoted the platform's registry IP — correct,
+  and this repo is a public OSS mirror. Elide infrastructure addresses as
+  `<registry-ip>`/`<image-ref>` and point at the live command instead. ⚠️ Note
+  `handoff_doc.py` reports **no leak scanner in this repo** (`tests/leakscan.py` absent),
+  so a handoff delta is a PASS BY ABSENCE, never a clean result.
+- ⚠️ **A HANDOFF PR LEFT OPEN MAKES `main` THE WRONG BASE FOR THE NEXT UPDATE.** #62 was
+  still open when this update was written, so `main`'s copy of this doc was the PRE-update
+  version; running `handoff_doc.py` on `main` would have merged against a stale base and
+  lost the earlier delta. The fix is to update ON the open PR's branch (rebased onto
+  `main` first). Check `gh pr list --state open` before choosing where to run it.
+
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build`
   — **59 files / 804 tests**, and 59 must equal `git ls-files | grep -cE '\.test\.tsx?$'`.
@@ -427,22 +465,24 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
 ## Goal
 Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
 Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
-vote glyph, no badges in the detail modals — and release it as 0.4.9.
-- **closing-condition:** `check` — `app_state.py model-benchmarking 0.4.9` exits **0**
+vote glyph, no badges in the detail modals — and get it live.
+- **closing-condition:** `check` — `app_state.py model-benchmarking <version>` exits **0**
   (`approved/live`, read UNPIPED), **and** the served bundle at
   `https://model-benchmarking.civit.ai/` carries `side-nav`, `board-nav` and
   `grid-open-members` with a positive control present in the same grep.
-  🔴 **NOT MET as of 2026-09-29.** Approved, still `building`; production serves 0.4.8.
-- ✅ **The PRIOR arc is CLOSED and its condition was MET 2026-09-28** — carried forward so
-  the closure is not lost when this section is replaced again. That arc was "ship the
-  one-page IA refactor and get it live, then restore the store listing"; all three of its
-  checks passed (`app_state.py … 0.4.7` rc 0, the served bundle carrying
-  `section-grids`/`contribute-trigger` with `view-switch-*` at 0, three screenshots taken
-  against 0.4.7). Two of its ranks also closed and must NOT be re-opened: the dropped
-  "make it full-width" instruction (operator: **drop it, superseded** — the CLOSED block
-  under Open investigations carries the ruled-out evidence, and the shell-width reading is
-  disproven, do not re-derive it), and the PR #53 SDK-port test-merge (green, merged as
-  0.4.8).
+  ✅ **MET 2026-09-29 at version 0.4.11.** `app_state.py … 0.4.11` → `approved/live`,
+  **rc 0**. Served bundle `assets/index-t70oWAUj.js` (440,492 B, changed from 0.4.8's
+  `index-PwE4InET.js` / 434,453 B): `side-nav` 2 · `board-nav` 1 · `nav-my-grid` 1 ·
+  `grid-open-members` 1 · retired `contribute-trigger` **0** and `view-switch` **0** ·
+  positive control `section-grids` 1 / `grid-open-panel` 1. **The arc is CLOSED against
+  this line.** Everything in `Next steps` is a NEW arc or a pre-existing deferral.
+- ✅ **The PRIOR arc is also CLOSED, its condition MET 2026-09-28** — carried forward so
+  the closure survives the next replace. That arc was "ship the one-page IA refactor and
+  get it live, then restore the store listing". Two of its ranks closed and must NOT be
+  re-opened: the dropped "make it full-width" instruction (operator: **drop it,
+  superseded**; the CLOSED block under Open investigations holds the ruled-out evidence
+  and the shell-width reading is disproven — do not re-derive it), and the PR #53
+  SDK-port test-merge (green, shipped as 0.4.8).
 
 ## Standing deferrals (not queued)
 🔴 **Deliberately NOT ranks.** Nothing external is asking for either, so under this doc's own
@@ -557,6 +597,46 @@ tree at close time and still holds (`contentStyle` carries no `maxWidth`; the on
   `civitai app status` (no arg) already lists `yt-thumbnail` and `sensei` rows; check
   whether every approved version there also carries a paired `withdrawn` row of the same
   version. If it does, this is normal platform bookkeeping and the investigation closes.
+
+### ✅ CLOSED 2026-09-29 — the paired `withdrawn` publish request is normal bookkeeping
+- as-of: 2026-09-29
+🔴 **SUPERSEDES the block titled "An unexplained SECOND publish request for 0.4.9" below.
+That block's `Next probe` is DISCHARGED — do not run it.** The probe it proposed was to
+check whether every approved version carries a paired `withdrawn` row. Answer: it does.
+**Measured three for three** — 0.4.9 (`pubreq_01M3PXAZQKRAE1M8SXKE9XGCGX`), 0.4.10, and
+0.4.11 (`pubreq_01M3Q8HAWHCDN835ZR9AF0B3HB`) each produced a second, source-less
+`withdrawn` record within minutes of the approval click, while the originally-submitted
+pubreq carried the source sha and went on to build. The approval flow creates and
+withdraws a paired record. Nothing was double-submitted; `civitai app submit` was run
+exactly once per version. `via: measurement`
+
+### ✅ RESOLVED 2026-09-29 — why 0.4.9/0.4.10 never deployed: the registry push, not the build
+- as-of: 2026-09-29
+🔴 **SUPERSEDES the block titled "0.4.9 approved but stuck in `building` for 25+ minutes"
+below. Its `Next probe` and its "ordinary slow platform build" hypothesis are BOTH
+retired — do not re-derive either.**
+- **Observed (with values):** `civitai app status model-benchmarking` on 0.4.10 reported
+  `Status: approved`, `Deploy state: failed`, and a `Deploy detail` ending, in order:
+  `kaniko build exit: 0` · `trivy scan PASSED (F10 gate): 0 un-ignored HIGH/CRITICAL`
+  (alpine 3.23.4, 70 packages) · `Error: Get "https://<image-ref>": dial tcp
+  <registry-ip>:443: i/o timeout` · `crane push exit: 1`. The image BUILT and the scan
+  PASSED; the pipeline failed **pushing the image to the container registry, at the
+  network layer**. 🔴 The concrete registry IP is deliberately NOT recorded here — this
+  repo is a PUBLIC mirror and a `bash-guard` hook refused a commit message containing it.
+  Read it live from `civitai app status model-benchmarking`. `via: measurement`
+- **Ruled out:** *"the platform builder chokes on something in our bundle that CI cannot
+  see"* — the plausible CI-is-a-different-environment story, and it is FALSE here:
+  `kaniko build exit: 0` says the build succeeded every time. `via: measurement`
+- **Ruled out:** *"dependency drift / `minimumReleaseAge` / the absent
+  `pnpm-workspace.yaml`"* — `git diff 938e3d9..8fc1adb -- package.json pnpm-lock.yaml`
+  is the version field and nothing else, and 0.4.8 shipped from `938e3d9`. `via: command`
+- **Resolution:** transient. An identical tree succeeded as 0.4.11 on the third attempt.
+- ⚠️ **Still NOT explained: why 0.4.9 never flipped to `failed`.** 0.4.10 went
+  approval→failed in ~7 minutes; 0.4.9 has sat at `building` for hours. Unresolved, and
+  the reason rank 3 exists.
+- 🔵 **`building` vs `deploying` IS a discriminator** — 0.4.11 went
+  `building → deploying → live`, so a version that never reaches `deploying` has not got
+  past build/push. That is the state read worth making, and it is NOT "slow vs stuck".
 ## Defects (batched)
 Round-1 audit findings that were reported and deliberately NOT fixed. Fix as one batch.
 🔴 Each is a claim from an audit, not a measurement of mine — re-verify before acting.
