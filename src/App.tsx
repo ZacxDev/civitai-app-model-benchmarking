@@ -184,6 +184,7 @@ import {
 } from './lib/unpubGrids.js';
 import {
   buildTopGrid,
+  gridMemberSummary,
   missingMembersNotice,
   resolveGridRows,
   TOP_GRID_NAME,
@@ -502,6 +503,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * invisible. `runs` and the poll loop were already App-owned; this was the one piece
    * of the open-grid identity that was not, and the view-switch cases in
    * `money-path.test.tsx` are what hold it.
+   *
+   * ⚠️ THE HOIST CLOSES THE VIEW-SWITCH HALF AND NOTHING MORE — say it that way, not
+   * as "it closes the charged-running-invisible bug". This value is not persisted (see
+   * the `view`/`board` note above), so a RELOAD still opens on the Top Grid and a
+   * stalled cell on a community grid is off-screen again. That half is not a
+   * regression — it was equally unpersisted inside `GridsView` — but it is also not
+   * fixed, and nothing in `money-path.test.tsx` covers the reload path. Persisting it
+   * is a separate decision; the rehydrate scan already makes such a cell safe from a
+   * second charge, so what is owed is discoverability, not money safety.
    */
   const [openGridKey, setOpenGridKey] = useState<string | null>(null);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
@@ -913,8 +923,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // badge and the grid can never disagree about who is in.
   const includedCombos = useMemo(() => topByVotes(combinations, DEFAULT_TOP_N), [combinations]);
   const includedPrompts = useMemo(() => topByVotes(prompts, DEFAULT_TOP_N), [prompts]);
-  const includedComboKeys = useMemo(() => new Set(includedCombos.map((r) => r.key)), [includedCombos]);
-  const includedPromptKeys = useMemo(() => new Set(includedPrompts.map((r) => r.key)), [includedPrompts]);
+  // 🔴 THE KEY SETS ARE GONE, AND SO ARE THE PROPS THAT CARRIED THEM. There used to be
+  // `includedComboKeys` / `includedPromptKeys` — two `useMemo`-built `Set`s handed to
+  // `MatchupsView` / `PromptsView` as `includedKeys`. Both views read exactly ONE thing
+  // off them, `.size`, because the third IA pass deleted the per-row "Included" badges
+  // that needed `has(key)`. Two derived Sets plus two props to carry a number
+  // `includedCombos.length` already holds is a second representation with nothing
+  // keeping it in step, so the views take the COUNT. Reintroduce a Set only if a
+  // per-row membership test comes back — and then derive it here, once, for both.
 
   /** Every matchup and prompt currently on the board, as `GridPicker` rows. */
   const matchupPickerItems = useMemo<GridPickerItem[]>(
@@ -2173,6 +2189,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [openEntry, combinations, prompts],
   );
   const openMissing = missingMembersNotice(openResolved, boardTruncated);
+  /**
+   * The open grid's "N matchups × N prompts" line.
+   *
+   * 🔴 THE SAME HELPER THE CARDS USE, over the SAME resolved rows. Excluding the open
+   * grid from the list took its member count off the page entirely — on a default load
+   * (Top Grid open, nothing published) there was no statement anywhere of how many
+   * members the matrix has. One helper, two surfaces, so the two can never disagree.
+   */
+  const openMembers = gridMemberSummary(openResolved);
   const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
   /** The resolved key `GridsView` filters against — `null` iff the panel shows the Top Grid. */
   const openKeyResolved = openEntry.system ? null : openEntry.row.key;
@@ -2426,6 +2451,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     <GridOpenPanel
                       name={openName}
                       system={openEntry.system}
+                      members={openMembers}
                       /* 🔴 Criterion 8 on the OPEN grid: the surviving members render
                          below and this sentence carries the honest count of what is
                          not there — built from the scan's truncation flag, so a
@@ -2522,7 +2548,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     <MatchupsView
                       surface="community"
                       combinations={combinations}
-                      includedKeys={includedComboKeys}
+                      includedCount={includedCombos.length}
                       votedKeys={votedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
@@ -2547,7 +2573,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     <PromptsView
                       surface="community"
                       prompts={prompts}
-                      includedKeys={includedPromptKeys}
+                      includedCount={includedPrompts.length}
                       votedKeys={votedKeys}
                       viewerId={viewer?.id ?? null}
                       loading={loading}
@@ -2603,7 +2629,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   <MatchupsView
                     surface="my"
                     combinations={combinations}
-                    includedKeys={includedComboKeys}
+                    includedCount={includedCombos.length}
                     votedKeys={votedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}
@@ -2633,7 +2659,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   <PromptsView
                     surface="my"
                     prompts={prompts}
-                    includedKeys={includedPromptKeys}
+                    includedCount={includedPrompts.length}
                     votedKeys={votedKeys}
                     viewerId={viewer?.id ?? null}
                     loading={loading}

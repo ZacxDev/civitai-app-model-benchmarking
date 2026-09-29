@@ -63,7 +63,17 @@ export interface MatchupsViewProps {
    */
   surface: MatchupSurface;
   combinations: CombinationRow[];
-  includedKeys: Set<string>;
+  /**
+   * How many rows are "included" — i.e. are members of the Top Grid.
+   *
+   * 🔴 A NUMBER, NOT THE `Set<string>` IT REPLACED. It was a Set because the view
+   * rendered a per-row "Included" badge and had to ask `has(key)` per row. The third IA
+   * pass DELETED both badges (see `IncludedSummary.test.tsx`'s retirement note), which
+   * left `.size` as the only thing either view ever read — a `useMemo`-built Set and a
+   * prop carrying a number `includedCombos.length` already held. Passing the number is
+   * the same information with no second representation to keep in step.
+   */
+  includedCount: number;
   votedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
@@ -98,7 +108,7 @@ export interface MatchupsViewProps {
 export function MatchupsView({
   surface,
   combinations,
-  includedKeys,
+  includedCount,
   votedKeys,
   viewerId,
   loading,
@@ -208,7 +218,7 @@ export function MatchupsView({
     <Stack gap={14} data-testid="matchups-view">
       <Group justify="space-between" align="center" gap={12}>
         <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="matchups-included-summary">
-          Submit and vote on checkpoint + LoRA matchups. {includedSummary(includedKeys.size, 'row')}
+          Submit and vote on checkpoint + LoRA matchups. {includedSummary(includedCount, 'row')}
         </span>
         {/* 🔴 THE PUBLIC CREATE ROUTE FOR A MATCHUP, and since the Contribute dropdown
             was deleted it is the primary one. It renders for an anonymous viewer too

@@ -74,10 +74,18 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
+import type { MyNoun } from '../types.js';
 import { radius, token } from '../theme.js';
 
-/** Which of the viewer's own object kinds a My Benchmarks sub-item names. */
-export type MyNoun = 'grid' | 'matchup' | 'prompt';
+/**
+ * Which of the viewer's own object kinds a My Benchmarks sub-item names.
+ *
+ * 🔴 RE-EXPORTED, NOT RE-DECLARED. The union lived here AND in `MyPublished.tsx` AND in
+ * `MySignedOut.tsx`, three identical copies with nothing keeping them in step. It is
+ * declared once in `../types.js` now; this re-export keeps the name reachable from the
+ * nav module, which is where `MainView` needs it.
+ */
+export type { MyNoun };
 
 /**
  * The selected view.

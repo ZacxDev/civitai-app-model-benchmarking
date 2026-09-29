@@ -326,7 +326,12 @@ describe('🔴 the preview read budget — exact counts, both directions', () =>
     expect(
       screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === '__system__'),
     ).toEqual([]);
-    expect(screen.queryAllByTestId('grid-preview-shown-above')).toEqual([]);
+    // ⚠️ A `grid-preview-shown-above` absence assertion used to sit here too. REMOVED:
+    // that testid exists nowhere in `src`, so the assertion pinned a WORD rather than a
+    // state, and a note reintroduced under any other spelling walks straight past it.
+    // The line above is the real claim (there is no open CARD, so there is nothing for
+    // such a note to live on). One archaeology marker for the deleted note is enough and
+    // it is kept in `gridPreviewSeam.test.tsx`, where the partition is the subject.
   });
 
   it('skips the UNRUN cells: one filled cell of four means one id and one call', async () => {

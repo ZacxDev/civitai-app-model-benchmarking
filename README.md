@@ -281,13 +281,7 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
 [`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
 directly, for the one publish path all three share — and
-[`archive.ts`](src/lib/archive.ts) (the author-side hide),
-[`resourceLink.ts`](src/lib/resourceLink.ts) (the ONE place a civitai.com
-`/models/<id>` path is built — **correct, tested and deliberately called by
-nothing**: every route out of a block's sandboxed iframe is shut, so a resource
-title that navigated would advertise an action it cannot perform. Its header
-carries the measurement and what would unlock it; a tripwire in its test file
-fails if anything wires it up). The two that are **not**
+[`archive.ts`](src/lib/archive.ts) (the author-side hide). The two that are **not**
 pure logic are the transport seam described in
 [Two transports, one block](#two-transports-one-block):
 [`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes

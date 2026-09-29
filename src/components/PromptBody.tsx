@@ -27,7 +27,10 @@
 //      component the matchup row uses, which is the point of extracting it.
 //      `extraActions` stays outside the menu; see `MatchupBody`'s header.
 //
-// There is no `ResourceLink` here: a prompt names no model.
+// There is no `ResourceName` here: a prompt names no model. (This read "no
+// `ResourceLink`" — a component that no longer exists under that name anywhere; its
+// successor is `./ResourceName.tsx`, and a stale name in a "there is no X here" note is
+// how a reader concludes the note is about something already deleted.)
 
 import type { ReactNode } from 'react';
 

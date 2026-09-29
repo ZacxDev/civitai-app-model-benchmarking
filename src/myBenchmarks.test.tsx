@@ -26,6 +26,22 @@
 // (`@civitai/blocks-react/dist/testing.js`) so the PROP cannot express a viewer swap.
 // One of them changed SHAPE as well as address, and that is recorded where it sits: the
 // LATCH they were written against no longer exists.
+//
+// ── 🔴 COVERAGE LABEL, FOR THE DIRECT-RENDER CASES ──────────────────────────
+//
+// A BRAND-NEW FILE against a BRAND-NEW COMPONENT (`components/MyGridsView.tsx` does not
+// exist on `zach/ia-feedback-sidebar`), so 0-of-N red at base and that number says
+// nothing. The direct-render cases in particular are INVARIANT GUARDS: they pin
+// properties of a component that had no previous address, so nothing in them can be a
+// regression guard over a fixed bug. Validate them by MUTATION, not by a red base.
+//
+// ⚠️ AND THE "BASE" THAT WAS RUN AGAINST WAS A HYBRID TREE, which an earlier write-up
+// overstated as "#59's tip". The run used `git checkout HEAD~1 -- src/components/`,
+// which restores tracked files but CANNOT DELETE files that are new in HEAD — so the
+// measured tree was #59's `App.tsx` plus HEAD's new, unreferenced components. Harmless
+// here (those files are dead code in that tree), but it is not the claim "measured at
+// #59's tip", and a base-run method that cannot remove files must not be described as a
+// checkout of an older commit. `src/sideNav.test.tsx` carries the same correction.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

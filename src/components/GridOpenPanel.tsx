@@ -31,6 +31,24 @@ export interface GridOpenPanelProps {
   /** Is this the system-owned Top Grid? */
   system: boolean;
   /**
+   * The "N matchups × N prompts" summary, already built by `gridMemberSummary` from
+   * the RESOLVED members — the same string the cards show in `grid-card-members`.
+   *
+   * 🔴 IT IS HERE BECAUSE EXCLUDING THE OPEN GRID FROM THE LIST TOOK IT OFF THE PAGE.
+   * The count only ever rendered on a card, and the open grid has no card — so on a
+   * default load (Top Grid open, nothing else published) the app showed a matrix with
+   * no statement anywhere of how many members it has. A viewer could not tell a grid
+   * whose members are all present from one that silently resolved short; the
+   * `missing` notice covers the second case only, and only when something IS missing.
+   *
+   * 🔴 BUILT BY THE CALLER, FROM THE RESOLVED ROWS — never counted from the authored
+   * key lists. A grid's members are what survives resolution against the live board,
+   * so an authored length would over-report the moment another author withdraws a
+   * row, and it would disagree with the cards, which resolve. One helper
+   * (`gridMemberSummary`), two surfaces.
+   */
+  members: string;
+  /**
    * The missing-members sentence, or null.
    *
    * 🔴 CRITERION 8: a grid whose members another author withdrew renders what
@@ -47,6 +65,7 @@ export interface GridOpenPanelProps {
 export function GridOpenPanel({
   name,
   system,
+  members,
   missing,
   children,
 }: GridOpenPanelProps): React.JSX.Element {
@@ -62,6 +81,16 @@ export function GridOpenPanel({
               System grid
             </Badge>
           )}
+          {/* 🔴 A DISTINCT TESTID FROM THE CARD'S `grid-card-members`, on purpose. The
+              two are the same STRING from the same helper but different SURFACES, and
+              a shared testid would make `getByTestId` ambiguous the moment the open
+              grid and a card are both on screen — which is the normal state as soon
+              as anything is published. Same reason every other `grid-open-*` name
+              exists. ⚠️ jsdom performs no layout, so nothing here judges whether it
+              READS as beside the title; only that it is in the panel. */}
+          <Badge variant="light" data-testid="grid-open-members">
+            {members}
+          </Badge>
         </Group>
       </Group>
       {missing && (

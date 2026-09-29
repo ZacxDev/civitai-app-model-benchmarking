@@ -18,6 +18,19 @@
 //
 // These assert the RENDERED output of the real components, so they fail on the
 // pre-fix tree rather than merely re-stating the helper's unit tests.
+//
+// ⚠️ THE FIXTURE PASSES A COUNT, NOT A KEY SET — the views' prop is `includedCount:
+// number` now. It was `includedKeys: Set<string>` while each row carried an "Included"
+// badge needing `has(key)`; those badges were deleted (see the retirement note at the
+// foot of this file) and `.size` became the only reader, so the Set and the two
+// `useMemo`s behind it were a second representation of `includedCombos.length`.
+// ⚠️ ONE THING THAT COSTS: a Set fixture could not disagree with its own row list,
+// whereas a number can — `renderCombos([...one row], 3)` is now expressible. That is
+// FINE HERE and deliberately so: every case below is about the COPY the number
+// produces, and decoupling the number from the row count is what lets the "top 1 are"
+// and leaked-"N" defects be driven at all. It is not a claim that the App's number
+// agrees with its rows; `gridsView.test.tsx`'s criterion-10 cases hold that, through
+// the App, against `DEFAULT_TOP_N`.
 
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -60,12 +73,12 @@ function promptRow(key: string, count: number): PromptRow {
   } as unknown as PromptRow;
 }
 
-function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
+function renderCombos(rows: CombinationRow[], includedCount: number) {
   return render(
     <MatchupsView
       surface="community"
       combinations={rows}
-      includedKeys={includedKeys}
+      includedCount={includedCount}
       votedKeys={new Set()}
       viewerId={1}
       loading={false}
@@ -81,12 +94,12 @@ function renderCombos(rows: CombinationRow[], includedKeys: Set<string>) {
   );
 }
 
-function renderPrompts(rows: PromptRow[], includedKeys: Set<string>) {
+function renderPrompts(rows: PromptRow[], includedCount: number) {
   return render(
     <PromptsView
       surface="community"
       prompts={rows}
-      includedKeys={includedKeys}
+      includedCount={includedCount}
       votedKeys={new Set()}
       viewerId={1}
       loading={false}
@@ -110,7 +123,7 @@ const viewText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ').tr
 
 describe('included-summary copy (rendered)', () => {
   it('agrees in number with exactly ONE included row — the live 0.2.3 defect', () => {
-    renderCombos([comboRow('a', 3)], new Set(['a']));
+    renderCombos([comboRow('a', 3)], 1);
     // The exact broken string the live app rendered on 2026-08-17.
     expect(viewText()).not.toContain("The top 1 are included as the grid's rows.");
     expect(viewText()).not.toMatch(/top 1 by votes are/);
@@ -118,26 +131,23 @@ describe('included-summary copy (rendered)', () => {
   });
 
   it('agrees in number with SEVERAL included columns', () => {
-    renderPrompts(
-      [promptRow('a', 3), promptRow('b', 2), promptRow('c', 1)],
-      new Set(['a', 'b', 'c']),
-    );
+    renderPrompts([promptRow('a', 3), promptRow('b', 2), promptRow('c', 1)], 3);
     expect(viewText()).toContain("The top 3 by votes are showing as the grid's columns in your view.");
   });
 
   it('never leaks the literal placeholder "N" when nothing is included', () => {
-    renderCombos([], new Set());
+    renderCombos([], 0);
     expect(viewText()).not.toMatch(/\btop N\b/);
     document.body.innerHTML = '';
-    renderPrompts([], new Set());
+    renderPrompts([], 0);
     expect(viewText()).not.toMatch(/\btop N\b/);
   });
 
   it('scopes the claim to the viewer rather than asserting what the shared grid holds', () => {
-    renderCombos([comboRow('a', 3), comboRow('b', 1)], new Set(['a', 'b']));
+    renderCombos([comboRow('a', 3), comboRow('b', 1)], 2);
     expect(viewText()).toContain('in your view');
     document.body.innerHTML = '';
-    renderPrompts([promptRow('a', 3)], new Set(['a']));
+    renderPrompts([promptRow('a', 3)], 1);
     expect(viewText()).toContain('in your view');
   });
 
@@ -173,12 +183,12 @@ describe('included-summary copy (rendered)', () => {
   // strictly wider than the position the retired case checked.
   // -------------------------------------------------------------------------
   it('never re-introduces either retracted "Included" claim, in any copy', () => {
-    renderCombos([comboRow('a', 3)], new Set(['a']));
+    renderCombos([comboRow('a', 3)], 1);
     expect(viewText()).not.toContain('Change how many in the Grid tab');
     expect(viewText()).not.toContain("it forms one of the grid's rows.");
 
     document.body.innerHTML = '';
-    renderPrompts([promptRow('a', 3)], new Set(['a']));
+    renderPrompts([promptRow('a', 3)], 1);
     expect(viewText()).not.toContain('Change how many in the Grid tab');
     expect(viewText()).not.toContain("it forms one of the grid's columns.");
   });
@@ -186,7 +196,7 @@ describe('included-summary copy (rendered)', () => {
   it('🔴 renders NO Included badge on either axis — the third IA pass removed both', () => {
     // ABSENCE FROM THE DOM, not invisibility: a hidden badge is still a badge, and
     // `queryByTestId` is the only form that distinguishes the two.
-    const { queryByTestId } = renderCombos([comboRow('a', 3)], new Set(['a']));
+    const { queryByTestId } = renderCombos([comboRow('a', 3)], 1);
     // POSITIVE CONTROL: the row really rendered, so the null below is about the
     // badge and not about a view that failed to mount.
     expect(queryByTestId('matchup-vote')).not.toBeNull();
@@ -200,7 +210,7 @@ describe('included-summary copy (rendered)', () => {
     // (1 → 0 here), which is what gives this half of the case its teeth.
     const withOverride = promptRow('a', 3);
     withOverride.data.overrides = { SDXL: { prompt: 'sdxl variant' } };
-    const p = renderPrompts([withOverride], new Set(['a']));
+    const p = renderPrompts([withOverride], 1);
     expect(p.queryByTestId('prompt-vote')).not.toBeNull();
     expect(p.queryByTestId('prompt-included')).toBeNull();
     expect(p.queryByTestId('prompt-default-badge')).toBeNull();

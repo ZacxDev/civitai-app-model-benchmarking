@@ -42,6 +42,7 @@
 
 import { Button, Stack } from '@civitai/blocks-react/ui';
 
+import type { MyNoun } from '../types.js';
 import { EmptyState } from './EmptyState.js';
 
 /**
@@ -51,8 +52,12 @@ import { EmptyState } from './EmptyState.js';
  * and `'grid'` outlived its only caller), and it is three again for a reason that is
  * stated rather than assumed: My Benchmarks has a Grids destination, and it renders
  * this panel when nobody is signed in.
+ *
+ * ⚠️ THE UNION ITSELF IS NO LONGER DECLARED HERE. It was declared identically in this
+ * file, `SideNav.tsx` and `MyPublished.tsx`; it lives in `../types.js` now, so the
+ * "three nouns" decision above is made in ONE place and this panel cannot fall behind
+ * it. The history stays because it is the reason the set is what it is.
  */
-export type MyNoun = 'grid' | 'matchup' | 'prompt';
 
 export function MyTabSignedOut({
   noun,

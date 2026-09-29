@@ -6,7 +6,8 @@
 // of it was correct about the component and wrong about the world: the operator
 // measured the live iframe as `sandbox="allow-scripts allow-forms"` — no
 // `allow-same-origin`, so `trustTier: 'unverified'` — which shuts the last of the
-// three routes out of the frame. `lib/resourceLink.ts` carries the whole record.
+// three routes out of the frame. `./ResourceName.tsx`'s own header carries the whole
+// record — it used to live in `lib/resourceLink.ts`, which is deleted.
 //
 // 🔴 THE CONTRACT INVERTED, so the guards had to invert with it. What used to be
 // the special case ("a LoRA with no `modelId` renders no link") is now the ONLY

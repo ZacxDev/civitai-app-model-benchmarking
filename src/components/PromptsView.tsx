@@ -30,7 +30,14 @@ export type PromptSurface = 'community' | 'my';
 export interface PromptsViewProps {
   surface: PromptSurface;
   prompts: PromptRow[];
-  includedKeys: Set<string>;
+  /**
+   * How many columns are "included" — i.e. are members of the Top Grid.
+   *
+   * 🔴 A NUMBER, NOT A `Set<string>` — see `MatchupsView`'s prop of the same name for
+   * the record: the per-row Included badges are gone, so `.size` was the only reader
+   * left and the Set was a second representation of `includedPrompts.length`.
+   */
+  includedCount: number;
   votedKeys: Set<string>;
   viewerId: number | null;
   loading: boolean;
@@ -65,7 +72,7 @@ export interface PromptsViewProps {
 export function PromptsView({
   surface,
   prompts,
-  includedKeys,
+  includedCount,
   votedKeys,
   viewerId,
   loading,
@@ -177,7 +184,7 @@ export function PromptsView({
       <Group justify="space-between" align="center" gap={12}>
         <span style={{ ...mutedText, flex: '1 1 260px', minWidth: 0 }} data-testid="prompts-included-summary">
           Submit and vote on prompts. Each prompt has a default (all ecosystems) plus optional per-ecosystem
-          overrides. {includedSummary(includedKeys.size, 'column')}
+          overrides. {includedSummary(includedCount, 'column')}
         </span>
         {/* 🔴 THE PUBLIC CREATE ROUTE FOR A PROMPT, and since the Contribute dropdown
             was deleted it is the primary one. */}

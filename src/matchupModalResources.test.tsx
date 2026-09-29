@@ -6,9 +6,10 @@
 // SUBJECT did not change — "what does this modal do when a viewer presses a
 // resource name" — only the answer did. The links were removed before release:
 // all three routes out of a block's sandboxed iframe are shut, and the one that is
-// permitted would land the viewer on civitai.com LOGGED OUT. `lib/resourceLink.ts`
-// carries the measurement, including the live `sandbox="allow-scripts allow-forms"`
-// reading that settled it.
+// permitted would land the viewer on civitai.com LOGGED OUT.
+// `components/ResourceName.tsx`'s header carries the measurement, including the live
+// `sandbox="allow-scripts allow-forms"` reading that settled it. (It used to say
+// `lib/resourceLink.ts`; that module is deleted and the record moved rather than went.)
 //
 // 🔴 WHAT THIS FILE COVERS THAT `components/ResourceName.test.tsx` CANNOT: the
 // SEAM. `ResourceName` is trivially correct in isolation — it is one `<span>` —

@@ -306,9 +306,19 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(groups.some((g) => g.includes('Hotel'))).toBe(false);
     expect(groups.some((g) => g.includes('Golf'))).toBe(false);
 
-    // …and the member SUMMARY, which only a card carries: open the published grid
-    // so the Top Grid takes its place in the list. The count is read from the
-    // imported constant, never spelled as 5.
+    // 🔴 …AND THE MEMBER SUMMARY, ON THE OPEN PANEL, WHERE IT NOW LIVES. This is the
+    // DEFAULT surface: no click, nothing else published needed. It had to be added —
+    // excluding the open grid from the list removed the only place its count rendered,
+    // so on a default load the Top Grid's size was stated NOWHERE on the page. The
+    // count is read from the imported constant, never spelled as 5.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent(
+      `${DEFAULT_TOP_N} matchups × ${DEFAULT_TOP_N} prompts`,
+    );
+
+    // …and the CARD still carries it once the Top Grid is listed, which is a second
+    // surface and not a duplicate assertion: open the published grid so the Top Grid
+    // takes its place in the list. Kept rather than replaced — the panel assertion
+    // above cannot see a card that stopped rendering the badge.
     await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
     await openListed('gk-yank');
     const top = await waitFor(() =>
@@ -317,6 +327,11 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(within(top).getByTestId('grid-card-members')).toHaveTextContent(
       `${DEFAULT_TOP_N} matchups × ${DEFAULT_TOP_N} prompts`,
     );
+    // 🔴 AND THE PANEL NOW SHOWS THE *OTHER* GRID'S COUNT, not a frozen Top Grid one.
+    // `gk-yank` is 1 × 1, so a `members` prop wired to a constant — or to the Top Grid
+    // regardless of what is open — fails here. Without this the assertion above is
+    // satisfiable by a hardcoded string.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('1 matchup × 1 prompt');
   });
 
   it('🔴 is PINNED FIRST once listed, and carries NO vote control, because it has no shared row', async () => {
@@ -607,6 +622,11 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     expect(within(card).getByTestId('grid-card-members')).toHaveTextContent('3 matchups × 2 prompts');
 
     await userEvent.click(within(card).getByTestId('grid-open'));
+    // 🔴 THE SAME COUNT ON THE OPEN PANEL, from the same helper over the same resolved
+    // rows. This is the PLURAL/PLURAL arm of the open panel's summary: the card and the
+    // panel are two surfaces, and only pinning both catches one of them drifting to the
+    // AUTHORED lengths (4 × 8 here) instead of the resolved ones.
+    expect(await screen.findByTestId('grid-open-members')).toHaveTextContent('3 matchups × 2 prompts');
     const matrix = await screen.findByTestId('results-grid');
     const rows = within(matrix).getAllByTestId('grid-group-matchup').map((el) => el.textContent ?? '');
     expect(rows).toHaveLength(3);
@@ -652,6 +672,10 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     await userEvent.click(within(card).getByTestId('grid-open'));
     await screen.findByTestId('results-grid');
     expect(screen.queryByTestId('grid-missing-notice')).toBeNull();
+    // 🔴 THE PLURAL/SINGULAR ARM on the open panel — `1 prompt`, not `1 prompts`. The
+    // 0.2.3 live defect this repo already paid for was a number/verb disagreement, and
+    // a summary pinned only in the plural cannot see it.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('2 matchups × 1 prompt');
   });
 
   it('survives a grid whose members are ALL gone — empty, disclosed, still no throw', async () => {
@@ -671,6 +695,11 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     // The matrix's own empty state, not a crash and not a blank panel.
     expect(await screen.findByTestId('grid-empty')).toBeInTheDocument();
     expect(await screen.findByTestId('grid-missing-notice')).toBeInTheDocument();
+    // 🔴 THE ZERO ARM on the open panel: `0 matchups × 0 prompts` RENDERS, rather than
+    // the badge vanishing. An absent summary on an empty grid is indistinguishable from
+    // a summary that failed to render, which is the state this whole addition exists to
+    // remove.
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('0 matchups × 0 prompts');
   });
 });
 
@@ -1149,6 +1178,12 @@ describe('the My / Community partition for grids (§11.1)', () => {
 // The cases went with the component, not away. One of them also changed shape rather
 // than address, and that is recorded there: the LATCH they were written against no
 // longer exists, because a dedicated surface can simply render the panel
-// unconditionally — which is strictly stronger than a latch and cannot unmount
-// mid-report at all.
+// unconditionally.
+//
+// ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH ADDED "which is strictly stronger than a
+// latch and cannot unmount mid-report at all". That is FALSE and the claim is retracted:
+// navigating to Home unmounts `MyGridsView` and takes `UnpublishedList`'s local publish
+// `error` with it. The unconditional panel closes the LIST-EMPTYING path only. See
+// `MyGridsView`'s own header for the full record, and
+// `src/publishPointerFailure.test.tsx` for the case that pins the real behaviour.
 // ===========================================================================

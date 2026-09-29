@@ -213,8 +213,15 @@ describe('the matchup group band opens the matchup', () => {
     // 🔴 WHY THIS IS A GUARD AND NOT A STYLE NIT. `cursor: pointer` was this band's
     // ONLY affordance, and a pointer cursor is invisible until the pointer is already
     // on the control — and never appears at all on a touch device. The operator asked
-    // for an underline for exactly that reason, and it is the same argument
-    // `ResourceLink` makes: without it nothing says the text is a control.
+    // for an underline for exactly that reason: without it nothing says the text is a
+    // control.
+    //
+    // ⚠️ RETRACTED: this used to add "and it is the same argument `ResourceLink` makes".
+    // `ResourceLink` does not exist, and its successor `ResourceName` makes the OPPOSITE
+    // argument — it renders resource titles with an explicit `textDecoration: 'none'`
+    // precisely because they are NOT controls. Citing it here inverted it. The band
+    // genuinely is a control (it opens the matchup detail), which is what earns the
+    // underline.
     //
     // ⚠ jsdom performs NO layout, so this reads the DECLARED inline style. It cannot
     // say the underline is VISIBLE, only that the app declares it.

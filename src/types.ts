@@ -51,9 +51,21 @@ export interface LoraRef {
    * reason: it has been written since v1, and `parseCheckpoint` rejects a config
    * without it.
    *
-   * Consequence in the UI, and it is a permanent visible state rather than a
-   * degraded one: `ResourceLink` renders a LoRA with no `modelId` as plain,
-   * un-underlined text, never as a link that cannot work.
+   * 🔴 THERE IS NO UI CONSEQUENCE TODAY, AND THE CLAIM THAT THERE WAS IS RETRACTED.
+   * This said "`ResourceLink` renders a LoRA with no `modelId` as plain, un-underlined
+   * text, never as a link that cannot work." `ResourceLink` DOES NOT EXIST — its
+   * successor `components/ResourceName.tsx` renders EVERY resource as plain text
+   * regardless of `modelId`, because every route out of a block's sandboxed iframe is
+   * shut (that file's header carries the measurement, filed as `civitai/civitai`
+   * **#5209**). So this field is currently INVISIBLE: nothing branches on it, and
+   * nothing on screen changes whether it is present or absent.
+   *
+   * ⚠️ IT IS STILL WRITTEN, AND THAT IS THE ONLY REASON IT EXISTS. A row belongs to
+   * its author, so this app can never backfill another viewer's LoRA — the data has to
+   * accrue from the day it starts being written or it is never reliable. Naming a
+   * present-tense UI consequence that does not exist is worse than naming none: a
+   * maintainer who checks and finds no such rendering concludes the field is obsolete
+   * and deletes it, which is the one thing that cannot be undone.
    *
    * 🔴 A PARSE MUST NEVER THROW OR REJECT ON ITS ABSENCE. A row on the shared board
    * is read by every viewer; a parse that refused an old row would empty the board
@@ -463,3 +475,29 @@ export interface InflightRun {
   promptKey: string;
   ecosystem: string;
 }
+
+/**
+ * The three object kinds the viewer can OWN, as one union.
+ *
+ * 🔴 IT WAS DECLARED THREE TIMES, IDENTICALLY — `components/SideNav.tsx`,
+ * `components/MyPublished.tsx` and `components/MySignedOut.tsx` each exported their own
+ * `MyNoun = 'grid' | 'matchup' | 'prompt'`, with nothing keeping them in step, plus two
+ * more inline spellings of the same union in `UnpublishedList`'s and `WithdrawButton`'s
+ * props. Five copies of one rule is the duplication this stack's own headline argument
+ * (one `Menu`, one `MyPublished`, one `UnpublishedList`) condemns, and a divergence
+ * between them is a compile error nobody would get: each copy type-checks alone.
+ *
+ * 🔴 ONE DECLARATION IS THE WHOLE GUARD, and that is why there is no test for it. A
+ * fourth noun added here reaches every consumer at once, or fails to compile; a fourth
+ * noun added to one of five copies used to reach exactly one surface silently. A
+ * structural fix, not a watched one.
+ *
+ * ⚠️ DELIBERATELY *NOT* MERGED WITH `PublishableNoun` in `lib/unpublished.ts`, even
+ * though the two hold the same three strings today. They answer different questions —
+ * "does the viewer have a My destination for this?" versus "does this travel the
+ * unpublished → published boundary?" — and `PublishableNoun` exists to make
+ * `WHERE_THE_PUBLIC_ROW_IS` EXHAUSTIVE, i.e. to force a decision about a new object's
+ * published home. Fusing them would let a noun acquire that decision by accident. They
+ * coincide; they are not the same rule.
+ */
+export type MyNoun = 'grid' | 'matchup' | 'prompt';

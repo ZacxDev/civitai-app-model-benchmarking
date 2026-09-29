@@ -16,12 +16,30 @@
 // ⚠ ROLE NOTE for anyone porting a query from the dropdown this replaced: its trigger
 // was `aria-haspopup="menu"` and its items were `role="menuitem"`. These are plain
 // `<button>`s inside a `role="list"`; `getAllByRole('menuitem')` finds nothing.
+//
+// ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
+//
+// A BRAND-NEW FILE against a BRAND-NEW COMPONENT: `components/SideNav.tsx` does not
+// exist on `zach/ia-feedback-sidebar`, so every case here is 0-of-N red at base and that
+// number says nothing. **Do not count these cases as regression coverage.** They are
+// INVARIANT GUARDS on behaviour a hand-built nav has to provide and an upstream
+// component would have given for free — validated, when they are validated at all, by
+// MUTATION (break the behaviour on purpose, watch the case go red), never by a red base.
+//
+// ⚠️ AND THE "BASE" THE RUN WAS TAKEN AGAINST WAS A HYBRID TREE, WHICH AN EARLIER
+// WRITE-UP OVERSTATED AS "#59's tip". The run used `git checkout HEAD~1 --
+// src/components/`, which RESTORES tracked files but cannot DELETE files that are new in
+// HEAD — so the tree measured was #59's `App.tsx` plus HEAD's new, unreferenced
+// components. Harmless here (the new files are dead code in that tree, imported by
+// nothing), but it is not the same claim as "measured at #59's tip", and a base-run
+// method that cannot remove files should never be described as a checkout of an older
+// commit. `src/myBenchmarks.test.tsx` carries the same correction for its own cases.
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { NAV_DEPTH_STEP_PX, SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
+import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
 
 /**
  * The five items, as `[testid, visible label, depth, the view selecting it produces]`.
@@ -101,28 +119,24 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
     );
   });
 
-  it('🔴 expresses nesting as the UPSTREAM depth custom property, at the upstream step', async () => {
-    // 🔴 THE POINT OF PINNING THIS IS THE SWAP, not the pixels. Upstream
-    // `<civitai-nav-item>` carries `--civitai-nav-depth` at 14px per level; mirroring
-    // the same property NAME and the same STEP is what makes the indent survive an
-    // element swap untouched. A `paddingLeft` alone would have to be re-derived.
-    //
-    // ⚠️ jsdom resolves no layout, so this reads the DECLARED custom property, never a
-    // rendered offset.
-    renderNav();
-    await expand();
-
-    expect(NAV_DEPTH_STEP_PX).toBe(14);
-    for (const [testid, , depth] of ITEMS) {
-      expect(
-        screen.getByTestId(testid).style.getPropertyValue('--civitai-nav-depth'),
-        `${testid} does not declare its depth`,
-      ).toBe(String(depth));
-    }
-    // …and the two levels really differ, so the property is not a constant.
-    const depths = new Set(ITEMS.map(([, , d]) => d));
-    expect(depths.size).toBe(2);
-  });
+  // ───────────────────────────────────────────────────────────────────────────
+  // 🔴 DELETED: 'expresses nesting as the UPSTREAM depth custom property, at the
+  // upstream step'. RE-ADD IT AT SWAP TIME — it is not retired, it is premature.
+  //
+  // It asserted that every item declares `--civitai-nav-depth` equal to its depth, and
+  // that `NAV_DEPTH_STEP_PX` is 14. It CANNOT observe what its name claims. Its only
+  // comparand for "the upstream step" was `NAV_DEPTH_STEP_PX`, imported from the
+  // component under test, and the pinned `@civitai/components@0.4.1` installed here
+  // SHIPS NO NAV ELEMENT AT ALL — so drift from the real 0.8.1 / 0.9.0 shape (a
+  // different property name, a different step, or depth expressed some other way) is
+  // structurally invisible to it. It could only ever fail if someone edited this repo's
+  // own constant, which is not the hazard the case was written for.
+  //
+  // What to do instead, when the five-package bump lands (`SideNav.tsx`'s header has the
+  // gate): re-add it with the REAL element as the comparand — mount a
+  // `<civitai-nav-item>` at two depths and read the property off it, then assert this
+  // file's mirror agrees. That is a relationship between two things and can be red.
+  // ───────────────────────────────────────────────────────────────────────────
 
   it('shows the expandable state as a CHEVRON, and moves it in both directions', async () => {
     renderNav();

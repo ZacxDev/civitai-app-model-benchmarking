@@ -46,9 +46,9 @@
 //      viewer on civitai.com LOGGED OUT, because the popup inherits an opener with
 //      no `allow-same-origin`. Measured on the live iframe:
 //      `sandbox="allow-scripts allow-forms"`, i.e. `trustTier: 'unverified'`. The
-//      whole record, and what would unlock it, is in `lib/resourceLink.ts`; filed
-//      as `civitai/civitai` #5209. Nothing here may advertise an action it cannot
-//      perform.
+//      whole record, and what would unlock it, is in `./ResourceName.tsx`'s header;
+//      filed as `civitai/civitai` #5209. (It used to point at `lib/resourceLink.ts`,
+//      which is deleted.) Nothing here may advertise an action it cannot perform.
 
 import type { ReactNode } from 'react';
 

@@ -30,13 +30,32 @@ export const UNVOTE_TOOLTIP = 'Remove your vote';
 /**
  * The vote glyph.
  *
- * 🔴 AN SVG, NOT THE `▲` CHARACTER IT REPLACED. A text triangle is rendered by
- * whatever font the host's theme resolves, so its weight, size and vertical
- * alignment drifted against the count beside it, and on a font without the glyph
- * it fell back to a tofu box. The path below is a filled chevron/arrowhead on a
+ * 🔴 AN SVG, NOT THE `▲` CHARACTER IT REPLACED — **ON THIS CONTROL ONLY.** A text
+ * triangle is rendered by whatever font the host's theme resolves, so its weight, size
+ * and vertical alignment drifted against the count beside it, and on a font without the
+ * glyph it fell back to a tofu box. The path below is a filled chevron/arrowhead on a
  * 12×12 box, `fill="currentColor"` so it follows the Button's own text colour in
  * both the `filled` (voted) and `light` (not voted) variants and in either theme —
  * no hardcoded colour anywhere.
+ *
+ * 🔴 THE CLAIM IS NARROWED TO THIS CONTROL BECAUSE AN EARLIER VERSION OF IT WAS WIDER
+ * THAN THE CHANGE. It argued the general case — "a font-resolved glyph drifts and can
+ * fall back to tofu" — while text triangles still ship at four other rendered sites,
+ * which reads as a tree-wide convention that was never applied. The remaining sites are
+ * KNOWN AND DELIBERATE, not an oversight, and they are named here so the next reader
+ * does not have to re-find them:
+ *
+ *   - `components/ResultsGrid.tsx` — `▲ {prompt.count}` on the column header, and
+ *     `▲ {row.comboCount}` on the matchup group band;
+ *   - `components/ResultsGrid.tsx` — `▸`, the matchup band's `aria-hidden` marker;
+ *   - `components/SideNav.tsx` — `▾` / `▸`, the group's `aria-hidden` chevron.
+ *
+ * ⚠️ DO NOT CONVERT THEM AS A TIDY-UP. The operator asked for a vote icon; widening
+ * that to four more sites is scope nobody requested, and the drift argument is weakest
+ * exactly where the glyph is decorative and `aria-hidden` (the chevrons) — there is no
+ * adjacent number for it to misalign against. If a converted glyph is ever wanted
+ * elsewhere it is a separate, asked-for change with its own visual check, which nothing
+ * in this repo can perform (jsdom resolves no fonts and no layout).
  *
  * `aria-hidden` because it carries no information the `aria-label` does not: the
  * button's name already says "Upvote (12)" / "Remove your vote (12)". An

@@ -250,9 +250,18 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     expect(lora.versionId).toBe(4004);
     expect(lora.weight).toBe(0.6);
     // 🔴 AND NO PHANTOM VALUE IS INVENTED. A parse that defaulted `modelId` to 0, or
-    // to the checkpoint's 700, would make `ResourceLink` render a LINK TO THE WRONG
-    // MODEL — worse than plain text, because a wrong link cannot be told from a right
-    // one by looking. The field must be ABSENT, not falsy.
+    // to the checkpoint's 700, would put a WRONG model id on the wire for this row,
+    // permanently and unfixably — the row belongs to its author, so no later build can
+    // correct it. The field must be ABSENT, not falsy.
+    //
+    // ⚠️ RETRACTED, BECAUSE IT NAMED A UI CONSEQUENCE THAT DOES NOT EXIST: this used to
+    // say the default "would make `ResourceLink` render a LINK TO THE WRONG MODEL —
+    // worse than plain text, because a wrong link cannot be told from a right one by
+    // looking". `ResourceLink` was removed before release; `ResourceName` renders every
+    // resource as plain text whatever `modelId` says, so nothing renders a link at all
+    // today. The DATA argument above is the real one and it is strictly stronger — it
+    // does not depend on when, or whether, a caller ever appears (`civitai/civitai`
+    // **#5209**).
     expect(lora.modelId).toBeUndefined();
     expect('modelId' in lora).toBe(false);
   });
@@ -298,8 +307,15 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
 
   it('🔴 a LoRA `modelId` that is NOT a number is dropped, not carried through', () => {
     // `data` is an opaque, unmoderated blob written by other clients (and by older
-    // revisions of this one). A string or null here reaching `ResourceLink` would
-    // build `/models/null`.
+    // revisions of this one). A string or null carried through here would sit in the
+    // parsed `LoraRef` as a non-number `modelId`, which the TYPE says cannot happen —
+    // so every future consumer is entitled to assume it. Dropping it at the parse is
+    // what makes that assumption true.
+    //
+    // ⚠️ RETRACTED: this used to justify the case by "a string or null here reaching
+    // `ResourceLink` would build `/models/null`". There is no `ResourceLink` and no
+    // consumer of `modelId` at all — see the field's docblock in `src/types.ts`. The
+    // type-integrity argument above is what the case actually rests on.
     const junk: RawSharedItem = {
       key: 'shared_01HZQ8JUNK',
       count: 0,

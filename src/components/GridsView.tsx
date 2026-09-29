@@ -51,6 +51,8 @@ import { indexResultsByCell, isOwnRow } from '../lib/benchmark.js';
 import {
   buildTopGrid,
   communityGridEntries,
+  entryDomKey,
+  entryOpenKey,
   gridMemberSummary,
   gridPreviewIds,
   missingMembersNotice,
@@ -175,7 +177,7 @@ export function GridsView({
   const entryCard = (entry: GridEntry): React.JSX.Element => {
     const resolved = resolveGridRows(entry, combinations, prompts);
     const missing = missingMembersNotice(resolved, boardTruncated);
-    const key = entry.system ? '__system__' : entry.row.key;
+    const key = entryDomKey(entry);
     const isOwn = !entry.system && isOwnRow(entry.row, viewerId);
     const name = entry.system ? TOP_GRID_NAME : entry.row.name || `#${entry.row.key}`;
     const preview = gridPreviewIds(resolved, byCell);
@@ -227,7 +229,7 @@ export function GridsView({
             <Button
               size="sm"
               variant="light"
-              onClick={() => onOpen(entry.system ? null : entry.row.key)}
+              onClick={() => onOpen(entryOpenKey(entry))}
               data-testid="grid-open"
             >
               Open
@@ -340,10 +342,25 @@ export function GridsView({
       {/* ---- ALL GRIDS: one flat list, no sub-tabs ---- */}
       <Stack gap={10} data-testid="grids-all-section" style={{ minWidth: 0 }}>
         {/* 🔴 THE EMPTY STATE IS ABOUT THE *LIST*, AND THE LIST DOES NOT CONTAIN THE
-            OPEN GRID. Its body used to read "The Top Grid above is always here" — a
-            sentence that was true only because the Top Grid was entry 0 of this list
-            AND the default open grid, so it was above AND below. It is now only ever
-            one of the two.
+            OPEN GRID.
+
+            🔴 THE COPY CHANGE HERE HAS NO ESTABLISHED REASON, AND SAYING SO IS THE
+            HONEST OPTION. The body used to read "The Top Grid above is always here",
+            and an earlier version of this comment (and the PR body) claimed the
+            sidebar/board change had made that FALSE. It did not, and the mechanism is
+            worth writing down so nobody re-derives the false reason: this state renders
+            iff `grids.length === 0`, which makes `communityGridEntries(topGrid, [])`
+            exactly `[topGrid]`, which makes `App`'s `openEntry` the Top Grid
+            UNCONDITIONALLY — `openGridKey === null` returns it, and a non-null key can
+            only name a row in an empty `grids`, so it falls back to it. The Top Grid
+            therefore IS always the grid above, in precisely the one state this empty
+            state appears in.
+
+            The new wording is KEPT (the operator has not objected, and being
+            noun-agnostic is harmless), but it is a STYLE CHOICE with no correctness
+            argument behind it. Per this repo's rule: a copy change whose reason turns
+            out to be false gets recorded as having none, rather than fitted with a
+            better-sounding one composed after the fact.
 
             🔴 AND IT CARRIES NO ACTION. Creating a grid lives on My Benchmarks ▸
             Grids, where the viewer's own grids are; an empty-state button here would
@@ -361,12 +378,18 @@ export function GridsView({
             `openKey` — see that prop for why the resolution happens in `App` and not
             twice.
 
+            🔴 AND IT COMPARES THROUGH `entryOpenKey`, THE SAME HELPER THE CARD'S
+            `data-key` AND THE Open BUTTON USE. All three used to open-code the
+            system/published ternary in three different shapes; this filter is the one
+            where getting it wrong shows the SAME GRID TWICE, once in the panel and once
+            as a card. One rule, one place.
+
             🔴 The Top Grid is entry 0 of `communityGridEntries` by construction, not
             by a sort that happens to put it there — so when it IS listed it is still
             first. ---- */}
         <Stack gap={10} data-testid="grids-list">
           {communityEntries
-            .filter((entry) => (entry.system ? openKey !== null : entry.row.key !== openKey))
+            .filter((entry) => entryOpenKey(entry) !== openKey)
             .map((entry) => entryCard(entry))}
         </Stack>
       </Stack>
