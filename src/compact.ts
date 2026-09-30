@@ -24,6 +24,14 @@
 // `min-width` on {@link ICON_BUTTON_SELECTOR}; its docblock has the argument, the blast
 // radius, and the live reading that is still owed.
 
+// 🔴 THE ONE IMPORT, AND WHY IT DOES NOT BREAK THE React-FREE RULE. `theme.ts`'s
+// only import is `import type { CSSProperties } from 'react'`, which is erased at
+// compile time — so pulling the colour tokens in here adds no runtime dependency and
+// `useMediaQuery.ts` (and any node-project test) can still import this module. The
+// alternative was spelling `var(--civitai-color-*)` a fourth time in a template
+// literal, which is precisely the drift `theme.ts` exists to prevent.
+import { elevate, token } from './theme.js';
+
 /** Marks the block root when the compact (narrow-viewport) layout is active. */
 export const COMPACT_ATTR = 'data-mb-compact';
 
@@ -135,6 +143,34 @@ export const MENU_ITEM_SELECTOR = "[role='menuitem']";
  * been taken. Do not read the tests as coverage of the tap target's actual size.
  */
 export const ICON_BUTTON_SELECTOR = '[data-mb-icon-button]';
+
+/**
+ * The name of the custom property a `SideNav` row reads for its `padding-left`.
+ *
+ * 🔴 DEFINED HERE AND IMPORTED BY `SideNav.tsx`, the same way and for the same
+ * reason as {@link MENU_ITEM_SELECTOR}: this module is React-free, the sheet below
+ * is one of the two ends of the seam, and a string spelled in two files is a string
+ * that drifts.
+ *
+ * 🔴 IT EXISTS BECAUSE A SHEET CANNOT BEAT AN INLINE DECLARATION. `SideNav` writes
+ * `padding-left` in a `style` object, so no author rule here could override it
+ * without `!important` — but an inline `padding-left: var(--mb-nav-indent-1, 24px)`
+ * READS a property this sheet is free to set, which inverts the cascade at no cost.
+ * {@link LAYOUT_ATTR} records the same mechanic for `grid-template-columns`.
+ */
+export function navIndentVar(depth: number): string {
+  return `--mb-nav-indent-${depth}`;
+}
+
+/**
+ * The left inset a nav row keeps on the COMPACT strip, in px.
+ *
+ * It is the depth-0 inset, applied at every depth: the strip is horizontal, so the
+ * wide rail's per-level indent buys no hierarchy there (it is a gap before a label)
+ * while costing one step of width per sub-item on a strip that already overflows.
+ * The nesting is drawn as a bracket instead — see the rule below.
+ */
+export const NAV_COMPACT_INSET_PX = 10;
 
 /** The sidebar's column width, in px, on a wide viewport. */
 export const SIDEBAR_WIDTH_PX = 172;
@@ -483,13 +519,80 @@ export const compactTapTargetCss = (): string => `
    than \`wrap\` so the bar keeps ONE row whatever the label lengths — a wrapping nav
    changes the page's own height as the viewport narrows, which is the thing that put
    two of the three community boards outside the host iframe's crop in the first
-   place. */
-[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'],
+   place.
+
+   🔴 AND IT IS CHROME NOW, NOT FIVE LOOSE WORDS. The strip shipped with no
+   background, no border and no padding, sitting directly on the page body above the
+   content — so at <=${MOBILE_BREAKPOINT_PX}px the page's ONLY primary navigation read
+   as a line of body copy. The fill is \`elevate()\`, never \`surface-2\` (see
+   \`recessedSurface\` in theme.ts: surface-2 equals body in light theme, which on this
+   element would reinstate exactly the problem). The border is what makes the strip's
+   EXTENT visible, which is also the cheapest honest answer to "the last item is cut
+   off": a label running under a visible rounded edge reads as more-to-scroll, where
+   the same label ending in blank page reads as the end of the nav.
+
+   🔴 \`scrollbar-width: thin\` IS FUNCTIONAL, NOT COSMETIC. With overlay scrollbars
+   (the default on every platform this ships to) a scroller at rest is
+   indistinguishable from a clipped box. \`scroll-snap-type: inline proximity\` plus
+   per-item \`scroll-snap-align\` is the other half: the strip lands on an item
+   boundary rather than mid-label, so a partly-visible row cannot be mistaken for a
+   truncated one.
+
+   ⚠️ WHAT THIS DOES **NOT** CLAIM. The reported clipping is a LAYOUT measurement
+   (scrollWidth 437 vs clientWidth 347 at a 390px viewport, with \`Prompts\` past the
+   edge) and jsdom resolves no layout, so nothing in this repo can confirm any of the
+   above changes that number. The indent removal below is the only part that provably
+   takes width out of the strip (one depth step off each of the three sub-items), and it is not
+   enough on its own. A LIVE READING AT 390px IS OWED. */
+[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] {
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
+  justify-content: start;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scroll-snap-type: inline proximity;
+  background: ${elevate(4)};
+  border: 1px solid ${token.border};
+  border-radius: ${token.radius};
+  padding: 3px;
+}
+
+[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] > * {
+  scroll-snap-align: start;
+}
+
+/* 🔴 THE NESTING, AS A BRACKET — because on a ROW an indent conveys nothing.
+   \`SideNav\` expresses depth as \`padding-left\`, which is an indent in the wide rail
+   and merely a GAP BEFORE THE LABEL once the rows are laid out horizontally. So at
+   this breakpoint Home / My Benchmarks / Grids / Matchups / Prompts read as five flat
+   peers, and nothing said that the last three live INSIDE the second. A left rule in
+   the primary colour plus its own inset is the ordinary way to say "these belong to
+   the thing on their left", and unlike an indent it survives the axis change.
+
+   🔴 ONE SCROLL BOUNDARY, NOT TWO. This element used to carry \`overflow-x: auto\`
+   as well, nested inside the strip's own scroller — a second place content can be
+   cut, and one the outer scroller cannot reach. It is \`visible\` here on purpose.
+
+   🔴 AND THE INDENT IS ZEROED THROUGH A CUSTOM PROPERTY, which is the only lever a
+   stylesheet has over a value written inline: \`padding-left\` is set by \`SideNav\`'s
+   \`style\` object, and an inline declaration outranks every non-\`!important\` author
+   rule. \`navIndentVar(1)\` in \`SideNav.tsx\` is the other end of this seam and
+   \`mobile-responsive.test.tsx\` pins the two names together — a rename on either side
+   leaves the sub-items carrying a depth step of dead gap, silently. */
 [${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] {
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   justify-content: start;
-  overflow-x: auto;
+  align-items: center;
+  gap: 2px;
+  overflow-x: visible;
+  border-left: 2px solid ${token.primary};
+  padding-left: 6px;
+  margin-left: 2px;
+  ${navIndentVar(1)}: ${NAV_COMPACT_INSET_PX}px;
 }
 
 @supports (anchor-name: --mb-tooltip) and (anchor-scope: --mb-tooltip) and (position-anchor: --mb-tooltip) and (bottom: anchor(top)) {

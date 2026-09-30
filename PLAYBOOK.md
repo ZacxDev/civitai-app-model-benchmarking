@@ -107,7 +107,10 @@ export const token = {
   dimmed: 'var(--civitai-color-text-dimmed)',
   body: 'var(--civitai-color-body)',
   surface: 'var(--civitai-color-surface)',
-  surface2: 'var(--civitai-color-surface-2)',
+  // 🔴 NO `surface2` ENTRY, DELIBERATELY. See §1e: surface-2 equals `body` in light
+  // theme, and the rule against filling with it was written down three times and
+  // violated anyway. Not offering the token is the only version of the rule that
+  // holds; `recessedSurface` below is the thing to reach for instead.
   border: 'var(--civitai-color-border)',
   primary: 'var(--civitai-color-primary)',
   primaryLight: 'var(--civitai-color-primary-light)',
@@ -123,6 +126,10 @@ export const radius = { sm: token.radius, md: `calc(${token.radius} * 2)`, lg: `
 // which equals body in light). Mix a little text into surface:
 export const elevate = (pct: number) =>
   `color-mix(in srgb, var(--civitai-color-text) ${pct}%, var(--civitai-color-surface))`;
+
+// …and ONE named recess, so "which elevate() is the inset one" is not a judgement
+// call re-made at each site. Always paired with a 1px border.
+export const recessedSurface = elevate(5);
 
 export const mutedText = { color: token.dimmed, fontSize: 13, lineHeight: 1.5 } as const;
 export const metaText  = { color: token.dimmed, fontSize: 12, lineHeight: 1.45 } as const;
@@ -161,6 +168,17 @@ grep -rniE "(background|fill)[^;]*(--civitai-color-surface-2|surface2|--civitai-
 > light theme (`surface-2` == `body`). Grep (b) catches `surface-2`/`gray-*` reached
 > for as a fill/background — the propagating trap. Fix by fill = `elevate(N)` + a
 > `1px solid var(--civitai-color-border)`.
+>
+> 🔴 **AND GREP (b) DID NOT HOLD, WHICH IS THE POINT OF THIS NOTE.** It is a
+> hand-run command in a document; nobody ran it, and `PromptBody.tsx`'s prompt-text
+> `<pre>` shipped `background: token.surface2` regardless — with the rule *also*
+> written above the token in `theme.ts` and *also* above the one correct site in
+> `GatedCell.tsx`. Three statements of a rule, one violation. **A rule that lives
+> only in prose is a rule with no home.** In this repo (b) is now a test —
+> `src/theme.test.ts` runs the scan over every non-test file in `src/` on every CI
+> run — and, more to the point, `theme.ts` **no longer exports a `surface2` token**,
+> so the wrong value cannot be reached for at all. Copy the deletion, not just the
+> grep: making the mistake unspellable beats detecting it.
 
 ### 1f. Use the `/ui` components for ALL UI — the actual inventory
 

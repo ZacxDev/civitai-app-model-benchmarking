@@ -42,7 +42,10 @@
 // 🔴 NO TESTID THAT EXISTED WHEN THIS MARKUP LIVED IN `GridsView` WAS RENAMED —
 // `grid-open-panel`, `grid-open-title`, `grid-open-system-badge` and
 // `grid-missing-notice` are the originals. Extracting a component is not a reason to
-// rename a selector.
+// rename a selector. (⚠️ `grid-open-system-badge` has since been DELETED, not
+// renamed — the "System grid" pill was removed on operator feedback and
+// `grid-open-system-note` is the system marker now. The don't-rename rule is
+// unaffected: deleting a control deletes its selector.)
 //
 // ⚠️ THE REASON GIVEN FOR THAT USED TO BE A FALSE CROSS-REFERENCE: "`grid-open-panel`
 // is addressed by `capture-landmarks.test.tsx` and read by an external capture recipe".
@@ -203,11 +206,11 @@ export function GridOpenPanel({
           <strong style={{ fontSize: 15 }} data-testid="grid-open-title">
             {name}
           </strong>
-          {entry.system && (
-            <Badge variant="light" data-testid="grid-open-system-badge">
-              System grid
-            </Badge>
-          )}
+          {/* 🔴 NO "System grid" BADGE — removed on operator feedback, same call as
+              the card's in `GridsView.tsx`. `grid-open-system-note` below already
+              says what this entry is, in a sentence, under the same `entry.system`
+              condition; the badge was its first two words in a pill. The NOTE is the
+              system marker on this surface now, and it is what the tests read. */}
           {/* 🔴 OWNERSHIP AS A BADGE, from the SAME `isOwn` that gates Remove below —
               one predicate, so the label and the affordance cannot disagree. A
               DISTINCT testid from the card's `grid-own-badge` for the reason every

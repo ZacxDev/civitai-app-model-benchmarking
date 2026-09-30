@@ -653,10 +653,13 @@ describe('420 — the 44px figure itself', () => {
     renderApp();
     await screen.findByTestId('side-nav');
 
-    // The three My Benchmarks sub-items only exist while the group is expanded, so the
-    // click is part of the reachability claim — the same reason the menu case had to
-    // open the popover.
-    await userEvent.click(screen.getByTestId('nav-my'));
+    // The three My Benchmarks sub-items only exist while the group is expanded.
+    // ⚠️ IT USED TO TAKE A CLICK HERE, AND THAT CLICK IS NOW THE BUG. The group opens
+    // by DEFAULT (operator feedback #1), so the press that used to expand it would
+    // now COLLAPSE it and the five nodes the ledger below counts would be two. The
+    // expanded state is still part of the reachability claim; it is simply the state
+    // the nav arrives in, and it is asserted rather than assumed.
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
     await screen.findByTestId('nav-my-group');
 
     const items = document.querySelectorAll(`[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR}`);
@@ -1288,5 +1291,194 @@ describe('the sidebar → top-bar collapse (CSS text and reachability only)', ()
     // …and the emitted sheet's own comment carries the same number, so the two cannot
     // describe different breakpoints.
     expect(compactTapTargetCss()).toContain('under 720px');
+  });
+});
+
+// ===========================================================================
+// 🔴 OPERATOR FEEDBACK #5 (F2) — the top bar lost the GROUPING, and clipped.
+//
+// MEASURED LIVE, at a 390px viewport: the nav strip's `scrollWidth` was 437 against a
+// `clientWidth` of 347, with `Prompts` past the right edge. And with the rows laid
+// out horizontally, `SideNav`'s depth `padding-left` stopped being an indent at all —
+// on a row it is just a gap before the label — so Home / My Benchmarks / Grids /
+// Matchups / Prompts read as FIVE FLAT PEERS, with nothing saying that the last three
+// live inside the second. The strip also had no background, border or padding, so the
+// page's only primary navigation read as a line of body copy.
+//
+// THREE CHANGES, and they are not equally well covered:
+//
+//   1. THE NESTING becomes a BRACKET (`border-left` in the primary colour, plus its
+//      own inset) — a device that survives the axis change, unlike an indent.
+//   2. THE DEAD INDENT is zeroed THROUGH A CUSTOM PROPERTY, which is the only lever a
+//      stylesheet has over a value `SideNav` writes inline. This is the one change
+//      that provably removes width from the strip.
+//   3. THE STRIP BECOMES CHROME — `elevate()` fill, border, radius, padding — plus a
+//      thin scrollbar and inline scroll-snap, so that an overflowing strip READS as
+//      scrollable rather than as truncated.
+//
+// ⚠️ AND THE HONEST CEILING, WHICH IS LOWER THAN THE FEEDBACK ASKS FOR. jsdom performs
+// NO LAYOUT: `scrollWidth`/`clientWidth` are 0 here and no grid is resolved. NOTHING
+// below observes the 437-vs-347 number, whether the bracket is visible, or whether a
+// partly-scrolled row is still mistakable for a truncated one. What these cases pin is
+// what `compact.ts`'s header already scopes itself to — the declarations are in the
+// emitted sheet, and the selectors match live nodes — plus ONE seam that is worth more
+// than either: that the property `SideNav` READS is the property this sheet SETS.
+// A LIVE READING AT 390px IS OWED and has not been taken.
+// ===========================================================================
+
+/** The declaration block for `selector`, as `prop -> value`, from an emitted sheet. */
+function declarationsFor(css: string, selector: string): Record<string, string> {
+  const at = css.indexOf(selector);
+  if (at < 0) return {};
+  const open = css.indexOf('{', at);
+  const close = css.indexOf('}', open);
+  if (open < 0 || close < 0) return {};
+  const out: Record<string, string> = {};
+  for (const decl of css.slice(open + 1, close).split(';')) {
+    const colon = decl.indexOf(':');
+    if (colon < 0) continue;
+    out[decl.slice(0, colon).trim()] = decl.slice(colon + 1).trim().replace(/\s+/g, ' ');
+  }
+  return out;
+}
+
+describe('the compact nav strip: grouping, chrome, and one scroll boundary', () => {
+  const stripSelector = `[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] {`;
+  const groupSelector = `[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] {`;
+
+  it('🔴 PREMISE: both blocks parse, so every assertion below reads a real block', () => {
+    // The positive control for this whole describe. `declarationsFor` returns `{}`
+    // for a selector it cannot find, and `{}[x]` is `undefined` — which compares
+    // equal to nothing and silently satisfies a `not.toBe` chain. Prove the parse
+    // first, by a property that is not itself under test.
+    const css = compactTapTargetCss();
+    expect(declarationsFor(css, stripSelector)['grid-auto-flow']).toBe('column');
+    expect(declarationsFor(css, groupSelector)['grid-auto-flow']).toBe('column');
+  });
+
+  it('🔴 the sub-group is drawn as a BRACKET, not as an indent', () => {
+    const group = declarationsFor(compactTapTargetCss(), groupSelector);
+    // A left rule in the PRIMARY colour, so the sub-items read as belonging to the
+    // trigger on their left. The colour is asserted because a `border-left` in the
+    // border token would be indistinguishable from the strip's own edge.
+    expect(group['border-left']).toBe('2px solid var(--civitai-color-primary)');
+    // …and the bracket needs its own inset, or the rule sits flush against a label.
+    expect(group['padding-left']).toBeTruthy();
+  });
+
+  it('🔴 there is exactly ONE scroll boundary — the group is no longer a scroller', () => {
+    // 🔴 THE GROUP USED TO CARRY `overflow-x: auto` TOO, nested inside the strip's
+    // own scroller: a second place content can be cut, and one the OUTER scroller
+    // cannot scroll to. `visible` is asserted rather than merely "not auto", because
+    // an absent declaration and a correct one must not read the same.
+    const css = compactTapTargetCss();
+    expect(declarationsFor(css, stripSelector)['overflow-x']).toBe('auto');
+    expect(declarationsFor(css, groupSelector)['overflow-x']).toBe('visible');
+  });
+
+  it('🔴 the strip is CHROME: a fill that works in both themes, a border, and padding', () => {
+    const strip = declarationsFor(compactTapTargetCss(), stripSelector);
+    expect(strip['border']).toBe('1px solid var(--civitai-color-border)');
+    expect(strip['border-radius']).toBe('var(--civitai-radius)');
+    expect(strip['padding']).toBeTruthy();
+    // 🔴 THE FILL IS A `color-mix`, NEVER `surface-2`. On this element specifically,
+    // surface-2 would reinstate the exact bug `src/theme.test.ts` exists for: it
+    // equals `body` in light theme, so the strip would have no fill there — i.e. the
+    // "reads as body copy" complaint, unfixed, in one of the two themes.
+    expect(strip['background']).toContain('color-mix(');
+    expect(strip['background']).not.toContain('var(--civitai-color-surface-2)');
+    // …and the overflow is made legible rather than left to overlay scrollbars.
+    expect(strip['scrollbar-width']).toBe('thin');
+    expect(strip['scroll-snap-type']).toBe('inline proximity');
+    expect(
+      declarationsFor(compactTapTargetCss(), `[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] > * {`)[
+        'scroll-snap-align'
+      ],
+      'the snap axis is set but nothing snaps to it',
+    ).toBe('start');
+  });
+
+  it('🔴 SEAM: the sheet sets the SAME custom property the nav row reads', async () => {
+    // 🔴 THE ONE CASE HERE THAT IS WORTH MORE THAN A TEXT CHECK, because the two ends
+    // of this seam live in different files and one of them is an INLINE style the
+    // other cannot override by any other means. `SideNav` writes
+    // `padding-left: var(--mb-nav-indent-1, 24px)`; this sheet sets
+    // `--mb-nav-indent-1`. Rename either and the sub-items silently keep a depth step
+    // of dead gap on a strip that is already overflowing — no error, no visual
+    // difference a reviewer would catch, and the whole width saving gone.
+    //
+    // BOTH SIDES ARE SPELLED HERE AS LITERALS. Importing `navIndentVar` and using it
+    // on both sides would pass at any value, which is the shape of a guard that pins
+    // nothing.
+    const group = declarationsFor(compactTapTargetCss(), groupSelector);
+    expect(group['--mb-nav-indent-1']).toBe('10px');
+
+    setViewport('mobile');
+    renderApp();
+    await screen.findByTestId('side-nav');
+    // The group is open by default, so the sub-items are on screen with no
+    // interaction — and this is also the reachability control for the rule above.
+    expect(
+      document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-testid='nav-my-group']`),
+      'the sub-group selector reached no live node',
+    ).toHaveLength(1);
+
+    const sub = screen.getByTestId('nav-my-grid');
+    expect(sub.style.paddingLeft).toBe('var(--mb-nav-indent-1, 24px)');
+    // …and the depth-0 rows read a DIFFERENT property, so zeroing the sub-item indent
+    // cannot silently move Home as well.
+    expect(screen.getByTestId('nav-home').style.paddingLeft).toBe('var(--mb-nav-indent-0, 10px)');
+  });
+});
+
+// ===========================================================================
+// 🔴 OPERATOR FEEDBACK #3, THE NARROW HALF — the responsive matrix must not
+// change anything below the floor.
+//
+// `ResultsGrid.test.tsx` pins the template at the component level. This is the other
+// measurement point: the claim "a track can only ever get WIDER" is a claim about TWO
+// viewports, and one reading cannot make it. The template is emitted by the same code
+// path at both, so what this actually proves is that no compact rule overrides the
+// tracks — which is the way the narrow story would break.
+//
+// ⚠️ Still no layout. This cannot see that the last column is reachable at 390px.
+// ===========================================================================
+
+describe('the responsive matrix at a narrow viewport', () => {
+  it('🔴 emits the SAME floored template at 380px as it does on the desktop arm', async () => {
+    setViewport('mobile');
+    renderApp();
+    const scroller = await openGrid();
+    await waitFor(() => expect(screen.getAllByTestId('grid-cell')).toHaveLength(EXPECTED_CELLS));
+
+    const grid = scroller.firstElementChild as HTMLElement;
+    // A LITERAL: the fixture is two prompts, so this string is knowable without
+    // reading the component. The floor is what makes the matrix wider than this
+    // viewport by construction, which is what keeps the scroller doing its job.
+    expect(grid.style.gridTemplateColumns).toBe(
+      'minmax(180px, 220px) repeat(2, minmax(200px, 1fr))',
+    );
+    expect(scroller.style.overflowX).toBe('auto');
+
+    // 🔴 AND NO COMPACT RULE TOUCHES THE TRACKS. The sheet DOES carry a
+    // `grid-template-columns` override — for the sidebar/content layout — so "the
+    // sheet mentions grid-template-columns" is not the question; the question is
+    // whether any of them is aimed at the matrix.
+    expect(compactTapTargetCss()).not.toContain('results-grid');
+  });
+
+  it('🔴 the DESKTOP arm reads the same template — the negative control', async () => {
+    setViewport('desktop');
+    renderApp();
+    const scroller = await openGrid();
+    await waitFor(() => expect(screen.getAllByTestId('grid-cell')).toHaveLength(EXPECTED_CELLS));
+
+    const grid = scroller.firstElementChild as HTMLElement;
+    expect(grid.style.gridTemplateColumns).toBe(
+      'minmax(180px, 220px) repeat(2, minmax(200px, 1fr))',
+    );
+    // The compact layout really is absent here, so the case above measured a
+    // DIFFERENT arm rather than the same one twice.
+    expect(document.querySelectorAll(`[${COMPACT_ATTR}='true']`)).toHaveLength(0);
   });
 });

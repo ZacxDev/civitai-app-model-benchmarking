@@ -292,7 +292,7 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     // `getAllByTestId('grid-card')[0]`, which is exactly the coupling the change
     // under test breaks: the open grid is no longer listed.
     expect(await screen.findByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
 
     // The OPEN matrix renders exactly those rows — the top five by votes
     // (91, 68, 55, 47, 22), not the seven on the board and not the seed order.
@@ -472,7 +472,7 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-yank']));
     const [first, second] = screen.getAllByTestId('grid-card');
 
-    expect(within(first).getByTestId('grid-system-badge')).toBeInTheDocument();
+    expect(within(first).getByTestId('grid-system-note')).toBeInTheDocument();
     expect(within(first).getByTestId('grid-card-name')).toHaveTextContent(TOP_GRID_NAME);
     expect(second.getAttribute('data-key')).toBe('gk-yank');
 
@@ -487,6 +487,54 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(within(first).getByTestId('grid-system-note')).toHaveTextContent(
       /cannot be voted on and it is not part of the vote order/i,
     );
+  });
+
+  // 🔴 OPERATOR FEEDBACK #2 — the "System grid" BADGE is gone from both surfaces.
+  //
+  // It restated the first two words of the note that sits directly beneath it, in a
+  // pill, and pushed the member summary along the row to do it. The NOTE stays: it is
+  // the sentence that explains why the entry has no vote control, which is the part a
+  // reader actually needs.
+  //
+  // 🔴 THE GUARD IS AN ENUMERATED SET OF BADGES, NOT A `queryByTestId(…)).toBeNull()`.
+  // An absence keyed on the old testid is walkable by re-adding the same pill under
+  // any other name, which — on a surface whose whole complaint was "too many pills" —
+  // is the likely shape of the regression. Enumerating what the pack actually rendered
+  // (`[data-civitai-ui='badge']`, the attribute `Badge` stamps on its own host) fails
+  // when a badge is ADDED as loudly as when one is removed.
+  it('🔴 LEDGER: the system entry renders ONE badge on the card and ONE in the panel', async () => {
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, OTHER] }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    const badgeTexts = (root: HTMLElement): string[] =>
+      Array.from(root.querySelectorAll("[data-civitai-ui='badge']")).map((b) =>
+        (b.textContent ?? '').trim(),
+      );
+
+    // POSITIVE CONTROL for the selector itself: a PUBLISHED card, which has always
+    // carried a member badge, so a zero below is a measured zero rather than a
+    // mis-spelled attribute. (This also proves the reader can see badges at all.)
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
+    const published = screen.getAllByTestId('grid-card')[0]!;
+    expect(badgeTexts(published).length, 'the badge selector matched nothing').toBeGreaterThan(0);
+
+    // THE OPEN SYSTEM PANEL: exactly one badge, and it is the member summary — no
+    // "System grid" pill, and no second pill of any other spelling.
+    const panel = screen.getByTestId('grid-open-panel');
+    expect(badgeTexts(panel)).toEqual([
+      within(panel).getByTestId('grid-open-members').textContent?.trim(),
+    ]);
+    expect(within(panel).getByTestId('grid-open-system-note')).toBeInTheDocument();
+
+    // THE SYSTEM CARD: same ledger, on the other surface. Open a published grid so
+    // the Top Grid is pushed back into the list as a card.
+    await openListed('gk-yank');
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__']));
+    const card = screen.getAllByTestId('grid-card')[0]!;
+    expect(badgeTexts(card)).toEqual([
+      within(card).getByTestId('grid-card-members').textContent?.trim(),
+    ]);
+    expect(within(card).getByTestId('grid-system-note')).toBeInTheDocument();
   });
 
   it('offers no author affordances on the Top Grid — there is no author', async () => {
@@ -533,7 +581,7 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     // The two swap: gk-one is now the panel, the Top Grid is back in the list.
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent('One');
-    expect(screen.queryByTestId('grid-open-system-badge')).toBeNull();
+    expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
   });
 
   it('🔴 exactly ONE entry is missing from the list, whichever grid is open', async () => {
@@ -767,7 +815,12 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered, so
     // the FIVE nulls below are not five ways of saying "nothing is on screen". (A draft
     // said "three"; there are four controls plus the description.)
-    expect(within(panel).getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    //
+    // ⚠️ IT USED TO BE THE "System grid" BADGE, which is gone — removed on operator
+    // feedback, the note beside it having always said the same thing in a sentence.
+    // The TITLE carries the control now, and deliberately not the note: the note is
+    // one of the things this case is testing, and a control has to be independent of
+    // the claim it licenses.
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
 
     expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
@@ -801,9 +854,8 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
 
     const panel = await screen.findByTestId('grid-open-panel');
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    // It is NOT the system entry, so: no badge, no note, and all the controls a
-    // published grid by another author gets.
-    expect(within(panel).queryByTestId('grid-open-system-badge')).toBeNull();
+    // It is NOT the system entry, so: no note, and all the controls a published grid
+    // by another author gets.
     expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
     expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
     expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();

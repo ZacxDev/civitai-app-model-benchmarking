@@ -103,14 +103,29 @@ import type { CombinationData, PromptData } from './types.js';
  *
  * Literals on BOTH sides — this table IS the contract the recipe buys. `contains`
  * means "this landmark is a container, and the named testid must be inside it";
- * `click` means "pressing it must make the named testid appear".
+ * `click` means "pressing it must make the named testid appear"; `toggles` means
+ * "the named testid is ALREADY on screen, and pressing hides it and shows it again".
+ *
+ * 🔴 `toggles` EXISTS BECAUSE A DEFAULT CHANGED, AND THAT IS A CONTRACT CHANGE THE
+ * RECIPE HAS TO SEE. `nav-my` was a `click` landmark: press it to reveal the My
+ * Benchmarks group. The group now opens by DEFAULT (operator feedback #1), so a
+ * recipe step that presses `nav-my` to expose the sub-items HIDES them instead —
+ * silently, and in a screenshot rather than in an error. Re-labelling the row is what
+ * makes that visible to whoever maintains the recipe; deleting it, or quietly turning
+ * it into a `contains` on the parent, would have let the stale step stand.
+ *
+ * ⚠️ ONE ROW PER LANDMARK TESTID. The distinct-node case in criterion 2 maps this
+ * table's FIRST column to elements and asserts the set size equals the row count, so
+ * a second row about an existing landmark fails it — which is why "the group needs no
+ * press at all" is asserted INSIDE the `toggles` case rather than added here as a
+ * `['side-nav', 'contains', 'nav-my-group']` row.
  */
 const LANDMARKS = [
   // 🔴 THE NAV LANDMARKS THAT REPLACED `contribute-trigger`. A recipe needs a way to
   // reach each community board and the viewer's own surface; these are it.
   ['side-nav', 'contains', 'nav-home'],
   ['board-nav', 'contains', 'board-nav-grids'],
-  ['nav-my', 'click', 'nav-my-group'],
+  ['nav-my', 'toggles', 'nav-my-group'],
   // The OPEN grid and its matrix, which are on Home whichever board is selected.
   ['section-open-grid', 'contains', 'results-grid'],
   ['section-grids', 'contains', 'grids-list'],
@@ -122,7 +137,7 @@ const LANDMARKS = [
   // ABSENT from the table, so a recipe step using it was outside the contract —
   // nothing stopped it being renamed or re-pointed, and the ledger did not count it.
   ['grid-col-header', 'click', 'prompt-detail'],
-] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains', string]>;
+] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains' | 'toggles', string]>;
 
 /**
  * Landmarks the recipe USED to address and which must not silently come back.
@@ -434,6 +449,21 @@ describe('capture landmarks — criterion 3: the name→surface mapping', () => 
         await screen.findByTestId('results-grid');
         const host = screen.getByTestId(testid);
         expect(within(host).getByTestId(expected)).toBeInTheDocument();
+      });
+    } else if (kind === 'toggles') {
+      it(`[data-testid='${testid}'] toggles ${expected}, which starts VISIBLE`, async () => {
+        renderApp();
+        await screen.findByTestId('results-grid');
+        // The default state IS the contract's first clause — a recipe that assumes a
+        // press is needed is wrong from the first step.
+        expect(screen.getByTestId(expected), `${expected} did not start open`).toBeInTheDocument();
+
+        await userEvent.click(screen.getByTestId(testid));
+        expect(screen.queryByTestId(expected), `${expected} survived the press`).toBeNull();
+
+        // …and back, so the landmark is a toggle rather than a one-way dismissal.
+        await userEvent.click(screen.getByTestId(testid));
+        expect(await screen.findByTestId(expected)).toBeInTheDocument();
       });
     } else {
       it(`clicking [data-testid='${testid}'] opens ${expected}`, async () => {
