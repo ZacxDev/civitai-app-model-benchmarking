@@ -1383,7 +1383,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     expect(screen.queryByTestId('subtab-my-grid')).toBeNull();
     expect(screen.queryByTestId('my-signed-out-grid')).toBeNull();
     // Also real, and also absent from the community board: the private panel.
-    expect(screen.queryByTestId('unpublished-panel')).toBeNull();
+    expect(screen.queryByTestId('my-list-panel')).toBeNull();
     expect(screen.queryByTestId('new-unpublished')).toBeNull();
 
     // 🔴 NOT ONE WRITE ATTEMPTED, per-viewer or shared, on anything it offered.
@@ -1583,7 +1583,7 @@ describe('the My / Community partition for grids (§11.1)', () => {
 //
 // ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH ADDED "which is strictly stronger than a
 // latch and cannot unmount mid-report at all". That is FALSE and the claim is retracted:
-// navigating to Home unmounts `MyGridsView` and takes `UnpublishedList`'s local publish
+// navigating to Home unmounts `MyGridsView` and takes `MyList`'s local publish
 // `error` with it. The unconditional panel closes the LIST-EMPTYING path only. See
 // `MyGridsView`'s own header for the full record, and
 // `src/publishPointerFailure.test.tsx` for the case that pins the real behaviour.

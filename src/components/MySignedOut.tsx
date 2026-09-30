@@ -79,7 +79,10 @@ export function MyTabSignedOut({
     <Stack gap={10} data-testid={`my-signed-out-${noun}`}>
       <EmptyState
         title="Sign in to see your own work"
-        body={`Your unpublished ${noun}s are stored against your account, so there is nothing to show while you're signed out. The community boards are readable either way.`}
+        /* Trimmed to the one fact a signed-out viewer needs — the second sentence
+           ("The community boards are readable either way") described a surface they
+           are not on and can see for themselves in the sidebar. */
+        body={`Your ${noun}s are stored against your account, so there is nothing to show while you're signed out.`}
         action={
           <Button size="sm" onClick={onRequireAuth} data-testid={`my-sign-in-${noun}`}>
             Sign in

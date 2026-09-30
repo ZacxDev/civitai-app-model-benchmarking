@@ -565,10 +565,12 @@ describe('420 — the 44px figure itself', () => {
     // The LoRA slider is only reachable through the author-scoped Edit affordance, and
     // the viewer's own rows are a sidebar destination now rather than a sub-tab.
     await openMyList('matchup');
-    // The Edit affordance is a ⋮ menu item now (the third IA pass), so the route to
-    // the LoRA weight slider grew one click. The premise of this case is unchanged.
-    const menu = await openRowMenu('matchup');
-    await userEvent.click(within(menu).getByTestId('matchup-edit'));
+    // ⚠️ THE ROUTE MOVED AGAIN AND IS NOW SHORTER. The third IA pass put Edit in the
+    // row's ⋮; the My Benchmarks consolidation promoted it back ONTO the row (the ⋮
+    // there holds Remove and Archive). On the COMMUNITY board Edit is still a menu
+    // item. The premise of this case — a range control only reachable through the
+    // author-scoped edit form — is unchanged either way.
+    await userEvent.click(await screen.findByTestId('matchup-edit'));
 
     const ranges = document.querySelectorAll(
       `[${COMPACT_ATTR}='true'] [data-civitai-ui-range]`,

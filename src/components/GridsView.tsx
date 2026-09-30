@@ -8,7 +8,7 @@
 //   - the OPEN grid's panel + matrix → `GridOpenPanel`, rendered by `App` ABOVE the
 //     board subnav, because the open grid stays on Home whichever board is selected;
 //   - the viewer's UNPUBLISHED grids → `MyGridsView` (My Benchmarks ▸ Grids);
-//   - ARCHIVE → `MyPublished`, on that same surface. Archive is an author-side hide
+//   - ARCHIVE → `MyList`, on that same surface. Archive is an author-side hide
 //     of the viewer's own row from THEIR OWN list (§11.3, and `ARCHIVE_NOTE` says so
 //     in words); this list is the shared board, where an archived row is supposed to
 //     stay visible to everyone INCLUDING the archiver. While the grids section had no

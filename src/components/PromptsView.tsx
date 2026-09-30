@@ -4,7 +4,7 @@
 // 🔴 THE MY/COMMUNITY SUB-TABS ARE GONE, for exactly the reasons `MatchupsView`'s
 // header gives — "My" is a sidebar destination (My Benchmarks ▸ Prompts) and this
 // board is community-only. The §11.1 partition itself is unchanged, and the
-// own/archived split is `MyPublished`, one implementation shared with the matchup and
+// own/archived split is `MyList`, one implementation shared with the matchup and
 // grid surfaces rather than the near-identical copy this file used to carry.
 
 import { Alert, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
@@ -15,10 +15,9 @@ import type { PromptRow, UnpublishedPrompt } from '../types.js';
 import { includedSummary, isOwnRow } from '../lib/benchmark.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
-import { MyPublished } from './MyPublished.js';
+import { MyList } from './MyList.js';
 import { MyTabSignedOut } from './MySignedOut.js';
 import { PromptBody } from './PromptBody.js';
-import { UnpublishedList } from './UnpublishedList.js';
 
 /* 🔴 `INCLUDED_COLUMN_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED with the
    `prompt-included` badge — the mirror of the matchup side. See `PromptBody`'s
@@ -123,6 +122,27 @@ export function PromptsView({
     </Card>
   );
 
+  /**
+   * The MY-surface card — see `MatchupsView.myCard` for why `onEdit`/`onWithdraw` are
+   * omitted: `MyList` supplies the whole action group, and passing them here would put
+   * two `⋮` menus on one row, each holding half of it.
+   */
+  const myCard = (prompt: PromptRow, actions: ReactNode): React.JSX.Element => (
+    <Card key={prompt.key} withBorder padding="md" data-testid="prompt-card" data-key={prompt.key}>
+      <PromptBody
+        prompt={prompt}
+        voted={votedKeys.has(prompt.key)}
+        reported={reportedKeys.has(prompt.key)}
+        viewerId={viewerId}
+        onVote={onVote}
+        onUnvote={onUnvote}
+        onRequireAuth={onRequireAuth}
+        onReport={onReport}
+        extraActions={actions}
+      />
+    </Card>
+  );
+
   const status = (
     <>
       {error && (
@@ -147,10 +167,11 @@ export function PromptsView({
           <MyTabSignedOut noun="prompt" onRequireAuth={onRequireAuth} />
         ) : (
           <Stack gap={14} data-testid="my-panel">
-            <UnpublishedList
+            <MyList
               /* 🔴 KEYED ON THE VIEWER — see `MatchupsView` for the swap this closes. */
               key={viewerId}
-              items={unpublished.map((rec) => {
+              noun="prompt"
+              drafts={unpublished.map((rec) => {
                 const overrides = Object.keys(rec.overrides ?? {}).length;
                 return {
                   localId: rec.localId,
@@ -162,23 +183,20 @@ export function PromptsView({
                   description: rec.description,
                 };
               })}
-              noun="prompt"
-              quotaLine={quotaLine}
-              onNew={() => onNewUnpublished?.()}
-              onEdit={(localId) => onEditUnpublished?.(localId)}
-              onDiscard={(localId) => onDiscardUnpublished?.(localId)}
-              onPublish={(localId) => onPublishUnpublished?.(localId)}
-            />
-
-            <MyPublished
-              noun="prompt"
               rows={own}
               keyOf={(row) => row.key}
               archivedKeys={archivedKeys ?? new Set<string>()}
               loading={loading}
+              quotaLine={quotaLine}
+              onNew={() => onNewUnpublished?.()}
+              onEditDraft={(localId) => onEditUnpublished?.(localId)}
+              onDiscardDraft={(localId) => onDiscardUnpublished?.(localId)}
+              onPublishDraft={(localId) => onPublishUnpublished?.(localId)}
+              onEditPublished={onEdit}
+              onWithdraw={onWithdraw}
               onArchive={onArchive}
               onUnarchive={onUnarchive}
-              renderCard={card}
+              renderCard={myCard}
             />
           </Stack>
         )}

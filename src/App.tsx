@@ -24,7 +24,7 @@
 // `capture-landmarks.test.tsx` now pins the SET per destination rather than one list.
 //
 // 🔴 THE PER-BOARD My/Community SUB-TABS ARE GONE, AND THE MACHINERY BEHIND THEM IS NOT.
-// Drafts, archive and quota all moved to My Benchmarks (`MyPublished`, `MyGridsView`),
+// Drafts, archive and quota all moved to My Benchmarks (`MyList`, `MyGridsView`),
 // which is also where `ARCHIVE_NOTE`'s promise — "stays in Community for everyone
 // including you" — is true again. The community boards still carry the vote lists the
 // Top Grid's members come out of; folding THOSE away is what would starve it.
@@ -123,6 +123,7 @@ import type {
   CombinationRow,
   DraftRecord,
   DraftUnsubmitted,
+  GridRow,
   InflightRun,
   PromptRow,
   UnpublishedGrid,
@@ -173,7 +174,13 @@ import {
   unpubPromptKey,
   unpubPromptToInput,
 } from './lib/unpubPrompts.js';
-import { buildGridPayload, newGridLocalId, unpubGridKey, type GridInput } from './lib/grids.js';
+import {
+  buildGridPayload,
+  gridToInput,
+  newGridLocalId,
+  unpubGridKey,
+  type GridInput,
+} from './lib/grids.js';
 import {
   buildUnpubGrid,
   isPublishedGrid,
@@ -294,11 +301,17 @@ type ModalState =
   | { kind: 'prompt-detail'; promptKey: string }
   | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
   | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean }
-  // 🔴 A grid has only the PRIVATE form. Matchups and prompts each have a public
-  // one too (submit straight to the board); a grid does not, because a grid is
-  // assembled from other people's rows and there is no reason to make that
-  // assembly public before the author has looked at it. One form, one store.
-  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean };
+  // 🔴 A grid has no public CREATE form. Matchups and prompts each have one (submit
+  // straight to the board); a grid does not, because a grid is assembled from other
+  // people's rows and there is no reason to make that assembly public before the
+  // author has looked at it. One create form, one store.
+  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean }
+  // 🔴 …but a PUBLISHED grid IS editable, and this is the kind that does it. It is
+  // separate from `unpub-grid` for the same reason `combo` is separate from `draft`:
+  // the two save to DIFFERENT STORES (`shared.update` vs `appStorage.set`), and a
+  // single branch deciding which store a save lands in is exactly the branch that
+  // gets got wrong later.
+  | { kind: 'grid'; edit: GridRow };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -1075,7 +1088,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * twenty-line 🔴 argument on that premise. Both halves are now false: this stack
    * deleted `ContributeMenu` (so there is no menu item), and `GridsView` no longer
    * renders the private panel at all — it moved to `MyGridsView`. The single caller
-   * is `MyGridsView.onNewUnpublished`, i.e. `UnpublishedList`'s `new-unpublished`.
+   * is `MyGridsView.onNewUnpublished`, i.e. `MyList`'s `new-unpublished`.
    * And that caller cannot press it anonymously: `MyGridsView` returns
    * `MyTabSignedOut` for `viewerId == null` and renders no private panel, which
    * `myBenchmarks.test.tsx` asserts as a positive fact ("an ANONYMOUS viewer gets the
@@ -1519,15 +1532,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *  4. On that failure the private record is DELETED, best-effort. Its only
    *     remaining purpose was to become the pointer, and the row is reachable
    *     without it (every "this is yours" surface filters on `isOwnRow`, i.e. on
-   *     `authorUserId`, never on pointer presence — "Published by you" for
-   *     matchups and prompts, the `grid-own-badge` on the flat grids list). This
+   *     `authorUserId`, never on pointer presence — the "Your <noun>s" list for
+   *     all three nouns, the `grid-own-badge` on the flat grids list). This
    *     is what makes the retirement survive a RELOAD instead of only a
    *     re-render: `publishedLocalIds` is React state, so without the delete the
    *     next load re-reads the store — the very store that could not be written
    *     — and offers Publish again.
    *     The delete can itself be refused, so its outcome is OBSERVED and handed
    *     to the copy rather than assumed.
-   *  5. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
+   *  5. The failure is RE-THROWN as viewer copy, never swallowed. `MyList`
    *     catches it and renders it; a quiet `finally` here is what made this
    *     invisible in the first place. The copy BRANCHES on step 4's outcome —
    *     see `publishPointerFailedNotice`, which is true either way.
@@ -1731,6 +1744,44 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const updatePrompt = useCallback(
     async (key: string, input: PromptInput) => {
       const payload = buildPromptPayload(input) as SharedStorageValue;
+      await depsRef.current.shared.update(key, payload);
+      optimisticUpdate(key, payload);
+      closeModal();
+      reload();
+    },
+    [reload, closeModal, optimisticUpdate],
+  );
+
+  /**
+   * Edit a PUBLISHED grid in place — name, description AND members.
+   *
+   * 🔴 IT DID NOT EXIST, AND ITS ABSENCE WAS THE FEATURE GAP. `updateCombination` and
+   * `updatePrompt` have shipped since their objects did; a published grid had no edit
+   * route at all, so `lib/unpublished.ts`'s half-published notice told grid authors, in
+   * words, that "a published grid cannot be edited". That sentence moved with this
+   * function.
+   *
+   * 🔴 WHY EDITING MEMBERS IS SAFE HERE AND IS NOT A GENERAL LICENCE. A grid stores
+   * `matchupKeys[]` / `promptKeys[]` — REFERENCES. A result cell is keyed
+   * `comboKey::configId::promptKey` (`lib/benchmark.ts`) and is shared by EVERY grid
+   * containing those members, so dropping a member stops DISPLAYING its cells and
+   * orphans nothing; re-adding it brings them back. Editing a MATCHUP is the opposite:
+   * it can drop a `configId`, and the result rows keyed on that id are then
+   * unreachable and unrecoverable.
+   *
+   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI's NARROWING IS THE SAME ONE THE OTHER
+   * TWO USE. `shared.update` is author-scoped server-side for every row kind alike;
+   * the control is only ever rendered from `MyList`, which is handed `ownGrids` —
+   * `isOwnRow`-narrowed. The community grids board passes no edit callback at all.
+   *
+   * `buildGridPayload` runs the same normalisation a publish does (order preserved,
+   * de-duplicated, capped), and `GridForm` runs `validateGrid` before calling this on
+   * the edit path exactly as on the create path — so an edit cannot store a grid shape
+   * a create could not.
+   */
+  const updateGrid = useCallback(
+    async (key: string, input: GridInput) => {
+      const payload = buildGridPayload(input) as SharedStorageValue;
       await depsRef.current.shared.update(key, payload);
       optimisticUpdate(key, payload);
       closeModal();
@@ -2765,8 +2816,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     loading={loading}
                     /* 🔴 THE SAME `error` EVERY OTHER SURFACE GETS. It used to be
                        omitted here alone, so a failed `listAll` rendered
-                       `my-published-empty` — "You have no published grids on the board
-                       right now" — an absence the app never observed, while My ▸
+                       the list's empty line — an absence the app never
+                       observed, while My ▸
                        Matchups showed `matchups-error` on the same failure. */
                     error={error}
                     archivedKeys={archivedKeys}
@@ -2780,6 +2831,11 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     onEditUnpublished={editGridById}
                     onDiscardUnpublished={deleteUnpubGrid}
                     onPublishUnpublished={publishGridById}
+                    /* 🔴 THE PUBLISHED-GRID EDIT ROUTE, and it is wired ONLY here.
+                       `GridsView` (the community board) is passed no edit callback,
+                       so the control cannot appear on a row the viewer does not own
+                       — the same shape as the matchup and prompt surfaces. */
+                    onEditPublished={(row) => setModal({ kind: 'grid', edit: row })}
                   />
                 )}
 
@@ -2977,9 +3033,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             />
           )}
         </Modal>
-        {/* The PRIVATE grid form. 🔴 There is no public sibling: a grid has ONE
+        {/* The PRIVATE grid form. 🔴 There is no public CREATE sibling: a grid has ONE
             create path and it lands in the per-viewer store. Publishing it is a
-            separate, explicit button on the record (see `publishUnpubGrid`). */}
+            separate, explicit button on the record (see `publishUnpubGrid`), and
+            editing it AFTER that is the `grid` modal below. */}
         <Modal
           opened={modal.kind === 'unpub-grid'}
           onClose={closeModal}
@@ -2998,6 +3055,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               initial={modal.initial}
               submitLabel="Save privately"
               onSubmit={(input) => saveUnpubGrid(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* 🔴 THE PUBLISHED-GRID EDIT FORM — the SAME `GridForm`, so `validateGrid`
+            runs on this path exactly as on the create path and an edit cannot store a
+            shape a create could not. Only the store differs: `updateGrid` →
+            `shared.update`, author-scoped, key and vote total preserved. */}
+        <Modal opened={modal.kind === 'grid'} onClose={closeModal} title="Edit grid" size="lg">
+          {modal.kind === 'grid' && (
+            <GridForm
+              key={modal.edit.key}
+              matchupItems={matchupPickerItems}
+              promptItems={promptPickerItems}
+              initial={gridToInput(modal.edit)}
+              submitLabel="Save changes"
+              onSubmit={(input) => updateGrid(modal.edit.key, input)}
               onCancel={closeModal}
             />
           )}

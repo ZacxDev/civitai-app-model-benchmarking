@@ -55,7 +55,13 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 import { App, type AppDeps } from './App.js';
 import { MyGridsView } from './components/MyGridsView.js';
 import { ARCHIVE_KEY } from './lib/archive.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openMyList } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+} from './test-helpers.js';
 import type {
   CombinationData,
   CombinationRow,
@@ -204,11 +210,14 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
     await openMyList('grid');
     await waitFor(() => expect(keysOf('grid-card')).toEqual(['gk-mine']));
 
-    await userEvent.click(screen.getByTestId('archive-action'));
+    // 🔴 ARCHIVE IS BEHIND THE ROW'S ⋮ NOW — one overflow menu per row holding Remove
+    // and Archive, with Edit promoted onto the row. It is not hidden, it is unmounted
+    // until the menu opens.
+    await userEvent.click(within(await openRowMenu('grid')).getByTestId('archive-action'));
 
     // 🔴 HALF ONE — gone from MY.
     await waitFor(() => expect(keysOf('grid-card')).toEqual([]));
-    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
     // …recorded in the ONE per-viewer key §11.3 specifies, and nowhere else.
     await waitFor(() => expect(store.get(ARCHIVE_KEY)).toEqual(['gk-mine']));
 
@@ -249,10 +258,14 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
         'Remove is the only action that takes it off the board for everyone.',
     );
 
-    // …and it sits with the control it describes, not on some other screen.
-    expect(screen.getByTestId('archive-action')).toBeInTheDocument();
+    // …and it sits with the control it describes, not on some other screen. Both
+    // controls live in the row's ⋮ now, so the menu is opened to see them — and the
+    // note is rendered OUTSIDE it, which is the point: it is readable without arming
+    // anything.
+    const menu = await openRowMenu('grid');
+    expect(within(menu).getByTestId('archive-action')).toBeInTheDocument();
     // The true delete is still offered, and still separate (§11.3).
-    expect(screen.getByTestId('grid-withdraw')).toBeInTheDocument();
+    expect(within(menu).getByTestId('grid-withdraw')).toBeInTheDocument();
   });
 
   it('🔴 SURVIVES A RELOAD: a stored archive is read back on mount', async () => {
@@ -280,7 +293,7 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
     await screen.findByTestId('grid-view');
     await openMyList('grid');
 
-    await userEvent.click(await screen.findByTestId('archive-action'));
+    await userEvent.click(within(await openRowMenu('grid')).getByTestId('archive-action'));
     await waitFor(() => expect(store.get(ARCHIVE_KEY)).toEqual(['gk-mine']));
 
     await userEvent.click(await screen.findByTestId('archived-toggle'));
@@ -297,7 +310,7 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
   });
 
   it("offers no archive control on ANOTHER author's grid", async () => {
-    // The ownership half read through its edge: `MyPublished` is handed the viewer's own
+    // The ownership half read through its edge: `MyList` is handed the viewer's own
     // rows only, so a row it cannot archive is not on this surface at all — which is a
     // stronger statement than "the button is hidden".
     const { shared } = fakeShared({ seed: [...MEMBERS, MINE, THEIRS] });
@@ -306,7 +319,12 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
     await openMyList('grid');
 
     await waitFor(() => expect(keysOf('grid-card')).toEqual(['gk-mine']));
-    expect(screen.queryAllByTestId('archive-action')).toHaveLength(1);
+    // 🔴 COUNTED AT THE ⋮ RATHER THAN AT THE ITEM, because the items are unmounted
+    // while their menu is closed — a count of `archive-action` would now be 0 whether
+    // or not the other author's row were here, i.e. vacuous. One trigger = one row
+    // that can be archived, and opening it yields exactly one Archive.
+    expect(screen.queryAllByTestId('grid-menu')).toHaveLength(1);
+    expect(within(await openRowMenu('grid')).getAllByTestId('archive-action')).toHaveLength(1);
   });
 });
 
@@ -316,7 +334,7 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
 
 describe('🔴 all three nouns share ONE archive implementation', () => {
   // 🔴 THE POINT OF THIS BLOCK IS THE SEAM, not a third copy of criterion 12.
-  // `MyPublished` is one component used by three surfaces; before it, the matchup and
+  // `MyList` is one component used by three surfaces; before it, the matchup and
   // prompt views each carried a near-identical copy of this logic and the grids view a
   // third that DISAGREED with its own sibling predicate — an archived row the viewer did
   // not own was hidden from the one list AND absent from the archived list, leaving no
@@ -336,8 +354,8 @@ describe('🔴 all three nouns share ONE archive implementation', () => {
 
       // The panel's own list testid is noun-scoped, so this is the shared component
       // rendering for THIS noun rather than a leftover from another surface.
-      expect(await screen.findByTestId(`my-published-${noun}`)).toBeInTheDocument();
-      await userEvent.click(screen.getByTestId('archive-action'));
+      expect(await screen.findByTestId(`my-list-${noun}`)).toBeInTheDocument();
+      await userEvent.click(within(await openRowMenu(noun)).getByTestId('archive-action'));
 
       // One key written, and it is this noun's row — so the three surfaces are not
       // sharing a single hardcoded key.
@@ -433,6 +451,7 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     viewerId: number | null;
     unpublished?: UnpublishedGrid[];
     onPublishUnpublished?: (localId: string) => Promise<void> | void;
+    onEditPublished?: (row: GridRow) => void;
     loading?: boolean;
     error?: string | null;
     /** Override the published set — `[]` is what a FAILED read leaves behind. */
@@ -456,6 +475,7 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
         onEditUnpublished={vi.fn()}
         onDiscardUnpublished={vi.fn()}
         onPublishUnpublished={opts.onPublishUnpublished ?? vi.fn()}
+        onEditPublished={opts.onEditPublished ?? vi.fn()}
       />
     );
   }
@@ -472,7 +492,7 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     // ⚠️ THIS PARAGRAPH USED TO END "— which cannot unmount mid-report at all, and that
     // was the latch's other job". RETRACTED. It is FALSE: an unconditional panel closes
     // the LIST-EMPTIED unmount path, but NAV is a second one — selecting Home or another
-    // My noun unmounts `MyGridsView` and takes `UnpublishedList`'s local publish `error`
+    // My noun unmounts `MyGridsView` and takes `MyList`'s local publish `error`
     // with it, and nothing brings it back. `MyGridsView`'s header, `gridsView.test.tsx`
     // and `publishPointerFailure.test.tsx` all carry the retraction; this file was the
     // FOURTH copy and the previous round's sweep missed it. It is also the surface a
@@ -487,7 +507,12 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     // them are retractions; this was the one assertion.
     render(view({ viewerId: VIEWER_ID, unpublished: [] }));
     expect(screen.getByTestId('my-grids-unpublished')).toBeInTheDocument();
-    expect(screen.getByTestId('unpublished-empty')).toBeInTheDocument();
+    // ⚠️ THE FIXTURE HAS A PUBLISHED GRID (`view`'s default `ownGrids`), so the merged
+    // list is NOT empty — what "no records" means here is no DRAFT row. That is the
+    // claim `my-list-empty` would NOT make, which is why it is asserted as an absence
+    // of `unpublished-card` beside the list's presence.
+    expect(screen.getByTestId('my-list-grid')).toBeInTheDocument();
+    expect(screen.queryByTestId('unpublished-card')).toBeNull();
     // …and the create route is here with nothing in the list, which is what makes this
     // the create surface rather than one you can only reach once you already have a grid.
     expect(screen.getByTestId('new-unpublished')).toBeInTheDocument();
@@ -495,9 +520,9 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
 
   it('🔴 a viewer swap does not carry the PREVIOUS viewer\'s publish error', async () => {
     // The invariant the latch reset never covered, and the reason `key={viewerId}` is on
-    // `UnpublishedList`: the host can swap the signed-in viewer WITHOUT remounting
+    // `MyList`: the host can swap the signed-in viewer WITHOUT remounting
     // (`src/viewer-change.test.tsx`), the panel legitimately stays mounted across the
-    // swap, and `UnpublishedList` holds its publish `error` in LOCAL state cleared only
+    // swap, and `MyList` holds its publish `error` in LOCAL state cleared only
     // by the next `publish()`. Pre-fix this alert — naming A's failed publish and telling
     // the reader 'Do NOT publish it again' — was shown to B.
     const onPublishUnpublished = vi.fn(async () => {
@@ -530,8 +555,7 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
 
   // 🔴 A FAILED READ MUST NOT RENDER AS A CONFIRMED ZERO. This surface had NO `error`
   // prop at all and `App` passed none, so a rejected `listAll` fell through to
-  // `my-published-empty` — "You have no published grids on the board right now" — an
-  // absence the app never observed. My ▸ Matchups renders `matchups-error` on the same
+  // the list's empty line — an absence the app never observed. My ▸ Matchups renders `matchups-error` on the same
   // failure, so grids was the one surface of three that answered a failure with a
   // confident zero. The App-level half is the `🔴 App SEAM` case a few below, IN THIS
   // FILE. ⚠ A draft pointed at `myCommunity.test.tsx`; that file has no error-handling
@@ -543,17 +567,17 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
     expect(screen.getByTestId('grids-error')).toHaveTextContent('Could not read the board');
     // POSITIVE CONTROL that this is the same surface the empty line renders on — so the
     // assertion above is about a state this component really reaches, not a fixture that
-    // rendered nothing. (The empty line still renders BESIDE the alert: `MyPublished` is
+    // rendered nothing. (The empty line still renders BESIDE the alert: `MyList` is
     // told about `loading` only, and that is true of all three nouns — see the `error`
     // prop's own docblock for why suppressing it is not bundled here.)
-    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
   });
 
   it('🔴 says it is LOADING rather than showing an empty list while the read is in flight', () => {
     render(view({ viewerId: VIEWER_ID, loading: true }));
     expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
-    // …and the empty line is withheld while loading, which `MyPublished` already does.
-    expect(screen.queryByTestId('my-published-empty')).toBeNull();
+    // …and the empty line is withheld while loading, which `MyList` already does.
+    expect(screen.queryByTestId('my-list-empty')).toBeNull();
   });
 
   // 🔴 AND THE APP HALF, BECAUSE A PROP THAT EXISTS IS NOT A GUARD. The three cases

@@ -128,9 +128,12 @@ export function GridForm({
         </Button>
       </Group>
 
+      {/* Trimmed: the first sentence restated what the two pickers above already
+          show. What survives is the claim a viewer cannot derive — what happens when
+          somebody else withdraws a member. */}
       <span style={mutedText}>
-        A grid points at rows other people own. If one of them is removed from the board later, this
-        grid keeps working — it renders what is left and says how much is gone.
+        If a member is removed from the board later, this grid renders what is left and says how
+        much is gone.
       </span>
 
       {errors.length > 0 && (
