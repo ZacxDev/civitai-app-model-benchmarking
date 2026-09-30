@@ -337,7 +337,16 @@ export function MyList<Row>({
       {/* 🔴 THE HONEST WORDING, rendered NEXT TO the control rather than behind a
           tooltip. A viewer who reads "Archive" as "removed" has been told something the
           code cannot back (§2.2 + §9 Q2). */}
-      {live.length > 0 && (
+      {/* 🔴 AND THE GATE IS `live OR archived`, NOT `live`. Gating on `live` alone
+          silently dropped this sentence in the ONE state that needs it most: a viewer
+          whose only own row is archived, with no drafts, saw "No <noun>s yet.", a bare
+          "Show archived (1)" and nothing anywhere saying the row is still public — the
+          list reads as empty, which is precisely when "Archive" gets read as "removed".
+          The pre-merge components rendered it whenever the toggle rendered; the merge
+          narrowed it by accident and it was not among the four declared copy cuts. A
+          round-0 audit found it. `src/myBenchmarks.test.tsx` already exercised that
+          state GREEN without checking the wording. */}
+      {(live.length > 0 || archived.length > 0) && (
         <span style={metaText} data-testid="archive-note">
           {ARCHIVE_NOTE}
         </span>

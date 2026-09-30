@@ -54,7 +54,7 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { MyGridsView } from './components/MyGridsView.js';
-import { ARCHIVE_KEY } from './lib/archive.js';
+import { ARCHIVE_KEY, ARCHIVE_NOTE } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
@@ -284,6 +284,25 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
 
     await waitFor(() => expect(screen.getByTestId('archived-toggle')).toBeInTheDocument());
     expect(keysOf('grid-card')).toEqual([]);
+
+    // 🔴 AND THE HONEST WORDING SURVIVES THE ARCHIVED-ONLY STATE, which is the one
+    // that needs it. This case already reached here — zero live rows, one archived,
+    // no drafts — and asserted only that the toggle existed, so a gate of
+    // `live.length > 0` on `archive-note` dropped the sentence and stayed GREEN. The
+    // screen then said "No grids yet.", offered "Show archived (1)", and nowhere said
+    // the row was still public: the list reads as EMPTY, which is exactly when a
+    // viewer reads "Archive" as "removed". Found by a round-0 audit, not by a test.
+    // `queryByTestId`, not `getByTestId`: `get*` THROWS during argument evaluation, so
+    // `expect`'s message never prints and the failure reads as a generic
+    // "Unable to find an element" — measured. `query*` returns null and lets the
+    // named assertion below be the thing that speaks.
+    const note = screen.queryByTestId('archive-note');
+    expect(
+      note,
+      'the archived-only state says nothing about the row still being public',
+    ).not.toBeNull();
+    expect(note).toHaveTextContent(ARCHIVE_NOTE);
+
     // …and still on the community board, for the archiver too.
     await userEvent.click(screen.getByTestId('nav-home'));
     await waitFor(() => expect(keysOf('grid-card').sort()).toEqual(['gk-mine', 'gk-theirs']));
