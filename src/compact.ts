@@ -538,18 +538,46 @@ export const compactTapTargetCss = (): string => `
    boundary rather than mid-label, so a partly-visible row cannot be mistaken for a
    truncated one.
 
-   ⚠️ WHAT THIS DOES **NOT** CLAIM. The reported clipping is a LAYOUT measurement
-   (scrollWidth 437 vs clientWidth 347 at a 390px viewport, with \`Prompts\` past the
-   edge) and jsdom resolves no layout, so nothing in this repo can confirm any of the
-   above changes that number. The indent removal below is the only part that provably
-   takes width out of the strip (one depth step off each of the three sub-items), and it is not
-   enough on its own. A LIVE READING AT 390px IS OWED. */
+   🔴 THE CLIPPING HALF OF THIS ITEM IS **NOT CLOSED**, AND IS TRACKED SEPARATELY.
+   What ships here is the GROUPING half — bracket, fill, border, radius, one scroll
+   boundary, snap. The reported clipping is a LAYOUT measurement (scrollWidth 437 vs
+   clientWidth 347 at 390px, with \`Prompts\` past the edge) and jsdom resolves no
+   layout, so nothing in this repo can confirm any of the above moves that number.
+
+   ⚠️ AND THE WIDTH ARITHMETIC IS WORSE THAN AN EARLIER VERSION OF THIS NOTE SAID.
+   It claimed the indent removal "is the only part that provably takes width out" —
+   3 x 14px = 42px. True as far as it goes, but the SAME rules add chrome back: strip
+   \`padding: 3px\` (+6), strip border (+2), group \`border-left: 2px\` (+2), group
+   \`padding-left: 6px\` (+6), group \`margin-left: 2px\` (+2) = **+18px**. Net is
+   about **-24px against a ~90px overflow**, roughly a quarter of the gap — not -42px.
+   Arithmetic over declared values; it cannot be measured here for the same reason the
+   rest cannot.
+
+   🔴 AND THE DEFAULT-OPEN CHANGE MADE THE CLIPPED STATE UNCONDITIONAL. Before it,
+   \`expanded\` was \`useState(onMyView)\` — \`false\` on Home — and \`{expanded && ...}\`
+   rendered no group, so the 390px strip was TWO items and fit. Reproducing 437-vs-347
+   took a press. Now it is \`useState(true)\`, so every mobile session lands on Home
+   with the five-item overflowing strip and no interaction. The two changes were
+   batched as independent and are not: one promotes the other's defect from
+   reachable-on-press to default. Found by a round-0 audit, not by a test.
+
+   ✅ CLOSING CONDITION, mechanical and owed to a human or an agent with a browser:
+   a live reading in the real host at a 390px viewport, on Home, with NO interaction,
+   showing \`document.querySelector("[data-testid='side-nav-list']")\` has
+   \`scrollWidth <= clientWidth\`. Until that passes, treat the clipping as OPEN. */
+/* 🔴 NO \`gap\` IN THIS RULE, DELIBERATELY. \`SideNav.tsx\` writes \`gap: 2\` INLINE on
+   this element, and an inline declaration outranks every non-\`!important\` author rule —
+   the same cascade fact this file states four times and \`navIndentVar\` exists to work
+   around. A 4px gap sat here and was INERT; a round-0 audit found it, not a test,
+   because the cases below read this sheet's TEXT and cannot see a computed gap.
+   ⚠️ APPLYING IT PROPERLY WOULD BE WRONG ANYWAY: 4px across five items ADDS ~16px to a
+   strip already overflowing by ~90px at 390px. The inline 2px is the value we want; a
+   compact-specific gap would need a custom property, never a rule that loses. */
 [${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] {
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   justify-content: start;
   align-items: center;
-  gap: 4px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
@@ -582,12 +610,13 @@ export const compactTapTargetCss = (): string => `
    rule. \`navIndentVar(1)\` in \`SideNav.tsx\` is the other end of this seam and
    \`mobile-responsive.test.tsx\` pins the two names together — a rename on either side
    leaves the sub-items carrying a depth step of dead gap, silently. */
+/* No \`gap\` here either: \`SideNav.tsx\` sets it inline on this element too, so a rule
+   could only restate what inline already won. A 2px gap sat here and was a pure no-op. */
 [${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] {
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   justify-content: start;
   align-items: center;
-  gap: 2px;
   overflow-x: visible;
   border-left: 2px solid ${token.primary};
   padding-left: 6px;

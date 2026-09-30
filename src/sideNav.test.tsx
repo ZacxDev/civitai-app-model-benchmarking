@@ -599,10 +599,20 @@ describe('SideNav — the ACTIVE row is marked the way the pack marks an active 
   const norm = (v: string) => v.trim().replace(/\s+/g, ' ');
 
   it('🔴 PREMISE: the pack really does give its active segment a visible treatment', () => {
-    // The positive control for the whole describe. Every assertion below compares
-    // against this object; if the parse returned `{}` — a renamed attribute, a
-    // reformatted sheet, a changed export — the comparisons would be `undefined` vs
-    // `undefined` and pass while checking nothing.
+    // 🔴 THE RATIONALE THIS COMMENT USED TO GIVE WAS FALSE, AND A ROUND-0 AUDIT
+    // MEASURED IT. It claimed that without this case a `{}` parse would leave the
+    // behavioural assertions comparing `undefined` to `undefined` and passing while
+    // checking nothing. Measured: rename the marker to an unmatchable string and
+    // **2 of 24 cases go red** — this one AND "the active row mirrors the pack". The
+    // left-hand side is always a real declared string read off the component, so
+    // `toBe(undefined)` fails loudly. There is no silent pass to protect against.
+    //
+    // 🔴 WHAT IT ACTUALLY DOES, which nothing else here does: the `Object.keys`
+    // ledger below fails if the pack ADDS A FOURTH declaration to its active
+    // segment. That divergence leaves every behavioural case GREEN — they assert the
+    // three we mirror — while the nav silently stops matching the pack. That is the
+    // reason to keep this case, and the reason not to prune it on the sentence that
+    // used to be here.
     const pack = packActiveSegmentDeclarations();
     expect(Object.keys(pack).sort()).toEqual(['background', 'box-shadow', 'color']);
     // …and it is the PRIMARY colour plus a shadow that carries it, not the fill. The
