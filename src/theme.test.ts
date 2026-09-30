@@ -146,6 +146,14 @@ describe('the recessed-fill rule has exactly ONE home', () => {
     expect(modulesContaining(FORBIDDEN_VAR)).toEqual([]);
   });
 
+  // ⚠️ INVARIANT GUARD — NOT REGRESSION COVERAGE, and measured as such: this case is
+  // GREEN at `origin/main`. Nothing ever forked `color-mix(`; the bug this file exists
+  // for was a `surface-2` token, not a second mixer. It is labelled rather than
+  // deleted because the consolidation is only durable while the helper stays single,
+  // and it is VALIDATED BY MUTATION rather than by a red base: adding
+  // `color-mix(in srgb, red 5%, blue)` to `components/Menu.tsx` turns this case — and
+  // only this case — red, with its own message. The three cases above it ARE
+  // regression coverage (red at `origin/main`).
   it('🔴 SCAN: `elevate()` is still the only way this app spells a tint', () => {
     // The mirror of the case above, and the reason the deletion is not enough on its
     // own: `recessedSurface` exists so that recesses stop being open-coded, so the

@@ -17,7 +17,25 @@
 // was `aria-haspopup="menu"` and its items were `role="menuitem"`. These are plain
 // `<button>`s inside a `role="list"`; `getAllByRole('menuitem')` finds nothing.
 //
-// ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
+// ── 🔴 COVERAGE LABEL: READ THE SPLIT — IT IS NO LONGER "NONE OF THIS" ───────
+//
+// ⚠️ THIS HEADER USED TO SAY "NONE OF THIS IS REGRESSION COVERAGE", FULL STOP, AND
+// THAT IS NOW FALSE FOR TWO OF THE FOUR DESCRIBE BLOCKS. The paragraph below is still
+// exactly right about the ORIGINAL cases — they arrived with their subject — but two
+// blocks were added later against a tree where `SideNav.tsx` already existed, and they
+// were measured RED there. Corrected rather than reworded, because a coverage label
+// that overstates in the SAFE direction still stops the next reader looking:
+//
+//   - `the group is OPEN by default …`     — the default-expanded case is RED at
+//     `origin/main` (the group started shut on Home); the collapse-sticks case beside
+//     it is GREEN there and is labelled an INVARIANT GUARD in place, with the mutation
+//     that kills it recorded.
+//   - `the ACTIVE row is marked the way the pack marks an active tab`  — both
+//     behavioural cases RED at `origin/main` (the active row declared `token.text` and
+//     no shadow). The PREMISE case is a positive control on the pack's stylesheet and
+//     is green at any tree, by design.
+//
+// Everything in the two ORIGINAL describe blocks remains as the paragraph below says.
 //
 // THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/sideNav.test.tsx` and
 // `src/components/SideNav.tsx` were both added by `8a4b681`, and NEITHER exists on
@@ -502,6 +520,14 @@ describe('SideNav — the group is OPEN by default, and a collapse STICKS', () =
     );
   });
 
+  // ⚠️ INVARIANT GUARD — NOT REGRESSION COVERAGE, and measured: this case is GREEN at
+  // `origin/main`, because the effect was already one-way there and the group already
+  // started shut on Home, so "a collapse sticks" was trivially true. It guards the
+  // change's blast radius rather than the change, and it is VALIDATED BY MUTATION:
+  // widening the effect to `useEffect(() => { setExpanded(true); }, [onMyView, view])`
+  // turns this case — and only this case, out of 24 in this file — red, on its own
+  // `aria-expanded="false"` assertion at the rerender. The default-expanded case
+  // above it IS regression coverage (red at `origin/main`).
   it('🔴 collapsing on HOME STAYS collapsed — the effect must not re-open it', async () => {
     // 🔴 THE MUTANT THIS EXISTS FOR: widening `SideNav`'s effect from
     // `if (onMyView) setExpanded(true)` to an unconditional `setExpanded(true)`, or
