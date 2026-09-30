@@ -1769,8 +1769,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * it can drop a `configId`, and the result rows keyed on that id are then
    * unreachable and unrecoverable.
    *
-   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI's NARROWING IS THE SAME ONE THE OTHER
-   * TWO USE. `shared.update` is author-scoped server-side for every row kind alike;
+   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI REACHES THE SAME OUTCOME BY A DIFFERENT
+   * ROUTE THAN THE OTHER TWO — this said "the same one they use", which is false and
+   * would mislead anyone copying it: those two pass `onEdit` on the community card and
+   * gate it in the body, while grids pass none at all. See `onEditPublished`. `shared.update` is author-scoped server-side for every row kind alike;
    * the control is only ever rendered from `MyList`, which is handed `ownGrids` —
    * `isOwnRow`-narrowed. The community grids board passes no edit callback at all.
    *
@@ -2834,7 +2836,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     /* 🔴 THE PUBLISHED-GRID EDIT ROUTE, and it is wired ONLY here.
                        `GridsView` (the community board) is passed no edit callback,
                        so the control cannot appear on a row the viewer does not own
-                       — the same shape as the matchup and prompt surfaces. */
+                       . 🔴 AND THIS IS NOT THE SHAPE THE OTHER TWO USE — an earlier
+                       comment here said it was, and a maintainer copying that would ship
+                       an UNGATED control. `MatchupsView`/`PromptsView` pass `onEdit` on
+                       the COMMUNITY card too (`PromptsView.tsx:117`) and narrow INSIDE
+                       the body (`MatchupBody.tsx:122`, `canEdit = isOwn && onEdit !==
+                       undefined`). `GridsView` wires no edit at all and has NO body-level
+                       edit gate, so mirroring their call site into it yields Edit on every
+                       foreign row. Opposite designs; only the outcome matches.
+                       ⚠️ AND THE ASYMMETRY IS REAL: a matchup or prompt author gets Edit
+                       on the community board, a grid author does not and must go to My
+                       Benchmarks. Recorded so it reads as a choice, not an oversight. */
                     onEditPublished={(row) => setModal({ kind: 'grid', edit: row })}
                   />
                 )}

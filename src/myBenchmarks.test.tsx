@@ -387,6 +387,24 @@ describe('🔴 all three nouns share ONE archive implementation', () => {
       await userEvent.click(screen.getByTestId('archived-toggle'));
       expect(await screen.findByTestId('archived-list')).toBeInTheDocument();
       expect(screen.getByTestId('unarchive-action')).toBeInTheDocument();
+
+      // 🔴 AND THE RECOVERY SURFACE KEEPS ITS FULL ACTION SET, which nothing pinned.
+      // A round-1 mutation replaced the archived row's `publishedActions(...)` with
+      // `null` — every archived row losing Edit AND Remove — and the whole dom project
+      // stayed GREEN (40 files / 565). This is code the merge authored: before it, an
+      // archived row got Remove from `MyGridsView.card`'s inline `WithdrawButton`; now
+      // it comes from `MyList`. Archived is a per-viewer HIDE, so it is the one surface
+      // where a viewer goes specifically to act on a row they had set aside — losing
+      // Edit and Remove there strands it with only Unarchive.
+      const archivedRow = within(screen.getByTestId('archived-list'));
+      expect(
+        archivedRow.queryByTestId(`${noun}-edit`),
+        'an archived row lost Edit — it can be recovered but not changed',
+      ).not.toBeNull();
+      expect(
+        archivedRow.queryByTestId(`${noun}-menu`),
+        'an archived row lost its ⋮ — Remove is unreachable from the recovery surface',
+      ).not.toBeNull();
     });
   }
 });
@@ -646,10 +664,19 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
 // ===========================================================================
 // THE MY-BENCHMARKS REWORK — five changes, and the coverage matrix for each.
 //
-// 🔴 EVERY CASE IN THIS SECTION WAS WATCHED FAIL ON `origin/main` @ 36777e5 (the
-// commit this branch is cut from), driven through the real App against the same
-// fixtures. None is an invariant guard: each pins a property the pre-change tree
-// did not have, and the red-at-base symptom is recorded per case.
+// 🔴 EVERY CASE IN THIS SECTION WAS RUN AGAINST `origin/main` @ 36777e5 (the commit
+// this branch is cut from), driven through the real App against the same fixtures,
+// and the red-at-base symptom is recorded per case.
+//
+// ⚠️ 21 OF THE 23 ARE RED AT BASE. TWO ARE NOT. An earlier version of this header
+// said "none is an invariant guard" while the per-case label further down said the
+// opposite — and the header is where a reader looks first, so the block read as 23
+// cases of regression coverage when it is 21. Measured at base: 43 tests, 31 failed /
+// 12 passed; among the 12 are `change 5 … matchup:` and its `prompt:` sibling, whose
+// `grid:` sibling correctly fails. Those two arms are INVARIANT GUARDS and are not
+// regression coverage — before the merge the two lists were separate components, so a
+// published card structurally could not carry an `unpublished-*` control. They are
+// justified by mutation instead.
 // ===========================================================================
 
 const MINE_M = row('mk-mine', 5, 'My matchup', comboData('cfg-mine'), VIEWER_ID);
