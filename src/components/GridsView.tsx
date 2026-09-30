@@ -209,11 +209,13 @@ export function GridsView({
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
               <strong data-testid="grid-card-name">{name}</strong>
-              {entry.system && (
-                <Badge variant="light" data-testid="grid-system-badge">
-                  System grid
-                </Badge>
-              )}
+              {/* 🔴 NO "System grid" BADGE. It was removed on operator feedback: the
+                  card already carries `grid-system-note` — a full sentence saying
+                  what the system entry IS and why it cannot be voted on — so the
+                  badge restated the note's first two words in a pill and pushed the
+                  member summary along the row for nothing. The NOTE is the label;
+                  every test that used the badge as "this is the system entry" reads
+                  the note instead. Do not re-add it without deleting the note. */}
               {/* 🔴 OWNERSHIP AS A BADGE, which is what replaced the My tab on this
                   surface. It is derived from the SAME `isOwnRow` predicate that gates
                   the owner-only controls beside it, so the label and the affordances
