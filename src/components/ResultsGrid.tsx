@@ -124,6 +124,30 @@ export interface ResultsGridProps {
  * app assumes a stable cell width and must be re-measured.
  */
 const CELL_MIN_W = 200;
+
+/**
+ * The CEILING on a prompt column, in px. The other half of the `minmax()`.
+ *
+ * 🔴 IT EXISTS BECAUSE `1fr` HAS NO UPPER BOUND AND A SPARSE GRID IS PUBLISHABLE.
+ * `validateGrid` requires only ONE prompt, so a published 1-prompt grid is legal;
+ * with `1fr` its single column took the entire remaining width, and the
+ * publish-preview strip inside it blew two thumbnails to ~1150px each on a 2560px
+ * monitor. That is the opposite extreme from the 200px ribbon the responsive change
+ * was made to fix, and a round-1 audit found it — no test could, because jsdom
+ * resolves no grid.
+ *
+ * 🔴 A CEILING IS NOT A RETURN TO A FIXED TRACK. The cell still grows 200 -> 420,
+ * so the operator's ask ("make the grid images larger") is delivered at every
+ * viewport that has the room; what it stops is the UNBOUNDED case. Past the
+ * ceiling the matrix left-aligns and the page keeps its margin, rather than one
+ * column stretching to fill a monitor.
+ *
+ * ⚠️ 420 IS A JUDGEMENT, NOT A MEASUREMENT, and nothing here can measure it — jsdom
+ * performs no layout. It is ~2.1x the old fixed width, which is a visible increase
+ * without being a poster. The live reading owed for this change should look at the
+ * case that bites: FEW PROMPTS on a WIDE viewport, not a wide viewport generally.
+ */
+const CELL_MAX_W = 420;
 const ROW_H_HEADER = 56;
 
 /**
@@ -301,7 +325,7 @@ export function ResultsGrid({
   // every cell's contents were built for (see {@link CELL_MIN_W}). The two halves
   // are a pair: `1fr` alone would let a busy board crush the columns to
   // unreadable, and the floor alone is the fixed ribbon this replaces.
-  const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, minmax(${CELL_MIN_W}px, 1fr))`;
+  const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, minmax(${CELL_MIN_W}px, ${CELL_MAX_W}px))`;
 
   // 🔴 The <div> below is the app's horizontal-scroll BOUNDARY, and the responsive
   // track above did NOT retire it. A grid track cannot shrink below its `minmax()`

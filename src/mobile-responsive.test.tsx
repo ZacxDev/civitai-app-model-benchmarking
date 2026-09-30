@@ -1492,8 +1492,15 @@ describe('the responsive matrix at a narrow viewport', () => {
     // A LITERAL: the fixture is two prompts, so this string is knowable without
     // reading the component. The floor is what makes the matrix wider than this
     // viewport by construction, which is what keeps the scroller doing its job.
+    //
+    // 🔴 AND THE CEILING IS PART OF THE LITERAL, DELIBERATELY. It was `1fr`, which
+    // has no upper bound — and `validateGrid` permits a ONE-prompt grid, so that
+    // single column took the whole remaining width on a wide monitor. A round-1
+    // audit found it; nothing here could, because jsdom resolves no grid and this
+    // assertion reads the DECLARED string. Pinning the whole string is what makes
+    // a silent return to `1fr` fail, rather than a regex that would accept either.
     expect(grid.style.gridTemplateColumns).toBe(
-      'minmax(180px, 220px) repeat(2, minmax(200px, 1fr))',
+      'minmax(180px, 220px) repeat(2, minmax(200px, 420px))',
     );
     expect(scroller.style.overflowX).toBe('auto');
 
@@ -1512,7 +1519,7 @@ describe('the responsive matrix at a narrow viewport', () => {
 
     const grid = scroller.firstElementChild as HTMLElement;
     expect(grid.style.gridTemplateColumns).toBe(
-      'minmax(180px, 220px) repeat(2, minmax(200px, 1fr))',
+      'minmax(180px, 220px) repeat(2, minmax(200px, 420px))',
     );
     // The compact layout really is absent here, so the case above measured a
     // DIFFERENT arm rather than the same one twice.

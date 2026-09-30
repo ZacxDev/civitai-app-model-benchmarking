@@ -174,8 +174,8 @@ const confirmingRun = (estimatedCost: number | undefined): CellRun => ({
 // a narrow one. `mobile-responsive.test.tsx` holds the narrow half of this claim.
 // ===========================================================================
 
-describe('🔴 the prompt columns flex to the viewport, with a floor', () => {
-  it('emits minmax(floor, 1fr) per prompt — not a fixed track', () => {
+describe('🔴 the prompt columns flex to the viewport, with a floor AND a ceiling', () => {
+  it('emits minmax(floor, ceiling) per prompt — neither a fixed track nor unbounded', () => {
     renderGrid(); // two prompts
 
     // POSITIVE CONTROL: the matrix really rendered, so the template read below is a
@@ -188,20 +188,32 @@ describe('🔴 the prompt columns flex to the viewport, with a floor', () => {
     const scroller = screen.getByTestId('results-grid');
     const grid = scroller.firstElementChild as HTMLElement;
 
-    // 🔴 A LITERAL, INCLUDING THE COLUMN COUNT. Building the expectation from
-    // `prompts.length` or from an exported constant is what makes a guard agree with
-    // whatever the implementation happens to say; the fixture has exactly two
-    // prompts, so this string is knowable without reading the component.
-    expect(grid.style.gridTemplateColumns).toBe(
-      'minmax(180px, 220px) repeat(2, minmax(200px, 1fr))',
-    );
-
-    // …and stated again as the two independent claims that literal bundles, so a
-    // failure says WHICH half broke: a fixed track has no `1fr`, a floorless one has
-    // no `minmax(200px`.
-    expect(grid.style.gridTemplateColumns, 'the columns cannot grow').toContain('1fr');
+    // 🔴 THE THREE NAMED CLAIMS RUN FIRST, AND THAT ORDER IS THE POINT. They used to
+    // sit BELOW the whole-string literal, which meant they never executed: the literal
+    // aborts the test on any drift, so every mutation was scored by a bare
+    // `Object.is` failure and not one of these messages ever spoke. Measured —
+    // reverting the ceiling to `1fr` turned 3 red, all three of them whole-string
+    // `.toBe` failures. An assertion an earlier check always pre-empts is decoration.
     expect(grid.style.gridTemplateColumns, 'the columns have no floor').toContain(
       'minmax(200px,',
+    );
+    expect(grid.style.gridTemplateColumns, 'the columns cannot grow').toContain('420px');
+    // 🔴 THE UNBOUNDED CASE IS NOW A FAILURE, NOT THE GOAL — this is the inverse of the
+    // assertion it replaces. `1fr` was the original fix for the 200px ribbon and it
+    // overshot: `validateGrid` permits a ONE-prompt grid, whose single column then took
+    // a whole wide monitor. Found by a round-1 audit, invisible to every test here
+    // because jsdom resolves no grid.
+    expect(grid.style.gridTemplateColumns, 'the prompt track is unbounded again').not.toContain(
+      '1fr',
+    );
+
+    // …and the whole string as the BACKSTOP, catching any drift the three named claims
+    // do not name — the column count among them. A LITERAL, including that count:
+    // building it from `prompts.length` or an exported constant is what makes a guard
+    // agree with whatever the implementation happens to say. The fixture has exactly
+    // two prompts, so this string is knowable without reading the component.
+    expect(grid.style.gridTemplateColumns).toBe(
+      'minmax(180px, 220px) repeat(2, minmax(200px, 420px))',
     );
 
     // 🔴 AND THE SCROLL CONTAINMENT IS UNTOUCHED, which is what the floor relies on.
