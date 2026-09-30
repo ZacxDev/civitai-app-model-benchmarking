@@ -1507,7 +1507,7 @@ describe('#5 the view switch: a live run survives a trip to My Benchmarks', () =
       screen.getByTestId('grid-open-title'),
       'the open grid reset on the way back — a stalled cell is now on a matrix nobody is looking at',
     ).toHaveTextContent('Other grid');
-    expect(screen.queryByTestId('grid-open-system-badge')).toBeNull();
+    expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
     // …so the stalled cell the viewer paid for is STILL ON SCREEN, and it is the only
     // cell, which is what proves the matrix is this grid's and not the Top Grid's.
     expect(screen.getAllByTestId('grid-cell')).toHaveLength(1);

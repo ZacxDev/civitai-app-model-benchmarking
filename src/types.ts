@@ -484,7 +484,7 @@ export interface InflightRun {
  * `MyNoun = 'grid' | 'matchup' | 'prompt'`, with nothing keeping them in step, plus two
  * more inline spellings of the same union in `UnpublishedList`'s and `WithdrawButton`'s
  * props. Five copies of one rule is the duplication this stack's own headline argument
- * (one `Menu`, one `MyPublished`, one `UnpublishedList`) condemns, and a divergence
+ * (one `Menu`, one `MyList` where there were two) condemns, and a divergence
  * between them is a compile error nobody would get: each copy type-checks alone.
  *
  * 🔴 ONE DECLARATION IS THE WHOLE GUARD, and that is why there is no test for it. A

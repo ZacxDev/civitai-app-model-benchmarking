@@ -198,14 +198,21 @@ describe('board scan truncation', () => {
     // ⚠️ IT WAS `grid-open-system-badge`, with the comment "the Top Grid is computed
     // from the scanned rows, so its presence means the scan settled". That is FALSE and
     // the sentence is retracted. `openKey` initialises to `null`, and
-    // `buildTopGrid([], [])` still yields a system entry — so the badge is in the DOM on
-    // FIRST PAINT, before the board scan has resolved anything. The `toBeNull()` below
-    // could therefore run before a notice could possibly have appeared, which makes a
-    // LATE notice indistinguishable from an ABSENT one: the exact failure this file
-    // already names at the sibling case a few lines up, which is why THAT one navigates
-    // to Matchups. Same hazard, same fix.
+    // `buildTopGrid([], [])` still yields a system entry — so the system marker is in
+    // the DOM on FIRST PAINT, before the board scan has resolved anything. The
+    // `toBeNull()` below could therefore run before a notice could possibly have
+    // appeared, which makes a LATE notice indistinguishable from an ABSENT one: the
+    // exact failure this file already names at the sibling case a few lines up, which
+    // is why THAT one navigates to Matchups.
     //
-    // 🔴 WHY MATCHUPS IS A REAL ANCHOR AND THE BADGE IS NOT: `matchup-card` renders only
+    // ⚠️ THE MARKER ITSELF MOVED. The "System grid" BADGE is gone (operator feedback);
+    // `grid-open-system-note` — the sentence explaining that the Top Grid cannot be
+    // voted on — is rendered under the SAME `entry.system` condition and is the system
+    // marker on this surface now. The retraction above is unaffected: what was vacuous
+    // about the old anchor was its TIMING, not which element carried it, and the note
+    // is on first paint for exactly the same reason. Same hazard, same fix.
+    //
+    // 🔴 WHY MATCHUPS IS A REAL ANCHOR AND THE SYSTEM MARKER IS NOT: `matchup-card` renders only
     // for a row the scan actually READ (`finiteShared` seeds exactly one), so its
     // presence is evidence about the scan rather than about the initial state.
     await openView('Matchups');
@@ -214,30 +221,30 @@ describe('board scan truncation', () => {
     // …then back to the GRIDS board, which is what this case is about. The scan is
     // settled by now, so the absence below is an absence.
     await openView('Grids');
-    expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 
   // 🔴 VALIDATE THE ANCHOR, because "this anchor is vacuous" is a claim about TIMING and
   // no settled fixture can make it. With `list()` permanently in flight, the open grid's
-  // system badge is ALREADY in the document while the grids board is still showing its
-  // loading spinner — so the badge and "the scan settled" are independent facts, and any
-  // `toBeNull()` sequenced behind the badge alone runs too early.
+  // system note is ALREADY in the document while the grids board is still showing its
+  // loading spinner — so the note and "the scan settled" are independent facts, and any
+  // `toBeNull()` sequenced behind the note alone runs too early.
   //
   // This is the control that turns the retraction above from an assertion into a
   // measurement. It is an INVARIANT GUARD on the app (nothing about this behaviour is
   // wrong or changed), whose subject is the TEST-WRITING hazard.
-  it('🔴 ANCHOR CONTROL: the system badge renders while the board scan is still in flight', async () => {
+  it('🔴 ANCHOR CONTROL: the system marker renders while the board scan is still in flight', async () => {
     renderApp({ shared: pendingShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The badge is there on first paint: `openKey` starts `null` and
+    // The note is there on first paint: `openKey` starts `null` and
     // `buildTopGrid([], [])` yields a system entry regardless of what the scan found.
-    await waitFor(() => expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument());
     // …and the board it sits above has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it
     // is a PRESENCE, so it cannot be satisfied by a stale selector or an empty render,
     // and it is what proves the two facts are simultaneous rather than sequential.
     expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
-    // …and the matrix is empty of scanned rows, so the badge cannot have come from one.
+    // …and the matrix is empty of scanned rows, so the note cannot have come from one.
     // ⚠ AN ABSENCE, NOT A CONTROL — a draft labelled it "POSITIVE CONTROL", which it
     // cannot be: a wrong testid would produce the same `[]`. It is corroboration, and the
     // presence assertion above is what carries the case. (`grid-group-matchup` is real —

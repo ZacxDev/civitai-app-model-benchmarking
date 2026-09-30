@@ -428,11 +428,19 @@ const RENAMED_TESTIDS = [
   //                               (PLURAL — it names a board, not an object kind);
   //   - `section-my-matchup`      the viewer's own matchup surface;
   //   - `my-published-matchup`    that surface's own published-rows list.
+  //
+  // 🔴 AND THE MY-BENCHMARKS CONSOLIDATION RENAMED THE LAST OF THOSE. `MyPublished`
+  // and `UnpublishedList` are merged into ONE `MyList` holding both storage layers,
+  // so the list is no longer "the published ones" — a draft row sits in it, badged.
+  // `my-published-matchup` has NO RENDERER and `my-list-matchup` replaces it. One
+  // name out, one in; the length below is unchanged and that is a coincidence, not a
+  // rule. (`my-list-panel`, `my-list-empty` and `draft-badge` are the merge's other
+  // new ids and are not matchup-spelled, so they are outside this particular set.)
   'board-nav-matchups',
   'matchup-detail',
   'matchup-detail-config',
   'matchup-detail-configs',
-  'my-published-matchup',
+  'my-list-matchup',
   // ---- added by the THIRD IA pass, which also retired two ----
   // 🔴 TWO NAMES OUT, THREE IN, and the arithmetic is written down because the
   // length assertion below is a literal someone has to move on purpose:
@@ -533,6 +541,16 @@ const NOUNS = ['matchup', 'prompt', 'grid'] as const;
 const BOARDS = ['matchups', 'prompts', 'grids'] as const;
 const TEMPLATE_UNIONS: Record<string, readonly string[]> = { noun: NOUNS, board: BOARDS };
 /**
+ * Template variables that are CALLER-SUPPLIED PREFIXES, not members of a closed union.
+ *
+ * `GridPicker`'s `testId` and `PromptForm`'s `prefix` are props: the literal comes from
+ * the call site (and is therefore already in `LITERAL_TESTIDS`), and the component
+ * appends a suffix. There is nothing to expand over. They are exempt from the
+ * known-union guard and bounded instead by their own case, which reads the literal
+ * halves of the template — see `bounds the pass-through template prefixes` below.
+ */
+const PASSTHROUGH_TEMPLATE_VARS = new Set(['testId', 'prefix']);
+/**
  * 🔴 THE EXPRESSION MAY BE A MEMBER ACCESS, and the union is keyed on its LAST
  * segment. `App` renders `section-my-${view.noun}`, so a pattern that only accepted a
  * bare identifier matched nothing there — and a template the scan does not match is a
@@ -540,13 +558,36 @@ const TEMPLATE_UNIONS: Record<string, readonly string[]> = { noun: NOUNS, board:
  * shape (measured: `section-my-matchup` was missing from the scan while being rendered).
  * Taking the last segment is a heuristic, and it is a SAFE one only because the
  * known-union guard below turns anything unexpected into a failure rather than a zero.
+ *
+ * 🔴 AND THE INTERPOLATION MAY BE ANYWHERE IN THE TEMPLATE, NOT ONLY AT THE END. The
+ * pattern used to be `` `stem${var}` `` with nothing after the closing brace, which was
+ * right while every template was `section-my-${view.noun}` and became WRONG the moment
+ * `MyList` introduced ``data-testid={`${noun}-edit`}`` — the variable FIRST, a literal
+ * TAIL after it. Measured: `grid-edit`, `grid-menu` and `grid-withdraw` were rendered on
+ * every published grid row and absent from `ALL_TESTIDS`, and the ledger below did not
+ * notice because their matchup-spelled siblings were in it for OTHER reasons
+ * (`MatchupBody` renders `matchup-edit` as a literal). Same failure as the two above, in
+ * a third position.
  */
-const TEMPLATED_MATCHES = Array.from(
-  PROD_SOURCE.matchAll(/data-testid=\{`([^`$]*)\$\{\s*([A-Za-z_$][\w$.]*)\s*\}`\}/g),
-).map((m) => ({ stem: m[1]!, variable: m[2]!.split('.').pop()! }));
-const TEMPLATED_TESTIDS = TEMPLATED_MATCHES.flatMap(({ stem, variable }) =>
-  (TEMPLATE_UNIONS[variable] ?? []).map((v) => `${stem}${v}`),
-);
+const TEMPLATE_RE = (attr: string): RegExp =>
+  new RegExp(`${attr}=\\{\`([^\`$]*)\\$\\{\\s*([A-Za-z_$][\\w$.]*)\\s*\\}([^\`$]*)\`\\}`, 'g');
+interface TemplatedMatch {
+  stem: string;
+  variable: string;
+  tail: string;
+}
+const templatedMatches = (attr: string): TemplatedMatch[] =>
+  Array.from(PROD_SOURCE.matchAll(TEMPLATE_RE(attr))).map((m) => ({
+    stem: m[1]!,
+    variable: m[2]!.split('.').pop()!,
+    tail: m[3]!,
+  }));
+const expandTemplated = (matches: TemplatedMatch[]): string[] =>
+  matches.flatMap(({ stem, variable, tail }) =>
+    (TEMPLATE_UNIONS[variable] ?? []).map((v) => `${stem}${v}${tail}`),
+  );
+const TEMPLATED_MATCHES = templatedMatches('data-testid');
+const TEMPLATED_TESTIDS = expandTemplated(TEMPLATED_MATCHES);
 /**
  * `panelTestId="literal"` → the PANEL id of a `components/Menu.tsx` dropdown.
  *
@@ -567,7 +608,31 @@ const TEMPLATED_TESTIDS = TEMPLATED_MATCHES.flatMap(({ stem, variable }) =>
 const PANEL_TESTIDS = Array.from(PROD_SOURCE.matchAll(/panelTestId="([^"]*)"/g)).map(
   (m) => m[1],
 );
-const ALL_TESTIDS = [...LITERAL_TESTIDS, ...TEMPLATED_TESTIDS, ...PANEL_TESTIDS];
+/**
+ * ``panelTestId={`stem-${expr}`}`` → the TEMPLATED spelling of the same prop.
+ *
+ * 🔴 A FOURTH PATTERN, FOR THE SAME REASON THE SECOND AND THIRD EXIST. `MyList`
+ * renders ONE `⋮` for all three nouns, so its panel id is a template over `noun` —
+ * and the two patterns above are each blind to it: the templated pattern reads
+ * `data-testid=` only, and the panel pattern reads a double-quoted LITERAL only. The
+ * measured consequence of leaving it out is precise: `matchup-menu-items` would still
+ * be in `ALL_TESTIDS` (`MatchupBody` renders it as a literal on the community board)
+ * so the 33-entry assertion would stay green, while `grid-menu-items` — an id nothing
+ * else renders — was invisible. An empty match set reading as a clean sweep, in a
+ * fifth shape.
+ *
+ * Expanded over the SAME `TEMPLATE_UNIONS` map, and the same known-union guard below
+ * covers it: `TEMPLATED_PANEL_MATCHES` is folded into `TEMPLATED_MATCHES`'s check so
+ * an unknown variable here fails loudly rather than contributing zero entries.
+ */
+const TEMPLATED_PANEL_MATCHES = templatedMatches('panelTestId');
+const TEMPLATED_PANEL_TESTIDS = expandTemplated(TEMPLATED_PANEL_MATCHES);
+const ALL_TESTIDS = [
+  ...LITERAL_TESTIDS,
+  ...TEMPLATED_TESTIDS,
+  ...PANEL_TESTIDS,
+  ...TEMPLATED_PANEL_TESTIDS,
+];
 
 describe('527 Phase 1 — the renamed testid ledger', () => {
   // The positive control for every claim below: if this number is 0 the scan
@@ -592,6 +657,20 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // literals are what prove it sees the right ones.
     expect(PANEL_TESTIDS.length, 'the panelTestId scan matched nothing').toBeGreaterThan(0);
     expect(PANEL_TESTIDS.slice().sort()).toEqual(['matchup-menu-items', 'prompt-menu-items']);
+    // 🔴 POSITIVE CONTROL ON THE FOURTH PATTERN. `MyList`'s one `⋮` serves all three
+    // nouns through a TEMPLATED `panelTestId`, so without this pattern `grid-menu-items`
+    // is rendered on every published grid row and absent from `ALL_TESTIDS` — and the
+    // ledger assertion below would not notice, because `matchup-menu-items` is also
+    // rendered as a literal by `MatchupBody`.
+    expect(
+      TEMPLATED_PANEL_TESTIDS.length,
+      'the templated panelTestId scan matched nothing',
+    ).toBeGreaterThan(0);
+    expect(TEMPLATED_PANEL_TESTIDS.slice().sort()).toEqual([
+      'grid-menu-items',
+      'matchup-menu-items',
+      'prompt-menu-items',
+    ]);
   });
 
   it('🔴 every templated testid variable maps to a KNOWN union', () => {
@@ -601,14 +680,50 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // which is the failure this whole file is built against. MEASURED as the real thing
     // rather than a hypothetical: `board-nav-${board}` was expanded over the NOUN union
     // for one round, which invented `board-nav-matchup` and hid `board-nav-matchups`.
-    const seen = TEMPLATED_MATCHES.map((m) => m.variable);
+    const seen = [...TEMPLATED_MATCHES, ...TEMPLATED_PANEL_MATCHES].map((m) => m.variable);
     // POSITIVE CONTROL: the scan found some.
     expect(seen.length).toBeGreaterThan(0);
     for (const variable of seen) {
+      if (PASSTHROUGH_TEMPLATE_VARS.has(variable)) continue;
       expect(
         TEMPLATE_UNIONS[variable],
         `unknown templated testid variable \`${variable}\` — add its union to TEMPLATE_UNIONS`,
       ).toBeDefined();
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE PASS-THROUGH PREFIXES, WHICH THE WIDENED PATTERN MADE VISIBLE AND WHICH
+  // NO UNION CAN EXPAND — a PRE-EXISTING blind spot, bounded here rather than
+  // silently re-hidden.
+  //
+  // `GridPicker` builds `${testId}-option`, `${testId}-confirm` … and `PromptForm`
+  // builds `${prefix}-cfg`, `${prefix}-seed` … Both interpolate a value supplied by
+  // the CALLER, so there is no closed union to expand over; the old
+  // variable-must-be-last pattern never matched them at all, which is why this was
+  // never noticed. Their STEM is empty and the caller's literal is already in
+  // `LITERAL_TESTIDS`, so what is actually unenumerated is the TAIL.
+  //
+  // So the hazard is bounded at the tail: a `combo`-spelled or `matchup`-spelled
+  // SUFFIX introduced this way would be invisible to the two ledger assertions below.
+  // This case reads the tails directly, and pins the variable set as a literal ledger
+  // so a third pass-through prefix is a decision someone takes.
+  // -------------------------------------------------------------------------
+  it('🔴 bounds the pass-through template prefixes the union map cannot expand', () => {
+    const passthrough = [...TEMPLATED_MATCHES, ...TEMPLATED_PANEL_MATCHES].filter((m) =>
+      PASSTHROUGH_TEMPLATE_VARS.has(m.variable),
+    );
+    // POSITIVE CONTROL: the widened pattern really does see them. A zero here means
+    // the regex regressed to variable-must-be-last and this whole case is vacuous.
+    expect(passthrough.length, 'the pass-through template scan matched nothing').toBeGreaterThan(
+      0,
+    );
+    expect([...new Set(passthrough.map((m) => m.variable))].sort()).toEqual(['prefix', 'testId']);
+    for (const { stem, variable, tail } of passthrough) {
+      expect(
+        `${stem}${tail}`,
+        `\`\${${variable}}\` builds a testid whose literal half spells combo/matchup`,
+      ).not.toMatch(/combo|combination|matchup/i);
     }
   });
 

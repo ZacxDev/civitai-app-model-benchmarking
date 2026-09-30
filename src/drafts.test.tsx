@@ -42,7 +42,6 @@ import {
   fakeShared,
   immediateSleep,
   openMyList,
-  openRowMenu,
   openView,
 } from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
@@ -373,7 +372,10 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     // pointer used to stand in for (§11.1), so the pointer is storage-only now.
     await openMy();
     const own = await screen.findByTestId('matchup-card');
-    await openRowMenu('matchup', own);
+    // 🔴 EDIT IS ON THE ROW ON THIS SURFACE, not in the ⋮. `MyList` supplies the whole
+    // action group for a My row — Edit inline, Remove and Archive behind the overflow —
+    // so no menu is opened here. The COMMUNITY board still keeps Edit in the menu
+    // (`e2e.test.tsx`), which is why `openRowMenu` is still needed there.
     await userEvent.click(within(own).getByTestId('matchup-edit'));
     const form = await screen.findByTestId('matchup-form');
     const nameInput = within(form).getByTestId('matchup-name');
@@ -409,11 +411,11 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
 
     await openMy();
     // The panel really did load (so the absence below is not an unmounted view).
-    await screen.findByTestId('unpublished-panel');
+    await screen.findByTestId('my-list-panel');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     expect(screen.queryByTestId('matchup-card')).toBeNull();
-    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
   });
 });
 
@@ -479,7 +481,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
     await renderApp({ shared: fakeShared().shared, appStorage: refusing });
 
     await openMy();
-    await screen.findByTestId('unpublished-panel');
+    await screen.findByTestId('my-list-panel');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('storage-quota')).toBeNull();
   });
@@ -506,6 +508,8 @@ describe('the My tab degrades rather than breaking the public board', () => {
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('A public matchup');
     await openMy();
-    expect(screen.getByTestId('unpublished-empty')).toBeInTheDocument();
+    // The public row IS the viewer's? No — it is `OTHER_ID`'s, so the My list holds
+    // neither a draft nor a published row of this viewer's and renders its empty line.
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
   });
 });

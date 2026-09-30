@@ -30,7 +30,7 @@ import type { BlockGatedImage } from '@civitai/app-sdk/blocks';
 import { Button, Loader } from '@civitai/blocks-react/ui';
 import { Image, Tooltip } from '@civitai/components-react';
 
-import { elevate, token } from '../theme.js';
+import { recessedSurface, token } from '../theme.js';
 
 /** The injectable render seam for a gated grid cell (App wires the default;
  * pure ResultsGrid tests inject a component stub). */
@@ -275,11 +275,13 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
                 placeItems: 'center',
                 gap: 3,
                 borderRadius: 6,
-                // NOT surface-2: in light theme surface-2 resolves to the same value
-                // as body -> an invisible white-on-white tile. `elevate()` mixes a
-                // little text into surface, so the recess reads in BOTH themes; the
-                // border makes the gated slot unambiguous regardless of fill contrast.
-                background: elevate(5),
+                // 🔴 THE RECESS COMES FROM ONE PLACE NOW. This used to be a local
+                // `elevate(5)` under a comment explaining why surface-2 is wrong
+                // here — and a third site went and used surface-2 anyway. The
+                // reasoning lives on `recessedSurface` in `theme.ts`; the border
+                // stays, because it is what makes the gated slot unambiguous
+                // regardless of how far the fill actually reads.
+                background: recessedSurface,
                 border: `1px solid ${token.border}`,
                 color: token.dimmed,
                 fontSize: 10,
