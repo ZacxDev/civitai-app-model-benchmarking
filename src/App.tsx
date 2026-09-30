@@ -1769,8 +1769,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * it can drop a `configId`, and the result rows keyed on that id are then
    * unreachable and unrecoverable.
    *
-   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI REACHES THE SAME OUTCOME BY A DIFFERENT
-   * ROUTE THAN THE OTHER TWO — this said "the same one they use", which is false and
+   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI REACHES THE SAME **NON-OWNER** OUTCOME BY
+   * A DIFFERENT ROUTE THAN THE OTHER TWO. ⚠️ THE OWN-ROW OUTCOME DIFFERS, AND THAT IS
+   * THE THIRD DRAFT OF THIS SENTENCE — if you are writing a fourth, say what is
+   * MEASURED and qualify the noun rather than reaching for a cleaner phrasing. Draft 1
+   * said the narrowing was "the same one the other two use" (false: different
+   * mechanism). Draft 2 said "the same outcome" unqualified (false: only the non-owner
+   * half). What is true: nobody can edit a row they do not own, by either route — but a
+   * matchup or prompt AUTHOR gets Edit on the community board and a grid author does
+   * NOT, and must go to My Benchmarks ▸ Grids. Both directions are pinned
+   * (`myBenchmarks.test.tsx:892` no grid Edit on the community board;
+   * `e2e.test.tsx:145` a matchup author does get it there). Original note follows:
    * would mislead anyone copying it: those two pass `onEdit` on the community card and
    * gate it in the body, while grids pass none at all. See `onEditPublished`. `shared.update` is author-scoped server-side for every row kind alike;
    * the control is only ever rendered from `MyList`, which is handed `ownGrids` —
@@ -2843,7 +2852,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                        the body (`MatchupBody.tsx:122`, `canEdit = isOwn && onEdit !==
                        undefined`). `GridsView` wires no edit at all and has NO body-level
                        edit gate, so mirroring their call site into it yields Edit on every
-                       foreign row. Opposite designs; only the outcome matches.
+                       foreign row. Opposite designs; only the NON-OWNER outcome
+                       matches — the own-row one does not, see below.
                        ⚠️ AND THE ASYMMETRY IS REAL: a matchup or prompt author gets Edit
                        on the community board, a grid author does not and must go to My
                        Benchmarks. Recorded so it reads as a choice, not an oversight. */
