@@ -143,3 +143,24 @@ retired — do not re-derive either.**
   `building → deploying → live`, so a version that never reaches `deploying` has not got
   past build/push. That is the state read worth making, and it is NOT "slow vs stuck".
 
+
+## EVICTED 2026-09-30 from the main doc — `## What landed` (0.4.6 and the IA refactor)
+🔴 Pure release history, MOVED not deleted, to keep the main doc under its 65,536 B ceiling
+while 0.4.12/0.4.13's release record was added. Nothing here is load-bearing for current
+work: 0.4.6's four run-path fixes and PR #49's one-page IA both shipped and were verified
+live long ago. The `## Goal` section of the main doc still records the arcs they closed.
+
+### What landed (0.4.6 → the IA refactor)
+- **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
+  the pressed cell to the Confirm gate, the publish prompt shows its own outputs, an
+  unreadable balance no longer claims "Insufficient Buzz", the gated read waits 45s with
+  one bounded auto-retry plus `gated_read_error` telemetry.
+- **The IA refactor** (PR #49, squash `b413500`): one page, no top-level tabs. Top Grid
+  matrix → flat all-grids list with inline thumbnail previews → matchups board → prompts
+  board. Matchup drill-in from the group band only (config rows inert); prompt drill-in
+  from the column header; both into a detail modal. `configs × prompts` →
+  `matchups × prompts`. A local `ContributeMenu`. Nine round-1 audit findings fixed, plus
+  a 44px tap-target floor for `role="menuitem"`.
+  Final gates at `1d5fc9d`, measured independently: typecheck rc 0 · node 16 files / 250 ·
+  dom 34 / 374 · combined **50 / 624** rc 0 · build rc 0, 414.20 kB. `git ls-files |
+  grep -cE '\.test\.tsx?$'` = 50 = collected.
