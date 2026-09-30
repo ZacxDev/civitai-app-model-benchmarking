@@ -531,9 +531,14 @@ export const compactTapTargetCss = (): string => `
    off": a label running under a visible rounded edge reads as more-to-scroll, where
    the same label ending in blank page reads as the end of the nav.
 
-   🔴 \`scrollbar-width: thin\` IS FUNCTIONAL, NOT COSMETIC. With overlay scrollbars
-   (the default on every platform this ships to) a scroller at rest is
-   indistinguishable from a clipped box. \`scroll-snap-type: inline proximity\` plus
+   ⚠️ \`scrollbar-width: thin\` IS NOT LOAD-BEARING, AND AN EARLIER NOTE HERE SAID IT WAS.
+   It claimed the declaration was "functional, not cosmetic" because overlay scrollbars make
+   a resting scroller indistinguishable from a clipped box — but that premise defeats the
+   conclusion: \`scrollbar-width\` sets a scrollbar's THICKNESS, never its transience. At the
+   widths this rule is scoped to (Android Chrome, iOS Safari) the scrollbar stays overlay and
+   invisible at rest regardless, so the declaration changes nothing at rest. It is kept
+   because it is harmless and helps where a scrollbar IS persistent; the affordance actually
+   doing the work is the border and radius, credited below. \`scroll-snap-type: inline proximity\` plus
    per-item \`scroll-snap-align\` is the other half: the strip lands on an item
    boundary rather than mid-label, so a partly-visible row cannot be mistaken for a
    truncated one.
@@ -588,7 +593,16 @@ export const compactTapTargetCss = (): string => `
   padding: 3px;
 }
 
+/* 🔴 BOTH GENERATIONS, AND THE SECOND IS THE ONE THAT MATTERS. \`scroll-snap-align\` is
+   NOT inherited, and the strip has exactly THREE direct children: the Home listitem, the
+   My-Benchmarks listitem, and \`nav-my-group\` as a single unit. The three sub-items live
+   INSIDE that group, so a \`> *\` rule gives them no snap point — and \`Prompts\`, the row
+   the 390px reading found clipped, is one of them. A round-1 audit found this; the guard
+   below could not, because it only proves the axis is set and something snaps to it. */
 [${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] > * {
+  scroll-snap-align: start;
+}
+[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] > * {
   scroll-snap-align: start;
 }
 

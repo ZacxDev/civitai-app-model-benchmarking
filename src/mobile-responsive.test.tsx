@@ -116,12 +116,14 @@ import {
   MENU_ITEM_SELECTOR,
   MIN_TAP_TARGET_PX,
   MOBILE_BREAKPOINT_PX,
+  NAV_COMPACT_INSET_PX,
   NAV_ITEM_SELECTOR,
   TOOLTIP_GAP_PX,
   TOOLTIP_GUTTER_PX,
   compactTapTargetCss,
   layoutCss,
 } from './compact.js';
+import { NAV_BASE_INSET_PX } from './components/SideNav.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
 import {
   contribute,
@@ -1396,6 +1398,19 @@ describe('the compact nav strip: grouping, chrome, and one scroll boundary', () 
       ],
       'the snap axis is set but nothing snaps to it',
     ).toBe('start');
+    // 🔴 AND THE SUB-ITEMS NEED THEIR OWN RULE, WHICH IS THE HALF THAT WAS MISSING.
+    // `scroll-snap-align` is NOT inherited and the strip has exactly THREE direct
+    // children — Home, My Benchmarks, and `nav-my-group` as one unit — so the `> *`
+    // rule above gives Grids/Matchups/Prompts no snap point at all. `Prompts` is the
+    // row the 390px reading found clipped, so the affordance was aimed precisely at the
+    // rows it did not cover. The assertion above stayed GREEN throughout, because the
+    // group-as-a-whole does snap; only this second one can see the gap.
+    expect(
+      declarationsFor(compactTapTargetCss(), `[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] > * {`)[
+        'scroll-snap-align'
+      ],
+      'the sub-items are grandchildren of the strip and get no snap point of their own',
+    ).toBe('start');
   });
 
   it('🔴 SEAM: the sheet sets the SAME custom property the nav row reads', async () => {
@@ -1412,6 +1427,28 @@ describe('the compact nav strip: grouping, chrome, and one scroll boundary', () 
     // nothing.
     const group = declarationsFor(compactTapTargetCss(), groupSelector);
     expect(group['--mb-nav-indent-1']).toBe('10px');
+
+    // 🔴 AND THE TWO INSETS ARE ONE PREDICATE IN TWO FILES. `compact.ts` states the
+    // invariant in prose — "the depth-0 inset, applied at every depth" — and nothing
+    // pinned it. Depth-0 rows take their inset from `SideNav`'s `NAV_BASE_INSET_PX`
+    // (through the `var()` fallback, since `--mb-nav-indent-0` is never set); depth-1
+    // rows take theirs from `compact.ts`'s `NAV_COMPACT_INSET_PX`. Change the first for
+    // the wide rail and the sub-items sit LEFT of their parents on the strip — the exact
+    // misalignment the compact inset exists to prevent — with the literal assertion above
+    // still true and the whole suite green. Found by a round-1 audit. This is the same
+    // one-rule-two-homes shape the `surface2` deletion in this PR closes elsewhere.
+    expect(
+      NAV_COMPACT_INSET_PX,
+      'the compact strip flattens every row to the DEPTH-0 inset, so these two must agree',
+    ).toBe(NAV_BASE_INSET_PX);
+    // ⚠️ WHICH MUTATION REACHES THIS, MEASURED — because only one of the two does.
+    // Changing `NAV_COMPACT_INSET_PX` does NOT reach it: the literal `'10px'` assertion
+    // above reads the same value and fails first, in this very test. The mutation that
+    // reaches it is the one the hazard is actually about — `NAV_BASE_INSET_PX` moved for
+    // the wide rail, which leaves the emitted `--mb-nav-indent-1` at 10px so the literal
+    // stays GREEN. Measured: that mutant turns 2 cases red and this assertion's own
+    // message is one of them. The two assertions cover the two directions; neither alone
+    // covers both.
 
     setViewport('mobile');
     renderApp();
