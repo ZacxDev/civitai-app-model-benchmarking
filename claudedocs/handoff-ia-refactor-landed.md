@@ -21,38 +21,38 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `67fb375`**, clean. Version **0.4.11** in both `package.json` and
-  `block.manifest.json`. Session branch `docs/handoff-ia-sidebar-and-modals` (PR **#62**,
-  still OPEN, `MERGEABLE`/`CLEAN`) is where this doc is updated — `main`'s copy is the
-  pre-update version.
-- ✅ **0.4.11 IS LIVE, RE-VERIFIED 2026-09-29 late** — `app_state.py … 0.4.11` →
-  `approved/live` **rc 0** (unpiped); served bundle `assets/index-t70oWAUj.js` 440,492 B,
-  `side-nav` 2 · `board-nav` 1 · `grid-open-members` 1 · `nav-my-grid` 1, positive control
-  `section-grids` 1 / `grid-open-panel` 1, retired `contribute-trigger` 0 / `view-switch` 0.
-  **The arc's closing-condition is MET and the arc is CLOSED.**
-- 🔴 **0.4.9 IS STILL `approved/building`** (re-read this session, **rc 1**) — unchanged for
-  hours, still a live rollback hazard, still not withdrawable (`withdraw` targets PENDING).
-  Rank 3.
-- **NEW THIS SESSION — a live visual inventory + taste pass exists.** Artifact
-  **Contact Sheet 0.4.11**, https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
-  — 35 plates at 1440 / 718 / 390 px, **49 of 107 enumerated rendered states photographed**,
-  16 findings. Per group: shell 3/10 · SideNav 6/6 · boards 13/25 · My Benchmarks 7/14 ·
-  panel+modals+menus 10/18 · forms 4/13 · run cells 2/21. Source PNGs are in the gitignored
-  `.shots/` (38 files) and are **NOT committed** — they die with this checkout.
-- **Six PRs merged in the prior arc:** #59 `0a06df2` · #60 `c5863b0` · #61 `e8775c0` ·
-  #63 `8fc1adb` · #64 `67fb375`. #62 is this doc.
-- **Gates on `main`:** typecheck rc 0 · `pnpm test` rc 0 = **59 files / 804 tests** ·
-  59 = `git ls-files | grep -cE '\.test\.tsx?$'` · build rc 0, 440.22 kB. NOT re-run this
-  session — no source changed.
-- **Store listing is STALE** — screenshots depict the 0.4.7 one-page IA.
-- 🔴 **Worktree `civitai-app-model-benchmarking-release0411` STILL EXISTS** (confirmed by
-  `git worktree list` this session: detached at `67fb375`). It is where release status was
-  read from. Remove it when done — and note it holds no branch, so it blocks nothing.
-- Claim **`ia-refactor-landed-1`** is HELD (rank 1). The prior `mb-sidebar-ia-feedback`
-  claim is also still held; release both once #62 merges and rank 1 is judged.
-- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again this
-  session (nothing resolved). An unknown session id answers 200 with an empty array, so that
-  zero cannot distinguish "touched no task" from "wrong id". Not a clean bill of health.
+- **`main` = `5a83f89`** (PR **#62 MERGED** 2026-09-30, squash). Version **0.4.11**, live and
+  re-verified. Session branch `docs/handoff-arc-audit-and-recipe-repair` carries this update.
+- ✅ **0.4.11 LIVE** — `app_state.py … 0.4.11` → `approved/live` **rc 0** (unpiped); served
+  bundle `assets/index-t70oWAUj.js` 440,492 B with `side-nav` 2 · `board-nav` 1 ·
+  `grid-open-members` 1 · `nav-my-grid` 1, positive control `section-grids` 1 /
+  `grid-open-panel` 1, retired `contribute-trigger` 0 / `view-switch` 0.
+  **The arc's closing-condition is MET and the arc is CLOSED** (see `## Goal`); everything
+  in `Next steps` is a NEW arc or a pre-existing deferral.
+- 🔴 **0.4.9 STILL `approved/building`** (re-read this session, **rc 1**). Rank 3, unchanged.
+- **The visual inventory exists and has been WALKED THROUGH with the operator.** Artifact
+  **Contact Sheet 0.4.11** —
+  https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b — 35 plates at
+  1440/718/390 px, 49 of 107 states, 16 findings. Source PNGs in gitignored `.shots/`, NOT
+  committed. **The operator has not yet chosen a fix bucket.**
+- 🔄 **IN FLIGHT: the capture-recipe repair (rank 2), dispatched 2026-09-30, NOT yet
+  reported.** A subagent is repairing
+  `civitai/civitai` `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` and
+  re-shooting. Its outcome is NOT in this doc. Check `gh pr list --repo civitai/civitai
+  --author @me` for the PR before re-doing any of it.
+- **`devrc` PR #1935 MERGED** (`c8b65c97`) — the inverted-`STALE` lesson, below. Verified by
+  content on `origin/main` in both files with a negative control at 0.
+- **Gates on `main`:** typecheck rc 0 · `pnpm test` rc 0 = **59 files / 804 tests** · build
+  rc 0, 440.22 kB. NOT re-run this session — no source changed.
+- **Store listing STILL STALE** — screenshots depict the 0.4.7 one-page IA. Rank 2.
+- 🔴 **Worktree `civitai-app-model-benchmarking-release0411` still exists** (detached at
+  `67fb375`). Holds no branch, blocks nothing. Remove when convenient.
+- Claims: **`ia-refactor-landed-1` HELD** (rank 1, awaiting the operator's fix-bucket
+  choice) · **`ia-refactor-landed-2` HELD** (rank 2, the in-flight recipe repair) ·
+  `mb-sidebar-ia-feedback` **RELEASED**.
+- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again
+  (nothing resolved). An unknown session id answers 200 with an empty array, so that zero
+  cannot distinguish "touched no task" from "wrong id". Not a clean bill of health.
 
 ## What landed
 - **0.4.6** (PRs #44, #47): four operator-reported run-path defects — consent resumes
@@ -70,36 +70,36 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   grep -cE '\.test\.tsx?$'` = 50 = collected.
 
 ## Next steps (ranked)
-1. **A human LOOKS at the live app — now with the contact sheet instead of a blank stare.**
-   The artifact above photographs 49 states at three widths and rules on all six items this
-   rank used to name. What is still owed is your JUDGEMENT on the 16 findings, not more
-   measurement. Repo `civitai-app-model-benchmarking`.
-   forcing: user — the operator asked for these visual changes; no automated check in this
-   repo can answer whether any of them reads correctly, and it is now live.
-2. **Repair the store listing.** The capture recipe in `civitai/civitai`
-   `.claude/skills/app-capture/scripts/recipes/model-benchmarking.json` pins
-   `[data-testid='contribute-trigger']` and `waitForText: "Build a grid"` — the served 0.4.11
-   bundle has `contribute-trigger` at **0**, so the recipe fails at step 1. Needs a PR there,
-   a re-shoot, and a second moderator approval. 🔵 `BoardNav` mounts one board at a time, so
-   the page should be far shorter than the 2166 CSS px that clipped two sections out of
-   frame — this may ADD screenshots rather than only repair one.
+🔴 **Ranks 1 and 2 keep their numbers — live claims are keyed to them. Do not re-rank.**
+1. **The operator picks a fix bucket for the 16 taste findings.** All six of this rank's
+   original visual questions are ANSWERED (see `## Defects (batched)`); what remains is a
+   judgement, not a measurement. Recommended batching: **F1 + F2 + F9** (the two that break
+   the sidebar/top-bar IA that was commissioned twice, plus the one real bug), then **F4 +
+   F6** (cheap and visible), then the consistency pass F3/F5/F7/F8/F10–F13 together or not
+   at all. Repo `civitai-app-model-benchmarking`.
+   forcing: user — the operator commissioned these visual changes; nothing in this repo can
+   judge layout, and the evidence is now in front of them.
+2. **Repair the store listing.** 🔄 **IN FLIGHT — a subagent is on it; read its PR before
+   starting.** The recipe's `contribute-trigger` / `contribute-menu-items` anchors are both
+   **0** in the served 0.4.11 bundle. 🔵 The prize is bigger than a selector swap: the
+   recipe's `_iframeIsViewportCapped` note declares `section-matchups` / `section-prompts`
+   unphotographable because the old IA mounted all three boards at once for 2166 CSS px,
+   and **`BoardNav` now mounts one at a time** — so the repair may RESTORE two views rather
+   than fix one. Still needs a second moderator approval after the re-shoot.
    forcing: regression — the live listing depicts a UI that no longer exists, and the tool
    that would re-shoot it is broken by this change.
 3. **Watch 0.4.9, or get the platform to cancel it.** Detect with
    `app_state.py model-benchmarking 0.4.9` and by re-running the served-bundle grep in
-   `How to verify` — a reappearance of `contribute-trigger` IS the rollback. 🔵 `building` vs
-   `deploying` is the discriminator: 0.4.11 went `building → deploying → live`, so a version
-   that never reaches `deploying` has not got past build/push.
+   `How to verify` — a reappearance of `contribute-trigger` IS the rollback. 🔵 `building`
+   vs `deploying` is the discriminator.
    forcing: regression — a queued build that would revert a live, verified deployment.
-4. **Contribute menu still does NOT use the upstream component.** The dropdown is GONE
-   (replaced by `SideNav` + the ⋮ `Menu`), so what survives is local `src/components/Menu.tsx`.
-   Blocked on `civitai-app-starters` **issue #485**. 🔵 The NAV elements are NOT blocked by
-   #485 (no popover API).
+4. **The upstream nav/menu swap.** `src/components/Menu.tsx` and `SideNav.tsx` are LOCAL.
+   Blocked on `civitai-app-starters` **#485** (re-checked 2026-09-30: still OPEN).
+   🔵 The nav elements are NOT blocked by #485 (no popover API); only the menu is.
    forcing: gate — #485 closing, or a real-browser test runner for this repo.
 5. **The five-package bump — parked.** Patch outside this public repo at
    `/home/zach/workspace/civit/.parked/mb-five-package-bump-perpath-b778de4.patch`.
-   `civitai-app-starters` **PR #487** is a PREREQUISITE, still OPEN. 🔵 Its prize is now the
-   real `<civitai-nav-list>`/`<civitai-nav-item>` swap for `SideNav`.
+   Starters **PR #487** is the prerequisite (re-checked 2026-09-30: still OPEN).
    forcing: gate — #487 merging and releasing.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -482,6 +482,72 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   and F9 should be fixed by CONSOLIDATING the surface-2 rule rather than patching the third
   site.
 
+- 🔴 **THE ARC IS FOUR SESSIONS ACROSS TWO DOCS, AND THIS DOC'S OWN ACCOUNT OF IT WAS
+  STALE.** Re-derived 2026-09-30 by enumerating
+  `~/.claude/projects/-home-zach-workspace-civit-civitai-app-model-benchmarking/*.jsonl`
+  rather than trusting the note. The chain: **opencode `ses_f1f51c0d7ffen67u3KpidIMYy5`**
+  (created `handoff-consent-resume-and-gated-read.md`, genesis `7f4945b`) → **`96de3010`**
+  (09-27→09-28, founded THIS doc at `150760b`) → **`78510afc`** (09-28→09-29) →
+  **`0514fcfc`** (09-29→09-30). The two docs are NOT a rename — `git log --follow` does not
+  link them and the first was deleted. ⚠️ The previous note said "six commits, exactly one
+  carries a session id"; it is now **9 commits, 4 with trailers**. **A count written into a
+  doc about that doc's own history is stale the moment the doc is next written.**
+- 🔴 **`find-session.py --arc` IS STRUCTURALLY BLIND TO THIS REPO AND ALWAYS WILL BE UNTIL A
+  HANDLE COVERS IT.** Re-measured 2026-09-30: **exit 5**, because the four handles are
+  `$DEVRC`, `$HOMELAB`, `$DATAPACKET` and `$CIVITAI=/home/zach/workspace/civit/civitai` —
+  none is this app repo. Exit 5 means **nothing was read at all**; it is not an empty arc.
+  **The working substitute is enumerating the project's transcript directory**, which is
+  exhaustive for the Claude half. The opencode genesis is readable by neither that nor
+  `extract_user_msgs.py` (Claude-Code-only, walks `~/.claude/projects`).
+- 🔴 **EVERY OPERATOR ASK IN THIS ARC WAS AUDITED LINE BY LINE ON 2026-09-30, AND THE RESULT
+  IS: ONE functional ask never shipped.** 34 genuinely-typed messages (of 64 extracted
+  records — the rest were task-notifications and answer payloads, the documented inflation).
+  Round 1 (09-27 05:34) 6 of 7 · round 2 (09-28 20:53) **8 of 8** · round 3 (09-28 21:14)
+  7 of 8. **The miss is round 3's "make the checkpoint and lora and resource titles
+  clickable links to the resource page"** — impossible today, all three routes measured
+  shut, filed `civitai/civitai#5209` (re-checked 2026-09-30: still OPEN). Verified by
+  measurement, not assumed: the vote tooltip DID ship (`VoteButton.tsx:117`, asserted at
+  `VoteButton.test.tsx:77`), archive IS off the community board (moved to `MyPublished`;
+  `GridsView` carries none), and `civitai/civitai#5176` ("merge 5176 and release") merged
+  2026-09-28. **Do not re-run this audit** — re-read this bullet instead.
+- 🔵 **BOTH "use the upstream component" ESCALATION CLAUSES WERE HONOURED — this is NOT a
+  dropped instruction, and an earlier reading nearly recorded it as one.** Round 1 said "if
+  MISSING in upstream components, dispatch open a PR to add it": `<civitai-menu>` is not
+  missing, it is present-but-unadoptable (throws on mount in any non-browser DOM), so the
+  clause never triggered and an ISSUE (#485) was the right instrument. Round 2 said "if it's
+  not, pull it from the native site settings page": that is exactly what shipped, a local
+  `SideNav` mirroring the upstream contract. **Check the CONDITION on an escalation clause
+  before reporting it unmet.**
+- 🔴 **A TEMPLATE-LITERAL `data-testid` READS AS ABSENT IN A BUNDLE GREP, AND IT BIT AGAIN
+  ON 0.4.11.** `board-nav-grids` / `board-nav-matchups` / `board-nav-prompts` each grep
+  **0** against the served bundle while `board-nav` greps 1 — because `BoardNav.tsx` emits
+  `` data-testid={`board-nav-${board}`} `` and a template literal never appears
+  concatenated in minified output. The capture recipe already documents this trap for
+  `subtab-my-`; it recurred in a new spelling one IA later. **Only the static prefix
+  survives — drive a browser for the rest, and never quote such a zero as an absence.**
+- 🔴 **A SQUASH MERGE MUST BE VERIFIED BY CONTENT.** Both merges this session were confirmed
+  by grepping the merged file on the target ref with a negative control in the same command,
+  never by `git merge-base --is-ancestor` — which returns false after every squash, forever,
+  and reads as "not merged".
+- 🔴 **A BYTE-CEILING GATE CAN AND SHOULD CHANGE THE DESIGN, NOT JUST THE WORDING.** devrc's
+  `test_resume_skill_size.py` caps `resume/SKILL.md` at 22,400 B with an 800 B headroom
+  floor; the file sat at 21,509, leaving **91 bytes**. Four rounds of tightening ended with
+  the detail in the sidecar and a one-line pointer in the body — the correct shape, reached
+  because the gate refused the lazy one. `--override-size-ratchet`-style escapes existed and
+  were deliberately not taken: **raising a ceiling to fit your own note is the weakest move
+  available.**
+- 🔴 **`resume-state.sh`'s `handoff-read:` STALE verdict IS A LINE COUNT and inverts for the
+  life of an open docs PR** — it called this doc's working-tree copy stale (660 vs 395) when
+  the tree was two commits AHEAD on #62, and its `DOD`/`DRIFT` blocks were then computed from
+  the older copy (a superseded closing-condition, and a false "PR #53 framed as open").
+  Discriminator: `git log --oneline origin/main..HEAD -- <doc>`; non-empty ⇒ ahead.
+  ✅ **Fixed upstream in `devrc` PR #1935, merged `c8b65c97`** — `resume/SKILL.md` warns and
+  `reference/handoff-resolution.md` carries the full treatment. ⚠️ The SCRIPT still reports a
+  difference rather than a direction; only the reader was taught. Fixing `resume-state.sh`
+  itself is unclaimed and deliberately out of scope there.
+- **Decided (operator, 2026-09-30):** the 16 taste findings are filed as DEFECTS and the fix
+  bucket is the operator's call — no fixes were applied by the pass or after it.
+
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build`
   — **59 files / 804 tests**, and 59 must equal `git ls-files | grep -cE '\.test\.tsx?$'`.
@@ -496,12 +562,18 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   for t in section-grids grid-open-panel; do echo "CONTROL $t $(grep -c $t /tmp/live.js)"; done  # expect >0
   for t in contribute-trigger view-switch; do echo "RETIRED $t $(grep -c $t /tmp/live.js)"; done # expect 0
   ```
+  ⚠️ A **template-literal** testid (`board-nav-<board>`, `subtab-my-<noun>`) greps 0 here
+  whether or not it exists — see the Gotcha. Only static prefixes are answerable this way.
 - **The visual inventory:** https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
-  (Contact Sheet 0.4.11). ⚠️ Its source PNGs are in gitignored `.shots/` and are NOT
-  committed — the artifact is the only durable copy.
-- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth gated),
-  and anything about LAYOUT or appearance from inside the repo (jsdom performs no layout).
-  Layout claims now have ONE source: the contact sheet above, at the widths it names.
+  ⚠️ Source PNGs are in gitignored `.shots/` and are NOT committed — the artifact is the
+  only durable copy.
+- **The arc's sessions** (`--arc` exits 5 here — do not use it):
+  `ls ~/.claude/projects/-home-zach-workspace-civit-civitai-app-model-benchmarking/*.jsonl`,
+  then `extract_user_msgs.py --session <id> --include-answers`. The opencode genesis
+  `ses_f1f51c0d7ffen67u3KpidIMYy5` is unreadable by that tool.
+- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth
+  gated), and anything about LAYOUT from inside the repo (jsdom performs no layout). Layout
+  claims have ONE source: the contact sheet, at the widths it names.
 ## Goal
 Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
 Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
