@@ -333,7 +333,7 @@ describe('viewer change without a remount — the re-run route', () => {
 // would be unreachable there.
 //
 // 🔴 WHAT IT PINS. `App.reportedKeys` is session state ABOVE the swap, so unlike
-// `UnpublishedList`'s publish error it cannot be reset with `key={viewerId}` — the
+// `MyList`'s publish error it cannot be reset with `key={viewerId}` — the
 // cleanup on `[viewer?.id]` is the only thing that clears it. Without that line viewer
 // B arrives looking at "Reported for review" against a row they have never reported
 // and, worse, with NO Report control of their own: `ReportButton` renders the settled

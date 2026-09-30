@@ -319,11 +319,12 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     await openMy();
     await waitFor(() => expect(keysOf('matchup-card')).toEqual(['mine']));
 
-    await userEvent.click(screen.getByTestId('archive-action'));
+    // Archive is behind the row's ⋮ now — unmounted, not hidden, until it opens.
+    await userEvent.click(within(await openRowMenu('matchup')).getByTestId('archive-action'));
 
     // 🔴 HALF ONE — gone from MY.
     await waitFor(() => expect(keysOf('matchup-card')).toEqual([]));
-    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
     // …recorded in the ONE per-viewer key §11.3 specifies, and nowhere else.
     await waitFor(() => expect(store.get(ARCHIVE_KEY)).toEqual(['mine']));
 
@@ -363,15 +364,21 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
         'Remove is the only action that takes it off the board for everyone.',
     );
 
-    // …and it sits with the control it describes, not on some other screen.
-    // 🔴 ARCHIVE STAYS OUTSIDE THE ⋮ MENU, deliberately — it is a caller-supplied
-    // slot the GRID cards fill too, and moving it in only on matchup/prompt rows
-    // would put the same control in two different places on two surfaces. See
-    // `MatchupBody`'s header.
-    expect(screen.getByTestId('archive-action')).toBeInTheDocument();
-    // The true delete is still offered, and still separate (§11.3) — now one level
-    // down, inside the row's ⋮ menu.
+    // …and it sits with the controls it describes, not on some other screen.
+    //
+    // ⚠️ THIS USED TO SAY "ARCHIVE STAYS OUTSIDE THE ⋮ MENU, deliberately — it is a
+    // caller-supplied slot the GRID cards fill too, and moving it in only on
+    // matchup/prompt rows would put the same control in two different places on two
+    // surfaces." RETRACTED: the grid card's actions come from the SAME `MyList` slot
+    // now, so all three nouns moved together and the premise of that argument is gone.
+    // Archive and Remove are both in the row's ⋮; Edit is the one control on the row.
+    //
+    // 🔴 THE NOTE ITSELF IS OUTSIDE THE MENU AND MUST STAY THERE. It discharges the
+    // "suppression named as suppression" rubric item, and a promise a viewer has to
+    // open an overflow menu to read is not next to the control in any useful sense.
     const menu = await openRowMenu('matchup');
+    expect(within(menu).getByTestId('archive-action')).toBeInTheDocument();
+    // The true delete is still offered, and still separate (§11.3).
     expect(within(menu).getByTestId('matchup-withdraw')).toBeInTheDocument();
   });
 
@@ -409,7 +416,7 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     await renderApp({ shared, appStorage }, signedIn);
 
     await openMy();
-    await userEvent.click(await screen.findByTestId('archive-action'));
+    await userEvent.click(within(await openRowMenu('matchup')).getByTestId('archive-action'));
     await waitFor(() => expect(store.get(ARCHIVE_KEY)).toEqual(['mine']));
 
     await userEvent.click(await screen.findByTestId('archived-toggle'));
@@ -438,7 +445,9 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     const target = screen
       .queryAllByTestId('prompt-card')
       .find((el) => el.getAttribute('data-key') === 'p-mine')!;
-    await userEvent.click(within(target).getByTestId('archive-action'));
+    await userEvent.click(
+      within(await openRowMenu('prompt', target)).getByTestId('archive-action'),
+    );
 
     // Only the archived one leaves My; the viewer's OTHER prompt stays.
     await waitFor(() => expect(keysOf('prompt-card')).toEqual(['p-mine2']));
@@ -601,12 +610,34 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 });
 
 // ---------------------------------------------------------------------------
-// The word "draft" is gone from the RENDERED vocabulary (§11.1) — while the
-// STORAGE prefix keeps it forever.
+// "draft" is a STATE MARKER on one badge and nowhere else in the rendered
+// vocabulary — while the STORAGE prefix keeps the word forever.
+//
+// 🔴 THIS GUARD AND A FEATURE DISAGREED, AND THE GUARD IS THE HALF THAT MOVED. It
+// used to assert the word renders NOWHERE AT ALL (§11.1). The My Benchmarks
+// consolidation merged the unpublished list and the published list into ONE list,
+// and that is exactly what §11.1's premise rested on: the word was unnecessary
+// because the STATE was carried by the ADDRESS — a record under the "Not published
+// yet" heading was unpublished by virtue of being there. One list has no address to
+// read the state off, so the state has to be ON the row, and the operator chose the
+// one-word marker everyone already understands.
+//
+// ⚠️ SO THIS IS A NARROWING, NOT A DELETION, AND THE NARROWING IS STRUCTURAL. The
+// scan still runs over every surface it ever ran over; what it excludes is the
+// enumerated element `[data-testid="draft-badge"]`, by REMOVING that node before
+// reading the text — not by allowlisting the string "Draft", which any new copy
+// could then smuggle past. The badge's own text is pinned separately and whole, and
+// its PRESENCE is a positive control, so the exclusion cannot come to cover a badge
+// that has quietly stopped rendering.
+//
+// 🔴 WHAT DID NOT CHANGE: the forms, the headings, the empty lines and both
+// community boards still may not say it. The old surface said "Draft"/"Drafts" in
+// its explanatory sub-line as well; that line is deleted (see `MyList`), which is
+// what makes "exactly one site" true rather than aspirational.
 // ---------------------------------------------------------------------------
 
-describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
-  it('renders nowhere in the surfaces that used to say it', async () => {
+describe('🔴 "draft" is a storage word plus ONE state badge, and nothing else', () => {
+  it('renders nowhere but the badge, on every surface that used to say it', async () => {
     // 🔴 THE SCAN IS OVER RENDERED TEXT, NOT SOURCE. The prefix, the types and the
     // analytics event all still spell "draft" on purpose — a source grep would
     // therefore have to allowlist them and would stop meaning anything. What §11.1
@@ -642,11 +673,27 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     await renderApp({ shared, appStorage }, signedIn);
 
     const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
+    /**
+     * Rendered text with the ONE enumerated state badge REMOVED — a node removal, not
+     * a string allowlist, so no new copy can hide behind the word the badge happens to
+     * carry. `compact.ts` injects its sheet as a `<style>`, whose comment text lands in
+     * `document.body.textContent`, so this really is the whole page.
+     */
+    const textOutsideBadge = () => {
+      const clone = document.body.cloneNode(true) as HTMLElement;
+      for (const el of clone.querySelectorAll('[data-testid="draft-badge"]')) el.remove();
+      return (clone.textContent ?? '').replace(/\s+/g, ' ');
+    };
     const noDraft = (where: string) =>
-      expect(bodyText(), `the word "draft" is rendered on ${where}`).not.toMatch(/draft/i);
+      expect(
+        textOutsideBadge(),
+        `the word "draft" is rendered outside the state badge on ${where}`,
+      ).not.toMatch(/draft/i);
 
     await screen.findByTestId('matchups-view');
     noDraft('Matchups / Community');
+    // …and the badge is not on the community board at all: nothing there is a draft.
+    expect(screen.queryAllByTestId('draft-badge')).toEqual([]);
 
     // 🔴 SCOPED TO THE SURFACE THAT IS MOUNTED, and the surface changed name. `openMy`
     // navigates to My Benchmarks ▸ Matchups, whose section is `section-my-matchup`;
@@ -656,8 +703,19 @@ describe('🔴 "draft" is a storage word, not a viewer-facing one', () => {
     // 🔴 POSITIVE CONTROL ON THE SCAN: it can see this surface's own copy. Without
     // it, a scan reading an empty or unmounted DOM would report "no draft" and
     // prove nothing.
-    expect(bodyText()).toContain('Not published yet');
+    expect(bodyText()).toContain('Your matchups');
     expect(bodyText()).toContain('An unpublished matchup');
+    // 🔴 SECOND POSITIVE CONTROL, ON THE EXCLUSION ITSELF. The badge is really here,
+    // its whole text is the one word, and it is on the DRAFT row rather than loose on
+    // the page — so `textOutsideBadge()` is subtracting something real. Without this,
+    // a badge that stopped rendering would make the narrowed guard pass MORE easily.
+    const badges = within(mySection).getAllByTestId('draft-badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]!.textContent).toBe('Draft');
+    expect(within(mySection).getByTestId('unpublished-card')).toContainElement(badges[0]!);
+    // …and the scan WOULD see it if it were not excluded — the negative control that
+    // separates "the exclusion works" from "the word was never there".
+    expect(bodyText()).toMatch(/draft/i);
     noDraft('Matchups / My');
 
     // The private matchup form (the old "New draft" / "Save draft" modal).

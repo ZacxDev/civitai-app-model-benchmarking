@@ -101,7 +101,7 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
 }
 
 /**
- * OPEN a matchup/prompt row's ⋮ overflow menu, and return its panel.
+ * OPEN a row's ⋮ overflow menu, and return its panel.
  *
  * 🔴 WHY EVERY EDIT / REMOVE / REPORT CASE NOW GOES THROUGH HERE. The third IA pass
  * moved those three controls off the row and into `components/Menu.tsx`, so
@@ -110,6 +110,12 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
  * behaviour change and every affected case was updated to open the menu; putting the
  * click here rather than at ~30 call sites keeps the route at ONE site, the way
  * `openView` and `openMyList` already do for navigation that has moved twice.
+ *
+ * 🔴 `'grid'` IS NOW A VALID NOUN, AND THE TWO MENUS ARE DIFFERENT OBJECTS. On the
+ * COMMUNITY boards the menu is `MatchupBody`/`PromptBody`'s (Edit / Remove / Report);
+ * on MY BENCHMARKS it is `MyList`'s (Remove + Archive, with Edit moved OUT onto the
+ * row) and it exists for all three nouns including grids. Same testids, same helper,
+ * different contents — check WHICH surface a case is on before reading its assertions.
  *
  * `scope` is the card (or section) the row lives in — required whenever more than one
  * row is on screen, because the trigger testid is per-KIND, not per-row.
@@ -120,7 +126,7 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
  * the case is actually about.
  */
 export async function openRowMenu(
-  noun: 'matchup' | 'prompt',
+  noun: 'matchup' | 'prompt' | 'grid',
   scope?: HTMLElement,
 ): Promise<HTMLElement> {
   const q = scope ? within(scope) : screen;

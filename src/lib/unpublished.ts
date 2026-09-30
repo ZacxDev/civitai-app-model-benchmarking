@@ -87,56 +87,45 @@ export type PublishableNoun = 'matchup' | 'prompt' | 'grid';
  *   that heading had no renderer, and the grid arm became "Find it in All grids,
  *   badged Yours…".
  *
- *   ROUND 2 (this one). "All grids" is GONE — it was replaced by the `BoardNav`
- *   segmented control, whose grids segment is labelled "Grids"; `src/boardNav.test.tsx`
- *   asserts `queryByText('All grids')` is null. So the grid arm was once again naming a
- *   heading that does not exist. ⚠️ AND THE ROUND-1 DIAGNOSIS IS NOW ITSELF OUT OF
- *   DATE, which is why it is not simply reverted-to: `MyPublished` renders a literal
- *   "Published by you" heading for ALL THREE NOUNS, grids included (My Benchmarks ▸
- *   Grids mounts `MyGridsView` → `MyPublished noun="grid"`). The premise that made the
- *   grid arm diverge — "there is no Published by you for grids" — is false again.
+ *   ROUND 2. "All grids" is GONE — it was replaced by the `BoardNav` segmented
+ *   control, whose grids segment is labelled "Grids"; `src/boardNav.test.tsx` asserts
+ *   `queryByText('All grids')` is null. So the grid arm was once again naming a
+ *   heading that does not exist. That round pointed all three back at "Published by
+ *   you", which `MyPublished` rendered for every noun.
  *
- * 🔴 SO THE ONLY SURVIVING DIVERGENCE IS THE EDIT CLAUSE, and it is real: `App.tsx`
- * has `updateCombination` and `updatePrompt` and NO `updateGrid`. The claim worth making
- * is the ABSENCE, because it holds on every grid card in every case: NO grid card, on
- * either surface, ever renders an Edit control. What they DO render is conditional and
- * therefore not a list — `GridsView`'s community card always has Open, plus Remove only
- * when the row is the viewer's, Report only when it is NOT and they are signed in, and
- * Vote only for a non-system entry; `MyGridsView`'s own card has Remove plus whichever
- * of Archive / Unarchive `MyPublished` supplies.
+ *   ROUND 3 (this one), AND IT IS TWO CORRECTIONS AT ONCE:
  *
- * ⚠️ TWO EARLIER DRAFTS GOT THIS WRONG IN THE SAME WAY, by writing a UNION of
- * conditional controls as though it were one card's contents ("Remove, Archive, Vote and
- * Report"). No single card has all of those. State the absence, which is unconditional;
- * enumerating affordances invites exactly this error.
+ *     a. "Published by you" NOW HAS NO RENDERER EITHER. `MyPublished` and
+ *        `UnpublishedList` are merged into one `MyList`, whose heading is
+ *        "Your <noun>s" — so all three arms were naming a deleted heading, not just
+ *        the grid one. Third time, same mechanism.
+ *     b. THE GRID ARM'S EDIT CLAUSE IS NOW FALSE. It said "a published grid cannot
+ *        be edited", which was true for exactly as long as `App.tsx` had no
+ *        `updateGrid`. It has one — name, description and members — so the divergence
+ *        that survived rounds 1 and 2 is gone and all three nouns say the same thing.
  *
- * A published grid can be withdrawn and rebuilt, not edited — so "to edit or remove it"
- * would send the viewer looking for a control this app does not have.
+ * ⚠️ THEY ARE STILL THREE ENTRIES AND NOT ONE STRING. `PublishableNoun` keys this
+ * record so a fourth publishable object cannot reach the notice without someone
+ * deciding where ITS published row is findable. Coinciding today is not the same as
+ * being one rule — and the history above is three rounds of one arm diverging.
  *
- * ⚠️ WHAT WAS DROPPED FROM THE GRID ARM AND WHY. "badged Yours" was true — the
- * `grid-own-badge` survives — but it points at the COMMUNITY board, a different
- * surface from the one the viewer is standing on when they read this notice (the
- * notice renders inside `UnpublishedList`, i.e. on My Benchmarks ▸ Grids, and
- * `MyPublished` is on that same surface). A failure notice naming two places is worse
- * than one naming the nearest true one.
- *
- * ⚠️ THE MATCHUP AND PROMPT ARMS ARE LEFT ALONE, and that is a judgement rather than
- * an oversight: "Published by you" is still rendered for both, so neither is false.
- * They are less SPECIFIC than they were (it used to be a sub-tab on the board the
- * viewer was already looking at; it is a sidebar destination now), and if a future
- * round names the destination it should name it for all three at once.
+ * ⚠️ WHAT WAS DROPPED FROM THE GRID ARM IN ROUND 1 AND STAYS DROPPED. "badged Yours"
+ * was true — the `grid-own-badge` survives — but it points at the COMMUNITY board, a
+ * different surface from the one the viewer is standing on when they read this notice
+ * (the notice renders inside `MyList`, i.e. on My Benchmarks ▸ <noun>). A failure
+ * notice naming two places is worse than one naming the nearest true one.
  *
  * Every sentence is pinned as a whole normalised string by
  * `src/publishPointerFailure.test.tsx`, per noun, against literals typed out
  * there — see the note on the builder below. 🔴 THAT PINNING IS WHY THIS STRING AND
  * THAT FILE MOVE IN ONE COMMIT: a verbatim per-noun guard CERTIFIES whatever wording
- * it holds, so for the whole of round 1 the suite was green over copy naming a
+ * it holds, so for the whole of rounds 1 and 2 the suite was green over copy naming a
  * deleted heading.
  */
 const WHERE_THE_PUBLIC_ROW_IS: Record<PublishableNoun, string> = {
-  matchup: 'Find it under Published by you to edit or remove it.',
-  prompt: 'Find it under Published by you to edit or remove it.',
-  grid: 'Find it under Published by you to remove it — a published grid cannot be edited.',
+  matchup: 'Find it under Your matchups to edit or remove it.',
+  prompt: 'Find it under Your prompts to edit or remove it.',
+  grid: 'Find it under Your grids to edit or remove it.',
 };
 
 /**
@@ -171,8 +160,8 @@ const WHERE_THE_PUBLIC_ROW_IS: Record<PublishableNoun, string> = {
  * The caller now tries to close that for real by DELETING the private record
  * (the record's only remaining purpose was to become the pointer, and the row is
  * reachable without it — every surface that says "this is yours" filters on
- * `isOwnRow`, i.e. on `authorUserId`, never on pointer presence: "Published by
- * you" in `MatchupsView`/`PromptsView`, and the `grid-own-badge` on the one flat
+ * `isOwnRow`, i.e. on `authorUserId`, never on pointer presence: the "Your <noun>s"
+ * list on My Benchmarks, and the `grid-own-badge` on the one flat
  * grids list). But that delete can itself be
  * refused, so replacing one absolute claim with another would just move the lie.
  * `privateCopyRemoved` is the CALLER'S OBSERVED OUTCOME of that delete, and each
