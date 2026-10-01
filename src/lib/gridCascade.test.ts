@@ -385,6 +385,15 @@ describe('🔴 cascadeStoppedNotice — four outcomes, and the one that is NOT h
       text,
       'the half-published arm still claims nothing was published, about a public row',
     ).not.toMatch(/Nothing was published/);
+    // 🔴 AND A CLAIM THE ARM'S **EXISTENCE** OWNS, named separately. The assertion
+    // above cannot see the arm being deleted: the caller supplies `published`, so the
+    // landed sentence is correct either way and only the WHICH-HALF clause disappears.
+    // Measured — a mutant deleting the arm died on the whole-string `.toBe` below,
+    // which carries no message. This is the clause that only this arm produces.
+    expect(
+      text,
+      'the half-published arm is gone — the notice no longer says WHICH half failed',
+    ).toContain("own private copy could not be updated with its key");
     expect(text).toBe(
       '1 item was published and is now public and permanent: Private Matchup P. But Private ' +
         "Matchup P's own private copy could not be updated with its key (QUOTA_EXCEEDED), so " +

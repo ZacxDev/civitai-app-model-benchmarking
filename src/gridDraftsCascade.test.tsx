@@ -738,8 +738,16 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     ).not.toContain(DRAFT_LOCAL_ID);
     const notice = refusalNode();
     // 🔴 AND THE COPY NAMES THE RIGHT CAUSE. "not among your private items" would be a
-    // claim the app has no evidence for here — it could not read them.
-    expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+    // claim the app has no evidence for here — it could not read them. Asserted as its
+    // OWN named claim before the whole string, because a mutant that discards the scan
+    // report leaves the refusal firing with the WRONG cause and the `.toBe` below
+    // carries no message of its own.
+    const refusalText = (notice.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(
+      refusalText,
+      'the refusal names the wrong cause — the private scan FAILED, so the member cannot be said to be absent from it',
+    ).not.toMatch(/not among your private items/);
+    expect(refusalText).toBe(
       '1 member of “Mixed Grid” cannot be accounted for, because this app could not read ' +
         'all of your private items. It therefore cannot tell whether it is yours and ' +
         'unpublished, or simply gone. Publishing is refused rather than putting a key on the ' +
@@ -747,6 +755,60 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
         'again.',
     );
     void grid;
+  });
+
+  it('🔴 PATH C′ — the private-matchup scan TRUNCATED, which is the other half of the report', async () => {
+    // 🔴 FOUND BY A SURVIVING MUTANT, NOT BY READING THE DIFF. Path C drives the scan
+    // THROWING, and on that path `matchupsComplete` never gets assigned at all — so a
+    // mutant replacing `!cancelled && !scan.truncated` with `true` was UNREACHABLE
+    // there and survived a green suite. `forEachStoredKey` reports TWO kinds of
+    // incomplete view and only one of them was exercised.
+    //
+    // This case drives the other: `KV_MAX_PAGES` is 20, so 21 private matchups at one
+    // key per page leave the 21st UNREAD with the scan reporting `truncated: true`.
+    // The grid names that 21st one.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    const many: Record<string, unknown> = {};
+    for (let i = 1; i <= 21; i += 1) {
+      const localId = `dm-page-${i}`;
+      many[draftKey(localId)] = { ...privateMatchup, localId, name: `Paged matchup ${i}` };
+    }
+    const UNREAD = 'dm-page-21';
+    const kv = fakeAppStorage(
+      { ...many, [unpubGridKey(GRID_LOCAL_ID)]: privateGrid(['mk-a', UNREAD], ['qk-1']) },
+      {},
+      // One key per page, so 21 draft keys need 21 pages and the walk stops at 20.
+      { pageSize: 1 },
+    );
+    mountApp({ shared, store: {}, appStorage: kv.appStorage });
+
+    const grid = await privateGridCard();
+    // PREMISE, ASSERTED: the scan really did stop short — the 21st record is not
+    // listed on its own surface, while an early one IS. Without both halves this case
+    // cannot tell "truncated" from "the fixture wrote nothing".
+    await openMyList('matchup');
+    await waitFor(() => {
+      const ids = screen
+        .queryAllByTestId('unpublished-card')
+        .map((c) => c.getAttribute('data-local-id'));
+      if (!ids.includes('dm-page-1')) throw new Error('no paged matchups were read at all');
+      if (ids.includes(UNREAD)) throw new Error('the scan was NOT truncated — premise failed');
+    });
+
+    const gridAgain = await privateGridCard();
+    await userEvent.click(within(gridAgain).getByTestId('unpublished-publish'));
+
+    await settlePublish(appends);
+    expect(
+      appendLedger(appends),
+      'a member past the scan’s page cap was published as an unresolvable key',
+    ).toEqual([]);
+    const text = (refusalNode().textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(
+      text,
+      'a TRUNCATED private scan is reported as if the member were simply absent',
+    ).not.toMatch(/not among your private items/);
+    expect(text).toContain('could not read all of your private items');
   });
 
   it('🔴 CANCEL IS DISABLED WHILE THE CASCADE RUNS — it cannot undo what it looks like it undoes', async () => {
