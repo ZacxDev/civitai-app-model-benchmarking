@@ -270,7 +270,20 @@ export function MatchupForm({
    * for two rounds: `validateCombination` only COUNTS them (to raise "Add at least one
    * model"); the row that gets DROPPED is dropped by `buildCombinationPayload`
    * (`filledConfigs`, `benchmark.ts:204`). And `buildDraft` drops NOTHING — it maps
-   * every row — so a PRIVATE matchup persists its empty rows into the per-viewer store.
+   * every row — so a PRIVATE matchup persists its empty rows into the per-viewer
+   * store, WHERE `parseDraft` FILTERS THEM OUT AGAIN ON EVERY READ
+   * (`drafts.ts:123`, and it returns `null` if nothing is left). So the wasted bytes
+   * are the only cost: an empty row is never observable and can never re-seed an edit.
+   * `parseCombination` does the same on the published path.
+   *
+   * 🔴 THAT READ-SIDE FILTER IS ALSO WHAT KEEPS THE THREE-ROW CLAIM BELOW TRUE, which
+   * is why it is named here rather than left as a detail. The DIFFERING STATE is only
+   * two rows (`[empty, filled]`) — seed it directly and the two expressions diverge at
+   * once. What needs three rows is the ROUTE to it: nothing in production can hand this
+   * form a two-row `[empty, filled]`, because the only index-shifting mutation is
+   * `removeConfig` and the only other way in — an edit seeded from a persisted empty
+   * row — is closed by that filter. Omitting it sent an auditor hunting a
+   * counter-example to a claim that is correct.
    *
    * ⚠️ IT READS THE FIRST ROW, SO REMOVING THE FIRST ROW CAN HIDE THE BUTTON WHILE A
    * LATER ROW IS COMPLETE — named rather than fixed, because the recovery is the same
@@ -297,9 +310,11 @@ export function MatchupForm({
    *   - on the TWO-row recipe this docblock used to name (filled, empty → trash row
    *     0), "Add model" is ABSENT under `configs[0]` AND under `some(...)`. They are
    *     IDENTICAL there; `some(...)` is not "better", it changes nothing.
-   *   - the minimum state on which they differ needs THREE rows:
+   *   - the minimum REACHABLE RECIPE on which they differ needs THREE rows:
    *     `[filled, empty, filled]` → trash row 0 → `[empty, filled]`. "Add model" is
-   *     absent under `configs[0]` and PRESENT under `some(...)`.
+   *     absent under `configs[0]` and PRESENT under `some(...)`. (The differing STATE
+   *     is two rows; see the read-side-filter paragraph above for why no two-row route
+   *     reaches it.)
    * So a maintainer acting on #2 reproduces the 2-row recipe, sees no difference, and
    * concludes this block is as unreliable as the sentence it replaced.
    *
