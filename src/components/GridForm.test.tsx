@@ -174,24 +174,38 @@ describe('🔴 the two-step CREATE flow', () => {
     );
 
     // Step 1: the two axes, no name, no submit.
-    expect(screen.queryByTestId('form-step-content')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
-    expect(screen.queryByTestId('grid-form-pick-rows')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-pick-cols')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-name')).toBeNull();
-    expect(screen.queryByTestId('grid-form-submit')).toBeNull();
-    expect(screen.queryByTestId('form-next')).not.toBeNull();
+    // 🔴 EVERY READ CARRIES ITS OWN MESSAGE — a bare `.not.toBeNull()` reports
+    // "expected null not to be null", which names nothing.
+    expect(
+      screen.queryByTestId('form-step-content'),
+      'a NEW grid did not open on step 1 — `multiStep` is not being honoured',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'step 2 is mounted while on step 1').toBeNull();
+    expect(screen.queryByTestId('grid-form-pick-rows'), 'step 1 holds no row picker').not.toBeNull();
+    expect(
+      screen.queryByTestId('grid-form-pick-cols'),
+      'step 1 holds no column picker',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('grid-form-name'), 'the name input leaked onto step 1').toBeNull();
+    expect(
+      screen.queryByTestId('grid-form-submit'),
+      'step 1 offers Submit — it would submit a nameless grid',
+    ).toBeNull();
+    expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
 
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2: name + description, no axes.
-    expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('grid-form-name')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-description')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-pick-rows')).toBeNull();
-    expect(screen.queryByTestId('grid-form-submit')).not.toBeNull();
-    expect(screen.queryByTestId('form-back')).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'Next did not reach step 2').not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'step 1 is still mounted on step 2').toBeNull();
+    expect(screen.queryByTestId('grid-form-name'), 'step 2 holds no name input').not.toBeNull();
+    expect(
+      screen.queryByTestId('grid-form-description'),
+      'step 2 holds no description input',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('grid-form-pick-rows'), 'the axes leaked onto step 2').toBeNull();
+    expect(screen.queryByTestId('grid-form-submit'), 'step 2 offers no Submit').not.toBeNull();
+    expect(screen.queryByTestId('form-back'), 'step 2 offers no way back').not.toBeNull();
     unmount();
 
     // EDIT: one page, no step machinery, BOTH sections present.
@@ -205,13 +219,16 @@ describe('🔴 the two-step CREATE flow', () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
-    expect(screen.queryByTestId('form-next')).toBeNull();
-    expect(screen.queryByTestId('form-back')).toBeNull();
-    expect(screen.queryByTestId('grid-form-pick-rows')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-name')).not.toBeNull();
-    expect(screen.queryByTestId('grid-form-submit')).not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'an EDIT was wrapped in step 1').toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'an EDIT was wrapped in step 2').toBeNull();
+    expect(screen.queryByTestId('form-next'), 'an EDIT offers Next — it was paged').toBeNull();
+    expect(screen.queryByTestId('form-back'), 'an EDIT offers Back — it was paged').toBeNull();
+    expect(
+      screen.queryByTestId('grid-form-pick-rows'),
+      'the EDIT page holds no row picker',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('grid-form-name'), 'the EDIT page holds no name input').not.toBeNull();
+    expect(screen.queryByTestId('grid-form-submit'), 'the EDIT page holds no Submit').not.toBeNull();
   });
 
   it('🔴 submits what BOTH steps collected', async () => {

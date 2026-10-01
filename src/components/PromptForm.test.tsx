@@ -218,10 +218,26 @@ describe('🔴 the collapsed per-ecosystem override block', () => {
     // Revealed: all three parts present, and the reveal button has done its job and
     // gone — leaving two "Add override" buttons would be two controls doing
     // different things under one name.
-    expect(within(form).queryByTestId('prompt-add-override-select')).not.toBeNull();
-    expect(within(form).queryByTestId('prompt-add-override')).not.toBeNull();
-    expect(within(form).queryByTestId('prompt-overrides-hint')).not.toBeNull();
-    expect(within(form).queryByTestId('prompt-override-reveal')).toBeNull();
+    //
+    // 🔴 EACH CARRIES ITS OWN MESSAGE. A bare `.not.toBeNull()` fails as "expected
+    // null not to be null", which does not say WHICH of the three parts stayed
+    // hidden — measured, from the mutant whose reveal button does not reveal.
+    expect(
+      within(form).queryByTestId('prompt-add-override-select'),
+      'the ecosystem select stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-add-override'),
+      'the add-override button stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-overrides-hint'),
+      'the explanatory hint stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-override-reveal'),
+      'the reveal button is still there — two controls now spell "Add override"',
+    ).toBeNull();
   });
 
   it('🔴 starts REVEALED when the prefill already carries overrides', () => {
@@ -267,23 +283,35 @@ describe('🔴 the two-step CREATE flow', () => {
     );
 
     // Step 1: the prompt itself, no name, no submit.
-    expect(screen.queryByTestId('form-step-content')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
-    expect(screen.queryByTestId('prompt-default')).not.toBeNull();
-    expect(screen.queryByTestId('prompt-name')).toBeNull();
-    expect(screen.queryByTestId('prompt-submit')).toBeNull();
-    expect(screen.queryByTestId('form-next')).not.toBeNull();
+    // 🔴 EVERY READ CARRIES ITS OWN MESSAGE — a bare `.not.toBeNull()` reports
+    // "expected null not to be null", which names nothing in a case that makes a
+    // dozen of them across two shapes.
+    expect(
+      screen.queryByTestId('form-step-content'),
+      'a NEW prompt did not open on step 1 — `multiStep` is not being honoured',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'step 2 is mounted while on step 1').toBeNull();
+    expect(screen.queryByTestId('prompt-default'), 'step 1 holds no default section').not.toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'the name input leaked onto step 1').toBeNull();
+    expect(
+      screen.queryByTestId('prompt-submit'),
+      'step 1 offers Submit — it would submit a nameless prompt',
+    ).toBeNull();
+    expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
 
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2: the name + description, no prompt section.
-    expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('prompt-name')).not.toBeNull();
-    expect(screen.queryByTestId('prompt-description')).not.toBeNull();
-    expect(screen.queryByTestId('prompt-default')).toBeNull();
-    expect(screen.queryByTestId('prompt-submit')).not.toBeNull();
-    expect(screen.queryByTestId('form-back')).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'Next did not reach step 2').not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'step 1 is still mounted on step 2').toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'step 2 holds no name input').not.toBeNull();
+    expect(
+      screen.queryByTestId('prompt-description'),
+      'step 2 holds no description input',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('prompt-default'), 'the prompt section leaked onto step 2').toBeNull();
+    expect(screen.queryByTestId('prompt-submit'), 'step 2 offers no Submit').not.toBeNull();
+    expect(screen.queryByTestId('form-back'), 'step 2 offers no way back').not.toBeNull();
     unmount();
 
     // EDIT: one page, no step machinery, BOTH sections present.
@@ -294,12 +322,15 @@ describe('🔴 the two-step CREATE flow', () => {
       overrides: {},
     };
     render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
-    expect(screen.queryByTestId('form-next')).toBeNull();
-    expect(screen.queryByTestId('form-back')).toBeNull();
-    expect(screen.queryByTestId('prompt-default')).not.toBeNull();
-    expect(screen.queryByTestId('prompt-name')).not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'an EDIT was wrapped in step 1').toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'an EDIT was wrapped in step 2').toBeNull();
+    expect(screen.queryByTestId('form-next'), 'an EDIT offers Next — it was paged').toBeNull();
+    expect(screen.queryByTestId('form-back'), 'an EDIT offers Back — it was paged').toBeNull();
+    expect(
+      screen.queryByTestId('prompt-default'),
+      'the EDIT page holds no default section',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'the EDIT page holds no name input').not.toBeNull();
   });
 
   it('🔴 submits what BOTH steps collected', async () => {

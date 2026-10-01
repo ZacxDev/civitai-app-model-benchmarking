@@ -226,7 +226,14 @@ describe('🔴 the "Add model" control', () => {
     const card = screen.getByTestId('config-card');
 
     // Node.DOCUMENT_POSITION_FOLLOWING === 4
-    expect(card.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    //
+    // 🔴 THE MESSAGE IS NOT DECORATION. A bitmask assertion fails as "expected +0 to
+    // be truthy", which names neither the control nor the claim — measured, from the
+    // mutant that moves the button back above the list.
+    expect(
+      card.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the "Add model" button is not AFTER the model list in document order',
+    ).toBeTruthy();
   });
 });
 
@@ -407,32 +414,45 @@ describe('🔴 the two-step CREATE flow', () => {
     const { unmount } = render(
       <MatchupForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} multiStep />,
     );
-    expect(screen.queryByTestId('form-step-content')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
+    // 🔴 THE NAMED MESSAGES ARE LOAD-BEARING HERE. A bare `.not.toBeNull()` fails as
+    // "expected null not to be null", and this case makes ~20 such reads across two
+    // shapes — measured against the mutant that ignores `multiStep` entirely, whose
+    // report named nothing at all.
+    expect(
+      screen.queryByTestId('form-step-content'),
+      'a NEW matchup did not open on step 1 — `multiStep` is not being honoured',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'step 2 is mounted while on step 1').toBeNull();
     // Step 1 holds the models and NOT the name, and cannot submit — a matchup with
     // no name is exactly what `validateCombination` refuses, so offering Submit here
     // would offer a guaranteed failure.
-    expect(screen.queryByTestId('config-card')).not.toBeNull();
-    expect(screen.queryByTestId('matchup-name')).toBeNull();
-    expect(screen.queryByTestId('matchup-submit')).toBeNull();
-    expect(screen.queryByTestId('form-next')).not.toBeNull();
-    expect(screen.queryByTestId('form-back')).toBeNull();
+    expect(screen.queryByTestId('config-card'), 'step 1 holds no model list').not.toBeNull();
+    expect(screen.queryByTestId('matchup-name'), 'the name input leaked onto step 1').toBeNull();
+    expect(
+      screen.queryByTestId('matchup-submit'),
+      'step 1 offers Submit — it would submit a nameless matchup',
+    ).toBeNull();
+    expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
+    expect(screen.queryByTestId('form-back'), 'step 1 offers Back to nowhere').toBeNull();
 
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2 holds the name + description and NOT the models.
-    expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('matchup-name')).not.toBeNull();
-    expect(screen.queryByTestId('matchup-description')).not.toBeNull();
-    expect(screen.queryByTestId('config-card')).toBeNull();
-    expect(screen.queryByTestId('matchup-submit')).not.toBeNull();
-    expect(screen.queryByTestId('form-back')).not.toBeNull();
-    expect(screen.queryByTestId('form-next')).toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'Next did not reach step 2').not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'step 1 is still mounted on step 2').toBeNull();
+    expect(screen.queryByTestId('matchup-name'), 'step 2 holds no name input').not.toBeNull();
+    expect(
+      screen.queryByTestId('matchup-description'),
+      'step 2 holds no description input',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('config-card'), 'the model list leaked onto step 2').toBeNull();
+    expect(screen.queryByTestId('matchup-submit'), 'step 2 offers no Submit').not.toBeNull();
+    expect(screen.queryByTestId('form-back'), 'step 2 offers no way back').not.toBeNull();
+    expect(screen.queryByTestId('form-next'), 'step 2 still offers Next').toBeNull();
 
     // Back returns to the models with what step 1 collected still there.
     await userEvent.click(screen.getByTestId('form-back'));
-    expect(screen.queryByTestId('form-step-content')).not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'Back did not return to step 1').not.toBeNull();
     unmount();
 
     // ---- EDIT: one page, and NO step machinery at all ----
@@ -456,15 +476,15 @@ describe('🔴 the two-step CREATE flow', () => {
         submitLabel="Save changes"
       />,
     );
-    expect(screen.queryByTestId('form-step-content')).toBeNull();
-    expect(screen.queryByTestId('form-step-meta')).toBeNull();
-    expect(screen.queryByTestId('form-next')).toBeNull();
-    expect(screen.queryByTestId('form-back')).toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'an EDIT was wrapped in step 1').toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'an EDIT was wrapped in step 2').toBeNull();
+    expect(screen.queryByTestId('form-next'), 'an EDIT offers Next — it was paged').toBeNull();
+    expect(screen.queryByTestId('form-back'), 'an EDIT offers Back — it was paged').toBeNull();
     // 🔴 BOTH SECTIONS ON ONE PAGE — the load-bearing half. Without this, "no step
     // wrappers" would be satisfied by a form that rendered neither section.
-    expect(screen.queryByTestId('config-card')).not.toBeNull();
-    expect(screen.queryByTestId('matchup-name')).not.toBeNull();
-    expect(screen.queryByTestId('matchup-submit')).not.toBeNull();
+    expect(screen.queryByTestId('config-card'), 'the EDIT page holds no model list').not.toBeNull();
+    expect(screen.queryByTestId('matchup-name'), 'the EDIT page holds no name input').not.toBeNull();
+    expect(screen.queryByTestId('matchup-submit'), 'the EDIT page holds no Submit').not.toBeNull();
   });
 
   it('🔴 submits what BOTH steps collected', async () => {
