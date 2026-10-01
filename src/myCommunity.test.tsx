@@ -264,19 +264,33 @@ describe('🔴 the vote control is offered on OTHER viewers’ matchups only', (
     const cardFor = (key: string): HTMLElement =>
       screen.queryAllByTestId('matchup-card').find((el) => el.getAttribute('data-key') === key)!;
 
+    // 🔴 EVERY CELL IS READ WITH `queryByTestId` + AN EXPLICIT MESSAGE, NEVER WITH
+    // `getByTestId`. That is not style: `getByTestId` throws its OWN
+    // `TestingLibraryElementError` before vitest can attach the message, so a mutant
+    // that breaks ONE cell produces a failure indistinguishable from a mutant that
+    // breaks another, and the whole point of the 2×2 is being able to tell them apart.
+    // MEASURED: with the tally removed, this case failed with the library's "Unable to
+    // find [data-testid=vote-count]" and only the LINE NUMBER said which cell.
+    const cellCount = (card: HTMLElement, label: string): HTMLElement => {
+      const el = within(card).queryByTestId('vote-count');
+      expect(el, label).not.toBeNull();
+      return el!;
+    };
+
     // ---- FOREIGN ROW: both cells PRESENT ----
     const theirs = cardFor('theirs');
     expect(
       within(theirs).queryByTestId('matchup-vote'),
       'the vote control is missing on a FOREIGN matchup',
     ).not.toBeNull();
-    expect(
-      within(theirs).getByTestId('vote-count'),
-      'the foreign row lost its score',
-    ).toHaveTextContent(String(THEIRS_VOTES));
+    const theirsCount = cellCount(theirs, 'the foreign row lost its score');
+    expect(theirsCount).toHaveTextContent(String(THEIRS_VOTES));
     // …and there the count really is INSIDE the control, which is what makes the own
     // row's arrangement a different arrangement rather than the same one twice.
-    expect(within(theirs).getByTestId('vote-count').closest('button')).not.toBeNull();
+    expect(
+      theirsCount.closest('button'),
+      'the foreign row’s score escaped its vote control',
+    ).not.toBeNull();
 
     // ---- OWN ROW: score PRESENT, control ABSENT ----
     const mine = cardFor('mine');
@@ -284,23 +298,25 @@ describe('🔴 the vote control is offered on OTHER viewers’ matchups only', (
       within(mine).queryByTestId('matchup-vote'),
       'the viewer was offered a vote on their own matchup',
     ).toBeNull();
-    expect(
-      within(mine).getByTestId('vote-count'),
-      'the author cannot see their own matchup’s score',
-    ).toHaveTextContent(String(MINE_VOTES));
+    const mineCount = cellCount(mine, 'the author cannot see their own matchup’s score');
+    expect(mineCount).toHaveTextContent(String(MINE_VOTES));
     // 🔴 AND THE SCORE IS NOT A CONTROL IN DISGUISE. A disabled Button, or a `<span>`
     // with an `onClick`, would satisfy the two assertions above while still offering
     // the press — so the arrangement is read structurally: nothing focusable anywhere
     // around the number. `closest('button')` covers the pack's Button (which is where
     // the count sits on a foreign row), and the role/tabindex sweep covers a
     // hand-rolled one.
-    const tally = within(mine).getByTestId('vote-tally');
-    expect(within(mine).getByTestId('vote-count').closest('button')).toBeNull();
-    expect(tally.tagName).toBe('SPAN');
+    const tally = within(mine).queryByTestId('vote-tally');
+    expect(tally, 'the author’s score is not rendered as a read-only tally').not.toBeNull();
+    expect(
+      mineCount.closest('button'),
+      'the author’s score is still wrapped in a button',
+    ).toBeNull();
+    expect(tally!.tagName).toBe('SPAN');
     expect(tally).not.toHaveAttribute('role');
     expect(tally).not.toHaveAttribute('tabindex');
     expect(
-      tally.querySelectorAll('button, a[href], [tabindex], [role="button"]'),
+      tally!.querySelectorAll('button, a[href], [tabindex], [role="button"]'),
       'the read-only score contains something pressable',
     ).toHaveLength(0);
     // 🔴 AND IT IS NAMED. A bare number beside a matchup title says nothing about what
@@ -332,8 +348,8 @@ describe('🔴 the vote control is offered on OTHER viewers’ matchups only', (
       'My Benchmarks offered a vote on the viewer’s own matchup',
     ).toBeNull();
     expect(
-      within(mySection).getByTestId('vote-count'),
-      'My Benchmarks hides the author’s own score',
+      cellCount(mySection, 'My Benchmarks hides the author’s own score'),
+      'My Benchmarks shows the wrong score',
     ).toHaveTextContent(String(MINE_VOTES));
   });
 
