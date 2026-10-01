@@ -1213,13 +1213,15 @@ describe('🔴 the grid-publish notice clears when the viewer does what it asked
 
     // ---- STEP 1: the refusal renders ----
     await userEvent.click(within(await cardFor('ug-bad')).getByTestId('unpublished-publish'));
-    const notice = await waitFor(() => {
-      const el = screen.queryByTestId('grid-publish-error');
-      if (el === null) throw new Error('step 1 did not refuse — the premise failed');
-      return el;
+    await waitFor(() => {
+      if (screen.queryByTestId('grid-publish-error') === null)
+        throw new Error('step 1 did not refuse — the premise failed');
     });
-    expect(notice).toHaveTextContent('discard this grid and build it again');
-    expect(appendLedger(appends)).toEqual([]);
+    // ⚠️ THE PREMISE IS DELIBERATELY COPY-AGNOSTIC. Pinning the refusal's wording here
+    // would make this case fail at base on step 1's SENTENCE, and step 3's claim —
+    // which is the whole point — would never execute. The wording is pinned where it
+    // belongs, in `lib/gridCascade.test.ts` and in the refusal cases above.
+    expect(appendLedger(appends), 'step 1 published instead of refusing').toEqual([]);
 
     // ---- STEP 2: a publish that SUCCEEDS ----
     await userEvent.click(within(await cardFor('ug-good')).getByTestId('unpublished-publish'));
