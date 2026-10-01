@@ -106,11 +106,25 @@ export type { MyNoun };
  */
 export type MainView = { kind: 'home' } | { kind: 'my'; noun: MyNoun };
 
-/** Per-noun copy for the three sub-items. Plural, because each names a LIST. */
+/**
+ * Per-noun copy for the three sub-items. Plural, because each names a LIST.
+ *
+ * 🔴 THE ORDER IS AN OPERATOR DECISION, NOT AN ARBITRARY LIST, AND IT HAS MOVED ONCE.
+ * It shipped as Grids / Matchups / Prompts — grid-first, because Grids is the default
+ * HOME board. The operator reversed it to Prompts / Matchups / Grids: that is the order
+ * in which a viewer BUILDS the things (a prompt and a matchup exist before a grid can
+ * be assembled out of them), so the rail now reads in the direction of the workflow
+ * rather than in the direction of the community board's subnav.
+ *
+ * 🔴 THIS ARRAY IS THE ONLY SITE. `SIDE_NAV_ITEMS` derives from it, the rendered rows
+ * map over it, and the roving arrow keys read DOM order — so all three follow a change
+ * here. `sideNav.test.tsx` holds a LITERAL table that is deliberately NOT derived from
+ * this one, which is what makes a reorder a decision someone takes rather than a drift.
+ */
 const MY_ITEMS = [
-  ['nav-my-grid', 'grid', 'Grids'],
-  ['nav-my-matchup', 'matchup', 'Matchups'],
   ['nav-my-prompt', 'prompt', 'Prompts'],
+  ['nav-my-matchup', 'matchup', 'Matchups'],
+  ['nav-my-grid', 'grid', 'Grids'],
 ] as const satisfies ReadonlyArray<readonly [string, MyNoun, string]>;
 
 /**

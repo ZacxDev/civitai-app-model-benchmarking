@@ -86,23 +86,57 @@ describe('submit a combination', () => {
     await openView('Matchups');
     await userEvent.click(await screen.findByTestId('submit-matchup'));
     const form = await screen.findByTestId('matchup-form');
-    await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
+    // 🔴 STEP 1 IS THE MODELS, STEP 2 IS THE NAME — the name input does not exist
+    // until `form-next` is pressed, so the name is typed last here.
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
-    await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
-    // ecosystem is derived + shown
-    expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('SDXL');
+    await waitFor(() => expect(within(form).getByTestId('checkpoint-card')).toHaveTextContent('JuggernautXL'));
+    // ecosystem is derived + shown, on its own line beside the resource card
+    expect(within(form).getByTestId('checkpoint-ecosystem')).toHaveTextContent('SDXL');
     await userEvent.click(within(form).getByTestId('add-lora'));
     await waitFor(() => expect(within(form).getByTestId('lora-row')).toBeInTheDocument());
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
     await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('My SDXL Combo');
     // 🔴 THE `matchup-included` BADGE IS GONE (the third IA pass — every badge went,
     // on both modals, by operator decision). Asserted as ABSENCE FROM THE DOM rather
-    // than invisibility, with the card's own vote control as the in-band positive
-    // control so a card that failed to render cannot satisfy the null.
-    expect(within(card).getByTestId('matchup-vote')).toBeInTheDocument();
+    // than invisibility, with an in-band positive control so a card that failed to
+    // render cannot satisfy the null.
+    //
+    // ⚠️ THE POSITIVE CONTROL USED TO BE `matchup-vote` AND HAD TO MOVE. This card is
+    // the matchup THIS VIEWER just submitted, so it is their OWN row — and the vote
+    // control is now hidden on an author's own matchups (`MatchupBody`'s `canVote`).
+    // The control that replaces it is the author's `⋮`, which an owner always gets
+    // (Edit + Remove) and which is therefore a reading of the same "the action group
+    // rendered" fact. `matchup-config-summary` is a second, ownership-INDEPENDENT one.
+    expect(within(card).getByTestId('matchup-menu')).toBeInTheDocument();
+    expect(within(card).getByTestId('matchup-config-summary')).toBeInTheDocument();
     expect(within(card).queryByTestId('matchup-included')).toBeNull();
+    // 🔴 AND THE OWN-ROW ARRANGEMENT, ON A ROW THAT CANNOT BE ANYTHING BUT OWN — it is
+    // the matchup this viewer just submitted through the real transports. No vote
+    // control, and the score still readable. The FOREIGN half of the comparison lives
+    // in `myCommunity.test.tsx`'s 2×2 case, which is where two distinct author ids make
+    // it a discriminator; here it is a by-product of a real submit flow, which is worth
+    // having because it is the only reading of this arrangement that goes through the
+    // mock host's own `append` rather than a seeded fixture.
+    expect(
+      within(card).queryByTestId('matchup-vote'),
+      'the submitter was offered a vote on their own fresh matchup',
+    ).toBeNull();
+    expect(
+      within(card).getByTestId('vote-count'),
+      'the submitter cannot see their own fresh matchup’s score',
+    ).toHaveTextContent('0');
+    //
+    // ⚠️ THE POSITIVE CONTROLS ABOVE STAY `matchup-menu` + `matchup-config-summary` AND
+    // ARE DELIBERATELY *NOT* RE-POINTED AT `vote-count`, even though that element is
+    // back on an own row. A positive control proving "the card rendered" must not
+    // depend on the feature the surrounding assertions are about — if the vote split
+    // regressed, a `vote-count`-based control would vanish and the `matchup-included`
+    // null beside it would start passing vacuously. Those two readings are independent
+    // of voting entirely, which is the property that makes them controls.
   });
 });
 
@@ -113,7 +147,6 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
     await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
-    await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
 
     // The DEFAULT prompt (applies to every ecosystem).
     fireEvent.change(within(form).getByTestId('prompt-default-text'), {
@@ -121,6 +154,9 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
     });
 
     // Add a Pony override (its prompt pre-fills from the default; then edit it).
+    // 🔴 THE OVERRIDE PICKER IS COLLAPSED for a prompt with no overrides yet, so the
+    // secondary button has to be pressed before the ecosystem select exists.
+    await userEvent.click(within(form).getByTestId('prompt-override-reveal'));
     await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Pony');
     await userEvent.click(within(form).getByTestId('prompt-add-override'));
     const ponyOverride = await within(form).findByTestId('prompt-override-entry');
@@ -128,6 +164,9 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
       target: { value: 'score_9 portrait' },
     });
 
+    // 🔴 STEP 2 holds the name — a create pages the prompt first.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
     await userEvent.click(within(form).getByTestId('prompt-submit'));
 
     const card = await screen.findByTestId('prompt-card');

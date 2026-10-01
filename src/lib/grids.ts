@@ -95,9 +95,21 @@ function normalizeKeys(raw: unknown, cap: number): string[] {
 export interface GridInput {
   name: string;
   description: string;
-  /** Shared keys of the chosen matchups (the grid's ROWS), in authored order. */
+  /**
+   * Keys of the chosen matchups (the grid's ROWS), in authored order.
+   *
+   * 🔴 THIS SAID "Shared keys" AND THAT IS NO LONGER TRUE OF THE **INPUT**. `GridForm`
+   * now offers the viewer's own PRIVATE matchups and prompts, which carry a per-viewer
+   * LOCAL id — so a `GridInput` on the way to `appStorage` can hold either kind of
+   * string. It IS still true of what {@link buildGridPayload} emits: the publish path
+   * (`lib/gridCascade.ts`) rewrites every local id to the shared key its publish
+   * minted, and REFUSES the publish for any key it cannot account for, so a published
+   * `GridData` holds shared keys only. `types.ts`'s `UnpublishedGrid` and
+   * `GridPicker`'s `GridPickerItem.key` carry the same correction.
+   */
   matchupKeys: string[];
-  /** Shared keys of the chosen prompts (the grid's COLUMNS), in authored order. */
+  /** Keys of the chosen prompts (the grid's COLUMNS), in authored order — same two
+   * kinds of key on the way in, shared keys only on the way out. */
   promptKeys: string[];
 }
 

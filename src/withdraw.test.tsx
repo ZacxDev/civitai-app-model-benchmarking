@@ -673,11 +673,13 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
-    fireEvent.change(within(form).getByTestId('prompt-name'), {
-      target: { value: 'A public prompt' },
-    });
     fireEvent.change(within(form).getByTestId('prompt-default-text'), {
       target: { value: 'a landscape at dusk' },
+    });
+    // 🔴 STEP 2 holds the name — a create pages the prompt first.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    fireEvent.change(within(form).getByTestId('prompt-name'), {
+      target: { value: 'A public prompt' },
     });
     await userEvent.click(within(form).getByTestId('prompt-submit'));
 

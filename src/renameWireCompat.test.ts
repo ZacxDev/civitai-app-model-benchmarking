@@ -656,7 +656,19 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // neither. A non-zero count is what proves the pattern CAN see them, and the two
     // literals are what prove it sees the right ones.
     expect(PANEL_TESTIDS.length, 'the panelTestId scan matched nothing').toBeGreaterThan(0);
-    expect(PANEL_TESTIDS.slice().sort()).toEqual(['matchup-menu-items', 'prompt-menu-items']);
+    // 🔴 THREE LITERAL PANELS NOW, AND THE THIRD IS NOT MATCHUP-SPELLED.
+    // `unpublished-menu-items` is `MyList`'s PRIVATE-row overflow panel, added when
+    // Discard moved off the row and behind a `⋮`. It deliberately does NOT reuse
+    // `${noun}-menu-items` — the published row on that same surface owns that name, and
+    // `myBenchmarks.test.tsx` asserts a private row carries no `${noun}-menu` at all as
+    // the load-bearing half of "a private row is never offered Archive or Remove".
+    // Spelled as a literal rather than a template because the private row's whole
+    // control set is noun-neutral (`unpublished-card`, `-edit`, `-publish`, `-discard`).
+    expect(PANEL_TESTIDS.slice().sort()).toEqual([
+      'matchup-menu-items',
+      'prompt-menu-items',
+      'unpublished-menu-items',
+    ]);
     // 🔴 POSITIVE CONTROL ON THE FOURTH PATTERN. `MyList`'s one `⋮` serves all three
     // nouns through a TEMPLATED `panelTestId`, so without this pattern `grid-menu-items`
     // is rendered on every published grid row and absent from `ALL_TESTIDS` — and the
@@ -752,6 +764,25 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
   // number of such sites is pinned, so a second one cannot appear unnoticed, and
   // the ids the one site can render are pinned as source literals. Either half
   // moving fails here.
+  //
+  // 🔴 AND THERE IS A FOURTH BLIND SPOT THIS LIST DOES NOT MENTION, BECAUSE IT IS NOT
+  // IN `src/` AT ALL: an UPSTREAM component that COMPOSES child testids from the one
+  // the call site passes it. `ResourceCard` (`@civitai/blocks-react/dist/ui/
+  // ResourceCard.js`, measured on 0.51.0) does exactly that — `const id = testId ??
+  // 'resource-card'` and then ten derived ids, `${id}-hit`, `-thumb`, `-image`,
+  // `-placeholder`, `-overlay`, `-name`, `-selected`, `-meta`, `-type`, `-actions`.
+  // `MatchupForm` passes `data-testid="checkpoint-card"` and `data-testid="lora-row"`,
+  // so `checkpoint-card-name`, `lora-row-hit` and eighteen more are RENDERED IN
+  // PRODUCTION and absent from `ALL_TESTIDS`: `PROD_SOURCE` is a concatenation of
+  // files under `src/`, and the composition happens inside `node_modules`.
+  //
+  // ⚠️ IT IS NAMED RATHER THAN CLOSED, and the reason is that closing it means reading
+  // a dependency's dist bundle — a different kind of scan, pinned to a version this
+  // repo bumps routinely. What bounds it instead is the SHAPE: every such id is
+  // `<call-site literal>-<upstream suffix>`, and the call-site literal IS in
+  // `LITERAL_TESTIDS`, so a `combo`-spelled or `matchup`-spelled id can only arrive
+  // here through a call-site literal the two ledger assertions below already see.
+  // What is genuinely unenumerated is the SUFFIX set, which this repo does not choose.
   // -------------------------------------------------------------------------
   it('🔴 pins every INDIRECT data-testid site, so the scan cannot silently miss one', () => {
     const indirect = Array.from(

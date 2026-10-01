@@ -66,19 +66,29 @@ import { BLOCKS_UI_STYLES } from '@civitai/blocks-react/ui';
 import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
 
 /**
- * The five items, as `[testid, visible label, depth, the view selecting it produces]`.
+ * The five items, as `[testid, visible label, depth, the view selecting it produces]`,
+ * **in rendered order**.
  *
  * 🔴 LITERALS ON EVERY SIDE, and deliberately NOT derived from the component's own
  * tables — a mapping read out of the implementation agrees with a wrong implementation.
  * `SIDE_NAV_ITEMS` is cross-checked against this table below rather than used to build
  * it.
+ *
+ * 🔴 THE ORDER OF THE THREE SUB-ITEMS IS PART OF THE CONTRACT, AND IT CHANGED ONCE:
+ * Grids / Matchups / Prompts → **Prompts / Matchups / Grids** (an operator decision —
+ * the rail reads in the order a viewer BUILDS the objects; see `MY_ITEMS` in
+ * `components/SideNav.tsx`). Three separate assertions below read this table as a
+ * SEQUENCE — the `listitem` order, the FOCUSABLE order, and the component's exported
+ * `SIDE_NAV_ITEMS` ledger — so a reorder of the component without a reorder here is
+ * red three times over, and vice versa. MEASURED: with this table in the new order and
+ * `MY_ITEMS` at `7c20155`'s old order, this file is 3 failed / 16 passed.
  */
 const ITEMS = [
   ['nav-home', 'Home', 0, { kind: 'home' }],
   ['nav-my', 'My Benchmarks', 0, null],
-  ['nav-my-grid', 'Grids', 1, { kind: 'my', noun: 'grid' }],
-  ['nav-my-matchup', 'Matchups', 1, { kind: 'my', noun: 'matchup' }],
   ['nav-my-prompt', 'Prompts', 1, { kind: 'my', noun: 'prompt' }],
+  ['nav-my-matchup', 'Matchups', 1, { kind: 'my', noun: 'matchup' }],
+  ['nav-my-grid', 'Grids', 1, { kind: 'my', noun: 'grid' }],
 ] as const satisfies ReadonlyArray<readonly [string, string, number, MainView | null]>;
 
 function renderNav(view: MainView = { kind: 'home' }) {
@@ -403,15 +413,20 @@ describe('SideNav — the keyboard', () => {
     await userEvent.keyboard('{ArrowUp}');
     expect(screen.getByTestId('nav-my')).toHaveFocus();
 
-    // Expanded: the three sub-items join the cycle, in DOM order.
+    // Expanded: the three sub-items join the cycle, in DOM order — which is
+    // Prompts → Matchups → Grids, the order `MY_ITEMS` declares. The names are
+    // spelled out rather than indexed off `ITEMS`, so this case is a SECOND,
+    // independent reading of the order the table above pins.
     await userEvent.keyboard('{Enter}');
     await screen.findByTestId('nav-my-group');
     screen.getByTestId('nav-my').focus();
     await userEvent.keyboard('{ArrowDown}');
-    expect(screen.getByTestId('nav-my-grid')).toHaveFocus();
+    expect(screen.getByTestId('nav-my-prompt')).toHaveFocus();
     await userEvent.keyboard('{ArrowDown}');
     expect(screen.getByTestId('nav-my-matchup')).toHaveFocus();
-    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-my-grid')).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
     // Past the last item it wraps to the first.
     expect(screen.getByTestId('nav-home')).toHaveFocus();
   });

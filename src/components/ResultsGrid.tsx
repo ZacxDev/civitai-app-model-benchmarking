@@ -7,6 +7,16 @@
 // sticky headers) — too bespoke for the /ui pack (per rule 112) — but every atom
 // (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
 // the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
+//
+// 🔴 THE ROWS ARE WINDOWED. `MAX_CONFIGS` is 100 and a grid holds up to 20
+// matchups × 20 prompts, so the worst-case matrix is 2,000 rows / 40,000 cells —
+// and every cell is a potential Buzz spend whose filled form issues a gated image
+// read. Only the rows near the viewport are mounted; two full-width spacers stand
+// in for the rest so the scroll extent does not change. The windowing DECISION is
+// the pure `rowWindow()` in `lib/virtualRows.ts` (unit-tested with literal values
+// in the `node` project); this file only measures and renders. See `useRowWindow`.
+
+import { useEffect, useState } from 'react';
 
 import { Button, Loader } from '@civitai/blocks-react/ui';
 import { Image } from '@civitai/components-react';
@@ -21,6 +31,13 @@ import {
   type BenchConfig,
 } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
+import {
+  DEFAULT_OVERSCAN,
+  ROW_H_ESTIMATE,
+  rowWindow,
+  sameWindow,
+  type RowWindow,
+} from '../lib/virtualRows.js';
 import { EmptyState } from './EmptyState.js';
 import type { GatedCellComponent } from './GatedCell.js';
 
@@ -267,6 +284,97 @@ export function confirmGate(cost: number | undefined, buzzTotal: number | null):
   return cost <= buzzTotal ? 'ok' : 'insufficient';
 }
 
+/**
+ * ROW WINDOWING — which config rows are mounted, as a function of where the
+ * document is scrolled. Returns `[window, setHost]`, where `setHost` is a
+ * CALLBACK REF to put on the grid container whose top the offset is measured from.
+ *
+ * 🔴 ALL THE ARITHMETIC IS IN `lib/virtualRows.ts`, AND DELIBERATELY SO. This hook
+ * only MEASURES (`getBoundingClientRect().top`, `window.innerHeight`) and
+ * re-renders; the decision is a pure function with a `node`-project unit test
+ * carrying literal expected values. jsdom resolves no layout, so a decision that
+ * lived in here would be unobservable except through its effects — and this repo
+ * has already shipped a dead placeholder behind exactly that blind spot (see the
+ * header of `virtualRows.ts`, and `useNearViewport` in `GridPreview.tsx`).
+ *
+ * 🔴 THE HOST ELEMENT IS HELD IN STATE, NOT A `useRef` — the same fix as
+ * `useNearViewport`. A ref object never changes identity, so an effect keyed on it
+ * runs once and can never see the element ARRIVE on a later render. The grid
+ * container is behind the empty-state early return, so "arrives later" is the
+ * ordinary case here: an empty board that gains its first matchup mounts this
+ * container on a render where the hook has already run.
+ *
+ * ⚠️ THE OFFSET IS MEASURED FROM THE CONTAINER TOP, WHICH INCLUDES THE HEADER ROW,
+ * so `ROW_H_HEADER` is subtracted to get the offset into the row band. Both that
+ * and `ROW_H_ESTIMATE` are estimates; `DEFAULT_OVERSCAN` rows each side absorb the
+ * error. There is no vertical scroll container — the matrix scrolls with the
+ * DOCUMENT (the outer box scrolls only horizontally) — so the listener is on
+ * `window`, and `scroll` is bound with `passive: true` because the handler never
+ * calls `preventDefault`.
+ *
+ * ⚠️ NOTHING IN THIS REPO VERIFIES THE RESULTING SCROLL BEHAVIOUR. jsdom fires no
+ * scroll, lays nothing out, and returns 0 from every rect — so in tests this hook
+ * yields the fallback window and stays there. What the tests CAN see is that the
+ * window is BOUNDED (far fewer cells mount than the matrix has); whether it tracks
+ * a real scroll needs a human in a real browser.
+ */
+function useRowWindow(rowCount: number): [RowWindow, (el: HTMLElement | null) => void] {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [win, setWin] = useState<RowWindow>(() =>
+    rowWindow({
+      rowCount,
+      rowHeight: ROW_H_ESTIMATE,
+      viewportHeight: typeof window === 'undefined' ? 0 : window.innerHeight,
+      scrollTop: 0,
+      overscan: DEFAULT_OVERSCAN,
+    }),
+  );
+
+  useEffect(() => {
+    const measure = (): void => {
+      const top = host ? host.getBoundingClientRect().top : 0;
+      const next = rowWindow({
+        rowCount,
+        rowHeight: ROW_H_ESTIMATE,
+        viewportHeight: window.innerHeight,
+        // `-top` is how far the container's top edge is ABOVE the viewport's; the
+        // row band starts one header row further down. A negative result (the grid
+        // still below the fold) is clamped to 0 by `rowWindow`.
+        scrollTop: -top - ROW_H_HEADER,
+        overscan: DEFAULT_OVERSCAN,
+      });
+      // Only re-render when the window actually MOVED. A `scroll` listener that
+      // setState'd on every event would re-render the whole matrix at scroll
+      // frequency, which is the cost this change exists to remove.
+      setWin((prev) => (sameWindow(prev, next) ? prev : next));
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [host, rowCount]);
+
+  return [win, setHost];
+}
+
+/**
+ * Style for the two inert, full-width grid items that stand in for the rows
+ * outside the window.
+ *
+ * 🔴 THE STYLE IS SHARED, THE `data-testid` IS NOT — the two spacers are written
+ * out inline with LITERAL testids rather than through one `<RowSpacer testid={…}>`
+ * component. An indirect testid (a prop threaded into `data-testid`) is invisible
+ * to `sourceScan`'s testid walk, and `renameWireCompat.test.ts` keeps an explicit
+ * ledger of every such site for exactly that reason. Two literals cost two lines
+ * and keep the scan complete.
+ */
+function spacerStyle(height: number): React.CSSProperties {
+  return { gridColumn: '1 / -1', height };
+}
+
 export function ResultsGrid({
   configs,
   prompts,
@@ -287,6 +395,9 @@ export function ResultsGrid({
   onOpenPrompt,
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
+  // 🔴 CALLED BEFORE THE EMPTY-STATE EARLY RETURN BELOW, unconditionally — a hook
+  // after a conditional return is a hook-order violation on the very next render.
+  const [win, setGridHost] = useRowWindow(configs.length);
 
   // The grid is the app's PRIMARY state, so its empty case gets the same
   // treatment as every other list: the shared EmptyState template, which the
@@ -356,7 +467,14 @@ export function ResultsGrid({
         borderRadius: radius.md,
       }}
     >
-      <div style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}>
+      <div
+        ref={setGridHost}
+        data-testid="grid-body"
+        data-row-count={configs.length}
+        data-window-start={win.start}
+        data-window-end={win.end}
+        style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}
+      >
         {/* Header row: corner + one column header per prompt */}
         <HeaderCorner c={c} />
         {prompts.map((p) => (
@@ -368,8 +486,32 @@ export function ResultsGrid({
           />
         ))}
 
-        {/* Body: one row per CONFIG (grouped under its combination) */}
-        {configs.map((row, i) => (
+        {/* 🔴 THE SPACERS ARE WHAT KEEP THE SCROLL EXTENT HONEST. Without them the
+            document would shrink to the mounted window and the scrollbar would
+            jump on every scroll; `rowWindow` guarantees
+            `padTop + mounted*rowHeight + padBottom === rowCount*rowHeight`. They
+            span every track (`1 / -1`) for the same reason `GroupBand` does — a
+            grid item occupies one cell otherwise. */}
+        {win.padTop > 0 && (
+          <div
+            data-testid="grid-pad-top"
+            data-height={win.padTop}
+            aria-hidden="true"
+            style={spacerStyle(win.padTop)}
+          />
+        )}
+
+        {/* Body: one row per CONFIG (grouped under its combination), WINDOWED.
+            🔴 `groupStart` IS COMPUTED FROM THE GLOBAL INDEX `i`, NEVER THE SLICE
+            INDEX `j`. Which rows get a matchup band is a property of the full
+            config list, so windowing must not change it: a window opening in the
+            MIDDLE of a group must not promote its first visible row to a band, and
+            a group whose first config is windowed out must not lose it when it
+            comes back. Reading `configs[i - 1]` (the full array, not the slice) is
+            what makes the band decision identical to the unwindowed render. */}
+        {configs.slice(win.start, win.end).map((row, j) => {
+          const i = win.start + j;
+          return (
           <RowFragment
             key={`${row.comboKey}:${row.config.id}`}
             row={row}
@@ -388,7 +530,17 @@ export function ResultsGrid({
             onCancelRun={onCancelRun}
             onOpenMatchup={onOpenMatchup}
           />
-        ))}
+          );
+        })}
+
+        {win.padBottom > 0 && (
+          <div
+            data-testid="grid-pad-bottom"
+            data-height={win.padBottom}
+            aria-hidden="true"
+            style={spacerStyle(win.padBottom)}
+          />
+        )}
       </div>
     </div>
   );

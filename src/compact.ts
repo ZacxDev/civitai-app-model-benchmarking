@@ -609,7 +609,7 @@ export const compactTapTargetCss = (): string => `
 /* 🔴 THE NESTING, AS A BRACKET — because on a ROW an indent conveys nothing.
    \`SideNav\` expresses depth as \`padding-left\`, which is an indent in the wide rail
    and merely a GAP BEFORE THE LABEL once the rows are laid out horizontally. So at
-   this breakpoint Home / My Benchmarks / Grids / Matchups / Prompts read as five flat
+   this breakpoint Home / My Benchmarks / Prompts / Matchups / Grids read as five flat
    peers, and nothing said that the last three live INSIDE the second. A left rule in
    the primary colour plus its own inset is the ordinary way to say "these belong to
    the thing on their left", and unlike an indent it survives the axis change.

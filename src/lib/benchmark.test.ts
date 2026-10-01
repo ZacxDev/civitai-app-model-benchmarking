@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
 
-import type { CombinationRow, ModelConfig, PromptRow, ResultRow } from '../types.js';
+import type { CheckpointRef, CombinationRow, ModelConfig, PromptRow, ResultRow } from '../types.js';
 import { buildGridPayload } from './grids.js';
 import {
   buildCellWorkflowBody,
@@ -20,6 +20,10 @@ import {
   indexResultsByCell,
   isOwnRow,
   loraFromPick,
+  MAX_CONFIGS,
+  MAX_LORAS,
+  modelConfigLabel,
+  modelCountSummary,
   newConfig,
   parseCombination,
   parsePrompt,
@@ -173,9 +177,18 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
     expect(
       validateCombination({ name: '', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }),
     ).toContain('Give the matchup a name.');
+    // 🔴 "MODEL", NOT "MODEL CONFIG" — this string is rendered by the matchup
+    // modal's error Alert, and `config` is the WIRE word. It said "model config"
+    // for one round after the surface was reworded to "Models", which put the wire
+    // word on screen in the one modal the rename existed for.
     expect(validateCombination({ name: 'X', description: '', configs: [newConfig()] })).toContain(
-      'Add at least one model config (pick a checkpoint).',
+      'Add at least one model (pick a checkpoint).',
     );
+    // …and it leaks no wire noun at all, which a substring check for the new copy
+    // cannot tell you (the old string CONTAINS the new one).
+    for (const e of validateCombination({ name: '', description: '', configs: [newConfig()] })) {
+      expect(e, `"${e}" leaked the internal noun`).not.toMatch(/config/i);
+    }
   });
 });
 
@@ -674,6 +687,35 @@ describe('includedSummary (header copy)', () => {
   });
 });
 
+describe('modelCountSummary (the row/picker structural summary)', () => {
+  // 🔴 LITERALS, NOT `\`${n} model\``. The point of the helper is the exact wording —
+  // an expectation built the same way the implementation builds it agrees with a wrong
+  // implementation, which is how a copy guard comes to guard nothing.
+  //
+  // ⚠️ THE SUBJECT: this string read "N configs" on both of its render surfaces until
+  // the rename. "config" is the repo's internal noun and appears in no wire value and
+  // no viewer copy anywhere else; "models" is what a viewer picked. The two RENDERED
+  // halves are pinned separately — `myBenchmarks.test.tsx` (My Benchmarks ▸ Matchups,
+  // private row) and `gridsView.test.tsx` (the grid builder's row picker) — because a
+  // green unit test cannot tell "the helper is right" from "a call site still
+  // open-codes the old string".
+  it('says "models", and agrees in number', () => {
+    expect(modelCountSummary(1)).toBe('1 model');
+    expect(modelCountSummary(2)).toBe('2 models');
+    expect(modelCountSummary(8)).toBe('8 models');
+  });
+
+  it('never says "config" at any count, including the degenerate ones', () => {
+    // 0 is reachable only through a parse that produced an empty config list, which
+    // `parseCombination` rejects — but the helper is a pure string function and a
+    // caller is entitled to a sane answer rather than "0 config".
+    expect(modelCountSummary(0)).toBe('0 models');
+    for (const n of [0, 1, 2, 3, 8]) {
+      expect(modelCountSummary(n), `"${n}" leaked the internal noun`).not.toMatch(/config/i);
+    }
+  });
+});
+
 describe('flattenConfigs (grid rows are configs grouped under combos)', () => {
   it('flattens combos into per-config rows in combo-then-config order', () => {
     const combos = [
@@ -689,8 +731,84 @@ describe('flattenConfigs (grid rows are configs grouped under combos)', () => {
     expect(rows[0].comboName).toBe('One');
     expect(rows[0].comboCount).toBe(3);
     expect(configLabel(rows[0])).toBe('base');
-    // Falls back to checkpoint name when no label
-    expect(configLabel(rows[2])).toBe('JuggernautXL');
+    // 🔴 THIS EXPECTATION MOVED, AND IT IS NOT A WEAKENING. It read
+    // `'JuggernautXL'` — the checkpoint name alone — because the derived label used
+    // to stop at the checkpoint. The matchup form no longer OFFERS a label input, so
+    // the derived label is now what a viewer actually sees for most rows, and it
+    // names the LoRA stack too (`sdxlConfig`'s fixture carries one). Covered
+    // directly, with the author-label half beside it, by the `modelConfigLabel`
+    // describe block below.
+    expect(configLabel(rows[2])).toBe('JuggernautXL + Detail Tweaker');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 `modelConfigLabel` — THE ONE RULE FOR "WHAT IS THIS MODEL CALLED", and the
+// reason it needs its own cases rather than riding on `configLabel`'s.
+//
+// The matchup form removed the per-model label INPUT and derives the name from the
+// checkpoint + LoRAs instead. The hazard that creates is NOT that generation is
+// wrong — it is that generation becomes UNCONDITIONAL and silently replaces every
+// author-written label already stored on the public board, including other authors'
+// rows this app can never rewrite.
+//
+// 🔴 SO THE TWO HALVES ARE PINNED IN ONE CASE EACH WAY ROUND, DELIBERATELY. A test
+// that only checked "an absent label generates" passes against an implementation
+// that ignores stored labels entirely — i.e. against the exact regression. A test
+// that only checked "an author label shows" passes against the OLD code, which
+// generated nothing. Neither direction alone is coverage.
+// ---------------------------------------------------------------------------
+
+describe('modelConfigLabel', () => {
+  it("🔴 shows the AUTHOR'S label when there is one, and generates only when there is not", () => {
+    const authored = sdxlConfig({ label: 'variant B' });
+    const derived = sdxlConfig({ label: undefined });
+
+    // The fixture's author label is NOT a substring of what generation would
+    // produce, and generation's output is NOT a substring of the label — so neither
+    // assertion can pass for the other's reason.
+    expect(modelConfigLabel(authored, 0)).toBe('variant B');
+    expect(modelConfigLabel(derived, 0)).toBe('JuggernautXL + Detail Tweaker');
+  });
+
+  it('treats a whitespace-only author label as absent', () => {
+    // `'   '` renders as nothing at all, which is the failure the trim exists for.
+    expect(modelConfigLabel(sdxlConfig({ label: '   ' }), 0)).toBe('JuggernautXL + Detail Tweaker');
+  });
+
+  it('names EVERY LoRA in the stack, in order, and drops nameless ones', () => {
+    const two = sdxlConfig({
+      label: undefined,
+      loras: [
+        { versionId: 2002, weight: 1, modelName: 'Detail Tweaker' },
+        { versionId: 3003, weight: 1, modelName: 'Film Grain' },
+      ],
+    });
+    expect(modelConfigLabel(two, 0)).toBe('JuggernautXL + Detail Tweaker + Film Grain');
+
+    // A LoRA with no usable name is dropped rather than joined as an empty segment —
+    // a trailing " + " reads as a rendering bug, not as a nameless LoRA.
+    const nameless = sdxlConfig({
+      label: undefined,
+      loras: [{ versionId: 2002, weight: 1, modelName: '  ' }],
+    });
+    expect(modelConfigLabel(nameless, 0)).toBe('JuggernautXL');
+  });
+
+  it('falls back to a POSITIONAL name only when there is no checkpoint name either', () => {
+    // The builder holds half-filled rows (`newConfig()` mints one with no
+    // checkpoint at all), so this path is reachable from the form, not just from a
+    // malformed stored row.
+    const blank = { id: 'x', checkpoint: undefined as unknown as CheckpointRef, loras: [] };
+    expect(modelConfigLabel(blank, 0)).toBe('Model 1');
+    expect(modelConfigLabel(blank, 4)).toBe('Model 5');
+
+    // 🔴 AND THE POSITIONAL NOUN IS THE VIEWER-FACING ONE. It said "Config N" while
+    // the surface said "Model configs"; the surface says "Models" now, and a
+    // fallback that still said "Config" would leak the WIRE word (`ModelConfig`,
+    // `data.configs`) onto a screen — the same leak `modelCountSummary` is guarded
+    // against above.
+    expect(modelConfigLabel(blank, 0)).not.toMatch(/config/i);
   });
 });
 
@@ -902,5 +1020,135 @@ describe('round-trip to builder input (edit-in-place prefill)', () => {
     expect(reparsed!.data.default.params.cfgScale).toBe(5);
     expect(reparsed!.data.overrides!.Pony.prompt).toBe('score_9 portrait');
     expect(reparsed!.data.overrides!.Pony.params!.cfgScale).toBe(7);
+  });
+});
+
+// ===========================================================================
+// THE TWO CAPS — and they are two DIFFERENT KINDS of number, which is why they
+// are asserted side by side rather than folded into one "limits" case.
+// ===========================================================================
+
+/** A filled config (checkpoint present) with a distinct id, for cap fixtures. */
+function filledConfig(i: number): ModelConfig {
+  return {
+    id: `cap-cfg-${i}`,
+    checkpoint: { versionId: 1000 + i, modelId: 500, baseModel: 'SDXL 1.0', modelName: `M${i}` },
+    loras: [],
+  };
+}
+
+describe('MAX_CONFIGS — the app-side matchup cap, at its boundary from BOTH sides', () => {
+  it('is 100', () => {
+    expect(MAX_CONFIGS, 'MAX_CONFIGS must be 100 — the operator-requested limit').toBe(100);
+  });
+
+  // 🔴 BOTH SIDES OF THE BOUNDARY IN ONE CASE. An "accepts 100" assertion alone
+  // passes under a cap of 1,000; a "rejects 101" assertion alone passes under a cap
+  // of 1. Only the pair pins the number, and each message names which side failed.
+  it('🔴 accepts exactly 100 filled configs and REJECTS the 101st', () => {
+    const ok = validateCombination({
+      name: 'A hundred configs',
+      description: '',
+      configs: Array.from({ length: 100 }, (_, i) => filledConfig(i)),
+    });
+    expect(ok, 'CAP TOO LOW: 100 filled configs must validate clean at MAX_CONFIGS 100').toEqual([]);
+
+    const tooMany = validateCombination({
+      name: 'A hundred and one configs',
+      description: '',
+      configs: Array.from({ length: 101 }, (_, i) => filledConfig(i)),
+    });
+    expect(
+      tooMany,
+      'CAP TOO HIGH (or absent): 101 filled configs must be refused with the "At most 100 models." error',
+    ).toContain('At most 100 models.');
+  });
+
+  // The builder and the parser must agree with the validator, or a form that
+  // bypassed validation could publish a row the parser then truncates differently.
+  it('the PAYLOAD BUILDER truncates to 100, and the PARSER reads back exactly 100', () => {
+    const built = buildCombinationPayload({
+      name: 'Overfull',
+      description: '',
+      configs: Array.from({ length: 140 }, (_, i) => filledConfig(i)),
+    });
+    const data = built.data as { configs: unknown[] };
+    expect(data.configs, 'buildCombinationPayload must cap the stored configs at 100').toHaveLength(100);
+
+    const parsed = parseCombination({
+      key: 'c-cap',
+      count: 0,
+      authorUserId: 1,
+      value: built,
+      viewerVoted: false,
+    });
+    expect(parsed, 'a 100-config combination must still parse').not.toBeNull();
+    expect(
+      parsed!.data.configs,
+      'parseCombination must read back all 100 configs — a lower parse cap would silently drop rows out of the matrix',
+    ).toHaveLength(100);
+  });
+
+  it('flattenConfigs turns a 100-config matchup into 100 grid rows', () => {
+    const rows = flattenConfigs([
+      comboRow({
+        data: {
+          v: 2,
+          kind: 'combination',
+          configs: Array.from({ length: 100 }, (_, i) => filledConfig(i)),
+        },
+      }),
+    ]);
+    expect(
+      rows,
+      'a 100-config matchup must flatten to 100 benchmarkable rows — this is the row count the matrix windows',
+    ).toHaveLength(100);
+  });
+});
+
+describe('MAX_LORAS — ⚠️ INVARIANT GUARD on a HOST contract', () => {
+  // ⚠️ LABELLED AN INVARIANT GUARD, NOT REGRESSION COVERAGE. No bug ever raised
+  // this number and nothing here was ever red. It exists because the constraint is
+  // enforced somewhere this repo cannot see — `MAX_ADDITIONAL_RESOURCES = 5`,
+  // applied as a Zod `.max()` on `additionalResources` in `civitai/civitai`'s
+  // `src/server/schema/blocks/workflow.schema.ts` — so the only thing standing
+  // between a future "while we're at it, raise the LoRA cap too" and a stack the
+  // host refuses AT SUBMIT is a test that says no. Pinned alongside the MAX_CONFIGS
+  // cases deliberately: those two numbers came up in the same operator request and
+  // only one of them was ours to move.
+  it('⚠️ INVARIANT GUARD: is still 5 — the host rejects a 6th additionalResource at the wire schema', () => {
+    expect(
+      MAX_LORAS,
+      'MAX_LORAS must stay 5: the host enforces MAX_ADDITIONAL_RESOURCES = 5 as a Zod .max() on additionalResources (civitai/civitai, src/server/schema/blocks/workflow.schema.ts). Raising it here lets a viewer build a stack the host refuses at submit, after the work is done.',
+    ).toBe(5);
+  });
+
+  it('⚠️ INVARIANT GUARD: the two caps are independent — raising MAX_CONFIGS did not move MAX_LORAS', () => {
+    expect(
+      validateCombination({
+        name: 'Six LoRAs',
+        description: '',
+        configs: [
+          {
+            ...filledConfig(1),
+            loras: Array.from({ length: 6 }, (_, i) => ({ versionId: 2000 + i, weight: 1 })),
+          },
+        ],
+      }),
+      'a 6-LoRA model must be refused with the "At most 5 LoRAs per model." error',
+    ).toContain('At most 5 LoRAs per model.');
+
+    const body = buildCellWorkflowBody(
+      {
+        ...filledConfig(1),
+        loras: Array.from({ length: 9 }, (_, i) => ({ versionId: 2000 + i, weight: 1 })),
+      },
+      'c1',
+      promptRow(),
+    );
+    expect(
+      body.additionalResources,
+      'buildCellWorkflowBody must truncate additionalResources to 5 — the host rejects more',
+    ).toHaveLength(5);
   });
 });

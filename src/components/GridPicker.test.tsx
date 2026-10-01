@@ -148,8 +148,13 @@ describe('GridPicker — filtering', () => {
     const empty = screen.getByTestId('grid-picker-empty');
     expect(within(empty).getByText('No matchups to choose from')).toBeInTheDocument();
     expect(
+      // 🔴 MOVED WITH THE COPY, AND THE OLD STRING WAS FALSE RATHER THAN DATED. It
+      // said a grid "can only reference matchups that are on the board"; `App` now
+      // hands this picker the viewer's own PRIVATE matchups and prompts as well, so
+      // the sentence asserted a restriction the app no longer has. Pinned whole, so
+      // a reword is a test-breaking change on purpose.
       within(empty).getByText(
-        'Publish or vote up a matchup first — a grid can only reference matchups that are on the board.',
+        'Create a matchup first — a grid can reference any matchups on the board, plus your own private ones.',
       ),
     ).toBeInTheDocument();
     // No dead "Clear search" affordance when there is nothing a search could find.

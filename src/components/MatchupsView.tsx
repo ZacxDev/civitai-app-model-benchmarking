@@ -34,7 +34,7 @@ import { Alert, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react
 import type { ReactNode } from 'react';
 
 import type { CombinationRow, DraftUnsubmitted } from '../types.js';
-import { includedSummary, isOwnRow } from '../lib/benchmark.js';
+import { includedSummary, isOwnRow, modelCountSummary } from '../lib/benchmark.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { MatchupBody } from './MatchupBody.js';
@@ -225,7 +225,9 @@ export function MatchupsView({
               drafts={unpublished.map((rec) => ({
                 localId: rec.localId,
                 name: rec.name,
-                meta: `${rec.configs.length} config${rec.configs.length === 1 ? '' : 's'}`,
+                // 🔴 SHARED WITH `App`'s grid-builder picker through
+                // `modelCountSummary` — the two were open-coded copies of one ternary.
+                meta: modelCountSummary(rec.configs.length),
                 description: rec.description,
               }))}
               rows={own}

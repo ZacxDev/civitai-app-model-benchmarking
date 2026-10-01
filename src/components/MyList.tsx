@@ -70,9 +70,37 @@ export interface MyDraftItem {
   /** App-chosen, per-viewer id — NOT a shared key. */
   localId: string;
   name: string;
-  /** A short STRUCTURAL summary (e.g. "2 configs", "3 ecosystems"). */
+  /**
+   * A short STRUCTURAL summary (e.g. "2 models", "3 ecosystems").
+   *
+   * ⚠️ IT USED TO READ "2 configs" AND THE EXAMPLE WAS THE LIVE STRING, not a
+   * placeholder: the matchup caller built it from `configs.length` with the repo's
+   * internal noun. The viewer-facing word is "models" now — see `modelCountSummary`
+   * in `lib/benchmark.ts`, which owns it for both callers.
+   */
   meta: string;
   description?: string;
+  /**
+   * An OPTIONAL extra body node, rendered BELOW the name/meta/description row and
+   * the action group.
+   *
+   * 🔴 IT EXISTS FOR ONE CALLER AND IT IS A NODE RATHER THAN DATA, DELIBERATELY.
+   * `MyGridsView` passes a `GridPreview` — the same inline thumbnail strip the
+   * community grid cards carry — so a viewer can tell two of their own private
+   * grids apart without opening either. Passing the *node* keeps this component
+   * ignorant of results, of gated reads and of `GatedCell`: the read budget stays
+   * the caller's business, which is where the per-card batching is defended
+   * (`gridPreview.test.tsx`, `gridPreviewSeam.test.tsx`).
+   *
+   * 🔴 AND IT CARRIES NO TESTID OF ITS OWN. The ids a reader selects on belong to
+   * whatever the caller renders (`grid-preview`, `grid-preview-empty`), which are
+   * literals in `GridPreview.tsx` — a testid threaded through a prop is invisible
+   * to `renameWireCompat.test.ts`'s raw-source scan and has been rejected there
+   * twice.
+   *
+   * The matchup and prompt callers pass nothing, so their rows are unchanged.
+   */
+  preview?: ReactNode;
 }
 
 export interface MyListProps<Row> {
@@ -262,17 +290,43 @@ export function MyList<Row>({
               data-testid="unpublished-card"
               data-local-id={item.localId}
             >
+              {/* 🔴 A `Stack` AROUND THE ROW, so an optional `preview` sits BELOW it
+                  rather than squeezed into the name column. Matches the published
+                  grid cards' shape (`GridsView`'s `entryCard`), which is the point:
+                  a private grid and a published one should read the same way. With
+                  no `preview` the Stack holds exactly one child and the row is
+                  structurally what it was. */}
+              <Stack gap={10} style={{ minWidth: 0 }}>
               <Group justify="space-between" align="flex-start" gap={10}>
                 <Stack gap={4} style={{ minWidth: 0 }}>
                   <Group gap={8} align="center">
                     <strong data-testid="unpublished-name">{item.name || `Untitled ${noun}`}</strong>
-                    {/* 🔴 THE STATE MARKER, and the ONE place this app says "Draft" to a
-                        viewer. §11.1 took the word out of the rendered vocabulary while
-                        two lists made the state obvious by ADDRESS; one list has no
-                        address to read it off, so the state has to be on the row.
-                        `myCommunity.test.tsx` holds the word out of everywhere else. */}
+                    {/* 🔴 THE STATE MARKER, and the ONE place this app names the
+                        unpublished state to a viewer. §11.1 took the old word out of the
+                        rendered vocabulary while two lists made the state obvious by
+                        ADDRESS; one list has no address to read it off, so the state has
+                        to be on the row.
+
+                        🔴 IT READS "Private", NOT "Draft", AND THE TWO ARE NOT SYNONYMS
+                        HERE. "Draft" names a stage of the AUTHOR'S work and says nothing
+                        about who can see it; the one thing this row's state actually
+                        means is that the record lives in the viewer's own per-viewer KV
+                        and has never reached `shared.append`, so NO OTHER VIEWER CAN SEE
+                        IT. "Private" is that fact. The operator asked for the word, and
+                        it is also the honest one.
+
+                        🔴 THE TESTID STAYS `draft-badge` ON PURPOSE. It is a selector,
+                        not copy; renaming it would churn every consumer (including the
+                        external capture recipes `renameWireCompat.test.ts` guards) for a
+                        change a viewer cannot observe. The STORAGE names keep the old
+                        word for a much harder reason — see `DRAFT_PREFIX` in
+                        `lib/drafts.ts`, whose rename would orphan live records.
+
+                        `myCommunity.test.tsx` now holds "draft" out of EVERY rendered
+                        surface, badge included — the exclusion that guard used to carry
+                        for this node is gone, because this node no longer says it. */}
                     <Badge variant="filled" data-testid="draft-badge">
-                      Draft
+                      Private
                     </Badge>
                     <Badge variant="light" data-testid="unpublished-meta">
                       {item.meta}
@@ -300,18 +354,51 @@ export function MyList<Row>({
                   >
                     Publish
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="subtle"
-                    color="error"
-                    onClick={() => onDiscardDraft(item.localId)}
-                    data-testid="unpublished-discard"
-                    aria-label={`Discard your unpublished ${noun}`}
+                  {/* 🔴 DISCARD IS BEHIND THE `⋮`, NOT ON THE ROW, and that is the same
+                      decision Remove/Archive got on the PUBLISHED half one block down:
+                      a destructive action is row-level OVERFLOW, and three buttons on
+                      one row out-shouted the row itself. It is now UNMOUNTED until the
+                      menu opens — a behaviour change, not a style one, so every case
+                      that reached `unpublished-discard` has to open the menu first
+                      (`openRowMenu('unpublished', card)` in `test-helpers.tsx`).
+
+                      🔴 ITS OWN MENU IDS, NOT `${noun}-menu`. The published row's menu
+                      already owns that name on this very surface, and
+                      `myBenchmarks.test.tsx` asserts — as the load-bearing half of "a
+                      private row is never offered Archive or Remove" — that a private
+                      row carries NO `${noun}-menu`. Reusing the id would make that
+                      assertion pass for the wrong reason and then quietly stop meaning
+                      anything. `unpublished-*` is also the prefix every other control on
+                      this row already uses.
+
+                      🔴 AND IT IS A `MenuItem`, i.e. a real `role="menuitem"`, because
+                      Discard is a SINGLE press. Remove and Report are two-step confirms
+                      and that is why THEY need `MenuControl`'s `role="none"` escape
+                      hatch — see `Menu.tsx`'s `MENU_CONTROL_ATTR`. The menuitem role is
+                      also what puts this control under `compact.ts`'s 44px floor.
+
+                      ⚠️ THE SINGLE PRESS IS UNCHANGED, DELIBERATELY. Moving the control
+                      is the asked-for change; adding a confirm step to it is not, and a
+                      discard that both hides AND confirms would be two decisions shipped
+                      as one. The record is per-viewer and unpublished, so the loss is
+                      bounded to work that never left this viewer's own storage. */}
+                  <Menu
+                    label={`Private ${noun} actions`}
+                    data-testid="unpublished-menu"
+                    panelTestId="unpublished-menu-items"
                   >
-                    Discard
-                  </Button>
+                    <MenuItem
+                      label="Discard"
+                      ariaLabel={`Discard your private ${noun}`}
+                      danger
+                      onSelect={() => onDiscardDraft(item.localId)}
+                      data-testid="unpublished-discard"
+                    />
+                  </Menu>
                 </Group>
               </Group>
+              {item.preview}
+              </Stack>
             </Card>
           ))}
 

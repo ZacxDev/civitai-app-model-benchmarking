@@ -359,9 +359,19 @@ export interface UnpublishedGrid {
   localId: string;
   name: string;
   description: string;
-  /** Shared keys of the chosen matchups (the grid's ROWS), in authored order. */
+  /**
+   * Keys of the chosen matchups (the grid's ROWS), in authored order.
+   *
+   * 🔴 NOT NECESSARILY SHARED KEYS — this said "Shared keys" and that is no longer
+   * true of the PRIVATE record. A viewer can pick their own unpublished matchups
+   * into a grid, and those carry a per-viewer LOCAL id (`DraftUnsubmitted.localId`),
+   * so this array can hold either kind of string. The published `GridData` CAN hold
+   * only shared keys: `lib/gridCascade.ts` publishes the private members first and
+   * rewrites their local ids before `buildGridPayload` runs.
+   */
   matchupKeys: string[];
-  /** Shared keys of the chosen prompts (the grid's COLUMNS), in authored order. */
+  /** Keys of the chosen prompts (the grid's COLUMNS), in authored order — same two
+   * kinds of key, same rewrite at publish. */
   promptKeys: string[];
   /** ISO timestamp of the last local edit (ordering only). */
   updatedAt: string;
