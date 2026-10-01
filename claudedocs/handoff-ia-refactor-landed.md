@@ -55,13 +55,18 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   🔴 **ONE ASK WAS NOT BUILT AND IS DELIBERATE** — "allow generating content while grid is
   draft", held for its own PR because it spends Buzz. 🔴 **ONE WAS CLOSED AS NO:** `MAX_LORAS`
   stays 5, host-enforced at the wire schema.
-- 🔴 **0.4.14 IS SUBMITTED AND STUCK AT `pending` — THE APPROVAL NEEDS A BROWSER AND THE BRIDGE
-  IS DOWN.** `pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`, source `66f6122` reported clean, 162 files.
-  `browser health` → `extension_connected: false`, 0 instances, `work` last seen
-  2026-10-01T03:13Z (**~16 h**). There is **no CLI approve route** — approval is a moderator
-  action in the web UI only, so this cannot be finished without the operator reconnecting Brave
-  or approving at `https://civitai.com/apps/review/pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`.
-  0.4.13 remains live and the app is HTTP 200; the submit changed nothing in production.
+- 🔴 **0.4.14 WAS APPROVED AND ITS DEPLOY FAILED ON THE PLATFORM'S CVE SCAN GATE — A THIRD
+  FAILURE MODE, NOT RETRYABLE, FLEET-WIDE.** Approved 20:15Z, `failed` 20:16Z
+  (`pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`, source `66f6122`): 4 HIGH `pcre2` CVEs in the platform's
+  own runtime base, refused *before* publish. 🔴 **Nothing in this repo contributes that layer** —
+  the recipe is platform-owned and a tenant `Dockerfile` is ignored, so **no app-side change can
+  clear it.** Fleet-wide by MEASUREMENT, not inference: `yt-thumbnail` 0.1.8 failed 4 min later on
+  the **identical four CVEs**. 🔴 **A 0.4.15 retry fails identically — do NOT burn a version on
+  one.** The fix is a one-package change in the platform build recipe (**4th** time it has needed
+  one); address + measured CVE/fix versions in the **cairn entry `model-benchmarking-block`**,
+  platform-internal and not for this public doc.
+  ✅ **Production untouched:** 0.4.13 live, HTTP 200, `index-DlkHPI8F.js` 448,095 B, markers
+  firing — re-verified after the failure.
 - 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is
   a LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45
   grid cells ever against a 20×20 board ("you have reached the maximum number of submissions
@@ -84,9 +89,15 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 
 ## Next steps (ranked)
 🔴 **Ranks 1–5 keep their numbers — a live claim is keyed to rank 1. Do not re-rank.**
-1. **The operator judges the live app — BLOCKED ON APPROVING 0.4.14, NOT ON BUILDING ANYTHING.**
-   0.4.13 is live and carries #66/#67; **#70–#73 are submitted as 0.4.14 and `pending`** (see
-   `State now` for the pubreq and the dead browser bridge). Covers the 16 taste findings in the
+1. **The operator judges the live app — NOW BLOCKED ON A PLATFORM-SIDE CVE-GATE FIX, NOT ON
+   APPROVAL AND NOT ON BUILDING ANYTHING HERE.** 🔴 **The 2026-10-01 kickoff's premise is SPENT:**
+   0.4.14 was approved, and the deploy then failed on the platform's image CVE scan (see
+   `State now`). Approval is no longer the blocker and the browser bridge no longer matters.
+   **Nothing in this repo can unblock it** — the vulnerable layer is in the platform's own
+   runtime base and the recipe is platform-owned. The next action is a one-package change in
+   the platform build recipe (address in the cairn entry), then re-submit as **0.4.15**; a
+   retry before that fix fails identically and wastes the version.
+   0.4.13 is live and carries #66/#67; **#70–#73 are NOT live.** Covers the 16 taste findings in the
    contact sheet, plus everything four PRs changed that nothing here can see — whether cells
    render larger, whether the 420px ceiling and the 100-config window hold up, whether the
    two-step modals read well, the ⋮ placement, the thumbnail strips. jsdom resolves no layout.
@@ -379,8 +390,12 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
 - 🔴 **A RELEASE CAN FAIL AFTER BUILDING AND SCANNING CLEAN, IN MORE THAN ONE PLACE — READ
   `Deploy detail`, NEVER THE STATE STRING.** ⚠️ CONSOLIDATED 2026-10-01 from three bullets.
   `app_state.py` gives only `approved/building`|`failed`, which cannot tell a slow build from a
-  dead one. **Two modes measured**: `crane push exit: 1` / registry i/o timeout (0.4.9, 0.4.10),
-  and `Deploy timed out` (0.4.12 — PAST build and push, in `deploying`). 🔴 **No redeploy or
+  dead one. **THREE modes measured**: `crane push exit: 1` / registry i/o timeout (0.4.9, 0.4.10),
+  `Deploy timed out` (0.4.12 — PAST build and push, in `deploying`), and 🔴 **a CVE-SCAN REFUSAL
+  BEFORE publish (0.4.14, 2026-10-01) — which breaks this bullet's own "scanning clean" premise
+  and is the ONE mode a retry CANNOT fix.** Discriminate in `Deploy detail`: a scan refusal names
+  CVEs and a package; a transient names a push error or a timeout. A scan refusal is platform-side
+  and hits every app, so retrying it only burns versions. 🔴 **No redeploy or
   retry mechanism exists** — established by enumerating `civitai app`'s subcommands AND every
   button on the approved submission's moderator page. **A failed deploy costs a whole new
   VERSION; budget one per attempt and expect more than one** (0.4.11 took three). 🔵 **It does
@@ -388,7 +403,7 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   panic into a rollback. 🔴 The generalisable error was mine: I reasoned from
   *CI-is-a-different-environment* toward "the builder must be choking on our bundle" and was
   wrong — `kaniko build exit: 0` sat directly above the network error. **Read the failure
-  output before theorising.** The fix was a retry both times.
+  output before theorising.** The fix was a retry for the first two modes ONLY.
 - 🔴 **`click ok = true` IS A CLAIM ABOUT DISPATCH, NOT ABOUT EFFECT — a THROTTLED tab
   eats clicks silently.** A "Review" click on `/apps/review` returned ok, hit-tested clean
   (`hitIsButton: true`, `disabled: false`) and did nothing; `visibilityState` was
@@ -457,16 +472,7 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   and F9 should be fixed by CONSOLIDATING the surface-2 rule rather than patching the third
   site.
 
-- 🔴 **THE ARC IS FOUR SESSIONS ACROSS TWO DOCS, AND THIS DOC'S OWN ACCOUNT OF IT WAS
-  STALE.** Re-derived 2026-09-30 by enumerating
-  `~/.claude/projects/-home-zach-workspace-civit-civitai-app-model-benchmarking/*.jsonl`
-  rather than trusting the note. The chain: **opencode `ses_f1f51c0d7ffen67u3KpidIMYy5`**
-  (created `handoff-consent-resume-and-gated-read.md`, genesis `7f4945b`) → **`96de3010`**
-  (09-27→09-28, founded THIS doc at `150760b`) → **`78510afc`** (09-28→09-29) →
-  **`0514fcfc`** (09-29→09-30). The two docs are NOT a rename — `git log --follow` does not
-  link them and the first was deleted. ⚠️ The previous note said "six commits, exactly one
-  carries a session id"; it is now **9 commits, 4 with trailers**. **A count written into a
-  doc about that doc's own history is stale the moment the doc is next written.**
+- 🔴 **The arc's own session chain (4 sessions, 2 docs) was EVICTED 2026-10-01 to the ARCHIVE** — and its lesson: a count written into a doc about that doc's own history is stale the moment the doc is next written.
 - 🔴 **EVERY OPERATOR ASK IN THIS ARC WAS AUDITED LINE BY LINE ON 2026-09-30, AND THE RESULT
   IS: ONE functional ask never shipped.** 34 genuinely-typed messages (of 64 extracted
   records — the rest were task-notifications and answer payloads, the documented inflation).
@@ -478,14 +484,7 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   `VoteButton.test.tsx:77`), archive IS off the community board (moved to `MyPublished`;
   `GridsView` carries none), and `civitai/civitai#5176` ("merge 5176 and release") merged
   2026-09-28. **Do not re-run this audit** — re-read this bullet instead.
-- 🔵 **BOTH "use the upstream component" ESCALATION CLAUSES WERE HONOURED — this is NOT a
-  dropped instruction, and an earlier reading nearly recorded it as one.** Round 1 said "if
-  MISSING in upstream components, dispatch open a PR to add it": `<civitai-menu>` is not
-  missing, it is present-but-unadoptable (throws on mount in any non-browser DOM), so the
-  clause never triggered and an ISSUE (#485) was the right instrument. Round 2 said "if it's
-  not, pull it from the native site settings page": that is exactly what shipped, a local
-  `SideNav` mirroring the upstream contract. **Check the CONDITION on an escalation clause
-  before reporting it unmet.**
+- 🔵 **Both "use the upstream component" escalation clauses WERE honoured — not dropped instructions.** Detail EVICTED 2026-10-01 to the ARCHIVE. **Check the CONDITION on an escalation clause before reporting it unmet.**
 - 🔴 **A TEMPLATE-LITERAL `data-testid` READS AS ABSENT IN A BUNDLE GREP, AND IT BIT AGAIN
   ON 0.4.11.** `board-nav-grids` / `board-nav-matchups` / `board-nav-prompts` each grep
   **0** against the served bundle while `board-nav` greps 1 — because `BoardNav.tsx` emits
@@ -497,13 +496,7 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   by grepping the merged file on the target ref with a negative control in the same command,
   never by `git merge-base --is-ancestor` — which returns false after every squash, forever,
   and reads as "not merged".
-- 🔴 **A BYTE-CEILING GATE CAN AND SHOULD CHANGE THE DESIGN, NOT JUST THE WORDING.** devrc's
-  `test_resume_skill_size.py` caps `resume/SKILL.md` at 22,400 B with an 800 B headroom
-  floor; the file sat at 21,509, leaving **91 bytes**. Four rounds of tightening ended with
-  the detail in the sidecar and a one-line pointer in the body — the correct shape, reached
-  because the gate refused the lazy one. `--override-size-ratchet`-style escapes existed and
-  were deliberately not taken: **raising a ceiling to fit your own note is the weakest move
-  available.**
+- 🔴 **A byte-ceiling gate should change the DESIGN, not the wording — raising a ceiling to fit your own note is the weakest move available.** Worked example EVICTED 2026-10-01 to the ARCHIVE.
 - **Decided (operator, 2026-09-30):** the 16 taste findings are filed as DEFECTS and the fix
   bucket is the operator's call — no fixes were applied by the pass or after it.
 
@@ -610,7 +603,12 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files,
   never through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy
   `.envrc`, `direnv allow`, `pnpm install --frozen-lockfile`.
-- Release state: `app_state.py model-benchmarking 0.4.14` — **`pending/-` rc 1 until approved**;
+- Release state: `app_state.py model-benchmarking 0.4.14` — **`approved/failed` rc 1, terminal**
+  (CVE-gate refusal, see `State now`); the next release is **0.4.15** and only after the
+  platform-side fix. ⚠️ `Deploy detail` is truncated **server-side at the head** ("Build None
+  …(truncated)") in BOTH the table and `--json`, so the build log before the scan table is NOT
+  retrievable either way; `--json` is still the one that carries `deployDetail` per row for
+  every app at once, which is how the fleet-wide reading was taken.
   `0.4.13` is rc 0 live, `0.4.9` is the rank-3 rollback watch. Read UNPIPED. 🔴 **rc 0 alone
   proves NOTHING about what is serving** (two versions return it at once). Pair it with the
   bundle grep below, and read a submission by `--id <pubreq>` — the bare `civitai app status`
@@ -653,12 +651,8 @@ vote glyph, no badges in the detail modals — and get it live.
   `approved/live`, served `assets/index-DlkHPI8F.js` carrying `side-nav` 4 · `board-nav` 1 ·
   `grid-open-members` 1 with `section-grids` 1 / `grid-open-panel` 1 as the positive control.
   The arc stays CLOSED; shipping 0.4.13 did not re-open it.
-  ✅ **MET 2026-09-29 at version 0.4.11.** `app_state.py … 0.4.11` → `approved/live`,
-  **rc 0**. Served bundle `assets/index-t70oWAUj.js` (440,492 B, changed from 0.4.8's
-  `index-PwE4InET.js` / 434,453 B): `side-nav` 2 · `board-nav` 1 · `nav-my-grid` 1 ·
-  `grid-open-members` 1 · retired `contribute-trigger` **0** and `view-switch` **0** ·
-  positive control `section-grids` 1 / `grid-open-panel` 1. **The arc is CLOSED against
-  this line.** Everything in `Next steps` is a NEW arc or a pre-existing deferral.
+  ✅ Also MET 2026-09-29 at 0.4.11 — the arc's FIRST closure; its evidence was EVICTED
+  2026-10-01 to `claudedocs/handoff-ia-refactor-landed-ARCHIVE.md` for the byte ceiling.
 - ✅ **The PRIOR arc is also CLOSED, its condition MET 2026-09-28** — carried forward so
   the closure survives the next replace. That arc was "ship the one-page IA refactor and
   get it live, then restore the store listing". Two of its ranks closed and must NOT be

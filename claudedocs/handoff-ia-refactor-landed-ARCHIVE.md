@@ -237,3 +237,43 @@ Upstream, informational, never ours to close.
   in band with the whole set (button 36, action-button 36, nav-item 28) — 44×44 is 2.5.5
   **AAA**. An earlier framing of mine called it a violation; it is a deliberate density
   choice, and filing it would have sent a maintainer to working code.
+
+### EVICTED 2026-10-01 — the arc's FIRST closure, met at 0.4.11
+Superseded by the re-measured closure at 0.4.13, which the live doc carries in full. Kept
+because it is the original evidence that the arc's closing-condition was ever met.
+
+- ✅ **MET 2026-09-29 at version 0.4.11.** `app_state.py … 0.4.11` → `approved/live`,
+  **rc 0**. Served bundle `assets/index-t70oWAUj.js` (440,492 B, changed from 0.4.8's
+  `index-PwE4InET.js` / 434,453 B): `side-nav` 2 · `board-nav` 1 · `nav-my-grid` 1 ·
+  `grid-open-members` 1 · retired `contribute-trigger` **0** and `view-switch` **0** ·
+  positive control `section-grids` 1 / `grid-open-panel` 1. **The arc is CLOSED against
+  this line.** Everything in `Next steps` is a NEW arc or a pre-existing deferral.
+
+### EVICTED 2026-10-01 — three closed/historical bullets, for the byte ceiling
+Moved verbatim from the live doc. Each left a one-line pointer there.
+
+- 🔴 **THE ARC IS FOUR SESSIONS ACROSS TWO DOCS, AND THIS DOC'S OWN ACCOUNT OF IT WAS
+  STALE.** Re-derived 2026-09-30 by enumerating
+  `~/.claude/projects/-home-zach-workspace-civit-civitai-app-model-benchmarking/*.jsonl`
+  rather than trusting the note. The chain: **opencode `ses_f1f51c0d7ffen67u3KpidIMYy5`**
+  (created `handoff-consent-resume-and-gated-read.md`, genesis `7f4945b`) → **`96de3010`**
+  (09-27→09-28, founded THIS doc at `150760b`) → **`78510afc`** (09-28→09-29) →
+  **`0514fcfc`** (09-29→09-30). The two docs are NOT a rename — `git log --follow` does not
+  link them and the first was deleted. ⚠️ The previous note said "six commits, exactly one
+  carries a session id"; it is now **9 commits, 4 with trailers**. **A count written into a
+  doc about that doc's own history is stale the moment the doc is next written.**
+- 🔵 **BOTH "use the upstream component" ESCALATION CLAUSES WERE HONOURED — this is NOT a
+  dropped instruction, and an earlier reading nearly recorded it as one.** Round 1 said "if
+  MISSING in upstream components, dispatch open a PR to add it": `<civitai-menu>` is not
+  missing, it is present-but-unadoptable (throws on mount in any non-browser DOM), so the
+  clause never triggered and an ISSUE (#485) was the right instrument. Round 2 said "if it's
+  not, pull it from the native site settings page": that is exactly what shipped, a local
+  `SideNav` mirroring the upstream contract. **Check the CONDITION on an escalation clause
+  before reporting it unmet.**
+- 🔴 **A BYTE-CEILING GATE CAN AND SHOULD CHANGE THE DESIGN, NOT JUST THE WORDING.** devrc's
+  `test_resume_skill_size.py` caps `resume/SKILL.md` at 22,400 B with an 800 B headroom
+  floor; the file sat at 21,509, leaving **91 bytes**. Four rounds of tightening ended with
+  the detail in the sidecar and a one-line pointer in the body — the correct shape, reached
+  because the gate refused the lazy one. `--override-size-ratchet`-style escapes existed and
+  were deliberately not taken: **raising a ceiling to fit your own note is the weakest move
+  available.**
