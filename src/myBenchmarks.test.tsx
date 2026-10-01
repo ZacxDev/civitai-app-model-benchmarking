@@ -60,6 +60,7 @@ import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
 import {
   fakeAppStorage,
+  fakeGatedCell,
   fakeShared,
   immediateSleep,
   openMyList,
@@ -502,6 +503,14 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
         ownGrids={opts.ownGrids ?? (opts.viewerId == null ? [] : [gridRow('gk-own', opts.viewerId)])}
         combinations={[matchup('mk-a')]}
         prompts={[promptRow('qk-1')]}
+        /* ⚠️ NO RESULTS AND A STUB CELL — this file is about the LIST's partition and
+           action set, not about the thumbnail strips. Every card therefore renders
+           `grid-preview-empty` here, which is exactly what a grid with no published
+           outputs looks like. The strips' read budget on this surface is measured in
+           `src/myGridsPreview.test.tsx`, against the REAL `GatedCell` and a counted
+           `getImages` — a stub cannot be evidence about a call count. */
+        results={[]}
+        GatedCell={fakeGatedCell()}
         viewerId={opts.viewerId}
         loading={opts.loading ?? false}
         error={opts.error ?? null}

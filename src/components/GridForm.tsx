@@ -21,9 +21,20 @@ import { GridPicker, type GridPickerItem } from './GridPicker.js';
 import { ContentStep, MetaStep, StepNav, type FormStep } from './FormSteps.js';
 
 export interface GridFormProps {
-  /** Every matchup on the board, as pickable rows. */
+  /**
+   * Every matchup a grid may reference, as pickable rows: the board's published ones
+   * AND the viewer's own PRIVATE records.
+   *
+   * 🔴 A PRIVATE ROW'S `key` IS A PER-VIEWER LOCAL ID, not a shared key, and this
+   * form neither knows nor cares — it stores whatever `GridPicker` hands back. What
+   * stops a local id reaching the public board is the PUBLISH path
+   * (`lib/gridCascade.ts`), which publishes those records first and rewrites their
+   * ids. Do not add a filter here: dropping a private pick silently would discard an
+   * authored decision, which is the one thing §11.2 forbids this whole form from
+   * doing.
+   */
   matchupItems: readonly GridPickerItem[];
-  /** Every prompt on the board, as pickable rows. */
+  /** Every prompt a grid may reference — same two sources, same rule. */
   promptItems: readonly GridPickerItem[];
   /** Prefill (edit-in-place): the stored grid as a builder input. */
   initial?: GridInput;

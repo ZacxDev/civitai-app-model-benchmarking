@@ -428,7 +428,16 @@ export function GridPicker({
             <EmptyState
               data-testid={`${testId}-empty`}
               title={`No ${copy.many} to choose from`}
-              body={`Publish or vote up a ${copy.one} first — a grid can only reference ${copy.many} that are on the board.`}
+              /* 🔴 THE "on the board" CLAIM WAS MADE FALSE AND IS CORRECTED, NOT
+                 REWORDED FOR TASTE. It read "Publish or vote up a <one> first — a
+                 grid can only reference <many> that are on the board", which was
+                 true for exactly as long as `App` built `items` from the published
+                 rows alone. It now appends the viewer's OWN PRIVATE records, so a
+                 grid can reference something that is NOT on the board — and the old
+                 sentence told a viewer with one private matchup and an empty board
+                 that their only route was to publish it first. The whole string is
+                 pinned by `GridPicker.test.tsx`; it moves with this one. */
+              body={`Create a ${copy.one} first — a grid can reference any ${copy.many} on the board, plus your own private ones.`}
             />
           ) : (
             <EmptyState

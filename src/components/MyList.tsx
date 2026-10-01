@@ -80,6 +80,27 @@ export interface MyDraftItem {
    */
   meta: string;
   description?: string;
+  /**
+   * An OPTIONAL extra body node, rendered BELOW the name/meta/description row and
+   * the action group.
+   *
+   * 🔴 IT EXISTS FOR ONE CALLER AND IT IS A NODE RATHER THAN DATA, DELIBERATELY.
+   * `MyGridsView` passes a `GridPreview` — the same inline thumbnail strip the
+   * community grid cards carry — so a viewer can tell two of their own private
+   * grids apart without opening either. Passing the *node* keeps this component
+   * ignorant of results, of gated reads and of `GatedCell`: the read budget stays
+   * the caller's business, which is where the per-card batching is defended
+   * (`gridPreview.test.tsx`, `gridPreviewSeam.test.tsx`).
+   *
+   * 🔴 AND IT CARRIES NO TESTID OF ITS OWN. The ids a reader selects on belong to
+   * whatever the caller renders (`grid-preview`, `grid-preview-empty`), which are
+   * literals in `GridPreview.tsx` — a testid threaded through a prop is invisible
+   * to `renameWireCompat.test.ts`'s raw-source scan and has been rejected there
+   * twice.
+   *
+   * The matchup and prompt callers pass nothing, so their rows are unchanged.
+   */
+  preview?: ReactNode;
 }
 
 export interface MyListProps<Row> {
@@ -269,6 +290,13 @@ export function MyList<Row>({
               data-testid="unpublished-card"
               data-local-id={item.localId}
             >
+              {/* 🔴 A `Stack` AROUND THE ROW, so an optional `preview` sits BELOW it
+                  rather than squeezed into the name column. Matches the published
+                  grid cards' shape (`GridsView`'s `entryCard`), which is the point:
+                  a private grid and a published one should read the same way. With
+                  no `preview` the Stack holds exactly one child and the row is
+                  structurally what it was. */}
+              <Stack gap={10} style={{ minWidth: 0 }}>
               <Group justify="space-between" align="flex-start" gap={10}>
                 <Stack gap={4} style={{ minWidth: 0 }}>
                   <Group gap={8} align="center">
@@ -369,6 +397,8 @@ export function MyList<Row>({
                   </Menu>
                 </Group>
               </Group>
+              {item.preview}
+              </Stack>
             </Card>
           ))}
 
