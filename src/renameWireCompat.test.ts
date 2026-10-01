@@ -256,21 +256,13 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     // permanently and unfixably — the row belongs to its author, so no later build can
     // correct it. The field must be ABSENT, not falsy.
     //
-    // ⚠️ THE RETRACTION IS ITSELF RETRACTED, which is worth recording because the
-    // original sentence turned out to be RIGHT. Round one justified this case by "the
-    // default would make `ResourceLink` render a LINK TO THE WRONG MODEL — worse than
-    // plain text, because a wrong link cannot be told from a right one by looking".
-    // Round two struck that as naming a consequence that did not exist: `ResourceLink`
-    // was gone and `ResourceName` rendered every resource as plain text. Round three is
-    // now: `civitai/civitai` **#5250** shipped `scope: 'site'`, `ResourceName` branches
-    // on `modelId`, and a phantom `700` here WOULD render a link to the checkpoint's
-    // model page under a LoRA's name — unfixably, because the row belongs to its author.
-    //
-    // 🔴 THE DATA ARGUMENT ABOVE IS STILL THE ONE THIS CASE RESTS ON, and keeping it
-    // that way is the point rather than a formality: it held through all three rounds
-    // without being edited, because it does not depend on when — or whether — a caller
-    // appears. A case justified by the UI consequence would have been weakened twice
-    // and then needed restoring.
+    // ⚠️ THERE IS A UI CONSEQUENCE AGAIN: since `civitai/civitai` **#5250**,
+    // `components/ResourceName.tsx` branches on `modelId`, so a phantom `700` here
+    // would render a link to the CHECKPOINT's model page under a LoRA's name —
+    // unfixably, the row belonging to its author. 🔴 But the DATA argument above is
+    // still what this case rests on, deliberately: it has survived two inversions of
+    // the UI contract without being edited, because it does not depend on when — or
+    // whether — a caller exists.
     expect(lora.modelId).toBeUndefined();
     expect('modelId' in lora).toBe(false);
   });
@@ -321,16 +313,11 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     // so every future consumer is entitled to assume it. Dropping it at the parse is
     // what makes that assumption true.
     //
-    // ⚠️ AND ITS RETRACTION IS RETRACTED TOO, same arc as the case above. Round one:
-    // "a string or null here reaching `ResourceLink` would build `/models/null`".
-    // Round two struck it — there was no `ResourceLink` and no consumer of `modelId`
-    // at all. Round three: `components/ResourceName.tsx` IS a consumer since
-    // `civitai/civitai` **#5250**, and it guards on `Number.isFinite(id) && id > 0`,
-    // so a carried-through `'900'` string would fail `typeof id === 'number'` and
-    // silently render plain text — i.e. a linkable LoRA quietly losing its link.
-    // The type-integrity argument above is still what the case rests on, and it is
-    // still the stronger one: it makes the guarantee true for EVERY future consumer
-    // rather than for the one that happens to exist.
+    // ⚠️ AND THERE IS A CONSUMER AGAIN, same as the case above:
+    // `components/ResourceName.tsx` guards on `typeof id === 'number'`, so a
+    // carried-through `'900'` STRING would silently render plain text — a linkable
+    // LoRA quietly losing its link. The type-integrity argument above remains the
+    // stronger one: it holds for every future consumer, not just the current one.
     const junk: RawSharedItem = {
       key: 'shared_01HZQ8JUNK',
       count: 0,

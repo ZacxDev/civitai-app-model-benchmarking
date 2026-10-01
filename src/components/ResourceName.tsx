@@ -108,12 +108,18 @@
 // shared row belongs to its author, so rows published before the field existed can
 // never be backfilled), so the unlinked variant is a permanent, first-class case.
 //
-// ⚠️ NOTHING HERE HAS BEEN CLICKED IN A REAL HOST. The upstream contract was read
-// from the installed `@civitai/blocks-react@0.61.0` (`useCivitaiNavigate.d.ts` and its
-// implementation) and from `civitai/civitai`'s own source; the live click-through —
-// the parent frame actually landing on the civitai.com model page — is the remaining
-// half of #5209's closing condition and is owned by the operator. Do not upgrade any
-// sentence above to "verified live".
+// ⚠️ NOTHING HERE HAS BEEN CLICKED IN A REAL HOST. The upstream contract was read from
+// the installed `@civitai/blocks-react@0.61.0` (`useCivitaiNavigate.d.ts` and its
+// implementation) and from `civitai/civitai`'s own source. Do not upgrade any sentence
+// above to "verified live".
+//
+// ⚠️ AND #5209 IS ALREADY CLOSED, so do not go looking for an issue that tracks the
+// click-through. Measured: #5250 merged `2026-09-30T20:13:53Z` and #5209 closed two
+// seconds later, `20:13:55Z` — i.e. upstream closed it on the HOST change, not on a
+// consumer adopting it. So the live check is a verification step owed on THIS change
+// by whoever merges it, with no open object behind it. A draft of this file called it
+// "the remaining half of #5209's closing condition", which would have sent a reader to
+// a closed issue.
 //
 // 🔴 WHICH TEST BACKS WHICH HALF:
 //   - the two variants' shape (tag, role, `textDecoration`, the caller-style override)
@@ -130,11 +136,7 @@
 //     once SURVIVED a full green suite against the inert span. The second is the
 //     dangerous one and the reason for the element choice above.
 
-import { useState } from 'react';
-
 import { useCivitaiNavigate } from '@civitai/blocks-react';
-
-import { token } from '../theme.js';
 
 export interface ResourceNameProps {
   /** The text on screen — an author label, a model name, or a `#id` fallback. */
@@ -148,11 +150,18 @@ export interface ResourceNameProps {
    * or non-finite ⇒ the inert `<span>`, byte-for-byte as before. `CheckpointRef.modelId`
    * is required; `LoraRef.modelId` is optional forever — see `../types.ts`.
    *
-   * 🔴 `0` MUST RENDER AS PLAIN TEXT, and it is a reachable value rather than a
-   * hypothetical: `MatchupForm.tsx`'s `loraInfo()` coerces a missing id with
-   * `modelId ?? 0` to satisfy upstream's `BlockResourceInfo`. A truthiness test would
-   * already reject it; the explicit positive-and-finite test is what also rejects
-   * `NaN` and a negative, neither of which addresses a model page.
+   * 🔴 `0` MUST RENDER AS PLAIN TEXT, AND IT IS WIRE-REACHABLE. ⚠️ An earlier draft
+   * of this paragraph named the wrong route — it said `MatchupForm.tsx`'s `loraInfo()`
+   * coerces a missing id with `modelId ?? 0`, which is true but goes nowhere near
+   * here: that value feeds upstream's `ResourceCard` and `resourceDisplayName` only,
+   * and is never fed back into a `LoraRef` (see that function's own docblock). The
+   * REAL route is the shared board. `data` is an opaque, unmoderated blob written by
+   * other clients, and `lib/benchmark.ts`'s `isNum` is
+   * `typeof v === 'number' && Number.isFinite(v)` — which ADMITS `0` and negatives. So
+   * `parseCheckpoint` accepts `modelId: 0` (it only requires `isNum`) and `parseLoras`
+   * carries one through, and either lands on this prop. A truthiness test would reject
+   * `0`; the positive-and-finite test is what also rejects a negative, which `isNum`
+   * lets through just as readily.
    */
   modelId?: number;
   /**
@@ -174,8 +183,18 @@ function usableId(id: number | undefined): id is number {
  * 🔴 NO LEADING SLASH, and no `civitai.com` either: `scope: 'site'` names the space
  * and this is a path WITHIN it. Building an absolute URL here would be the route-3
  * mistake wearing a different hat.
+ *
+ * ⚠️ NOT EXPORTED, AND THAT IS A DELIBERATE REVERSAL. A draft of this file exported it
+ * so a test could assert the string directly — which is exactly the shape this repo
+ * already deleted once: `lib/resourceLink.ts` held a four-line `modelPath` builder,
+ * "correct, tested, and called by nothing", and was removed because a template string
+ * anyone can rewrite in two minutes is not worth a module boundary. Re-adding the same
+ * builder one directory over, with the same justification inverted, would have been
+ * that module boundary under a new roof. It stays a local function: named for
+ * readability at the call site, reachable only through the component, and asserted
+ * through the component's rendered behaviour where a caller can actually get it wrong.
  */
-export function modelSitePath(modelId: number, versionId?: number): string {
+function modelSitePath(modelId: number, versionId?: number): string {
   return usableId(versionId)
     ? `models/${modelId}?modelVersionId=${versionId}`
     : `models/${modelId}`;
@@ -190,13 +209,6 @@ export function ResourceName({
   // Called unconditionally — hook order cannot depend on whether this resource
   // happens to carry an id.
   const { navigate } = useCivitaiNavigate();
-  // 🔴 FOCUS AS STATE, NOT `:focus-visible`. This app has no component stylesheet —
-  // `index.css` is a bare reset and nothing in `src/` uses `className` — so an inline
-  // style cannot express a pseudo-class. The precedent is `GridPicker.tsx`'s active
-  // outline. The cost, stated rather than hidden: the ring shows on a mouse press too,
-  // where a real `:focus-visible` would suppress it. A ring that is sometimes
-  // redundant beats a control a keyboard viewer cannot see.
-  const [focused, setFocused] = useState(false);
 
   if (!usableId(modelId)) {
     return (
@@ -224,8 +236,6 @@ export function ResourceName({
          middle-click, copy-link-address and a status-bar URL, none of which exist. */
       aria-label={`Open ${name} on Civitai`}
       onClick={() => navigate(modelSitePath(modelId, versionId), { scope: 'site' })}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
       style={{
         // Strip the UA button chrome so the title still reads as a title…
         background: 'none',
@@ -245,8 +255,27 @@ export function ResourceName({
            `gridDrillIn.test.tsx` records for the matchup band. */
         textDecoration: 'underline',
         cursor: 'pointer',
-        outline: focused ? `2px solid ${token.primary}` : 'none',
-        outlineOffset: 2,
+        /* 🔴 AND NO `outline` DECLARATION AT ALL — THAT IS THE FOCUS RING, NOT THE
+           ABSENCE OF ONE. A draft here carried `outline: focused ? … : 'none'` behind a
+           `useState`, on the reasoning that an inline style cannot express a
+           pseudo-class. The reasoning was sound and the premise was wrong: NOTHING
+           suppresses the UA's `:focus-visible` ring on this button. Measured across
+           `index.html`, all of `src/`, and the pack's injected stylesheet
+           (`@civitai/blocks-react/dist/ui/styles.js`), the only `outline: none` is on
+           `[data-civitai-ui='modal']` ITSELF — no descendant combinator, so it cannot
+           reach here. The state's own `'none'` was the only thing hiding the ring it
+           then re-added.
+           ⚠️ So the UA ring is what a keyboard viewer gets, and it is REAL
+           `:focus-visible` rather than the mouse-press-too approximation the state
+           gave. It is not token-coloured: the pack styles its OWN components with
+           `:focus-visible { outline: 2px solid var(--civitai-color-primary) }` (three
+           such rules), which a local component cannot reach without a stylesheet this
+           app does not have. Tinting it from here is possible and deliberately NOT
+           done — it would rest on UA cascade behaviour jsdom cannot verify.
+           🔴 WHAT MUST NEVER COME BACK IS `outline: 'none'`. That is the regression
+           `ResourceName.test.tsx` guards, because it is what a future tidy-up of this
+           button's chrome would reach for. `GridPicker.tsx:380` is NOT a precedent for
+           the state: it keys on a SELECTION, which has no pseudo-class. Focus has one. */
       }}
     >
       {name}

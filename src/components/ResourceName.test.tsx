@@ -23,21 +23,20 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-// ⚠ NAMESPACE IMPORT, DELIBERATELY, and `theme.test.ts` is the precedent. It keeps
-// every case RUNNABLE against a tree where `modelSitePath` does not exist yet — a named
-// import of a missing export is a link-time SyntaxError that reddens the whole file,
-// which would make "red at base" a fact about module resolution rather than about any
-// assertion. With the namespace, each case below failed on its own merits when this
-// file was run against `origin/main`'s inert `<span>`, which is what the PR's
-// red-at-base matrix reports.
-import * as RN from './ResourceName.js';
+// A NAMED import, which it was not for one draft. The namespace form existed so a
+// not-yet-exported `modelSitePath` could not redden the whole file at link time — and
+// that export is now gone (see `./ResourceName.tsx`), so the reason went with it.
+// `ResourceName` itself exists on `origin/main`, so every case below still failed on
+// its own merits when this file was run against the base component.
+import { ResourceName } from './ResourceName.js';
 
 // 🔴 THE HOOK IS MOCKED HERE, AND ONLY HERE. `ResourceName` out of tree has no SDK
 // transport, so the real `useCivitaiNavigate` would throw on press; the modal suite
 // drives the REAL hook through the real mock host and reads the actual outbound
-// message, which is the stronger claim. This mock exists so the two un-linked cases
-// and the shape cases can render at all — it is NOT where the navigate contract is
-// settled.
+// message, which is the stronger claim. This mock exists so the cases below can render
+// and press at all — it is NOT where the navigate contract is settled, and a case that
+// only re-asserts a payload the modal suite already reads off the real transport has
+// been deleted rather than kept for symmetry.
 const navigate = vi.fn();
 vi.mock('@civitai/blocks-react', () => ({
   useCivitaiNavigate: () => ({ navigate }),
@@ -45,27 +44,9 @@ vi.mock('@civitai/blocks-react', () => ({
 
 const LINKED = { modelId: 500, versionId: 1001 };
 
-describe('modelSitePath', () => {
-  // 🔴 NO LEADING SLASH, AND NO ORIGIN. `scope: 'site'` names the space; this is a
-  // path WITHIN it. A leading slash is normalised away by the host in both scopes so
-  // it would be harmless, but an absolute `https://civitai.com/...` would be the
-  // build-your-own-URL mistake that `ResourceName.tsx`'s route 3 is about.
-  it('version-pins the path when there is a version', () => {
-    expect(RN.modelSitePath(500, 1001)).toBe('models/500?modelVersionId=1001');
-  });
-
-  it('omits the query when there is no usable version', () => {
-    // Each of these addresses nothing, so none of them may reach the query string.
-    expect(RN.modelSitePath(500)).toBe('models/500');
-    expect(RN.modelSitePath(500, 0)).toBe('models/500');
-    expect(RN.modelSitePath(500, Number.NaN)).toBe('models/500');
-    expect(RN.modelSitePath(500, -3)).toBe('models/500');
-  });
-});
-
 describe('ResourceName — LINKED (a usable modelId)', () => {
   it('renders a button that reads as a link and says where it goes', () => {
-    render(<RN.ResourceName name="JuggernautXL" {...LINKED} />);
+    render(<ResourceName name="JuggernautXL" {...LINKED} />);
     const el = screen.getByTestId('resource-name');
 
     expect(el).toHaveTextContent('JuggernautXL');
@@ -84,45 +65,50 @@ describe('ResourceName — LINKED (a usable modelId)', () => {
     expect(el).toHaveAccessibleName('Open JuggernautXL on Civitai');
   });
 
-  it('🔴 carries the affordance a touch viewer can see, and a focus ring', async () => {
+  it('🔴 carries the affordance a touch viewer can see, and does NOT suppress the focus ring', async () => {
     // A pointer cursor is invisible until the pointer is already on the control and
     // never appears at all on a touch device — the argument `gridDrillIn.test.tsx`
     // records for the matchup band. So the underline is the load-bearing one.
-    render(<RN.ResourceName name="JuggernautXL" {...LINKED} />);
+    render(<ResourceName name="JuggernautXL" {...LINKED} />);
     const el = screen.getByTestId('resource-name');
     expect(el).toHaveStyle({ textDecoration: 'underline' });
     expect(el).not.toHaveStyle({ textDecoration: 'none' });
     expect(el).toHaveStyle({ cursor: 'pointer' });
 
-    // ⚠️ `:focus`, NOT `:focus-visible`, and the component says why: this app has no
-    // component stylesheet (nothing in `src/` uses `className`), so an inline style
-    // cannot express a pseudo-class. jsdom performs no layout, so this reads the
-    // DECLARED style — it cannot say the ring is VISIBLE, only that it is declared,
-    // and only that it appears on focus and not before.
-    expect(el).toHaveStyle({ outline: 'none' });
+    // 🔴 THE FOCUS ASSERTION IS AN ABSENCE, AND THAT IS THE WHOLE POINT. Nothing in
+    // this app or the pack suppresses the UA's `:focus-visible` ring on this button
+    // (measured — see `./ResourceName.tsx`), so the component declares no `outline` at
+    // all and the UA supplies the ring. The regression to guard is therefore a
+    // REAPPEARING `outline: 'none'`, which is what a future tidy-up of the button's
+    // chrome would reach for, and which an earlier draft of this component shipped.
+    // ⚠️ jsdom performs no layout and renders no UA focus ring, so this CANNOT say the
+    // ring is visible — only that the component does not switch it off, and that the
+    // control is reachable by keyboard at all.
+    expect(el).not.toHaveStyle({ outline: 'none' });
     await userEvent.tab();
     expect(el).toHaveFocus();
-    expect(el).not.toHaveStyle({ outline: 'none' });
-  });
-
-  it('asks the host to resolve the path at the SITE root', async () => {
-    navigate.mockClear();
-    render(<RN.ResourceName name="JuggernautXL" {...LINKED} />);
-    await userEvent.click(screen.getByTestId('resource-name'));
-    // The whole call, by value. `scope` is the field a mutant drops silently — the SDK
-    // omits it when unset and the host then resolves the path under THIS APP's route,
-    // which is the pre-#5250 behaviour returning with nothing to show for it.
-    expect(navigate).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledWith('models/500?modelVersionId=1001', {
-      scope: 'site',
-    });
   });
 
   it('drops the version from the path when there is none, and still links', async () => {
-    navigate.mockClear();
-    render(<RN.ResourceName name="JuggernautXL" modelId={500} />);
-    await userEvent.click(screen.getByTestId('resource-name'));
-    expect(navigate).toHaveBeenCalledWith('models/500', { scope: 'site' });
+    // ⚠️ A SIBLING CASE WAS DELETED HERE, not forgotten: it rendered the full
+    // `{ modelId, versionId }` pair, pressed it, and asserted
+    // `toHaveBeenCalledWith('models/500?modelVersionId=1001', { scope: 'site' })`
+    // against this file's `vi.fn()`. `../matchupModalResources.test.tsx` asserts that
+    // SAME payload through the REAL hook and the real transport, which strictly
+    // dominates a mock, so the case bought nothing but a second place to update.
+    // What survives here is the branch the modal's fixtures do NOT exercise: an id
+    // with no usable version. `versionId` is required on both ref types, but
+    // `lib/benchmark.ts`'s `isNum` admits `0`, so a wire row can carry one.
+    for (const versionId of [undefined, 0, Number.NaN, -3]) {
+      navigate.mockClear();
+      const { unmount } = render(<ResourceName name="JuggernautXL" modelId={500} versionId={versionId} />);
+      await userEvent.click(screen.getByTestId('resource-name'));
+      expect(navigate, `versionId ${String(versionId)} reached the query string`).toHaveBeenCalledWith(
+        'models/500',
+        { scope: 'site' },
+      );
+      unmount();
+    }
   });
 
   it('🔴 a caller cannot switch the underline off, but keeps its typography', () => {
@@ -130,7 +116,7 @@ describe('ResourceName — LINKED (a usable modelId)', () => {
     // over the spread for the same reason the unlinked branch's `'none'` does: the one
     // thing that says "this is a control" must not be a caller's to remove.
     render(
-      <RN.ResourceName
+      <ResourceName
         name="JuggernautXL"
         {...LINKED}
         style={{ fontSize: 13, fontWeight: 600, textDecoration: 'none', cursor: 'default' }}
@@ -150,7 +136,7 @@ describe('ResourceName — UNLINKED (no usable modelId)', () => {
   // row on the live board renders as today and will render as forever.
 
   it('renders the name as plain, un-underlined text', () => {
-    render(<RN.ResourceName name="Old Tweaker" />);
+    render(<ResourceName name="Old Tweaker" />);
     const el = screen.getByTestId('resource-name');
     expect(el).toHaveTextContent('Old Tweaker');
     expect(el.tagName).toBe('SPAN');
@@ -164,47 +150,55 @@ describe('ResourceName — UNLINKED (no usable modelId)', () => {
     // nothing about an `<a>`, a tag check says nothing about `role="button"`, and a
     // role query says nothing about a `<span onClick>` with no role at all. The
     // fourth line covers that last one; the press below covers it behaviourally.
-    render(<RN.ResourceName name="Old Tweaker" />);
+    render(<ResourceName name="Old Tweaker" />);
     expect(screen.queryByRole('button')).toBeNull();
     expect(screen.queryByRole('link')).toBeNull();
     expect(document.querySelector('a, button')).toBeNull();
     expect(screen.getByTestId('resource-name')).not.toHaveAttribute('role');
   });
 
-  it('🔴 pressing it asks the host for nothing', async () => {
-    navigate.mockClear();
-    render(<RN.ResourceName name="Old Tweaker" />);
-    await userEvent.click(screen.getByTestId('resource-name'));
-    expect(navigate).not.toHaveBeenCalled();
-  });
-
-  it('🔴 treats 0, NaN and a negative id as no id at all', async () => {
-    // `0` IS REACHABLE, not hypothetical: `MatchupForm.tsx`'s `loraInfo()` coerces a
-    // missing id with `modelId ?? 0` to satisfy upstream's `BlockResourceInfo`. A
-    // truthiness test would already reject `0`; `NaN` and a negative need the explicit
-    // positive-and-finite rule, and neither addresses a model page.
-    for (const modelId of [0, Number.NaN, -1, Number.POSITIVE_INFINITY]) {
+  it('🔴 treats 0, NaN, a negative and a bare versionId as no id at all', async () => {
+    // 🔴 `0` IS WIRE-REACHABLE, and an earlier draft of this comment named the wrong
+    // route. It said `MatchupForm.tsx`'s `loraInfo()` coerces a missing id with
+    // `modelId ?? 0` — true, but that value only ever reaches upstream's
+    // `ResourceCard` and `resourceDisplayName`, never a `LoraRef` and so never this
+    // prop. The real route is the shared board: `data` is an opaque blob written by
+    // other clients, and `lib/benchmark.ts`'s `isNum` is `typeof v === 'number' &&
+    // Number.isFinite(v)`, which ADMITS `0` and negatives — so `parseCheckpoint`
+    // accepts `modelId: 0` and `parseLoras` carries one through.
+    //
+    // A truthiness test would already reject `0`; the negative is the case that needs
+    // the explicit `> 0`, because `isNum` passes it just as readily. The last entry is
+    // the one deleted sibling case worth keeping: a `versionId` with NO `modelId` is
+    // still nothing to link to (there is no page at `models/?modelVersionId=…`), and
+    // it is also the only input that could catch a branch on the wrong field.
+    const cases: { modelId?: number; versionId?: number }[] = [
+      { modelId: 0 },
+      { modelId: Number.NaN },
+      { modelId: -1 },
+      { modelId: Number.POSITIVE_INFINITY },
+      { versionId: 4004 },
+    ];
+    for (const props of cases) {
+      const label = JSON.stringify(props);
       navigate.mockClear();
-      const { unmount } = render(<RN.ResourceName name="Junk" modelId={modelId} />);
+      const { unmount } = render(<ResourceName name="Junk" {...props} />);
       const el = screen.getByTestId('resource-name');
-      expect(el.tagName, `modelId ${String(modelId)} became a control`).toBe('SPAN');
+      expect(el.tagName, `${label} became a control`).toBe('SPAN');
       expect(el).toHaveStyle({ textDecoration: 'none' });
+      // The behavioural half, which is what the deleted `'pressing it asks the host
+      // for nothing'` case covered on its own with `modelId: undefined` — an input
+      // already covered structurally two cases above. Folded in here it costs one
+      // line and covers five inputs instead of one.
       await userEvent.click(el);
-      expect(navigate, `modelId ${String(modelId)} navigated`).not.toHaveBeenCalled();
+      expect(navigate, `${label} navigated`).not.toHaveBeenCalled();
       unmount();
     }
   });
 
-  it('a versionId alone does not make it a link', () => {
-    // There is no page at `/models/?modelVersionId=…`, so a version without a model is
-    // still nothing to link to.
-    render(<RN.ResourceName name="Old Tweaker" versionId={4004} />);
-    expect(screen.getByTestId('resource-name').tagName).toBe('SPAN');
-  });
-
   it('🔴 a caller cannot switch the un-underlined state off', () => {
     render(
-      <RN.ResourceName
+      <ResourceName
         name="Old Tweaker"
         style={{ fontSize: 13, fontWeight: 600, textDecoration: 'underline' }}
       />,

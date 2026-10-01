@@ -192,9 +192,14 @@ export function MatchupBody({
                     cfg.checkpoint.modelName ||
                     `Checkpoint #${cfg.checkpoint.versionId}`
                   }
-                  /* `CheckpointRef.modelId` is REQUIRED (`parseCheckpoint` rejects a
-                     config without it), so a checkpoint title is always linkable —
-                     unlike a LoRA's below. */
+                  /* `CheckpointRef.modelId` is REQUIRED — `parseCheckpoint` rejects a
+                     config without it — so a checkpoint title is linkable far more
+                     often than a LoRA's below.
+                     ⚠️ NOT "always", which a draft of this comment claimed:
+                     `parseCheckpoint` requires only `isNum(raw.modelId)`, and `isNum`
+                     admits `0` and negatives, so a wire row written by another client
+                     can carry an unusable id. `ResourceName` renders those as plain
+                     text, which is why this passes the value through undefaulted. */
                   modelId={cfg.checkpoint.modelId}
                   versionId={cfg.checkpoint.versionId}
                   style={{ fontSize: 13, fontWeight: 600 }}

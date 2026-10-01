@@ -57,9 +57,16 @@
 //
 // 🔴 LIVE, MEASURED ON THIS TREE (the only half that describes what this repo
 // builds against). `package.json` pins `@civitai/components-react: ^0.4.1`;
-// installed are `components-react@0.4.1` and, transitively,
-// `components@0.4.1`. Their `exports` maps are `["."]` and `[".", "./styles.css"]`
-// — there is NO `./elements` subpath. Enumerated with `find -L … -print0 | xargs -0
+// installed are `components-react@0.4.3` and, transitively, `components@0.4.3`.
+// ⚠️ THOSE TWO NUMBERS READ `0.4.1` UNTIL THE `blocks-react@0.61.0` BUMP, and both
+// were wrong before it too: `0.4.1` is the DECLARED RANGE's floor, not the resolved
+// version, and `^0.4.1` has resolved to `0.4.3` since that patch was published. Read
+// the installed version from `node_modules`, never from the `package.json` range —
+// re-measured at 0.4.3, the conclusion below is unchanged. (The lockfile moved
+// `0.4.1 → 0.4.3` in this change, as a side effect of re-resolving the unchanged
+// range; the declared range did not move.)
+// Their `exports` maps are `["."]` and `[".", "./styles.css"]` — there is NO
+// `./elements` subpath. Enumerated with `find -L … -print0 | xargs -0
 // grep -l` over all 1016 files under `node_modules/.pnpm/@civitai+*` (`-L` because
 // pnpm's layout is symlinks, and `grep -r` here honours `.gitignore`):
 //

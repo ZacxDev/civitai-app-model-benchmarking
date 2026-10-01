@@ -216,21 +216,12 @@ describe('the matchup group band opens the matchup', () => {
     // for an underline for exactly that reason: without it nothing says the text is a
     // control.
     //
-    // ⚠️ THE CROSS-REFERENCE HAS BEEN WRONG IN BOTH DIRECTIONS, so here is the current
-    // state rather than a third guess. Round one said "it is the same argument
-    // `ResourceLink` makes" — wrong, that component did not exist. Round two said its
-    // successor `ResourceName` "makes the OPPOSITE argument … renders resource titles
-    // with an explicit `textDecoration: 'none'` precisely because they are NOT
-    // controls" — true then, wrong now: `civitai/civitai` **#5250** shipped
-    // `scope: 'site'` and `ResourceName` underlines its LINKED variant for exactly the
-    // reason this case gives.
-    //
-    // 🔴 SO THE ARGUMENT IS NOW SHARED, AND IT IS THE PREDICATE THAT MATTERS: a control
-    // gets the underline, a non-control does not. The band is a control (it opens the
-    // matchup detail) and is underlined; `ResourceName` underlines a title with a
-    // `modelId` and leaves one without it at `textDecoration: 'none'`. Neither file
-    // depends on the other — this note exists only because a reader who finds a
-    // `'none'` over there should not read it as contradicting the underline here.
+    // 🔴 THE PREDICATE IS SHARED WITH `ResourceName`: a control gets the underline, a
+    // non-control does not. The band is a control (it opens the matchup detail);
+    // `ResourceName` underlines a title that has a `modelId` and leaves one without at
+    // `textDecoration: 'none'`. ⚠️ Said here only because this cross-reference has now
+    // been wrong in both directions — it once claimed `ResourceName` makes the OPPOSITE
+    // argument, which was true before `civitai/civitai` #5250 and is not now.
     //
     // ⚠ jsdom performs NO layout, so this reads the DECLARED inline style. It cannot
     // say the underline is VISIBLE, only that the app declares it.

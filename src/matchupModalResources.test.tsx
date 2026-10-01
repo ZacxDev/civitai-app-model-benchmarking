@@ -342,6 +342,17 @@ describe('the matchup detail modal links its resources to civitai.com', () => {
     expect(legacy).toHaveStyle({ textDecoration: 'none' });
     expect(legacy).not.toHaveAttribute('role');
 
+    // 🔴 AND BOTH VARIANTS KEEP THE SAME TESTID. ⚠️ This pair is all that survives of a
+    // deleted sibling case ("a LoRA WITH a modelId and one WITHOUT render as DIFFERENT
+    // elements"): its `BUTTON`/`SPAN` assertions were byte-identical to the two blocks
+    // above, so it paid a second full App mount and modal open to re-assert them. The
+    // shared testid is the one thing it pinned that nothing else did, and it matters —
+    // several suites enumerate resource titles by it, so a split into
+    // `resource-link`/`resource-name` would make every one of those counts silently
+    // partial.
+    expect(byName('Detail Tweaker')).toHaveAttribute('data-testid', 'resource-name');
+    expect(legacy).toHaveAttribute('data-testid', 'resource-name');
+
     // 🔴 AND THE MODAL STILL HOLDS NO ANCHOR AT ALL — a whole-subtree sweep, and the
     // guard that did NOT invert with the rest of this file. An `<a href>` here would
     // navigate THIS iframe to an opaque-origin, logged-out civitai.com; that hazard is
@@ -412,10 +423,17 @@ describe('the matchup detail modal links its resources to civitai.com', () => {
       //   - read the wrong id → caught because 500 / 1001 / 900 / 2002 are pairwise
       //     distinct.
       //
-      // `target: 'current'` is asserted because it is the operator's decision, not a
-      // default we are indifferent to: `'new_tab'` needs a sandbox token the host
-      // strips from every block, and the host's own note records it as unmeasured
-      // outside Chromium. A silent switch to it would be a dead control.
+      // ⚠️ `target: 'current'` IS THE SDK'S DEFAULT, NOT SOMETHING THIS APP SENDS, and
+      // a draft of this comment had that backwards ("asserted because it is the
+      // operator's decision"). The app passes `{ scope: 'site' }` and nothing else;
+      // `useCivitaiNavigate` fills in `target: opts.target ?? 'current'`. So this field
+      // pins the SDK's default, which is still worth pinning — the operator's decision
+      // was to take that default rather than ask for `'new_tab'` (which needs a sandbox
+      // token the host strips from every block, and which the host's own note records
+      // as unmeasured outside Chromium), and a later `target: 'new_tab'` added here
+      // would be a dead control. What pins the app's own side of it is
+      // `components/ResourceName.test.tsx`'s exact-options compare, which would fail if
+      // the component started passing `target` at all.
       await userEvent.click(byName('JuggernautXL'));
       expect(navigates(seen)).toEqual([
         { path: 'models/500?modelVersionId=1001', scope: 'site', target: 'current' },
@@ -459,32 +477,6 @@ describe('the matchup detail modal links its resources to civitai.com', () => {
     // — but the `toHaveLength(2)` one is a bounded negative, so say out loud that this
     // stream carries traffic of its own (the handshake and RESIZE) and is being read.
     expect(seen.length, 'the outbound observer saw nothing at all').toBeGreaterThan(0);
-  });
-
-  it('🔴 a LoRA WITH a modelId and one WITHOUT render as DIFFERENT elements', async () => {
-    // ⚠️ THIS CASE USED TO ASSERT THE EXACT OPPOSITE — "render identically", down to an
-    // `outerHTML` comparison with the names substituted out. It is inverted rather than
-    // deleted because it is the same question (does the DOM reveal `modelId`?) and the
-    // answer moved: before #5250 a difference was the defect, now sameness is. The old
-    // form would pass if `ResourceName` ignored `modelId` altogether, which is the
-    // regression this now catches.
-    mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
-    const modal = await openMatchupDetail();
-
-    const byName = (t: string) =>
-      within(modal)
-        .getAllByTestId('resource-name')
-        .find((el) => el.textContent === t)!;
-    const linked = byName('Detail Tweaker');
-    const legacy = byName('Old Tweaker');
-
-    expect(linked.tagName).toBe('BUTTON');
-    expect(legacy.tagName).toBe('SPAN');
-    // 🔴 THE SHARED TESTID IS DELIBERATE AND IS ASSERTED. Several suites enumerate
-    // resource titles by it; a split into `resource-link`/`resource-name` would make
-    // every one of those counts silently partial.
-    expect(linked).toHaveAttribute('data-testid', 'resource-name');
-    expect(legacy).toHaveAttribute('data-testid', 'resource-name');
   });
 
   it('shows no badges in the modal — the third IA pass removed every one', async () => {
