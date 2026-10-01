@@ -504,8 +504,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           unresolved: [],
         },
         scanComplete: true,
-        boardRead: 'complete',
-        boardPrefix: false,
+        board: { outcome: 'complete', prefix: false },
       }),
       'a fully accountable grid was refused — publishing is broken, not guarded',
     ).toBeNull();
@@ -524,8 +523,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           gridName: 'G',
           plan: { deps: [DEP_M], resolved: new Map(), unresolved: [] },
           scanComplete: false,
-          boardRead,
-          boardPrefix: boardRead === 'truncated',
+          board: { outcome: boardRead, prefix: boardRead === 'truncated' },
         }),
         `boardRead=${boardRead} refused a grid whose every key is accounted for`,
       ).toBeNull();
@@ -537,8 +535,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       gridName: 'Mixed Grid',
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: true,
-      boardRead: 'complete',
-      boardPrefix: false,
+      board: { outcome: 'complete', prefix: false },
     });
     expect(text, 'an unaccountable member was PERMITTED onto the public board').not.toBeNull();
     expect(norm(text!)).toBe(
@@ -546,8 +543,9 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         'and not on the board as this build can read it — it is either gone, or in a shape ' +
         'this build does not understand. Publishing is refused rather than putting a key on ' +
         'the public board that nobody — including you — could resolve afterwards. ⚠ The ' +
-        'picker keeps members it cannot show, so editing the grid cannot remove it: try a ' +
-        'newer build first, and discard this grid and build it again if that does not help.',
+        'picker keeps members it cannot show, so editing the grid cannot remove it: reload ' +
+        'the app and try again first, and discard this grid and build it again if that ' +
+        'does not help.',
     );
   });
 
@@ -558,8 +556,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           gridName: 'Mixed Grid',
           plan: planWith([DEAD_MATCHUP_ID, DEAD_PROMPT_ID]),
           scanComplete: true,
-          boardRead: 'complete',
-          boardPrefix: false,
+          board: { outcome: 'complete', prefix: false },
         })!,
       ),
     ).toBe(
@@ -568,8 +565,8 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         'in a shape this build does not understand. Publishing is refused rather than ' +
         'putting keys on the public board that nobody — including you — could resolve ' +
         'afterwards. ⚠ The picker keeps members it cannot show, so editing the grid cannot ' +
-        'remove them: try a newer build first, and discard this grid and build it again if ' +
-        'that does not help.',
+        'remove them: reload the app and try again first, and discard this grid and build ' +
+        'it again if that does not help.',
     );
   });
 
@@ -584,8 +581,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: false,
-        boardRead: 'complete',
-        boardPrefix: false,
+        board: { outcome: 'complete', prefix: false },
       })!,
     );
     expect(
@@ -610,8 +606,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
-        boardRead: 'truncated',
-        boardPrefix: true,
+        board: { outcome: 'truncated', prefix: true },
       })!,
     );
     expect(
@@ -643,9 +638,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           gridName: 'Mixed Grid',
           plan: planWith(['mk-a', 'qk-1']),
           scanComplete: true,
-          boardRead,
-          // The board was never read at all on either arm, so no prefix is held.
-          boardPrefix: false,
+          board: { outcome: boardRead, prefix: false },
         })!,
       );
       // The two named claims FIRST, in the order the hazard matters: no destructive
@@ -695,8 +688,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'G',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
-        boardRead,
-        boardPrefix: boardRead === 'truncated',
+        board: { outcome: boardRead, prefix: boardRead === 'truncated' },
       })!;
       // 🔴 EVERY DESTRUCTIVE VERB, NOT JUST "discard". The old pattern was
       // `/discard/i` alone, so a remedy spelled "delete" or "remove" passed — a
@@ -719,8 +711,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
-        boardRead: 'error',
-        boardPrefix: true,
+        board: { outcome: 'error', prefix: true },
       })!,
     );
     // The named claim first: the cap is what makes the retry unreliable, and it must
@@ -748,8 +739,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
-        boardRead: 'error',
-        boardPrefix: false,
+        board: { outcome: 'error', prefix: false },
       })!,
     );
     expect(
@@ -767,8 +757,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       gridName: 'G',
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: false,
-      boardRead: 'truncated',
-      boardPrefix: true,
+      board: { outcome: 'truncated', prefix: true },
     })!;
     expect(both).toContain('could not read all of your private items');
     expect(both, 'two causes were named at once').not.toMatch(/not in the part of the board/);
@@ -785,8 +774,8 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       const text = cascadeRefusal({
         gridName: 'G',
         plan: planWith([DEAD_MATCHUP_ID]),
-        boardPrefix: spec.boardRead === 'truncated',
-        ...spec,
+        board: { outcome: spec.boardRead, prefix: spec.boardRead === 'truncated' },
+        scanComplete: spec.scanComplete,
       })!;
       // `normalizeKeys` carries a key into the payload rather than truncating it, and
       // nothing here deletes anything from the stored grid — so a sentence saying the

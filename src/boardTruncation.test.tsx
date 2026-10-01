@@ -420,6 +420,106 @@ describe("a grid's missing members, on a board the app could not finish reading"
    * scan's own disclosure is on screen, never by counting to 40.
    */
   /**
+   * 🔴 THE CALL SITE, NOT THE PURE FUNCTION. `cascadeRefusal`'s own cases pin what it
+   * SAYS for a thrown read over a prefix; this one pins that `App` actually hands it
+   * that state. The distinction is not academic: `prefix` arrived as a second
+   * parameter first, and a mutant wiring it to a constant `false` at the one call site
+   * SURVIVED the whole suite — the function was pinned and the wire-up was not.
+   *
+   * The seam is also GONE (the whole snapshot is passed as one value now), but a
+   * removed seam is an argument and this is a measurement.
+   */
+  it('🔴 a refusal on a TRUNCATED board whose re-read threw names the page cap', async () => {
+    let failReads = false;
+    let attempts = 0;
+    let pages = 0;
+    const shared = {
+      ...endlessShared().shared,
+      async list() {
+        attempts += 1;
+        if (failReads) throw new Error('BOARD_UNAVAILABLE');
+        pages += 1;
+        return {
+          items: pages === 1 ? [ownMatchupRow()] : [row(`k${pages}`)],
+          nextCursor: `cursor-${pages}`,
+        };
+      },
+      async withdraw() {
+        return { ok: true as const, deleted: true };
+      },
+    } as unknown as SharedStore;
+    // A private grid naming one real board row and one key nothing can account for.
+    const kv = fakeAppStorage({
+      'unpub:grid:v1:ug-trunc': {
+        v: 1,
+        localId: 'ug-trunc',
+        name: 'Capped Grid',
+        description: '',
+        matchupKeys: ['mk-mine', 'dm-nowhere'],
+        promptKeys: ['qk-one'],
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      },
+    });
+    renderApp({ shared, appStorage: kv.appStorage, track: vi.fn() });
+
+    // PREMISE 1: the first scan truncated.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('board-truncated-notice'),
+        'the first scan did not truncate — the premise failed',
+      ).not.toBeNull();
+    });
+    const attemptsBefore = attempts;
+
+    // PREMISE 2: make the app re-read, and have that read throw.
+    failReads = true;
+    const matchups = await openView('Matchups');
+    const mine = await waitFor(() => {
+      const el = within(matchups)
+        .getAllByTestId('matchup-card')
+        .find((c) => within(c).queryByTestId('matchup-menu') !== null);
+      expect(el, 'no own matchup row rendered — nothing here can reach reload()').toBeTruthy();
+      return el!;
+    });
+    await openRowMenu('matchup', mine);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+    await waitFor(() => {
+      expect(attempts, 'no further read was issued').toBeGreaterThan(attemptsBefore);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('matchups-error'), 'the re-read did not fail').toHaveTextContent(
+        'BOARD_UNAVAILABLE',
+      );
+    });
+
+    // Now publish the grid. The state is `(outcome: 'error', prefix: true)`.
+    const trigger = await screen.findByTestId('nav-my');
+    if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+    await userEvent.click(await screen.findByTestId('nav-my-grid'));
+    const gridCard = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('unpublished-card')
+        .find((c) => c.getAttribute('data-local-id') === 'ug-trunc');
+      expect(el, 'the private grid is not listed').toBeTruthy();
+      return el!;
+    });
+    await userEvent.click(within(gridCard).getByTestId('unpublished-publish'));
+
+    const text = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      expect(el, 'the publish was not refused').not.toBeNull();
+      return (el!.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    // 🔴 THE CLAIM: the refusal names the cap, because `App` passed the prefix bit.
+    expect(
+      text,
+      'the call site did not hand `cascadeRefusal` the prefix bit — the refusal promises a retry the app knows will keep failing',
+    ).toMatch(/page cap/);
+    expect(text).toContain('has not been able to read the board');
+  });
+
+  /**
    * 🔴 THE OTHER DIRECTION OF THE SAME RELATIONSHIP, AND A SURVIVING MUTANT IS WHY IT
    * IS HERE. The case below pins that a thrown read must not CLEAR the prefix bit over
    * a truncated snapshot. Nothing pinned that it must not SET it over a COMPLETE one —

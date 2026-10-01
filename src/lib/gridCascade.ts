@@ -237,6 +237,21 @@ export function cascadeConfirmNotice(gridName: string, deps: readonly CascadeDep
 export type BoardRead = 'unread' | 'error' | 'truncated' | 'complete';
 
 /**
+ * The board read as ONE value: what the latest request DID, and whether the snapshot
+ * the app currently HOLDS is a prefix.
+ *
+ * 🔴 THEY TRAVEL TOGETHER BECAUSE THEY ARE NOT THE SAME FACT AND HAVE BEEN CONFLATED
+ * TWICE — see `App`'s `boardSnapshot` for both breaks. `outcome` is a property of the
+ * REQUEST; `prefix` is a property of `items`. A caller that could pass one without
+ * the other is a caller that can wire half of it, which is a mutant that survived a
+ * green suite once already.
+ */
+export interface BoardSnapshot {
+  outcome: BoardRead;
+  prefix: boolean;
+}
+
+/**
  * 🔴 THE PUBLISH BOUNDARY: may this grid go to `shared.append` at all?
  *
  * Returns `null` to proceed, or the viewer-facing REFUSAL. One predicate, called by
@@ -346,24 +361,17 @@ export function cascadeRefusal(spec: {
    * ⚠️ So the four values are not decoration. "I could not read the board" and "I
    * read the board and it is not there" are different facts with OPPOSITE remedies,
    * and only the second one may ever suggest removing anything.
-   */
-  boardRead: BoardRead;
-  /**
-   * Is the board snapshot the app HOLDS a prefix — independent of what the latest
-   * read did?
    *
-   * 🔴 IT EXISTS BECAUSE THE TWO-FIELD SPLIT MADE ONE STATE REACHABLE THAT NO BRANCH
-   * DESCRIBED: a truncated board whose RE-READ then threw. `boardRead` is `'error'`
-   * there, so the default branch said "Reload and try again" — while the app already
-   * knew the members are past a page cap and the retry will keep failing for that
-   * reason. The pre-split enum behaved identically, so this is not a regression; it is
-   * the one place the split made a better sentence possible, and this field is what
-   * takes it.
-   *
-   * ⚠️ IT IS NOT A SECOND GATE. Like `scanComplete` and `boardRead`, it is read only
-   * after `unresolved` is non-empty and it changes only the WORDING.
+   * 🔴 THE WHOLE SNAPSHOT IS PASSED, NOT TWO LOOSE FIELDS, AND THAT IS A SEAM REMOVED
+   * RATHER THAN A SEAM TESTED. `prefix` arrived as a second parameter first, and a
+   * mutant wiring it to a constant `false` at the one call site SURVIVED the suite —
+   * the pure function was pinned and the WIRE-UP was not. `App` holds the two fields
+   * as one state value for exactly this reason, so handing that value over whole
+   * leaves no half for a caller to forget. A dom case in `boardTruncation.test.tsx`
+   * drives the call site as well, because removing a seam is a claim and the measured
+   * thing is better than the argued one.
    */
-  boardPrefix: boolean;
+  board: BoardSnapshot;
 }): string | null {
   const n = spec.plan.unresolved.length;
   if (n === 0) return null;
@@ -379,15 +387,20 @@ export function cascadeRefusal(spec: {
       `and try again.`
     );
   }
-  // 🔴 THE DESTRUCTIVE BRANCH IS THE ONLY EXPLICIT ONE, AND EVERY OTHER STATE FALLS
-  // THROUGH TO SAFE. It was the other way round — three `if`s and then the
+  // 🔴 THE DESTRUCTIVE BRANCH IS EXPLICIT AND THE **DEFAULT** IS SAFE. It was the
+  // other way round — three `if`s and then the
   // discard-the-grid advice as the fall-through default — in a function whose whole
   // thesis is that only a state that really read the board may suggest destroying
   // anything. `tsc` cannot see a new `BoardRead` member reaching a fall-through, so a
   // fifth value would have inherited the destructive remedy silently. Inverted, a
   // fifth value inherits "reload and try again", which is wrong-but-harmless rather
   // than wrong-and-irreversible.
-  if (spec.boardRead === 'complete') {
+  //
+  // ⚠️ AN EARLIER DRAFT SAID "THE ONLY EXPLICIT ONE", WHICH THE CODE 30 LINES BELOW
+  // CONTRADICTS: `'truncated'` is a second explicit branch with its own copy. The
+  // claim that matters is the one above — the DESTRUCTIVE remedy is explicit rather
+  // than the default — and that is what is written now.
+  if (spec.board.outcome === 'complete') {
     // 🔴 THE REMEDY NAMES THE ONE ROUTE THAT EXISTS, and the first one did not.
     // "Edit the grid and remove it" was written without checking the route, and
     // MEASURED FALSE: `GridPicker` renders only keys present in `items`, an
@@ -420,11 +433,12 @@ export function cascadeRefusal(spec: {
       `${head}: ${isAre} not among your private items, and not on the board as this ` +
       `build can read it — ${n === 1 ? 'it is' : 'they are'} either gone, or in a shape ` +
       `this build does not understand. ${tail} ⚠ The picker keeps members it cannot ` +
-      `show, so editing the grid cannot remove ${n === 1 ? 'it' : 'them'}: try a newer ` +
-      `build first, and discard this grid and build it again if that does not help.`
+      `show, so editing the grid cannot remove ${n === 1 ? 'it' : 'them'}: reload the ` +
+      `app and try again first, and discard this grid and build it again if that does ` +
+      `not help.`
     );
   }
-  if (spec.boardRead === 'truncated') {
+  if (spec.board.outcome === 'truncated') {
     return (
       `${head}: ${isAre} not among your private items, and not in the part of the board this ` +
       `app could read — this board has more entries than one load fetches. ${tail} ` +
@@ -443,7 +457,7 @@ export function cascadeRefusal(spec: {
   return (
     `${head}, because this app has not been able to read the board. It therefore cannot ` +
     `tell whether ${isAre} published rows it has not seen, or gone. ${tail} ` +
-    (spec.boardPrefix
+    (spec.board.prefix
       ? `Reload and try again — but the part of the board this app did read stops at a ` +
         `page cap, so the same members may be past it every time.`
       : `Reload and try again.`)

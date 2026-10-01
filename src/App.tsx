@@ -682,8 +682,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     outcome: 'unread',
     prefix: false,
   });
-  /** What the latest read DID — the grid-publish boundary's input. */
-  const boardRead = boardSnapshot.outcome;
+  // ⚠️ NO `boardRead` ALIAS. There was one, and it existed only to be passed to
+  // `cascadeRefusal` beside a separately-derived `prefix` — the two-field call shape
+  // whose wire-up a surviving mutant walked. The whole `boardSnapshot` goes over now,
+  // so the alias had no reader left; `tsc`'s `noUnusedLocals` is what said so.
   /**
    * The snapshot in `items` is a PREFIX of the board, so every ranking over it — the
    * vote order, the top-N that becomes a grid's rows and columns, the "Included"
@@ -2820,13 +2822,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         gridName: rec.name || 'Untitled grid',
         plan,
         scanComplete: privateScanCompleteRef.current,
-        boardRead,
-        // 🔴 BOTH FIELDS, because they answer different questions — see
-        // `cascadeRefusal`'s own docblocks. `boardRead` decides whether an absence can
-        // be trusted; `boardPrefix` decides whether a retry is worth promising.
-        boardPrefix: boardTruncated,
+        // 🔴 THE WHOLE SNAPSHOT, NOT ITS FIELDS. They answer different questions —
+        // `outcome` whether an absence can be trusted, `prefix` whether a retry is
+        // worth promising — and passing them separately is a seam a caller can wire by
+        // halves. A mutant doing exactly that survived the suite once; see
+        // `cascadeRefusal`'s docblock.
+        board: boardSnapshot,
       }),
-    [boardRead, boardTruncated],
+    [boardSnapshot],
   );
 
   /**
