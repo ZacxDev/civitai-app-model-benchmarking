@@ -26,16 +26,8 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   **#68** (`a9cd81e`, 0.4.12) and **#69** (`7c20155`, 0.4.13). Session branch
   `docs/handoff-arc-audit-and-recipe-repair` carries this doc; **PR #65 is still OPEN**, so
   `main`'s copy is the pre-#65 version — update here, not on `main`.
-- ✅ **0.4.13 IS LIVE AND #66/#67 ARE IN PRODUCTION — verified by served content, 2026-09-30.**
-  `app_state.py … 0.4.13` → `approved/live`, **rc 0**, read unpiped. Served bundle moved to
-  `assets/index-DlkHPI8F.js` (448,095 B, from 0.4.11's `index-t70oWAUj.js` / 440,492 B):
-  the three testids that are net-new between the 0.4.11 base `5a83f89` and `main` —
-  `my-list-panel` · `my-list-empty` · `draft-badge` — each grep **1** where they grepped **0**
-  on 0.4.11, with the carried controls `side-nav` 4 · `board-nav` 1 · `grid-open-members` 1 ·
-  `section-grids` 1 · `grid-open-panel` 1 all firing and retired `contribute-trigger` /
-  `view-switch` at **0** as the negative control. ⚠️ The served hash is NOT the locally-built
-  one (`index-DkIWM9P2.js`, 447,826 B) — the platform builds on its own image, so **byte
-  identity is not available as evidence; the testid deltas are what establish content.**
+- ✅ **0.4.13 went live 2026-09-30 carrying #66/#67** — evidence in the ARCHIVE, superseded
+  by 0.4.14 above.
 - ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`, met at 0.4.11, re-met at 0.4.13). Everything in `Next steps` is a NEW arc or a pre-existing deferral. 🔴 This line has now been dropped by THREE successive `State now` replaces and restored each time by the durable-drop warning — carry it forward.
 - 🔴 **0.4.9 is STILL `approved/building`** — unchanged after four more releases, still a
   rollback hazard. Rank 3. Note the contrast that makes it the hazard: `building` is QUEUED,
@@ -55,18 +47,23 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   🔴 **ONE ASK WAS NOT BUILT AND IS DELIBERATE** — "allow generating content while grid is
   draft", held for its own PR because it spends Buzz. 🔴 **ONE WAS CLOSED AS NO:** `MAX_LORAS`
   stays 5, host-enforced at the wire schema.
-- 🔴 **0.4.14 WAS APPROVED AND ITS DEPLOY FAILED ON THE PLATFORM'S CVE SCAN GATE — A THIRD
-  FAILURE MODE, NOT RETRYABLE, FLEET-WIDE.** Approved 20:15Z, `failed` 20:16Z
-  (`pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`, source `66f6122`): 4 HIGH `pcre2` CVEs in the platform's
-  own runtime base, refused *before* publish. 🔴 **Nothing in this repo contributes that layer** —
-  the recipe is platform-owned and a tenant `Dockerfile` is ignored, so **no app-side change can
-  clear it.** Fleet-wide by MEASUREMENT, not inference: `yt-thumbnail` 0.1.8 failed 4 min later on
-  the **identical four CVEs**. 🔴 **A 0.4.15 retry fails identically — do NOT burn a version on
-  one.** The fix is a one-package change in the platform build recipe (**4th** time it has needed
-  one); address + measured CVE/fix versions in the **cairn entry `model-benchmarking-block`**,
-  platform-internal and not for this public doc.
-  ✅ **Production untouched:** 0.4.13 live, HTTP 200, `index-DlkHPI8F.js` 448,095 B, markers
-  firing — re-verified after the failure.
+- ✅ **0.4.14 IS LIVE AND BATCH 2 (#70–#73) IS IN PRODUCTION — verified by served content,
+  2026-10-01.** rc 0 `approved/live`; served bundle moved to `assets/index-Bax577u7.js`
+  (**464,448 B**, from 0.4.13's 448,095 B), and **13 testids net-new between `7c20155` and
+  `66f6122` each grep 1**, covering all four PRs — `grid-pad-top`/`grid-body` (#70) ·
+  `vote-tally` (#71) · `form-next`/`form-step-content` (#72) · `grid-publish-confirm` (#73).
+  Negative control `checkpoint-name` **0**; carried controls all firing. Command + the
+  mechanical way to derive those markers are in `How to verify`.
+  ⚠️ **The live submission reports NO source commit (`src=-`)**, so that content grep is the
+  ONLY evidence of what shipped; no provenance stamp corroborates it.
+- 🔴 **THE DEPLOY-BLOCKING CVE GATE WAS FIXED PLATFORM-SIDE BY ANOTHER SESSION, AND RE-CHECKING
+  BEFORE ACTING IS WHAT CAUGHT IT.** For ~90 min 0.4.14 was `approved/failed`: a 4-HIGH `pcre2`
+  scan refusal in the platform's own runtime base, fleet-wide (`yt-thumbnail` 0.1.8 failed on the
+  identical CVEs), 0.4.15 apparently owed. All true when measured, all SPENT ~90 min later: the
+  recipe gained `pcre2`, the base digest was bumped, both apps went live.
+  🔴 **The generalisable point: a release blocker in a SHARED platform is the fastest-rotting
+  premise in this doc — someone you are not talking to can close it. Re-measure before building
+  anything against one.** Detail in the **cairn entry `model-benchmarking-block`**.
 - 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is
   a LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45
   grid cells ever against a 20×20 board ("you have reached the maximum number of submissions
@@ -80,24 +77,19 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   `UnpublishedList` deleted) · a primary New CTA · per-state row actions · **`updateGrid` —
   published grids were not editable at all before it**.
 - **Claim `ia-refactor-landed-1` HELD** (rank 1). `ia-refactor-landed-2` released.
-- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again. An
-  unknown session id answers 200 with an empty array, so that zero cannot distinguish
-  "touched no task" from "wrong id". Not a clean bill of health.
 - ⚠️ **`.claude/` is UNTRACKED and NOT gitignored** in this repo (`git status` shows `?? .claude/`).
   Agent worktrees live under `.claude/worktrees/`. Harmless while `git add -A` stays banned,
   but an earlier note claiming that path is gitignored was wrong.
 
 ## Next steps (ranked)
 🔴 **Ranks 1–5 keep their numbers — a live claim is keyed to rank 1. Do not re-rank.**
-1. **The operator judges the live app — NOW BLOCKED ON A PLATFORM-SIDE CVE-GATE FIX, NOT ON
-   APPROVAL AND NOT ON BUILDING ANYTHING HERE.** 🔴 **The 2026-10-01 kickoff's premise is SPENT:**
-   0.4.14 was approved, and the deploy then failed on the platform's image CVE scan (see
-   `State now`). Approval is no longer the blocker and the browser bridge no longer matters.
-   **Nothing in this repo can unblock it** — the vulnerable layer is in the platform's own
-   runtime base and the recipe is platform-owned. The next action is a one-package change in
-   the platform build recipe (address in the cairn entry), then re-submit as **0.4.15**; a
-   retry before that fix fails identically and wastes the version.
-   0.4.13 is live and carries #66/#67; **#70–#73 are NOT live.** Covers the 16 taste findings in the
+1. **The operator judges the live app — NOW FULLY UNBLOCKED, NOTHING LEFT TO BUILD OR SHIP.**
+   🔴 **The 2026-10-01 kickoff's premise is SPENT TWICE OVER:** it said rank 1 waited on a
+   moderator approving 0.4.14. 0.4.14 was then approved, its deploy FAILED on the platform's CVE
+   gate, and ~90 min later another session fixed the platform and got it live — so neither the
+   approval nor the CVE gate is a blocker any more. **0.4.14 is live and carries #70–#73**
+   (verified by content, see `State now`), on top of 0.4.13's #66/#67.
+   **This rank is now purely a HUMAN judgement call with no prerequisite.** Covers the 16 taste findings in the
    contact sheet, plus everything four PRs changed that nothing here can see — whether cells
    render larger, whether the 420px ceiling and the 100-config window hold up, whether the
    two-step modals read well, the ⋮ placement, the thumbnail strips. jsdom resolves no layout.
@@ -133,10 +125,9 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
    was ruled impossible on #485's premise, and #485 is now fixed, so **re-derive what the bump
    actually buys before pricing it.**
    forcing: gate — none external any more; this is now a cost/benefit call, not a wait.
-6. ✅ **CLOSED — #66/#67 shipped as 0.4.13 (2026-09-30), #70–#73 as 0.4.14 (2026-10-01).**
-   0.4.12 failed on `Deploy timed out` and 0.4.13 was a byte-identical retry. The ordering
-   caveat here was DELIBERATELY OVERRIDDEN by the operator both times — production was
-   generations behind `main`, so there was nothing live to judge. **Do not re-open.**
+6. ✅ **CLOSED — #66/#67 shipped as 0.4.13, #70–#73 as 0.4.14, both now LIVE.** The
+   release-before-judging ordering was overridden by the operator both times, deliberately,
+   because production was generations behind `main`. **Do not re-open.** Detail in the ARCHIVE.
    forcing: none — closed.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -168,15 +159,9 @@ their own testid discriminator — fixing structurally the defect where all thre
 | `grid-group-matchup` | `matchup-detail` |
 | `grid-col-header` | `prompt-detail` |
 
-Two defects **no gate caught**, both now guarded:
-- `h=1087` is the tightest *legal* crop height, passes every gate, exits 0 — and puts the
-  **support widget** in all three assets. `h=1040` clears it.
-- `capture.sh` does **not reload before the FIRST state**, so a run can inherit a
-  hand-driven tab and ship an asset with two overlays open. Each state now asserts the
-  other two are closed (watched failing on a contaminated setup, exit 4, no asset).
-
-Weakest remaining link, flagged in-file: `waitForText "Matchup"` is a single word unique
-only **by case** — a future title-case "Matchups" heading would silently make it inert.
+Two defects no gate caught (`h=1087` smuggles the support widget in — use `h=1040`; and
+`capture.sh` does not reload before the FIRST state) are fixed in the merged recipe
+(`civitai/civitai` #5247); full account EVICTED 2026-10-01 to the ARCHIVE.
 
 ## The parked bump — EVICTED, and its premise has changed
 🔴 **The full 4 KB account (the five-package chain, every measured cost, the barrel-vs-per-path
@@ -295,10 +280,9 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   (exhaustive for the Claude half). The opencode genesis session is readable by neither that nor
   `extract_user_msgs.py`. ⚠️ This is a **devrc tooling** limitation, not a fact about this app —
   the fix belongs there, and the detail should not re-accrete in this public repo's doc.
-- ⚠ **`extract_user_msgs.py` is Claude-Code-only** (walks `~/.claude/projects`), so the opencode
-  genesis session's messages are unreadable by it — a measured limitation, not an absence of
-  asks. It also counts task-notifications as `typed`, inflating the count: 28 records here were
-  9 typed asks, 6 answers, 13 notification payloads. Separate them by size first.
+- ⚠ **`extract_user_msgs.py` is Claude-Code-only** (so the opencode genesis session is
+  unreadable by it) **and it counts task-notifications as `typed`** — separate records by
+  size before quoting any ask count. Worked numbers in the ARCHIVE.
 - 🔴 **The release and the capture re-measure were DEADLOCKED, and this doc said the order
   backwards for a while.** The re-measure needs the new IA live; the old instruction said
   not to release first. Releasing was the cheap side, because **listing media is not
@@ -397,8 +381,12 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   CVEs and a package; a transient names a push error or a timeout. A scan refusal is platform-side
   and hits every app, so retrying it only burns versions. 🔴 **No redeploy or
   retry mechanism exists** — established by enumerating `civitai app`'s subcommands AND every
-  button on the approved submission's moderator page. **A failed deploy costs a whole new
-  VERSION; budget one per attempt and expect more than one** (0.4.11 took three). 🔵 **It does
+  button on the approved submission's moderator page. 🔴 **BUT "a failed deploy costs a whole new
+  VERSION" IS FALSE — RETRACTED 2026-10-01 BY MEASUREMENT.** A failed deploy never published, so
+  the version is NOT consumed: `0.4.14` was re-SUBMITTED at the **same version** after its
+  `failed` deploy and went `approved/live` (and `yt-thumbnail` 0.1.8 did the same, same hour —
+  two instances). So there is no in-place redeploy *button*, but a same-version re-submit is the
+  retry, and it is free. Budget attempts, not version numbers (0.4.11 took three attempts). 🔵 **It does
   NOT take production down** — HTTP 200 throughout, still serving the previous bundle; don't
   panic into a rollback. 🔴 The generalisable error was mine: I reasoned from
   *CI-is-a-different-environment* toward "the builder must be choking on our bundle" and was
@@ -569,11 +557,9 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   record carrying the source sha, the real `Status`, and the `Deploy detail`. This supersedes
   the earlier instruction to read `Deploy detail` off the bare command; the bare command cannot
   reach it once the paired record exists.
-- 🔵 **THE PAIRED `withdrawn` RECORD IS NOW FOUR FOR FOUR** (0.4.9, 0.4.10, 0.4.11, and 0.4.12 —
-  `pubreq_01M3T96D9BZVKHAGN2CX62KJCB`, source-less, minutes after the approval click, while the
-  submitted pubreq carried the sha and went on to build). Normal platform bookkeeping, already
-  CLOSED in the ARCHIVE. `civitai app submit` was run exactly once per version. Do not
-  re-investigate it; do not read it as a double submit.
+- 🔵 **A paired `withdrawn` record beside an approval is NORMAL bookkeeping — seen on every
+  approval 0.4.9–0.4.14 (0.4.14 carries TWO, one per approval). Not a double submit; do not
+  re-investigate. Account in the ARCHIVE.**
 - 🔴 **THE TEST-MERGE EARNED ITS KEEP AND `mergeable: MERGEABLE` DID NOT SEE IT.** #70/#71
   were each CI-green and each `MERGEABLE` — a claim against `main`, never about the tree the
   two create. An integration branch produced a **real conflict** in `src/lib/benchmark.test.ts`
@@ -603,9 +589,13 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files,
   never through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy
   `.envrc`, `direnv allow`, `pnpm install --frozen-lockfile`.
-- Release state: `app_state.py model-benchmarking 0.4.14` — **`approved/failed` rc 1, terminal**
-  (CVE-gate refusal, see `State now`); the next release is **0.4.15** and only after the
-  platform-side fix. ⚠️ `Deploy detail` is truncated **server-side at the head** ("Build None
+- Release state: `app_state.py model-benchmarking 0.4.14` — **`approved/live` rc 0**; the next
+  release is 0.4.15. ⚠️ **One version can hold SEVERAL submissions and this command collapses
+  them**: 0.4.14 has a `failed`, two `live` and two `withdrawn` records, and the command read
+  `approved/failed` before the live one existed and `approved/live` after — so an earlier failed
+  attempt at the same version is INVISIBLE here (it is not reporting the newest record either;
+  the newest is `withdrawn`). The exact rule was not measured — read `civitai app status --json`
+  for the per-submission history rather than inferring one. ⚠️ `Deploy detail` is truncated **server-side at the head** ("Build None
   …(truncated)") in BOTH the table and `--json`, so the build log before the scan table is NOT
   retrievable either way; `--json` is still the one that carries `deployDetail` per row for
   every app at once, which is how the fleet-wide reading was taken.
@@ -620,22 +610,32 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   for t in my-list-panel my-list-empty draft-badge; do echo "$t $(grep -c $t /tmp/live.js)"; done # >0 since 0.4.13
   for t in side-nav board-nav grid-open-members; do echo "$t $(grep -c $t /tmp/live.js)"; done   # >0
   for t in section-grids grid-open-panel; do echo "CONTROL $t $(grep -c $t /tmp/live.js)"; done  # >0
-  for t in contribute-trigger view-switch; do echo "RETIRED $t $(grep -c $t /tmp/live.js)"; done # 0
+  for t in contribute-trigger view-switch checkpoint-name; do echo "RETIRED $t $(grep -c $t /tmp/live.js)"; done # 0
+  # 0.4.14 / batch 2 — one marker per PR, all >0 since 2026-10-01:
+  for t in grid-pad-top grid-body vote-tally form-next form-step-content grid-publish-confirm \
+           checkpoint-card unpublished-menu prompt-override-reveal; do echo "0414 $t $(grep -c $t /tmp/live.js)"; done
   ```
-  At 0.4.13 the served bundle is `assets/index-DlkHPI8F.js` (448,095 B). 🔴 **The three
-  `my-list-*`/`draft-badge` lines are the ONLY ones that distinguish post-#66/#67 code from
-  0.4.11** — every other testid above predates both PRs, so a check built from those alone would
-  have passed against the old bundle.
+  At 0.4.14 the served bundle is `assets/index-Bax577u7.js` (**464,448 B**); 0.4.13 was
+  `index-DlkHPI8F.js` (448,095 B). 🔴 **Derive the discriminating testids MECHANICALLY rather
+  than guessing — a check built only from carried testids passes against the OLD bundle:**
+  ```bash
+  for r in <old-release-sha> <new-release-sha>; do git grep -ho 'data-testid="[a-z0-9-]*"' $r -- 'src/*' \
+    | sed 's/.*"\(.*\)"/\1/' | sort -u > /tmp/tid-$r.txt; done
+  comm -13 /tmp/tid-<old>.txt /tmp/tid-<new>.txt   # ADDED — the only valid positive markers
+  comm -23 /tmp/tid-<old>.txt /tmp/tid-<new>.txt   # REMOVED — candidate negative controls
+  ```
+  🔴 **Then check each candidate control for a SUPERSTRING before trusting it.** `config-label`
+  was "removed" yet greps 1 forever, because `grid-config-label` still ships — a substring
+  collision makes a negative control silently useless. `checkpoint-name` has none and reads 0.
   ⚠️ A **template-literal** testid (`board-nav-<board>`, `my-list-<noun>`) greps 0 whether or
   not it exists — only static prefixes are answerable this way.
   ⚠️ **Do NOT expect the served hash to equal a local `pnpm build` hash.** The platform builds on
   its own image: locally `index-DkIWM9P2.js` / 447,826 B, served `index-DlkHPI8F.js` / 448,095 B
   for the same commit. Byte identity is not available as evidence here — content greps are.
 - **The visual inventory:** https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
-  🔴 Photographs **0.4.11**, i.e. BEFORE #66 and #67, so its plates DO NOT match what is now
-  live. It remains a faithful record of the pre-#66/#67 UI and is the reference for the 16 taste
-  findings' full text — but it is no longer a picture of production. **Rank 1 needs a fresh
-  pass.**
+  🔴 Photographs **0.4.11** — BEFORE #66/#67 AND before batch 2, so its plates are now two
+  releases stale. Still the reference for the 16 taste findings' full text, no longer a picture
+  of production. **Rank 1 needs a fresh pass.**
 - 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth gated),
   and anything about LAYOUT or colour (jsdom resolves neither). Every layout claim in this arc
   is about declared values, emitted stylesheet text or module structure.
@@ -647,10 +647,9 @@ vote glyph, no badges in the detail modals — and get it live.
   (`approved/live`, read UNPIPED), **and** the served bundle at
   `https://model-benchmarking.civit.ai/` carries `side-nav`, `board-nav` and
   `grid-open-members` with a positive control present in the same grep.
-  ✅ **STILL MET 2026-09-30 at version 0.4.13** — re-measured after the release: rc 0
-  `approved/live`, served `assets/index-DlkHPI8F.js` carrying `side-nav` 4 · `board-nav` 1 ·
-  `grid-open-members` 1 with `section-grids` 1 / `grid-open-panel` 1 as the positive control.
-  The arc stays CLOSED; shipping 0.4.13 did not re-open it.
+  ✅ **STILL MET 2026-10-01 at 0.4.14** — rc 0 `approved/live`, served `index-Bax577u7.js`
+  carrying `side-nav`/`board-nav`/`grid-open-members` plus the 13 batch-2 markers, controls
+  firing, `checkpoint-name` 0. Re-met at 0.4.13. The arc stays CLOSED.
   ✅ Also MET 2026-09-29 at 0.4.11 — the arc's FIRST closure; its evidence was EVICTED
   2026-10-01 to `claudedocs/handoff-ia-refactor-landed-ARCHIVE.md` for the byte ceiling.
 - ✅ **The PRIOR arc is also CLOSED, its condition MET 2026-09-28** — carried forward so

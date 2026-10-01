@@ -277,3 +277,52 @@ Moved verbatim from the live doc. Each left a one-line pointer there.
   because the gate refused the lazy one. `--override-size-ratchet`-style escapes existed and
   were deliberately not taken: **raising a ceiling to fit your own note is the weakest move
   available.**
+
+### EVICTED 2026-10-01 (second pass) — superseded by 0.4.14 going live
+Moved verbatim; each left a pointer in the live doc.
+
+- ✅ **0.4.13 IS LIVE AND #66/#67 ARE IN PRODUCTION — verified by served content, 2026-09-30.**
+  `app_state.py … 0.4.13` → `approved/live`, **rc 0**, read unpiped. Served bundle moved to
+  `assets/index-DlkHPI8F.js` (448,095 B, from 0.4.11's `index-t70oWAUj.js` / 440,492 B):
+  the three testids that are net-new between the 0.4.11 base `5a83f89` and `main` —
+  `my-list-panel` · `my-list-empty` · `draft-badge` — each grep **1** where they grepped **0**
+  on 0.4.11, with the carried controls `side-nav` 4 · `board-nav` 1 · `grid-open-members` 1 ·
+  `section-grids` 1 · `grid-open-panel` 1 all firing and retired `contribute-trigger` /
+  `view-switch` at **0** as the negative control. ⚠️ The served hash is NOT the locally-built
+  one (`index-DkIWM9P2.js`, 447,826 B) — the platform builds on its own image, so **byte
+  identity is not available as evidence; the testid deltas are what establish content.**
+
+6. ✅ **CLOSED — #66/#67 shipped as 0.4.13 (2026-09-30), #70–#73 as 0.4.14 (2026-10-01).**
+   0.4.12 failed on `Deploy timed out` and 0.4.13 was a byte-identical retry. The ordering
+   caveat here was DELIBERATELY OVERRIDDEN by the operator both times — production was
+   generations behind `main`, so there was nothing live to judge. **Do not re-open.**
+   forcing: none — closed.
+
+
+### EVICTED 2026-10-01 — the two capture defects, now fixed in the merged recipe
+
+Two defects **no gate caught**, both now guarded:
+- `h=1087` is the tightest *legal* crop height, passes every gate, exits 0 — and puts the
+  **support widget** in all three assets. `h=1040` clears it.
+- `capture.sh` does **not reload before the FIRST state**, so a run can inherit a
+  hand-driven tab and ship an asset with two overlays open. Each state now asserts the
+  other two are closed (watched failing on a contaminated setup, exit 4, no asset).
+
+Weakest remaining link, flagged in-file: `waitForText "Matchup"` is a single word unique
+only **by case** — a future title-case "Matchups" heading would silently make it inert.
+
+
+### EVICTED 2026-10-01 — the paired `withdrawn` publish-request account (CLOSED)
+
+- 🔵 **THE PAIRED `withdrawn` RECORD IS NOW FOUR FOR FOUR** (0.4.9, 0.4.10, 0.4.11, and 0.4.12 —
+  `pubreq_01M3T96D9BZVKHAGN2CX62KJCB`, source-less, minutes after the approval click, while the
+  submitted pubreq carried the sha and went on to build). Normal platform bookkeeping, already
+  CLOSED in the ARCHIVE. `civitai app submit` was run exactly once per version. Do not
+  re-investigate it; do not read it as a double submit.
+
+### EVICTED 2026-10-01 — extract_user_msgs.py inflation, worked numbers
+
+- ⚠ **`extract_user_msgs.py` is Claude-Code-only** (walks `~/.claude/projects`), so the opencode
+  genesis session's messages are unreadable by it — a measured limitation, not an absence of
+  asks. It also counts task-notifications as `typed`, inflating the count: 28 records here were
+  9 typed asks, 6 answers, 13 notification payloads. Separate them by size first.
