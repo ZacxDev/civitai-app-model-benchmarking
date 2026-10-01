@@ -449,6 +449,13 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
 //
 // ⚠️ The probe's testid is TEST-ONLY and never reaches production, so it is outside
 // `renameWireCompat.test.ts`'s ledger by construction rather than by exemption.
+//
+// ⚠️ BOTH CASES BELOW ARE **INVARIANT GUARDS**, NOT REGRESSION COVERAGE, and the
+// measurement is written down: they are GREEN against the pre-fix tree (`7b8e592`),
+// because `MyList` already rendered `{item.preview}` correctly. What they buy is
+// DIAGNOSABILITY — the two mutants that break the private row's strip previously died
+// on an identical message, so the sweep's real resolution was 15 of 16 and the seam
+// was indistinguishable from its neighbour. They do not count as coverage of a defect.
 describe('🔴 MyList renders the draft row’s `preview` node it was handed', () => {
   it('a sentinel node supplied by the caller reaches the DOM', () => {
     render(

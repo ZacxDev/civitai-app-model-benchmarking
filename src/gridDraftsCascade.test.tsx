@@ -613,11 +613,28 @@ describe('🔴 publishing a grid publishes its private members FIRST, by name', 
 // what protects the board.
 describe('🔴 an unaccountable member REFUSES the publish, on every path to it', () => {
   /** The grid-publish notice, wherever on the surface it renders. */
-  async function refusal(): Promise<HTMLElement> {
-    return waitFor(() => {
-      const el = screen.queryByTestId('grid-publish-error');
-      if (el === null) throw new Error('no grid-publish refusal notice rendered');
-      return el;
+  function refusalNode(): HTMLElement {
+    const el = screen.queryByTestId('grid-publish-error');
+    if (el === null) throw new Error('no grid-publish refusal notice rendered');
+    return el;
+  }
+
+  /**
+   * Wait until the Publish press has RESOLVED one way or the other.
+   *
+   * 🔴 IT WAITS ON "REFUSED **OR** APPENDED", AND THAT IS THE MEASUREMENT. Waiting on
+   * the notice alone pre-empts the claim that matters: at the pre-fix base the publish
+   * is not refused, so a `waitFor` on the notice dies with ITS message and the
+   * APPEND-LOG assertion — the only one that says a local id reached the public board
+   * — never executes. Waiting on either outcome lets the ledger be what fails.
+   *
+   * It is also not a bare settle: an empty ledger asserted before anything happened
+   * would pass vacuously on a build that appends a moment later.
+   */
+  async function settlePublish(appends: SharedStorageValue[]): Promise<void> {
+    await waitFor(() => {
+      if (screen.queryByTestId('grid-publish-error') === null && appends.length === 0)
+        throw new Error('the publish neither refused nor appended — it never resolved');
     });
   }
 
@@ -654,12 +671,13 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     expect(grid).toBe(grid); // the row is still listed; the member is what is gone
     await userEvent.click(within(grid).getByTestId('unpublished-publish'));
 
-    // 🔴 THE CLAIM, ON THE WIRE: nothing was appended at all.
-    const notice = await refusal();
+    // 🔴 THE CLAIM, ON THE WIRE, AND FIRST: nothing was appended at all.
+    await settlePublish(appends);
     expect(
       appendLedger(appends),
       'a discarded private member’s LOCAL ID went to the public board',
     ).toEqual([]);
+    const notice = refusalNode();
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
       '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
         'among your private items. Publishing is refused rather than putting a key on the ' +
@@ -702,8 +720,9 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     const gridAgain = await privateGridCard();
     await userEvent.click(within(gridAgain).getByTestId('unpublished-publish'));
 
-    const notice = await refusal();
+    await settlePublish(appends);
     expect(appendLedger(appends), 'the FAIL-OPEN path still reaches the board').toEqual([]);
+    const notice = refusalNode();
     // 🔴 AND THE COPY NAMES THE RIGHT CAUSE. "not among your private items" would be a
     // claim the app has no evidence for here — it could not read them.
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
