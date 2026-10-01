@@ -419,6 +419,105 @@ describe("a grid's missing members, on a board the app could not finish reading"
    * `endlessShared` does not: the second phase is armed by the TEST once the first
    * scan's own disclosure is on screen, never by counting to 40.
    */
+  /**
+   * 🔴 THE OTHER DIRECTION OF THE SAME RELATIONSHIP, AND A SURVIVING MUTANT IS WHY IT
+   * IS HERE. The case below pins that a thrown read must not CLEAR the prefix bit over
+   * a truncated snapshot. Nothing pinned that it must not SET it over a COMPLETE one —
+   * so `setBoardSnapshot({ outcome: 'error', prefix: true })` in the catch arm passed
+   * all 983 tests, while producing, on a one-page board whose re-read throws:
+   *   - `board-truncated-notice` ("more entries than the app can rank at once") over a
+   *     snapshot that IS the whole board, and
+   *   - `missingMembersNotice` switched to the "may simply not have been read" wording
+   *     about members whose authors really did remove them.
+   *
+   * ⚠️ IT IS THE SAME SHAPE AS THE DOCBLOCK IT CORRECTS. `App` claimed the pair was
+   * safe because both fields live in ONE state value — co-location does not stop an
+   * arm writing one half, and this mutant was exactly that. What holds the pair is the
+   * two writers and their discipline, which is what that docblock now says.
+   */
+  it('🔴 a later THROWN read does not INVENT a prefix over a complete snapshot', async () => {
+    let failReads = false;
+    let attempts = 0;
+    let pages = 0;
+    const shared = {
+      ...endlessShared().shared,
+      async list() {
+        attempts += 1;
+        if (failReads) throw new Error('BOARD_UNAVAILABLE');
+        pages += 1;
+        // 🔴 ONE page and NO cursor: the board FITS. The mirror of the case below,
+        // whose board never ends.
+        return { items: [gridRow(), ownMatchupRow()] };
+      },
+      async withdraw() {
+        return { ok: true as const, deleted: true };
+      },
+    } as unknown as SharedStore;
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
+
+    // ---- PHASE 1: a COMPLETE read, with neither subject claiming truncation ----
+    const card = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid never rendered').toBeTruthy();
+      return el!;
+    });
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'phase 1 cried truncation on a board that FITS — the premise failed',
+    ).toBeNull();
+    expect(card.querySelector('[data-testid="grid-card-missing"]')).toHaveTextContent(
+      NOTICE(false),
+    );
+    expect(pages, 'the board did not come back in one page — wrong fixture').toBe(1);
+    const attemptsBefore = attempts;
+
+    // ---- PHASE 2: every later read throws, and the app re-reads on its own ----
+    failReads = true;
+    const matchups = await openView('Matchups');
+    const mine = await waitFor(() => {
+      const el = within(matchups)
+        .getAllByTestId('matchup-card')
+        .find((c) => within(c).queryByTestId('matchup-menu') !== null);
+      expect(el, 'no own matchup row rendered — nothing here can reach reload()').toBeTruthy();
+      return el!;
+    });
+    await openRowMenu('matchup', mine);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+
+    // PREMISE, BOTH DIRECTIONS: a further read was ATTEMPTED and it FAILED.
+    await waitFor(() => {
+      expect(attempts, 'no further read was issued — the sequence never happened').toBeGreaterThan(
+        attemptsBefore,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('matchups-error'), 'the re-read did not fail').toHaveTextContent(
+        'BOARD_UNAVAILABLE',
+      );
+    });
+
+    // ---- THE TWO CLAIMS, back on the grids board ----
+    await openView('Grids');
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'a FAILED read INVENTED truncation over a snapshot that is the whole board — the ranking is complete and the app now says it is not',
+    ).toBeNull();
+    const after = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid left the list').toBeTruthy();
+      return el!;
+    });
+    expect(
+      after.querySelector('[data-testid="grid-card-missing"]'),
+      'the dangling-member notice switched to the may-not-have-been-read wording after a failed read over a COMPLETE snapshot',
+    ).toHaveTextContent(NOTICE(false));
+  });
+
   it('🔴 a later THROWN read does not un-truncate the prefix still in `items`', async () => {
     let failReads = false;
     /** `list()` CALLS, successful or not — the premise that a second read happened. */

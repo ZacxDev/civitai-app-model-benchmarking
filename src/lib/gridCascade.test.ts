@@ -505,6 +505,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         },
         scanComplete: true,
         boardRead: 'complete',
+        boardPrefix: false,
       }),
       'a fully accountable grid was refused — publishing is broken, not guarded',
     ).toBeNull();
@@ -524,6 +525,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           plan: { deps: [DEP_M], resolved: new Map(), unresolved: [] },
           scanComplete: false,
           boardRead,
+          boardPrefix: boardRead === 'truncated',
         }),
         `boardRead=${boardRead} refused a grid whose every key is accounted for`,
       ).toBeNull();
@@ -536,6 +538,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: true,
       boardRead: 'complete',
+      boardPrefix: false,
     });
     expect(text, 'an unaccountable member was PERMITTED onto the public board').not.toBeNull();
     expect(norm(text!)).toBe(
@@ -556,6 +559,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           plan: planWith([DEAD_MATCHUP_ID, DEAD_PROMPT_ID]),
           scanComplete: true,
           boardRead: 'complete',
+          boardPrefix: false,
         })!,
       ),
     ).toBe(
@@ -581,6 +585,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: false,
         boardRead: 'complete',
+        boardPrefix: false,
       })!,
     );
     expect(
@@ -606,6 +611,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
         boardRead: 'truncated',
+        boardPrefix: true,
       })!,
     );
     expect(
@@ -638,6 +644,8 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           plan: planWith(['mk-a', 'qk-1']),
           scanComplete: true,
           boardRead,
+          // The board was never read at all on either arm, so no prefix is held.
+          boardPrefix: false,
         })!,
       );
       // The two named claims FIRST, in the order the hazard matters: no destructive
@@ -688,6 +696,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
         boardRead,
+        boardPrefix: boardRead === 'truncated',
       })!;
       // 🔴 EVERY DESTRUCTIVE VERB, NOT JUST "discard". The old pattern was
       // `/discard/i` alone, so a remedy spelled "delete" or "remove" passed — a
@@ -700,6 +709,56 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
     ).toEqual(['complete']);
   });
 
+  it('🔴 a THROWN read over a PREFIX still names the cap — the state the split exposed', () => {
+    // 🔴 THE ONE STATE NO BRANCH DESCRIBED. `outcome: 'error'` with `prefix: true` is
+    // a truncated board whose re-read threw: the default branch said "Reload and try
+    // again", implying a retry would settle it, while the app already knew the members
+    // sit past a page cap and the retry keeps failing for that reason.
+    const text = norm(
+      cascadeRefusal({
+        gridName: 'Mixed Grid',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        scanComplete: true,
+        boardRead: 'error',
+        boardPrefix: true,
+      })!,
+    );
+    // The named claim first: the cap is what makes the retry unreliable, and it must
+    // be said rather than left to the viewer to discover by repeating.
+    expect(
+      text,
+      'a thrown read over a PREFIX promises a retry without naming the cap that will defeat it',
+    ).toMatch(/page cap/);
+    expect(text).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for, because this app has not been ' +
+        'able to read the board. It therefore cannot tell whether it is published rows it ' +
+        'has not seen, or gone. Publishing is refused rather than putting a key on the ' +
+        'public board that nobody — including you — could resolve afterwards. Reload and ' +
+        'try again — but the part of the board this app did read stops at a page cap, so ' +
+        'the same members may be past it every time.',
+    );
+  });
+
+  it('🔴 NEGATIVE CONTROL: a thrown read over NO prefix does not invent a cap', () => {
+    // Without this pair, the case above is satisfied by copy that names a page cap on
+    // every errored read — which would be a different false claim in the other
+    // direction, about a board that fits.
+    const text = norm(
+      cascadeRefusal({
+        gridName: 'Mixed Grid',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        scanComplete: true,
+        boardRead: 'error',
+        boardPrefix: false,
+      })!,
+    );
+    expect(
+      text,
+      'a thrown read over a COMPLETE snapshot invents a page cap that did not apply',
+    ).not.toMatch(/page cap/);
+    expect(text).toContain('Reload and try again.');
+  });
+
   it('🔴 THE INCOMPLETE SCAN WINS over the truncated board — one cause, named', () => {
     // Both flags can be true at once. The private-scan cause is the one that makes the
     // app unable to tell the two cases apart at all, so it is the one reported; a
@@ -709,6 +768,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: false,
       boardRead: 'truncated',
+      boardPrefix: true,
     })!;
     expect(both).toContain('could not read all of your private items');
     expect(both, 'two causes were named at once').not.toMatch(/not in the part of the board/);
@@ -725,6 +785,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       const text = cascadeRefusal({
         gridName: 'G',
         plan: planWith([DEAD_MATCHUP_ID]),
+        boardPrefix: spec.boardRead === 'truncated',
         ...spec,
       })!;
       // `normalizeKeys` carries a key into the payload rather than truncating it, and

@@ -658,8 +658,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *   - `prefix` is a property of `items`. It answers "is the snapshot I am ranking
    *     over the whole board?" and it may therefore change ONLY when `items` does.
    *
-   * They live in ONE state value so they are written together, by one `set` per
-   * outcome, rather than as two `useState`s a future arm could update by halves.
+   * ⚠️ AND WHAT ENFORCES THAT IS THE TWO WRITERS AND THEIR DISCIPLINE, NOT THE SHAPE
+   * OF THE STATE. This paragraph used to read "they live in ONE state value so they
+   * are written together … rather than as two `useState`s a future arm could update
+   * by halves", which is false: a single object does not stop an arm updating by
+   * halves, and a mutant doing exactly that — `{ outcome: 'error', prefix: true }` in
+   * the catch arm — SURVIVED all 983 tests. What actually holds the pair is:
+   *   - `prefix` has exactly TWO writers, both in the board-read effect: the resolve
+   *     arm sets it from `all.truncated` alongside its `setItems`, and the reject arm
+   *     carries the previous value through. Nothing else may write it.
+   *   - the four other `setItems` call sites (`applyVote`, `optimisticInsert`,
+   *     `optimisticUpdate`, `optimisticDelete`) are ROW-LEVEL edits that cannot change
+   *     whether the snapshot is a prefix, which is why they correctly leave it alone.
+   * Both directions are now pinned by `boardTruncation.test.tsx`: a thrown read must
+   * not CLEAR the bit over a prefix, and must not SET it over a complete snapshot.
    *
    * ⚠️ NEITHER IS RESET WHEN A RE-READ STARTS, deliberately. `App` re-reads after
    * every publish and `items` keeps the previous snapshot throughout, so resetting
@@ -1032,13 +1044,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * boundary (`cascadeRefusal`) and by nothing else.
    *
    * 🔴 WHAT IT ACTUALLY DOES: it decides the refusal's **wording**, not the refusal.
-   * This is the SECOND draft of this paragraph — there is ONE prior, and it
-   * over-claimed — so the correction is stated before the history. (Re-measured, not
-   * taken on report: `privateScanCompleteRef` and its docblock were introduced in
-   * `17fa294` — `grep -c` is 0 at `3ebb2d9` and `7b8e592` — and nothing touched
-   * `src/App.tsx` between `17fa294` and `fad129a`. The sibling count on
-   * `cascadeStoppedNotice`'s empty-`published` arm says THIRD and that one is right;
-   * these two numbers are independent and were wrong independently.) `cascadeRefusal` returns `null` on
+   * An earlier draft of this paragraph claimed it closed the decision; the correction
+   * is stated first, before the history, because that is the part a reader needs.
+   *
+   * ⚠️ A SELF-REFERENTIAL DRAFT COUNT USED TO SIT HERE AND IS DELETED RATHER THAN
+   * CORRECTED A FOURTH TIME. It regenerated a defect in three consecutive rounds (two
+   * wrong numbers and one wrong claim ABOUT the number), and nothing a reader does
+   * depends on it — the construct was the defect, not the arithmetic. Say WHAT a
+   * paragraph got wrong, which is done above; do not count the paragraphs. `cascadeRefusal` returns `null` on
    * `unresolved.length === 0` BEFORE it reads this flag, and that function's own
    * docblock says so in terms — two comments in one PR asserted opposite things.
    * Per-key positive accounting is the guard; this flag only chooses between "this
@@ -2808,8 +2821,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         plan,
         scanComplete: privateScanCompleteRef.current,
         boardRead,
+        // 🔴 BOTH FIELDS, because they answer different questions — see
+        // `cascadeRefusal`'s own docblocks. `boardRead` decides whether an absence can
+        // be trusted; `boardPrefix` decides whether a retry is worth promising.
+        boardPrefix: boardTruncated,
       }),
-    [boardRead],
+    [boardRead, boardTruncated],
   );
 
   /**

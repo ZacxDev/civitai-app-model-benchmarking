@@ -348,6 +348,22 @@ export function cascadeRefusal(spec: {
    * and only the second one may ever suggest removing anything.
    */
   boardRead: BoardRead;
+  /**
+   * Is the board snapshot the app HOLDS a prefix — independent of what the latest
+   * read did?
+   *
+   * 🔴 IT EXISTS BECAUSE THE TWO-FIELD SPLIT MADE ONE STATE REACHABLE THAT NO BRANCH
+   * DESCRIBED: a truncated board whose RE-READ then threw. `boardRead` is `'error'`
+   * there, so the default branch said "Reload and try again" — while the app already
+   * knew the members are past a page cap and the retry will keep failing for that
+   * reason. The pre-split enum behaved identically, so this is not a regression; it is
+   * the one place the split made a better sentence possible, and this field is what
+   * takes it.
+   *
+   * ⚠️ IT IS NOT A SECOND GATE. Like `scanComplete` and `boardRead`, it is read only
+   * after `unresolved` is non-empty and it changes only the WORDING.
+   */
+  boardPrefix: boolean;
 }): string | null {
   const n = spec.plan.unresolved.length;
   if (n === 0) return null;
@@ -389,6 +405,13 @@ export function cascadeRefusal(spec: {
     // board. The sentence no longer asserts absence it cannot establish, and it names
     // the cheaper thing to try first.
     //
+    // ⚠️ AND THAT CHEAPER THING IS A RELOAD, NOT "a newer build". An earlier draft said
+    // "try a newer build first" — and a viewer of a HOSTED app block has no build
+    // selector: a reload IS how they get the newer bundle. A hedge the viewer cannot
+    // act on sends them straight to the destructive half, which is the outcome the
+    // hedge exists to defer. The same correction this branch already applied to its
+    // first remedy, missed on the second.
+    //
     // ⚠️ DISCARD-AND-REBUILD IS STILL A POOR REMEDY AND IT IS STILL THE ONLY ONE THIS
     // BUILD HAS. The better fix is a per-member remove control on `GridForm`'s axis
     // cards — a form change with its own verification, named in the PR so it closes on
@@ -411,10 +434,19 @@ export function cascadeRefusal(spec: {
   // 🔴 THE DEFAULT, AND IT IS THE SAFE ONE. `'unread'`, `'error'`, and any future
   // member of the union land here: the member may be a perfectly ordinary published
   // row this app has not read, so nothing in this sentence destroys anything.
+  //
+  // 🔴 AND THE RETRY ADVICE BRANCHES ON THE **SNAPSHOT**, not on the read. A read that
+  // threw over a PREFIX is the reachable state the split exposed: telling that viewer
+  // to reload, full stop, implies a retry will settle it when the app already knows
+  // the members sit past a page cap. Saying both is the honest version — reload,
+  // because the read failed; and expect it to recur, because the cap has not moved.
   return (
     `${head}, because this app has not been able to read the board. It therefore cannot ` +
-    `tell whether ${isAre} published rows it has not seen, or gone. ${tail} Reload and ` +
-    `try again.`
+    `tell whether ${isAre} published rows it has not seen, or gone. ${tail} ` +
+    (spec.boardPrefix
+      ? `Reload and try again — but the part of the board this app did read stops at a ` +
+        `page cap, so the same members may be past it every time.`
+      : `Reload and try again.`)
   );
 }
 
