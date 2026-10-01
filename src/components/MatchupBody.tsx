@@ -49,17 +49,35 @@
 //      OUTSIDE the menu on purpose: it is a caller-supplied slot that the GRID
 //      cards also fill, and moving it in only here would make the same control
 //      live in two different places on two surfaces.
-//   3. RESOURCE TITLES GO THROUGH `ResourceName`, WHICH RENDERS PLAIN TEXT.
-//      🔴 THIS SHIPPED AS LINKS AND THE LINKS WERE REMOVED BEFORE RELEASE — said
-//      here rather than quietly reverted, because the next person to read this
-//      modal will have the same idea. All three routes out of a block's sandboxed
-//      iframe are shut, and the one that is *permitted* (a popup) would land the
-//      viewer on civitai.com LOGGED OUT, because the popup inherits an opener with
-//      no `allow-same-origin`. Measured on the live iframe:
-//      `sandbox="allow-scripts allow-forms"`, i.e. `trustTier: 'unverified'`. The
-//      whole record, and what would unlock it, is in `./ResourceName.tsx`'s header;
-//      filed as `civitai/civitai` #5209. (It used to point at `lib/resourceLink.ts`,
-//      which is deleted.) Nothing here may advertise an action it cannot perform.
+//   3. RESOURCE TITLES GO THROUGH `ResourceName`, WHICH IS A LINK AGAIN — OR PLAIN
+//      TEXT, PER RESOURCE.
+//      ⚠️ THIS ITEM SAID THE OPPOSITE UNTIL `civitai/civitai` **#5250**. It read
+//      "WHICH RENDERS PLAIN TEXT … THIS SHIPPED AS LINKS AND THE LINKS WERE REMOVED
+//      BEFORE RELEASE", because all three routes out of a block's sandboxed iframe
+//      were shut. #5250 opened one: `NAVIGATE` now carries a `scope`, and
+//      `scope: 'site'` resolves the path at the civitai.com root.
+//      ⚠️ AND "THE OTHER TWO ROUTES ARE STILL SHUT" IS RETRACTED — it was the same
+//      false claim `./ResourceName.tsx`'s route 2 now names: `target: 'new_tab'` is
+//      implemented, by the HOST, from the parent frame. ONE route is still a hazard
+//      (a popup the BLOCK opens, which inherits the opener's sandbox), and that one
+//      alone is why the control is a `<button>` posting a host message and never an
+//      `<a href>` (which would navigate THIS iframe to an opaque-origin, logged-out
+//      civitai.com).
+//      🔴 PER RESOURCE, not globally: a title is interactive only when its `modelId`
+//      is a positive safe integer — see `ResourceName`'s `usableId` for the junk the
+//      wire can carry. `LoraRef.modelId` is optional forever (rows published
+//      before the field existed can never be backfilled — see `../types.ts`), so the
+//      plain-text variant is permanent, not a migration state. Nothing here may
+//      advertise an action it cannot perform.
+//      The whole record — the three routes, the live `sandbox="allow-scripts
+//      allow-forms"` / `trustTier: 'unverified'` reading, and the `private-run`
+//      surface where site navigation is refused and the block cannot tell — is in
+//      `./ResourceName.tsx`'s header. Filed as `civitai/civitai` #5209, which upstream
+//      CLOSED on the host change (#5250) — so this is the app half of a closed issue,
+//      and the live click-through is a verification step owed on this change rather
+//      than a tracked item. ⚠️ This read "this closes the app half of it", which
+//      presupposed an open issue; `ResourceName.tsx` names that exact construction as
+//      the defect and a sweep for it missed this sibling.
 
 import type { ReactNode } from 'react';
 
@@ -183,6 +201,16 @@ export function MatchupBody({
                     cfg.checkpoint.modelName ||
                     `Checkpoint #${cfg.checkpoint.versionId}`
                   }
+                  /* `CheckpointRef.modelId` is REQUIRED — `parseCheckpoint` rejects a
+                     config without it — so a checkpoint title is linkable far more
+                     often than a LoRA's below.
+                     ⚠️ NOT "always", which a draft of this comment claimed:
+                     `parseCheckpoint` requires only `isNum(raw.modelId)`, and `isNum`
+                     admits `0` and negatives, so a wire row written by another client
+                     can carry an unusable id. `ResourceName` renders those as plain
+                     text, which is why this passes the value through undefaulted. */
+                  modelId={cfg.checkpoint.modelId}
+                  versionId={cfg.checkpoint.versionId}
                   style={{ fontSize: 13, fontWeight: 600 }}
                 />
                 <span style={metaText}>
@@ -194,13 +222,31 @@ export function MatchupBody({
                     {cfg.loras.map((l, i) => (
                       <Fragment key={`${l.versionId}:${i}`}>
                         {i > 0 && ' · '}
-                        {/* 🔴 `l.modelId` IS DELIBERATELY NOT READ HERE. It is
-                            stored and round-tripped (see `LoraRef.modelId`) so the
-                            data is accumulating for the day the trust tier changes
-                            — but a field that exists is not an affordance, and
-                            rendering a link off it today would be the dead control
-                            `ResourceName`'s header forbids. */}
-                        <ResourceName name={l.modelName ?? `LoRA #${l.versionId}`} />
+                        {/* ⚠️ `l.modelId` IS READ NOW. This comment said it was
+                            "DELIBERATELY NOT READ HERE … rendering a link off it
+                            today would be the dead control `ResourceName`'s header
+                            forbids", which was true until `civitai/civitai` #5250
+                            shipped `scope: 'site'`.
+                            🔴 AND THE NEXT SENTENCE IS RETRACTED: it said "the data
+                            that accumulated in the meantime is what makes the link
+                            possible on old rows at all". It does not — the field and
+                            its write site BOTH arrived in `e8775c0` (2026-09-29), two
+                            days before this change, so there is no accumulated data
+                            and NO old row links. For LoRAs the unlinked variant is the
+                            norm here, not a tail; `../types.ts` carries the derivation
+                            and the bound on what it does and does not claim. That is
+                            why `ResourceName` keeps a plain-text variant rather than
+                            linking unconditionally.
+                            🔴 PASSED STRAIGHT THROUGH, undefaulted: a `?? 0` here
+                            would turn an un-backfillable LoRA into a link to
+                            `/models/0`. `ResourceName` rejects an unusable id on
+                            its own too — one rule, two places it cannot be got
+                            wrong. */}
+                        <ResourceName
+                          name={l.modelName ?? `LoRA #${l.versionId}`}
+                          modelId={l.modelId}
+                          versionId={l.versionId}
+                        />
                         {` @ ${l.weight}`}
                       </Fragment>
                     ))}

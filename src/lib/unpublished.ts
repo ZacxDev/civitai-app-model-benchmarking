@@ -332,6 +332,7 @@ export function formatBytes(bytes: number): string {
  * cannot verify. The authority moved twice. It was the bridge hook's own doc; that
  * package is no longer the transport for this call (this module is typed against
  * `@civitai/sdk`'s `StorageQuota` now), and `@civitai/sdk@0.8.0`'s README § App
+ * (the version dates the document read, not the installed pin, which is 0.10.0)
  * storage does not restate the per-app claim at all. Reading the server instead —
  * civitai `origin/main` @ `329c89a23e` — `getAppStorageQuota`
  * (`server/services/apps/app-storage.service.ts`) returns

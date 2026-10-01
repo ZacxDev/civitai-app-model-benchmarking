@@ -1,36 +1,49 @@
-// 🔴 THE APP ASKS THE HOST FOR NO NAVIGATION AT ALL — a whole-tree structural claim.
+// 🔴 WHAT IS AND IS NOT IN `src/main.tsx`'s IMPORT GRAPH — a whole-tree structural
+// claim — plus the validation of the instrument that reads the tree.
 //
-// WHY IT EXISTS. Every route out of a block's sandboxed iframe is shut, and one of them
-// (a popup inheriting an opener with no `allow-same-origin`) would land the viewer on
-// civitai.com LOGGED OUT. The full measurement — the host's path rewrite at
-// `PageBlockHost.tsx:1883`, the unread `payload.target`, `ALLOWED_SANDBOX_TOKENS`, and
-// the live iframe's `sandbox="allow-scripts allow-forms"` / `trustTier: 'unverified'` —
-// lives in `src/components/ResourceName.tsx`'s header and is filed upstream as
-// `civitai/civitai` **#5209**. So a control that navigated would be advertising an
-// action it cannot perform, and this file is the tripwire that puts that record in front
-// of whoever reaches for one first.
+// ⚠️ THIS FILE WAS `src/navigationDormancy.test.ts` AND HELD A THIRD CASE THAT IS NOW
+// RETIRED. That case was `it('NO scanned source reaches for \`useCivitaiNavigate\`')`:
+// a whole-tree name scan asserting that no production source asks the host to navigate
+// at all. It existed because every route out of a block's sandboxed iframe was believed
+// shut — the host's app-scoped path rewrite, a `'new_tab'` the host was thought not to
+// implement, and a block-opened popup that would land the viewer on civitai.com logged
+// out — so a control that navigated would have been advertising an action it could not
+// perform, and the scan was the tripwire that put that record in front of whoever
+// reached for one first. ⚠️ THE MIDDLE ITEM USED TO READ "an ungrantable popup token",
+// which was the same conflation `components/ResourceName.tsx`'s route 2 now retracts:
+// the token governs the block-opened popup (the third item), and `'new_tab'` is
+// implemented by the host from the parent frame where no sandbox of ours applies.
 //
-// ⚠️ IT MOVED HERE FROM `src/lib/resourceLink.test.ts`, WHICH IS DELETED. That file also
-// tested a four-line `modelPath(modelId, versionId)` string builder that production
-// called from NOWHERE. The builder and its four path cases went with it: the
-// retroactivity argument that justifies keeping the WIRE FIELD (`LoraRef.modelId`, which
-// no later build can backfill onto another author's row) does not extend to a template
-// string anyone can rewrite in two minutes, and the measurement it anchored is duplicated
-// where a reader actually lands. What did NOT go is this guard — it is structural, it
-// pins a whole-app property, and nothing else covers it.
+// 🔴 IT IS RETIRED BECAUSE THE WORLD CHANGED, NOT BECAUSE IT WAS IN THE WAY.
+// `civitai/civitai` **#5250** shipped `scope: 'site'` on the `NAVIGATE` message, so
+// `src/components/ResourceName.tsx` now genuinely does reach for `useCivitaiNavigate`
+// and the guard asserted an absence that is no longer the contract. It was deleted
+// rather than retargeted: there is nothing left for it to pin. The posture it used to
+// protect is now pinned BEHAVIOURALLY instead, where it belongs —
+// `src/matchupModalResources.test.tsx` presses every resource title in the real modal
+// and requires exactly one `NAVIGATE` with `scope: 'site'` and the exact path, AND zero
+// on `window.open` / `location.href` / `location.assign` / `location.replace`. Those
+// four zeros are the part of the old claim that still matters: an `<a href>` or a
+// `location.href =` in this iframe replaces the running block with an opaque-origin,
+// logged-out civitai.com, and no host change touched that.
 //
-// 🔴 IT IS THE BROADEST FORM OF THE CLAIM, DELIBERATELY. Matching the bare identifier
-// catches the IMPORT too, so an alias (`import { useCivitaiNavigate as go }`) still
-// fails here. What it does not catch is a re-export under a different name — that is the
-// known limit of a name scan, and the reason the claim is phrased as "reaches for
-// `useCivitaiNavigate`" rather than "cannot navigate".
+// ⚠️ AND THE FILE IS RENAMED, which is not cosmetic. With that case gone, neither
+// surviving case has anything to do with navigation — a reader grepping "dormancy"
+// would land on a file that asserts no dormancy at all, which is the same failure mode
+// as a stale cross-reference. `git mv` keeps the history.
 //
-// 🔴 A BRAND-NEW FILE, SO NONE OF IT IS RED AT BASE. Stated rather than implied: "0 of N
-// red at base" is not coverage. Its ancestor case lived in `lib/resourceLink.test.ts`,
-// which was itself new in this stack (verified: neither that file nor `lib/resourceLink.ts`
-// exists on `origin/main` or on `zach/ia-feedback-sidebar`). What this IS: an INVARIANT
-// GUARD on a property that has always held, watched failing by MUTATION (add a
-// `useCivitaiNavigate` import to a production file → red) rather than by a red base.
+// WHAT IT PINS NOW, both independently valuable and both predating the rename:
+//
+//   1. THE LEDGER — which scanned files sit OUTSIDE `src/main.tsx`'s dependency graph.
+//      It doubles as the guard that no production file imports `lib/sourceScan.ts`,
+//      which reads `node:fs` and would break the browser build.
+//   2. VALIDATE THE INSTRUMENT — that the comment stripper reads real code, and only
+//      code. An absence check over an over-stripped string is green for the worst
+//      possible reason.
+//
+// 🔴 NEITHER WAS EVER RED AT BASE, and that is stated rather than implied: both are
+// INVARIANT GUARDS on properties that have always held, watched failing by MUTATION
+// rather than by a red base. Do not count either as regression coverage.
 
 import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -58,11 +71,13 @@ import { productionReachable, scannedSources } from './lib/sourceScan.js';
 /**
  * Source with comments removed.
  *
- * 🔴 IT HAS TO STRIP COMMENTS, AND THE FIRST DRAFT DID NOT — the guard went RED on the
- * very prose that documents it (`ResourceName.tsx`'s header names `useCivitaiNavigate`
- * repeatedly, and so does this file). A name-scan over raw source cannot tell a call
- * from an explanation, and this repo's discipline is to write the explanation down — so
- * it would have been permanently red, which is worse than no gate at all.
+ * 🔴 IT HAS TO STRIP COMMENTS, AND THE FIRST DRAFT DID NOT — the retired name scan went
+ * RED on the very prose that documented it (`ResourceName.tsx`'s header names
+ * `useCivitaiNavigate` repeatedly, and so did this file). A name-scan over raw source
+ * cannot tell a call from an explanation, and this repo's discipline is to write the
+ * explanation down — so it would have been permanently red, which is worse than no gate
+ * at all. ⚠️ That scan is gone; the stripper is NOT, because the LEDGER case and the
+ * controls below still read code and must not read prose.
  *
  * ⚠️ THE `//` RULE IS A HEURISTIC AND ITS FAILURE DIRECTION MATTERS. A `//` inside a
  * string (`'https://…'`) would truncate real code, and for an ABSENCE check
@@ -87,7 +102,7 @@ const CODE = new Map([...RAW].map(([f, src]) => [f, stripComments(src)]));
 const ALL_CODE = [...CODE.values()].join('\n');
 const ALL_RAW = [...RAW.values()].join('\n');
 
-describe('🔴 the host-navigation machinery stays dormant', () => {
+describe("🔴 src/main.tsx's import graph, and the scanner that reads it", () => {
   // 🔴 THE SCAFFOLDING LEDGER, DERIVED BY AN IMPORT WALK RATHER THAN WRITTEN DOWN.
   //
   // ⚠️ WHAT THIS REPLACES, AND WHY IT IS NOT A CORRECTED SENTENCE. The docstring above
@@ -136,7 +151,7 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
   });
 
   it('VALIDATE THE INSTRUMENT: the scan reads real code, and only code', () => {
-    // 🔴 THE ASSERTION BELOW IS AN ABSENCE, and an absence read off an empty (or
+    // 🔴 THE CONTROLS BELOW READ AN ABSENCE, and an absence read off an empty (or
     // over-stripped) string is green for the worst possible reason.
     expect(SCANNED.length, 'the disk scan found no sources').toBeGreaterThan(20);
     expect(ALL_CODE.length).toBeGreaterThan(20_000);
@@ -148,24 +163,33 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
       'data-testid="resource-name"',
     );
     expect(ALL_CODE, 'SideNav.tsx did not survive the stripper').toContain(
-      "export const NAV_ITEM_ATTR",
+      'export const NAV_ITEM_ATTR',
     );
     // …including a `//` inside a string, which the `:`-guarded rule exists for.
     expect(stripComments("const u = 'https://x.test/a'; // gone")).toContain('https://x.test/a');
 
     // ---- NEGATIVE CONTROLS: comment prose does NOT survive ----
     //
-    // 🔴 NONE OF THEM MAY MENTION `useCivitaiNavigate` ON THE REAL TREE, and that rule
-    // was learned here. A draft's real-tree control asserted
-    // `expect(ALL_CODE).not.toContain('useCivitaiNavigate')` — which IS the guard below.
-    // Measured: under the mutant that adds the hook to a production file, BOTH cases went
-    // red, so the instrument case reported "the instrument is broken" for what was
-    // actually an app change. A control must not share its subject with the thing it
-    // validates. The synthetic pair may name it freely; the real-tree pair must not.
+    // ⚠️ THE RULE THAT USED TO GOVERN THESE IS MOOT, AND SAYING SO IS THE POINT. This
+    // block carried a 🔴 rule: "NONE OF THEM MAY MENTION `useCivitaiNavigate` ON THE
+    // REAL TREE". It was learned the hard way — a draft's real-tree control asserted
+    // `expect(ALL_CODE).not.toContain('useCivitaiNavigate')`, which was ALSO the
+    // retired dormancy guard's own assertion, so under a mutant adding the hook to a
+    // production file BOTH went red and the instrument case reported "the instrument is
+    // broken" for what was really an app change. A control must not share its subject
+    // with the thing it validates.
     //
-    // Synthetic, in both comment syntaxes — self-contained, so they cannot rot with a
-    // reword somewhere else in the tree. ✅ WATCHED FAILING: a `stripComments` that
-    // returns its input unchanged fails at the first of these.
+    // That specific collision cannot recur: the guard it collided with no longer
+    // exists, and `useCivitaiNavigate` is now ORDINARY PRODUCTION CODE in
+    // `components/ResourceName.tsx` — so a real-tree `not.toContain` on it would be
+    // permanently red rather than merely entangled. The GENERAL rule survives and is
+    // the reusable half: a control must not share its subject with its subject's guard.
+    // The token stays in the synthetic pair below because those are self-contained
+    // literals — nothing about the real tree can make them pass or fail.
+    //
+    // Synthetic, in both comment syntaxes, so they cannot rot with a reword somewhere
+    // else in the tree. ✅ WATCHED FAILING: a `stripComments` that returns its input
+    // unchanged fails at the first of these.
     expect(stripComments('a(); // useCivitaiNavigate')).not.toContain('useCivitaiNavigate');
     expect(stripComments('/* useCivitaiNavigate */ b();')).not.toContain('useCivitaiNavigate');
 
@@ -195,7 +219,17 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
     );
 
     // A phrase that exists ONLY in a comment must go, while a code token in the SAME file
-    // must stay — the sharpest form, and about the STRIPPER rather than about the hook.
+    // must stay — the sharpest form, and about the STRIPPER rather than about any hook.
+    //
+    // ⚠️ THE PHRASE WAS RE-CHECKED AGAINST THE REWRITTEN HEADER, NOT ASSUMED. That
+    // header was rewritten end to end for #5250, and rewritten AGAIN when the "route 2
+    // is still shut" reading was retracted (two of its three routes are open; read the
+    // header, not this parenthesis, for which). This control keys on a literal string
+    // inside it — so the assertion two lines below is doing double duty: it is a
+    // control, and it is the thing that fails loudly if a later reword takes the phrase
+    // with it. The heading has survived both rewrites with only its suffix changing,
+    // which is why no re-pick was needed; `toContain` is what makes that checkable
+    // rather than a claim.
     const one = RAW.get(resolve(SRC, 'components/ResourceName.tsx'));
     expect(one, 'ResourceName.tsx was not scanned — every control below is vacuous').toBeDefined();
     const COMMENT_ONLY = 'THE MEASUREMENT: THREE ROUTES OUT OF THE IFRAME';
@@ -204,15 +238,5 @@ describe('🔴 the host-navigation machinery stays dormant', () => {
     );
     expect(stripComments(one!)).not.toContain(COMMENT_ONLY);
     expect(stripComments(one!)).toContain('data-testid="resource-name"');
-  });
-
-  it('NO scanned source reaches for `useCivitaiNavigate`', () => {
-    const offenders = [...CODE]
-      .filter(([, code]) => code.includes('useCivitaiNavigate'))
-      .map(([f]) => f);
-    expect(
-      offenders,
-      'a source reached for useCivitaiNavigate — read ResourceName.tsx before wiring it',
-    ).toEqual([]);
   });
 });

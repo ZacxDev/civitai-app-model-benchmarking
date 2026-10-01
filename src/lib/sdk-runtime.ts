@@ -35,7 +35,9 @@
 // person to move one of the six bindings above is the one who needs them, and
 // they will read the guide first.
 //
-// (1) GATED IMAGES: `@civitai/sdk@0.8.0`'s `BREAKING.md` NAMES THE WRONG ROUTE,
+// (1) GATED IMAGES: `@civitai/sdk@0.8.0`'s `BREAKING.md` NAMED THE WRONG ROUTE,
+//     (version deliberately pinned in the past tense — it dates the DOCUMENT this
+//     retraction is about; the installed SDK is 0.10.0 and its docs were not re-read)
 //     AND THE WRONG ONE FAILS SILENTLY. It maps (`BREAKING.md:20`, and again at
 //     `:242`) `GET_IMAGES_BY_IDS` → `GET /api/v1/blocks/images?ids=`. The
 //     correct route is `GET /api/v1/blocks/gated-images?ids=`, whose own
