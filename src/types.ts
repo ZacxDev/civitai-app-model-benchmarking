@@ -69,11 +69,28 @@ export interface LoraRef {
    * can never backfill another viewer's LoRA. There is no migration window at the end
    * of which every LoRA links. `matchupModalResources.test.tsx` pins both halves.
    *
-   * ⚠️ IT WAS WRITTEN FOR YEARS BEFORE IT WAS READ, AND THAT IS WHY THE LINKS WORK ON
-   * OLD ROWS AT ALL. The data had to accrue from the day it started being written or
-   * it would never be reliable — which is exactly the argument round two used to
-   * justify keeping a field with no consumer, and it paid off. Do not read the arrival
-   * of a consumer as licence to relax the rule below.
+   * 🔴 AND THE UNLINKED HALF IS THE DOMINANT CASE FOR LoRAs, NOT A LEGACY TAIL.
+   * ⚠️ A DRAFT HERE SAID THE OPPOSITE — "IT WAS WRITTEN FOR YEARS BEFORE IT WAS READ,
+   * AND THAT IS WHY THE LINKS WORK ON OLD ROWS AT ALL … and it paid off". That is
+   * retracted; it inverted the feature's reach. Re-derived from this repo's own
+   * history: the first commit is `9de56b4` (2026-07-17) and its `LoraRef` has NO
+   * `modelId` at all; the field — and the one write site that fills it, in
+   * `lib/benchmark.ts`'s pick→`LoraRef` conversion — both arrived in `e8775c0`
+   * (2026-09-29, PR #61), two days before the change that reads it.
+   *
+   * So the accrual window is DAYS old, not years: no LoRA on the shared board written
+   * before 2026-09-29 carries the field, and none of them can be backfilled. That is
+   * every LoRA from the whole of the app's public life bar its last days — the LINKED
+   * case is the recent exception, not the norm. ⚠️ Stated as a bound on which rows CAN
+   * carry the field, which is derivable from this repo; the live board's actual
+   * distribution has NOT been queried from here, so do not upgrade this to a
+   * percentage. Either way, mostly-unlinked LoRA names are the feature WORKING, not
+   * the feature broken — do not read them as a bug and go looking for the link that
+   * failed. The round-two argument for keeping a
+   * field with no consumer still holds on its own terms (the data has to accrue from
+   * the day it starts being written, or it is never reliable); what it had not yet
+   * done, and what the retracted sentence claimed it had, is pay off on old rows.
+   * Do not read the arrival of a consumer as licence to relax the rule below.
    *
    * 🔴 A PARSE MUST NEVER THROW OR REJECT ON ITS ABSENCE. A row on the shared board
    * is read by every viewer; a parse that refused an old row would empty the board

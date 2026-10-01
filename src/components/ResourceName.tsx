@@ -8,11 +8,15 @@
 // carries a `scope`, and `scope: 'site'` resolves the path at the civitai.com root.
 // This app is the originating consumer — the removal is what filed `#5209`.
 //
-// ── 🔴 THE MEASUREMENT: THREE ROUTES OUT OF THE IFRAME — ONE IS NOW OPEN ─────
+// ── 🔴 THE MEASUREMENT: THREE ROUTES OUT OF THE IFRAME — TWO ARE OPEN ────────
 //
-// The record is kept, not deleted, because TWO of the three are still shut and they
-// are what decide the ELEMENT below. The routes are INDEPENDENT; opening one changes
-// nothing about the others.
+// The record is kept, not deleted, because the THIRD is still a hazard and it is what
+// decides the ELEMENT below. The routes are INDEPENDENT; opening one changes nothing
+// about the others.
+//
+// ⚠️ A DRAFT OF THIS HEADER SAID "TWO OF THE THREE ARE STILL SHUT", counting route 2
+// as shut. That was wrong — see route 2 for the retraction and the measurement that
+// settles it. The element choice never rested on route 2; it rests on route 3 alone.
 //
 // 1. ✅ `useCivitaiNavigate(path, { scope: 'site' })` — OPEN. This used to read "THE
 //    HOST REWRITES THE PATH": at `civitai/civitai` `f3ebfad2f3` (2026-09-28)
@@ -36,17 +40,53 @@
 //    deep-link-within-the-app behaviour. That is why the modal test asserts the
 //    `scope` field by value rather than asserting that a `NAVIGATE` was sent.
 //
-// 2. ❌ `{ target: 'new_tab' }` — STILL SHUT, and deliberately NOT USED. The sandbox
-//    token a popup would need (`allow-popups-to-escape-sandbox`) is absent from the
-//    host's `ALLOWED_SANDBOX_TOKENS`, and `intersectSandbox` filters every declared
-//    token through that set, so it is dropped for EVERY app block whatever its
-//    manifest says. The SDK's own hook doc now says the same thing. Independently,
-//    the host's note on `'new_tab'` records it as "NOT MEASURED: any non-Chromium
-//    engine" — so it would be a dead control on an unknown share of viewers. The
-//    operator's call is `target: 'current'` (the default, hence omitted below): it
-//    works in every engine, and what #5209 ASKED FOR was literally the parent frame
-//    landing on the civitai.com model page. (Past tense deliberately — that issue is
-//    closed; see the note further down before citing it as live.)
+// 2. ✅ `{ target: 'new_tab' }` — OPEN, AND NOT USED BY CHOICE RATHER THAN BY
+//    OBSTRUCTION. 🔴 A DRAFT OF THIS ENTRY SAID "STILL SHUT" AND GAVE THE SANDBOX
+//    TOKEN AS THE REASON. That is RETRACTED, and it was a false claim built by
+//    conflating this route with route 3: `allow-popups-to-escape-sandbox` governs a
+//    popup THE BLOCK OPENS, which is route 3, and has nothing to say about this one.
+//    Measured at `civitai/civitai` `origin/main`, in `PageBlockHost.tsx`'s
+//    `if (req.target === 'new_tab')` branch of the NAVIGATE handler: THE HOST opens the
+//    tab itself, `window.open(req.href, '_blank', 'noopener')`, FROM THE PARENT FRAME.
+//    The iframe's sandbox is not in that path, so no token of ours could gate it.
+//
+//    ⚠️ AND THE HISTORY MATTERS, BECAUSE "SHUT" WAS ONCE THE RIGHT ANSWER FOR THE
+//    WRONG REASON. Measured: `72436ad8c1^` — the parent of #5250 — contains no
+//    `new_tab` handling and no `window.open` anywhere in that file, so before #5250
+//    this route genuinely was unimplemented, and the pre-release note that recorded it
+//    as "the host never implements it" was correct on the day. #5250 added this branch
+//    ALONGSIDE the scope field, i.e. one upstream PR opened routes 1 and 2 together.
+//    What was never true is the SANDBOX-TOKEN explanation above, in either era. So the
+//    defect was not a stale fact going out of date — it was a true conclusion re-derived
+//    from a mechanism that did not produce it, which then survived the one event that
+//    falsified the conclusion.
+//
+//    That same `new_tab` branch carries the host's own measurements, taken in Chromium
+//    152 with the popup blocker ON: the click's user activation reaches the parent frame
+//    even from a cross-origin sandboxed iframe, the activation is TRANSIENT so the open
+//    must stay
+//    synchronous, and the opened tab "gets a REAL origin: it read a host-set cookie and
+//    wrote `localStorage`" — the whole reason the host, and not the block, opens it.
+//    `@civitai/blocks-react@0.61.0`'s `useCivitaiNavigate.d.ts` retracts the same claim
+//    in its own words: "(Earlier versions of this doc said `"new_tab"` required it —
+//    that was wrong.)" Do not re-derive the shut reading; two documents now say so.
+//
+//    🔴 SO THE REASON THIS APP SENDS `target: 'current'` IS A DECISION, NOT A LIMIT,
+//    and there are exactly two supports for it — no third one is implied and none
+//    should be invented:
+//      (a) THE AUTHOR OF RECORD IS THE OPERATOR. Given the three options, the choice
+//          was `'current'` — the parent frame navigates — because it works in every
+//          engine and is what #5209 asked to see happen. ⚠️ This is a decision
+//          attribution, in the same form as every other "operator decision" in this
+//          repo; it is not a measurement and nothing in the tree can settle it.
+//      (b) THE MEASURED GAP. The host's own note on this branch reads "NOT MEASURED:
+//          any non-Chromium engine. If one blocks this, the viewer gets no tab — the
+//          pre-#5209 behaviour — rather than a wrong one". A `'new_tab'` here would
+//          therefore risk a dead control on an unknown share of viewers, which the rule
+//          further down forbids; `'current'` has no such exposure.
+//    `'current'` is the SDK's default, hence omitted from the call below. (#5209 is
+//    referred to in the past tense deliberately — that issue is closed; see the note
+//    further down before citing it as live.)
 //
 // 3. ❌ A PLAIN `<a target="_blank">` BUILT FROM THE HOST ORIGIN — PERMITTED, AND
 //    WORSE THAN NO LINK. `allow-popups` IS in `ALLOWED_SANDBOX_TOKENS`, so a popup
@@ -147,35 +187,64 @@ export interface ResourceNameProps {
   /**
    * The resource's MODEL id — what `/models/<id>` addresses on civitai.com.
    *
-   * Present (positive, finite) ⇒ the name becomes an interactive control. Absent, 0,
-   * or non-finite ⇒ the inert `<span>`, byte-for-byte as before. `CheckpointRef.modelId`
-   * is required; `LoraRef.modelId` is optional forever — see `../types.ts`.
+   * Present (a positive safe integer) ⇒ the name becomes an interactive control.
+   * Anything else — absent, 0, negative, fractional, non-finite, or beyond 2^53-1 ⇒
+   * the inert `<span>`, byte-for-byte as before. `CheckpointRef.modelId` is required;
+   * `LoraRef.modelId` is optional forever — see `../types.ts`.
    *
-   * 🔴 `0` MUST RENDER AS PLAIN TEXT, AND IT IS WIRE-REACHABLE. ⚠️ An earlier draft
-   * of this paragraph named the wrong route — it said `MatchupForm.tsx`'s `loraInfo()`
-   * coerces a missing id with `modelId ?? 0`, which is true but goes nowhere near
-   * here: that value feeds upstream's `ResourceCard` and `resourceDisplayName` only,
-   * and is never fed back into a `LoraRef` (see that function's own docblock). The
-   * REAL route is the shared board. `data` is an opaque, unmoderated blob written by
-   * other clients, and `lib/benchmark.ts`'s `isNum` is
-   * `typeof v === 'number' && Number.isFinite(v)` — which ADMITS `0` and negatives. So
-   * `parseCheckpoint` accepts `modelId: 0` (it only requires `isNum`) and `parseLoras`
+   * 🔴 THE JUNK IS WIRE-REACHABLE, AND THAT IS WHY `usableId` IS AS NARROW AS IT IS.
+   * ⚠️ An earlier draft of this paragraph named the wrong route — it said
+   * `MatchupForm.tsx`'s `loraInfo()` coerces a missing id with `modelId ?? 0`, which is
+   * true but goes nowhere near here: that value feeds upstream's `ResourceCard` and
+   * `resourceDisplayName` only, and is never fed back into a `LoraRef` (see that
+   * function's own docblock). The REAL route is the shared board. `data` is an opaque,
+   * unmoderated blob written by other clients, and `lib/benchmark.ts`'s `isNum` is
+   * `typeof v === 'number' && Number.isFinite(v)` — which admits `0`, negatives,
+   * fractions and exponential-notation magnitudes alike. So `parseCheckpoint` accepts
+   * `modelId: 1.5` or `modelId: 1e21` (it only requires `isNum`) and `parseLoras`
    * carries one through, and either lands on this prop. A truthiness test would reject
-   * `0`; the positive-and-finite test is what also rejects a negative, which `isNum`
-   * lets through just as readily.
+   * only `0`; see `usableId` for the measurement that set the rest of the bound.
    */
   modelId?: number;
   /**
    * The resource's VERSION id, so the link lands on the exact version rather than the
    * model's default. Carried as `?modelVersionId=` — the host preserves the query
-   * string. Omitted from the path when absent or not positive-finite.
+   * string. Gated by the SAME `usableId`, so it is omitted from the path unless it is a
+   * positive safe integer — a fractional or exponential-notation version would
+   * otherwise pin the link to a version that does not exist, whereas dropping it lands
+   * on the model's default version, which is a real page.
    */
   versionId?: number;
 }
 
-/** A positive, finite id — the only kind that addresses anything. */
+/**
+ * A positive, exactly-representable INTEGER id — the only kind that addresses anything.
+ *
+ * 🔴 `Number.isFinite(id) && id > 0` WAS NOT ENOUGH, and the gap was reachable by the
+ * same wire route as `0` and the negatives. Measured against the live component, all
+ * three of these rendered the interactive `<button>` and built a path the host accepts:
+ *
+ *     modelId 1.5     →  models/1.5?modelVersionId=1001
+ *     modelId 1e21    →  models/1e+21?modelVersionId=1001
+ *     modelId 5e-324  →  models/5e-324?modelVersionId=1001
+ *
+ * None of those addresses a model page, so each is the rule above — NOTHING MAY
+ * ADVERTISE AN ACTION IT CANNOT PERFORM — failing: a viewer presses an underlined
+ * control, loses their modal and their place in the grid, and lands on a non-page.
+ * That is strictly worse than the plain text the same row would otherwise have shown.
+ *
+ * 🔴 `Number.isSafeInteger`, NOT `Number.isInteger`, AND THE DIFFERENCE IS ONE OF THE
+ * THREE CASES ABOVE. Measured: `Number.isInteger(1e21)` is `true` — 1e21 has no
+ * fractional part — so an integer test alone still admits it, and `String(1e21)` is
+ * `'1e+21'`, i.e. exponential notation in a URL path. The safe-integer bound is the
+ * principled cut rather than a patch for that one literal: above 2^53-1 a JS number
+ * cannot represent a distinct id at all, so such a value is not an id whatever it
+ * stringifies to, and every integer at or below the bound stringifies as plain digits.
+ * `isSafeInteger` already implies finite and non-fractional, so it subsumes the old
+ * test rather than sitting beside it.
+ */
 function usableId(id: number | undefined): id is number {
-  return typeof id === 'number' && Number.isFinite(id) && id > 0;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0;
 }
 
 /**
@@ -305,10 +374,16 @@ export function ResourceName({
            such rules), which a local component cannot reach without a stylesheet this
            app does not have. Tinting it from here is possible and deliberately NOT
            done — it would rest on UA cascade behaviour jsdom cannot verify.
-           🔴 WHAT MUST NEVER COME BACK IS `outline: 'none'`. That is the regression
-           `ResourceName.test.tsx` guards, because it is what a future tidy-up of this
-           button's chrome would reach for. `GridPicker.tsx:380` is NOT a precedent for
-           the state: it keys on a SELECTION, which has no pseudo-class. Focus has one. */
+           🔴 WHAT MUST NEVER COME BACK IS A SUPPRESSION IN ANY SPELLING, WHICH IS
+           WIDER THAN THE ONE THIS COMMENT USED TO NAME. It said "`outline: 'none'`",
+           and `ResourceName.test.tsx` guarded exactly that word — so `outline: 0`,
+           `outlineStyle: 'none'` and `outlineWidth: 0` each SURVIVED the guard while
+           suppressing the ring identically, and `outline: 0` is the *more* common reset
+           idiom. The guard now enumerates the button's DECLARED style properties and
+           requires none of them to begin with `outline`, so the regression it pins is
+           the STATE (this button declares no outline) rather than a word a tidy-up can
+           respell. `GridPicker.tsx:380` is NOT a precedent for the state: it keys on a
+           SELECTION, which has no pseudo-class. Focus has one. */
       }}
     >
       {name}

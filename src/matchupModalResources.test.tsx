@@ -428,10 +428,17 @@ describe('the matchup detail modal links its resources to civitai.com', () => {
       // operator's decision"). The app passes `{ scope: 'site' }` and nothing else;
       // `useCivitaiNavigate` fills in `target: opts.target ?? 'current'`. So this field
       // pins the SDK's default, which is still worth pinning — the operator's decision
-      // was to take that default rather than ask for `'new_tab'` (which needs a sandbox
-      // token the host strips from every block, and which the host's own note records
-      // as unmeasured outside Chromium), and a later `target: 'new_tab'` added here
-      // would be a dead control. What pins the app's own side of it is
+      // was to take that default rather than ask for `'new_tab'`.
+      //
+      // 🔴 AND THE REASON GIVEN HERE FOR THAT DECISION WAS FALSE. This comment said
+      // `'new_tab'` "needs a sandbox token the host strips from every block". It does
+      // not: the host opens that tab ITSELF, from the parent frame, where no sandbox of
+      // ours applies — the token in question governs a popup the BLOCK opens, which is
+      // a different route entirely. Retracted; the measurement and both of the real
+      // supports for `'current'` are in `components/ResourceName.tsx`'s route 2, and
+      // the one that survives here is the host's own "NOT MEASURED: any non-Chromium
+      // engine" note, which is why a `target: 'new_tab'` added here would risk a dead
+      // control. What pins the app's own side of it is
       // `components/ResourceName.test.tsx`'s exact-options compare, which would fail if
       // the component started passing `target` at all.
       await userEvent.click(byName('JuggernautXL'));

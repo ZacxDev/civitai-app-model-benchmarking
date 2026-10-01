@@ -162,12 +162,24 @@ copy — both explain, in the file, the incident they exist to prevent.
 - `block.manifest.json`'s `buildCommand` is `pnpm run build` — that string is
   what the **platform's** builder executes. Changing it is the highest-blast-
   radius line in this repo.
-- This repo has **no `pnpm-workspace.yaml`**: `pnpm install --frozen-lockfile`
-  passes pnpm's freshness gate as-is here. If a future `@civitai/*` bump is
-  refused at install time on `minimumReleaseAge`, add one with
-  `packages: ['.']` plus a `minimumReleaseAgeExclude` naming the exact versions
-  (see `civitai-app-gen-matrix` for the shape) — and re-run the bundle build,
-  because that file *is* part of the submitted bundle.
+- 🔴 **`pnpm-workspace.yaml` EXISTS AND IS LOAD-BEARING — do not delete it as stray
+  config.** This bullet said the repo had none and that `pnpm install
+  --frozen-lockfile` "passes pnpm's freshness gate as-is here"; both halves are now
+  wrong. The file holds a `minimumReleaseAgeExclude` waiving pnpm's publish-age gate
+  for the three just-published versions the `@civitai/*` bump pinned —
+  `@civitai/app-sdk@0.54.0`, `@civitai/blocks-react@0.61.0`, `@civitai/sdk@0.10.0` —
+  plus the `packages: ['.']` key that makes this a workspace root rather than a stray
+  config. Measured by removing it from a copy of the tree and running a clean
+  `pnpm install --frozen-lockfile`: `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`, naming
+  exactly those three entries. The file's own header carries the full reasoning,
+  including why the exclusions name exact versions (a bare package name would waive
+  the gate for every future release of it, silently, forever) and which `@civitai/*`
+  deps are deliberately absent from the list, named there rather than counted here.
+- Those exclusions **expire by becoming wrong**: once `package.json` moves off those
+  versions the lines do nothing, and the next bump has to make the same deliberate
+  decision. When a future bump is refused on `minimumReleaseAge`, add the new exact
+  versions there (`civitai-app-gen-matrix` is the prior art) — and re-run the bundle
+  build, because that file *is* part of the submitted bundle.
 - 🔴 **Submit from a clean worktree off `origin/main`, never the base clone.**
   0.4.6's bundle diff showed three files *removed* — `pf.txt`, `sub.txt`,
   `val.txt` — which were **never tracked in git and are not gitignored**, i.e.

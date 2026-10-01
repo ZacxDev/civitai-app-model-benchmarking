@@ -125,9 +125,10 @@ function checkpointInfo(ref: CheckpointRef): BlockResourceInfo {
  *      `modelId` appears in that module exactly once, in a comment saying it is "NOT
  *      A LINK, on purpose".
  *
- * And `ResourceName` rejects a non-positive, non-finite id on its own account too, so
- * the rule is enforced where it is consumed and not only where it is produced. One
- * rule, two places it cannot be got wrong.
+ * And `ResourceName`'s `usableId` admits only a positive SAFE INTEGER on its own
+ * account too — rejecting `0`, negatives, fractions, non-finites and anything beyond
+ * 2^53-1 — so the rule is enforced where it is consumed and not only where it is
+ * produced. One rule, two places it cannot be got wrong.
  *
  * `LoraRef.modelId` is optional FOREVER by design (see `types.ts`: rows published
  * before the field existed can never be backfilled), so there genuinely is no value

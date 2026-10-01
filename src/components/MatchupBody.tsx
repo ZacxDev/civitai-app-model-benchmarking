@@ -55,12 +55,17 @@
 //      "WHICH RENDERS PLAIN TEXT … THIS SHIPPED AS LINKS AND THE LINKS WERE REMOVED
 //      BEFORE RELEASE", because all three routes out of a block's sandboxed iframe
 //      were shut. #5250 opened one: `NAVIGATE` now carries a `scope`, and
-//      `scope: 'site'` resolves the path at the civitai.com root. The other two
-//      routes are STILL shut — which is why the control is a `<button>` posting a
-//      host message and never an `<a href>` (that would navigate THIS iframe to an
-//      opaque-origin, logged-out civitai.com).
-//      🔴 PER RESOURCE, not globally: a title is interactive only when it carries a
-//      positive `modelId`. `LoraRef.modelId` is optional forever (rows published
+//      `scope: 'site'` resolves the path at the civitai.com root.
+//      ⚠️ AND "THE OTHER TWO ROUTES ARE STILL SHUT" IS RETRACTED — it was the same
+//      false claim `./ResourceName.tsx`'s route 2 now names: `target: 'new_tab'` is
+//      implemented, by the HOST, from the parent frame. ONE route is still a hazard
+//      (a popup the BLOCK opens, which inherits the opener's sandbox), and that one
+//      alone is why the control is a `<button>` posting a host message and never an
+//      `<a href>` (which would navigate THIS iframe to an opaque-origin, logged-out
+//      civitai.com).
+//      🔴 PER RESOURCE, not globally: a title is interactive only when its `modelId`
+//      is a positive safe integer — see `ResourceName`'s `usableId` for the junk the
+//      wire can carry. `LoraRef.modelId` is optional forever (rows published
 //      before the field existed can never be backfilled — see `../types.ts`), so the
 //      plain-text variant is permanent, not a migration state. Nothing here may
 //      advertise an action it cannot perform.
@@ -221,14 +226,20 @@ export function MatchupBody({
                             "DELIBERATELY NOT READ HERE … rendering a link off it
                             today would be the dead control `ResourceName`'s header
                             forbids", which was true until `civitai/civitai` #5250
-                            shipped `scope: 'site'`. The data that accumulated in the
-                            meantime is what makes the link possible on old rows at
-                            all — and the ones older still, published before the field
-                            existed, are exactly why `ResourceName` keeps a
-                            plain-text variant rather than linking unconditionally.
+                            shipped `scope: 'site'`.
+                            🔴 AND THE NEXT SENTENCE IS RETRACTED: it said "the data
+                            that accumulated in the meantime is what makes the link
+                            possible on old rows at all". It does not — the field and
+                            its write site BOTH arrived in `e8775c0` (2026-09-29), two
+                            days before this change, so there is no accumulated data
+                            and NO old row links. For LoRAs the unlinked variant is the
+                            norm here, not a tail; `../types.ts` carries the derivation
+                            and the bound on what it does and does not claim. That is
+                            why `ResourceName` keeps a plain-text variant rather than
+                            linking unconditionally.
                             🔴 PASSED STRAIGHT THROUGH, undefaulted: a `?? 0` here
                             would turn an un-backfillable LoRA into a link to
-                            `/models/0`. `ResourceName` rejects a non-positive id on
+                            `/models/0`. `ResourceName` rejects an unusable id on
                             its own too — one rule, two places it cannot be got
                             wrong. */}
                         <ResourceName

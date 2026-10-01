@@ -4,11 +4,15 @@
 // ⚠️ THIS FILE WAS `src/navigationDormancy.test.ts` AND HELD A THIRD CASE THAT IS NOW
 // RETIRED. That case was `it('NO scanned source reaches for \`useCivitaiNavigate\`')`:
 // a whole-tree name scan asserting that no production source asks the host to navigate
-// at all. It existed because every route out of a block's sandboxed iframe was shut —
-// the host's app-scoped path rewrite, an ungrantable popup token, and a popup that
-// would land the viewer on civitai.com logged out — so a control that navigated would
-// have been advertising an action it could not perform, and the scan was the tripwire
-// that put that record in front of whoever reached for one first.
+// at all. It existed because every route out of a block's sandboxed iframe was believed
+// shut — the host's app-scoped path rewrite, a `'new_tab'` the host was thought not to
+// implement, and a block-opened popup that would land the viewer on civitai.com logged
+// out — so a control that navigated would have been advertising an action it could not
+// perform, and the scan was the tripwire that put that record in front of whoever
+// reached for one first. ⚠️ THE MIDDLE ITEM USED TO READ "an ungrantable popup token",
+// which was the same conflation `components/ResourceName.tsx`'s route 2 now retracts:
+// the token governs the block-opened popup (the third item), and `'new_tab'` is
+// implemented by the host from the parent frame where no sandbox of ours applies.
 //
 // 🔴 IT IS RETIRED BECAUSE THE WORLD CHANGED, NOT BECAUSE IT WAS IN THE WAY.
 // `civitai/civitai` **#5250** shipped `scope: 'site'` on the `NAVIGATE` message, so
@@ -218,12 +222,14 @@ describe("🔴 src/main.tsx's import graph, and the scanner that reads it", () =
     // must stay — the sharpest form, and about the STRIPPER rather than about any hook.
     //
     // ⚠️ THE PHRASE WAS RE-CHECKED AGAINST THE REWRITTEN HEADER, NOT ASSUMED. That
-    // header was rewritten end to end for #5250 (one of its three routes is now OPEN),
-    // and this control keys on a literal string inside it — so the assertion two lines
-    // below is doing double duty: it is a control, and it is the thing that fails loudly
-    // if a later reword takes the phrase with it. The heading survived the rewrite with
-    // a suffix appended, which is why no re-pick was needed; `toContain` is what makes
-    // that checkable rather than a claim.
+    // header was rewritten end to end for #5250, and rewritten AGAIN when the "route 2
+    // is still shut" reading was retracted (two of its three routes are open; read the
+    // header, not this parenthesis, for which). This control keys on a literal string
+    // inside it — so the assertion two lines below is doing double duty: it is a
+    // control, and it is the thing that fails loudly if a later reword takes the phrase
+    // with it. The heading has survived both rewrites with only its suffix changing,
+    // which is why no re-pick was needed; `toContain` is what makes that checkable
+    // rather than a claim.
     const one = RAW.get(resolve(SRC, 'components/ResourceName.tsx'));
     expect(one, 'ResourceName.tsx was not scanned — every control below is vacuous').toBeDefined();
     const COMMENT_ONLY = 'THE MEASUREMENT: THREE ROUTES OUT OF THE IFRAME';

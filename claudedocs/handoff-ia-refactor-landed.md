@@ -313,13 +313,34 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   positional selector that worked for 0.4.6 would have approved someone else's app.
   Identify the row BY CONTENT and re-assert it immediately before the click.
 
+- 🔴 **SUPERSEDED 2026-10-01 — READ `src/components/ResourceName.tsx`, NOT THIS BULLET.**
+  Two of its three readings were accurate when written and no longer describe the host,
+  because ONE upstream PR fixed both: `civitai/civitai` **#5250** (`72436ad8c1`,
+  2026-09-30). (a) `NAVIGATE` now carries a `scope`, and `scope: 'site'` resolves the
+  path at the civitai.com root instead of rewriting it under `/apps/run/<slug>/`. (b) the
+  host now DOES implement `'new_tab'` — it opens the tab itself, from the parent frame.
+  ⚠️ (b) was TRUE as written: at `72436ad8c1^` that file contains no `new_tab` handling
+  and no `window.open` at all, so "the host never implements it" was a correct reading of
+  the host on the day, and #5250 added that branch alongside the scope field. What is
+  *not* true, and never was, is the version of (b) that a later draft of
+  `ResourceName.tsx` wrote — that `'new_tab'` is blocked by the missing
+  `allow-popups-to-escape-sandbox` token. That token governs a popup the BLOCK opens,
+  which is (c); it has never had anything to say about (b). (c) still stands exactly as
+  written. The conclusion drawn from all three — "the unlock is a TRUST-TIER change" — is
+  wrong: `scope: 'site'` is granted by SURFACE, not by trust tier, which is why the fix
+  landed without one. The bullet below is kept as the record of what was believed on the
+  day — carrying one bracketed in-line marker so a reader who arrives by grep, rather
+  than by reading down from here, cannot read (a)/(b) as current — and because (c) is
+  still the live hazard that decides the element.
 - 🔴 **RESOURCE LINKS ARE IMPOSSIBLE FROM AN APP BLOCK TODAY — all three routes measured
   shut, do not re-derive this.** (a) `useCivitaiNavigate(path,'current')` — the host
   rewrites every `NAVIGATE` path to `/apps/run/<slug>/<cleaned>` and shallow-pushes
   (`civitai/civitai` `PageBlockHost.tsx:1883`); the payload's `target` is read **zero**
   times. It is DELIBERATE: that file's security posture at `:175` says a block "can
   deep-link WITHIN its page but can't push the host off to an arbitrary route".
-  (b) `'new_tab'` — the host never implements it. (c) `<a target="_blank">` built from
+  (b) `'new_tab'` — the host never implements it. **[(a) and (b) SUPERSEDED by #5250 —
+  read the bullet above. (b) was true on the day; the "sandbox token blocks `new_tab`"
+  version of it, written later elsewhere, never was.]** (c) `<a target="_blank">` built from
   the SDK transport's `hostOrigin` — `allow-popups` IS grantable, but without
   `allow-popups-to-escape-sandbox` (absent from `ALLOWED_SANDBOX_TOKENS`, stripped by
   `intersectSandbox`) the popup INHERITS the opener's sandbox. **Measured live on the
