@@ -170,9 +170,40 @@ export function resolveGridRows(
   combinations: CombinationRow[],
   prompts: PromptRow[],
 ): ResolvedGridRows {
+  const { matchupKeys, promptKeys } = entryKeys(entry);
+  return resolveMemberRows(matchupKeys, promptKeys, combinations, prompts);
+}
+
+/**
+ * The same resolution from BARE KEY LISTS, for a grid that has no entry because it
+ * has no shared row yet — i.e. one still in the per-viewer store.
+ *
+ * 🔴 IT IS THE BODY OF {@link resolveGridRows}, NOT A SECOND COPY OF IT. A private
+ * grid card renders a thumbnail strip, which needs the same row-major cell order
+ * the published cards use (`gridPreviewIds` consumes this shape), and a second
+ * resolver would be the "predicate open-coded at N sites" shape this file's own
+ * `entryOpenKey` docblock exists to warn about. `resolveGridRows` delegates here.
+ *
+ * ⚠️ A PRIVATE MEMBER RESOLVES AS *MISSING* HERE, AND THAT IS CORRECT RATHER THAN A
+ * GAP. A private matchup or prompt has only a per-viewer LOCAL id and no row on the
+ * board, so it genuinely contributes no row and no column — which is exactly what
+ * keeps a local id out of every cell identity, and therefore out of every result
+ * row (`buildResultPayload` keys on `comboKey · configId × promptKey`).
+ *
+ * 🔴 SO THE CALLER MUST NOT RENDER {@link missingMembersNotice} FROM THIS. That
+ * sentence attributes a complete-scan absence to "their authors removed them",
+ * which for the viewer's OWN private member is false — it is sitting in their own
+ * storage waiting to be published. The private grid card deliberately shows the
+ * preview and no missing notice; `MyGridsView` says so at the call site.
+ */
+export function resolveMemberRows(
+  matchupKeys: readonly string[],
+  promptKeys: readonly string[],
+  combinations: CombinationRow[],
+  prompts: PromptRow[],
+): ResolvedGridRows {
   const byMatchup = new Map(combinations.map((r) => [r.key, r] as const));
   const byPrompt = new Map(prompts.map((r) => [r.key, r] as const));
-  const { matchupKeys, promptKeys } = entryKeys(entry);
 
   const m = resolveMembers(matchupKeys, new Set(byMatchup.keys()));
   const p = resolveMembers(promptKeys, new Set(byPrompt.keys()));
@@ -234,6 +265,26 @@ function plural(n: number, one: string, many: string): string {
  * past a page cap" (routine, and the common case on a busy board) to "a member
  * whose `data` blob does not parse" (rare, and an app-shape failure). It did not
  * eliminate it.
+ *
+ * 🔴 THAT NARROWING WAS FALSE FOR ONE RANGE, AND SAYING SO IS THE POINT OF THIS
+ * PARAGRAPH. While `App` derived `boardTruncated` as `boardRead === 'truncated'`, a
+ * board over the page cap loaded as a prefix and then ANY routine reload whose
+ * `list()` threw flipped the flag to `false` — with `items` untouched and still
+ * holding that prefix, because the catch arm never calls `setItems`. Every member
+ * past the cap then arrived here on the complete-scan branch and was reported as
+ * REMOVED BY ITS AUTHOR: exactly the broad, routine claim the split was supposed to
+ * have narrowed away. `App` now keeps the prefix bit as a property of `items` rather
+ * than of the latest request, and `boardTruncation.test.tsx` drives the
+ * truncated-then-thrown sequence. The narrowing above is accurate again; it was not
+ * for the length of that range.
+ *
+ * ⚠️ WHAT IT STILL DOES NOT COVER, stated because the sibling DOES cover it: this
+ * function takes a truncation boolean and nothing else, so it cannot tell a COMPLETE
+ * snapshot from a complete-but-STALE one (the latest read threw). It says "their
+ * authors removed them" in that window. That reading is supportable — the member was
+ * genuinely absent when the snapshot was taken — but it is NOT the same claim
+ * `cascadeRefusal` makes, and that function's docblock retracts an earlier sentence
+ * asserting the two residuals were equivalent.
  *
  * Eliminating it needs `splitRows` to report the keys it SKIPPED, so the resolver
  * can tell "unread" from "unreadable" and say a third thing. That is a change to

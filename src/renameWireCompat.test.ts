@@ -764,6 +764,25 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
   // number of such sites is pinned, so a second one cannot appear unnoticed, and
   // the ids the one site can render are pinned as source literals. Either half
   // moving fails here.
+  //
+  // 🔴 AND THERE IS A FOURTH BLIND SPOT THIS LIST DOES NOT MENTION, BECAUSE IT IS NOT
+  // IN `src/` AT ALL: an UPSTREAM component that COMPOSES child testids from the one
+  // the call site passes it. `ResourceCard` (`@civitai/blocks-react/dist/ui/
+  // ResourceCard.js`, measured on 0.51.0) does exactly that — `const id = testId ??
+  // 'resource-card'` and then ten derived ids, `${id}-hit`, `-thumb`, `-image`,
+  // `-placeholder`, `-overlay`, `-name`, `-selected`, `-meta`, `-type`, `-actions`.
+  // `MatchupForm` passes `data-testid="checkpoint-card"` and `data-testid="lora-row"`,
+  // so `checkpoint-card-name`, `lora-row-hit` and eighteen more are RENDERED IN
+  // PRODUCTION and absent from `ALL_TESTIDS`: `PROD_SOURCE` is a concatenation of
+  // files under `src/`, and the composition happens inside `node_modules`.
+  //
+  // ⚠️ IT IS NAMED RATHER THAN CLOSED, and the reason is that closing it means reading
+  // a dependency's dist bundle — a different kind of scan, pinned to a version this
+  // repo bumps routinely. What bounds it instead is the SHAPE: every such id is
+  // `<call-site literal>-<upstream suffix>`, and the call-site literal IS in
+  // `LITERAL_TESTIDS`, so a `combo`-spelled or `matchup`-spelled id can only arrive
+  // here through a call-site literal the two ledger assertions below already see.
+  // What is genuinely unenumerated is the SUFFIX set, which this repo does not choose.
   // -------------------------------------------------------------------------
   it('🔴 pins every INDIRECT data-testid site, so the scan cannot silently miss one', () => {
     const indirect = Array.from(

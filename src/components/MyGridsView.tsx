@@ -84,15 +84,21 @@
 // is a presentation choice on a card body, not an invariant; if the operator asks for a
 // vote control here, `card` below is the one place to add it.
 
+import { useMemo } from 'react';
 import { Alert, Badge, Card, Group, Loader, Stack } from '@civitai/blocks-react/ui';
 
-import type { CombinationRow, GridRow, PromptRow, UnpublishedGrid } from '../types.js';
+import type { CombinationRow, GridRow, PromptRow, ResultRow, UnpublishedGrid } from '../types.js';
+import { indexResultsByCell } from '../lib/benchmark.js';
 import {
   gridMemberSummary,
+  gridPreviewIds,
   missingMembersNotice,
   resolveGridRows,
+  resolveMemberRows,
 } from '../lib/gridEntries.js';
 import { metaText, mutedText } from '../theme.js';
+import type { GatedCellComponent } from './GatedCell.js';
+import { GridPreview } from './GridPreview.js';
 import { MyList } from './MyList.js';
 import { MyTabSignedOut } from './MySignedOut.js';
 
@@ -103,6 +109,30 @@ export interface MyGridsViewProps {
   combinations: CombinationRow[];
   /** The live prompt rows, same. */
   prompts: PromptRow[];
+  /**
+   * Every published RESULT row on the board — the source of each card's inline
+   * preview thumbnails, private and published cards alike.
+   *
+   * 🔴 REQUIRED, AND NOT DEFAULTED TO `[]`, for the reason `GridsView` records on
+   * its own copy of this prop: an empty default degrades SILENTLY to "no outputs
+   * yet", which is the one state a reader cannot tell a forgotten prop from.
+   *
+   * 🔴 PASSED IN RATHER THAN READ HERE. This component issues no host call of its
+   * own; the preview's gated read goes through the injected `GatedCell` so it
+   * inherits 0.4.6's timeout/retry/telemetry rather than forking it.
+   */
+  results: ResultRow[];
+  /**
+   * The gated grid-cell renderer, injected so the preview's read is countable.
+   *
+   * 🔴 ONE BATCHED READ PER CARD, and that budget is this surface's too now. My
+   * Benchmarks mounts exactly ONE noun at a time and the community grids board is
+   * a DIFFERENT destination, so these cards never coexist with `GridsView`'s —
+   * which is why adding a strip here does not move the open/listed partition
+   * `gridPreviewSeam.test.tsx` pins. `src/myGridsPreview.test.tsx` counts the
+   * calls on THIS surface, with a positive control in the same case.
+   */
+  GatedCell: GatedCellComponent;
   /** See `GridsView.boardTruncated` — an input to the missing-members COPY. */
   boardTruncated?: boolean;
   viewerId: number | null;
@@ -125,6 +155,29 @@ export interface MyGridsViewProps {
    * and it is deliberately not bundled here.
    */
   error: string | null;
+  /**
+   * The grid-publish REFUSAL or CASCADE FAILURE notice, held by `App`.
+   *
+   * 🔴 ITS RENDER SITE IS HERE AND NOT IN THE DIALOG, AND THAT IS THE WHOLE POINT OF
+   * THE PROP. The notice used to render inside the cascade's confirm dialog, nested
+   * under "the grid's record still exists" — and the single most important thing it
+   * has to say arrives at the exact moment that stops being true: when the grid's own
+   * pointer write is refused, `publishRecord` retires the local id, the record leaves
+   * `unpublishedGrids`, and the dialog body became unrenderable. Measured: two rows
+   * public and permanent, and nothing at all on screen.
+   *
+   * It is the SAME argument `MyList` makes one level down about its own
+   * `unpublished-error` ("the failure that matters most is the one where the record
+   * has just been retired FROM the list"), applied one level up — the record's
+   * lifetime must not gate the notice about the record.
+   *
+   * ⚠️ IT IS NOT THE ONLY PUBLISH-FAILURE CHANNEL ON THIS SURFACE, and the other one
+   * is unchanged: the direct, no-dependency publish still rejects into `MyList`, which
+   * renders `unpublished-error` from its own LOCAL state. That one still dies on a nav
+   * away (`publishPointerFailure.test.tsx` pins it as a characterisation). This one
+   * does not, because `App` holds it.
+   */
+  publishError: string | null;
   archivedKeys: Set<string>;
   unpublished: UnpublishedGrid[];
   quotaLine?: string | null;
@@ -158,10 +211,13 @@ export function MyGridsView({
   ownGrids,
   combinations,
   prompts,
+  results,
+  GatedCell,
   boardTruncated = false,
   viewerId,
   loading,
   error,
+  publishError,
   archivedKeys,
   unpublished,
   quotaLine = null,
@@ -175,6 +231,9 @@ export function MyGridsView({
   onPublishUnpublished,
   onEditPublished,
 }: MyGridsViewProps): React.JSX.Element {
+  /** Cell → result index, built ONCE per render and shared by every card's strip. */
+  const byCell = useMemo(() => indexResultsByCell(results), [results]);
+
   /**
    * The read's status, rendered on BOTH branches.
    *
@@ -193,6 +252,15 @@ export function MyGridsView({
       {error && (
         <Alert color="error" data-testid="grids-error">
           {error}
+        </Alert>
+      )}
+      {/* 🔴 ABOVE THE LIST AND OUTSIDE IT, and unconditional on anything about the
+          grid it is about — see the `publishError` prop. Rendered on the SIGNED-OUT
+          branch too, because `status` is shared: a viewer whose session changed
+          mid-publish should not lose the sentence telling them two rows went public. */}
+      {publishError && (
+        <Alert color="error" data-testid="grid-publish-error">
+          {publishError}
         </Alert>
       )}
       {loading && (
@@ -216,12 +284,15 @@ export function MyGridsView({
   const card = (row: GridRow, actions: React.ReactNode): React.JSX.Element => {
     const resolved = resolveGridRows({ system: false, row }, combinations, prompts);
     const missing = missingMembersNotice(resolved, boardTruncated);
+    const name = row.name || `#${row.key}`;
+    const preview = gridPreviewIds(resolved, byCell);
     return (
       <Card key={row.key} withBorder padding="md" data-testid="grid-card" data-key={row.key}>
+        <Stack gap={10} style={{ minWidth: 0 }}>
         <Group justify="space-between" align="flex-start" gap={10}>
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
-              <strong data-testid="grid-card-name">{row.name || `#${row.key}`}</strong>
+              <strong data-testid="grid-card-name">{name}</strong>
               <Badge variant="light" data-testid="grid-card-members">
                 {gridMemberSummary(resolved)}
               </Badge>
@@ -241,6 +312,18 @@ export function MyGridsView({
               one control on the row. */}
           <Group gap={6} align="center">{actions}</Group>
         </Group>
+        {/* 🔴 THE INLINE PREVIEW, the SAME component and the SAME budget as the
+            community grid cards: ids collected by `gridPreviewIds`, handed to ONE
+            `GatedCell`, so a card costs exactly one batched `getImages` call
+            whatever its tile count. See the `GatedCell` prop for why adding this
+            surface does not move `gridPreviewSeam.test.tsx`'s ledger. */}
+        <GridPreview
+          imageIds={preview.ids}
+          totalCount={preview.total}
+          label={name}
+          GatedCell={GatedCell}
+        />
+        </Stack>
       </Card>
     );
   };
@@ -256,12 +339,46 @@ export function MyGridsView({
           /* 🔴 KEYED ON THE VIEWER — see the header for the swap this closes. */
           key={viewerId}
           noun="grid"
-          drafts={unpublished.map((rec) => ({
-            localId: rec.localId,
-            name: rec.name,
-            meta: `${rec.matchupKeys.length} × ${rec.promptKeys.length}`,
-            description: rec.description,
-          }))}
+          drafts={unpublished.map((rec) => {
+            /* 🔴 THE PRIVATE CARD GETS A STRIP TOO, resolved from BARE KEY LISTS —
+               a private grid has no shared row, so there is no `GridEntry` to
+               resolve. `resolveMemberRows` is the body `resolveGridRows` delegates
+               to, so the cell order (and therefore the strip) is the same rule.
+
+               🔴 AND NO MISSING NOTICE ON THIS CARD, deliberately. A private
+               MEMBER resolves as absent here (it has only a local id), and
+               `missingMembersNotice`'s complete-scan arm says "their authors
+               removed them" — which about the viewer's own private matchup is
+               simply false. The count the row already carries is the authored one
+               (`matchupKeys.length × promptKeys.length`), which stays true either
+               way. See `resolveMemberRows` for the whole argument.
+
+               ⚠️ SO A PRIVATE MEMBER'S CELLS CANNOT APPEAR IN THIS STRIP, and that
+               is the same property that keeps a local id out of every result row.
+               A grid of only private members previews nothing and reads
+               `grid-preview-empty`; one that mixes in board members previews those. */
+            const resolved = resolveMemberRows(
+              rec.matchupKeys,
+              rec.promptKeys,
+              combinations,
+              prompts,
+            );
+            const preview = gridPreviewIds(resolved, byCell);
+            return {
+              localId: rec.localId,
+              name: rec.name,
+              meta: `${rec.matchupKeys.length} × ${rec.promptKeys.length}`,
+              description: rec.description,
+              preview: (
+                <GridPreview
+                  imageIds={preview.ids}
+                  totalCount={preview.total}
+                  label={rec.name || 'Untitled grid'}
+                  GatedCell={GatedCell}
+                />
+              ),
+            };
+          })}
           rows={ownGrids}
           keyOf={(row) => row.key}
           archivedKeys={archivedKeys}

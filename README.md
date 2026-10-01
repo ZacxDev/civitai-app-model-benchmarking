@@ -294,6 +294,13 @@ resume-polled rather than re-submitted, so a reload never charges the viewer
 twice), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
 validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
 (ranking, the Top Grid, and the missing-member notice),
+[`gridCascade.ts`](src/lib/gridCascade.ts) (publishing a grid that names the viewer's
+own **private** matchups or prompts: it classifies each member key as a board key, an
+already-published local id, a dependency to publish, or a dangling reference; emits the
+dependencies in publish order; rewrites a local id to the shared key its publish minted;
+and owns the confirm/partial-failure copy — dependencies publish **first** and the grid
+**last**, because the reverse order can leave a permanent public grid pointing at
+private rows),
 [`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
 its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and

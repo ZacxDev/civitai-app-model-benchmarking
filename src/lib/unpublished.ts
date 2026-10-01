@@ -209,6 +209,38 @@ export function publishPointerFailedNotice(
 }
 
 /**
+ * The error a publish throws when `append` LANDED and the pointer write did not.
+ *
+ * 🔴 IT EXISTS BECAUSE "the publish failed" IS TWO DIFFERENT FACTS AND A BARE
+ * `Error` CANNOT TELL THEM APART. Until the grid cascade there was one consumer
+ * (`MyList`, which renders `.message`) and the distinction did not matter. The
+ * cascade has to report WHICH ITEMS ARE NOW PUBLIC, and a dependency that got this
+ * far IS public and permanent — so a cascade that treated this like an `append`
+ * refusal reported "Nothing was published" about a row the append log proves is on
+ * the board. That self-contradiction was measured; this type is what closes it.
+ *
+ * `message` is {@link publishPointerFailedNotice}'s sentence verbatim, so every
+ * existing consumer keeps working unchanged (it is an `Error` subclass). The two
+ * extra fields are for a caller that needs to REASON rather than just render:
+ *
+ *   - `sharedKey` — the host-minted key the append resolved. The only copy left:
+ *     the pointer write that would have stored it is the one that just failed.
+ *   - `hostError` — the host's own refusal string, UNWRAPPED. `message` embeds it
+ *     inside a paragraph, so a caller composing its own sentence would otherwise
+ *     have to parse one out of the other.
+ */
+export class PointerWriteFailure extends Error {
+  constructor(
+    message: string,
+    readonly sharedKey: string,
+    readonly hostError: string,
+  ) {
+    super(message);
+    this.name = 'PointerWriteFailure';
+  }
+}
+
+/**
  * Defensive parse of one stored KV value. The store is per-viewer and app-owned,
  * but a value can still be from an older/newer build, so an unusable row is
  * dropped rather than crashing the list.
