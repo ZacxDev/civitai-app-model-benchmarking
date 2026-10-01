@@ -993,13 +993,55 @@ export function flattenConfigs(combos: CombinationRow[]): BenchConfig[] {
   return rows;
 }
 
-/** A human label for a config row (author label → checkpoint name → "Config N"). */
+/**
+ * A human label for one model config: the AUTHOR'S label when there is one, an
+ * auto-generated "checkpoint + LoRA + LoRA" otherwise, and a positional
+ * "Model N" when there is not even a checkpoint name to build from.
+ *
+ * 🔴 THE AUTHOR'S LABEL WINS, AND THAT IS THE LOAD-BEARING HALF. `ModelConfig.label`
+ * is optional author text that is already stored on published rows — INCLUDING
+ * OTHER AUTHORS' ROWS, which this app can never rewrite (`shared.update` is
+ * author-scoped, so there is no migration that could normalise them). The matchup
+ * form stopped OFFERING the input — a viewer no longer types a label, it is derived
+ * from what they picked — but nothing anyone has already written may stop being
+ * displayed. A version of this that generated unconditionally would silently
+ * replace every pre-existing label on the board with a machine-made one.
+ *
+ * 🔴 ONE RULE, ONE PLACE. This is the ONLY definition of "what is this config
+ * called", and it is used by both the builder form (`MatchupForm`, which shows the
+ * label it is about to derive) and the results grid (`ResultsGrid`, via
+ * `configLabel` below). An open-coded second copy in the form would have drifted
+ * from the grid's the first time either moved, i.e. the form would promise a row
+ * name the grid then did not use.
+ *
+ * ⚠️ `checkpoint` IS TYPED REQUIRED AND IS NEVERTHELESS OPTIONAL AT RUNTIME.
+ * `newConfig()` mints `checkpoint: undefined as unknown as CheckpointRef` so the
+ * builder can hold a half-filled row, so this reads it defensively; a stored row
+ * always has one (`parseCheckpoint` rejects a config without it).
+ */
+export function modelConfigLabel(config: ModelConfig, index: number): string {
+  const authored = config.label?.trim();
+  if (authored) return authored;
+
+  const checkpoint = config.checkpoint?.modelName?.trim();
+  if (!checkpoint) return `Model ${index + 1}`;
+
+  // Whitespace-only LoRA names are dropped rather than joined as empty segments —
+  // a trailing " + " reads as a rendering bug, not as a nameless LoRA.
+  const loras = (config.loras ?? [])
+    .map((l) => l.modelName?.trim())
+    .filter((n): n is string => !!n);
+  return loras.length > 0 ? `${checkpoint} + ${loras.join(' + ')}` : checkpoint;
+}
+
+/**
+ * A human label for a config row in the RESULTS GRID.
+ *
+ * A thin adapter over `modelConfigLabel` — the rule itself lives there, so the
+ * grid's row label and the builder's per-model heading cannot disagree.
+ */
 export function configLabel(row: BenchConfig): string {
-  return (
-    row.config.label?.trim() ||
-    row.config.checkpoint.modelName ||
-    `Config ${row.configIndex + 1}`
-  );
+  return modelConfigLabel(row.config, row.configIndex);
 }
 
 function isNum(v: unknown): v is number {
