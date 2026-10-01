@@ -645,7 +645,9 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     const { shared, appends } = fakeShared({ seed: BOARD });
     mountApp({ shared, store: seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])) });
 
-    const card = await privateGridCard();
+    // The grid row must be listed before the member is destroyed, so a later failure
+    // cannot be about a grid that never loaded. The handle is not needed again.
+    await privateGridCard();
     // Discard the private MATCHUP, from its own surface.
     await openMyList('matchup');
     const matchupCard = await waitFor(() => {
@@ -666,9 +668,10 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
         throw new Error('the private matchup was not discarded — the premise failed');
     });
 
-    // Back to the grid, and press Publish.
+    // Back to the grid, and press Publish. `privateGridCard` THROWS if the row is
+    // gone, so reaching the click is itself the claim that the grid survived its
+    // member's discard — which is the state the hazard needs.
     const grid = await privateGridCard();
-    expect(grid).toBe(grid); // the row is still listed; the member is what is gone
     await userEvent.click(within(grid).getByTestId('unpublished-publish'));
 
     // 🔴 THE CLAIM, ON THE WIRE, AND FIRST: nothing was appended at all.
@@ -694,7 +697,6 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     // 🔴 AND NO DIALOG WAS INVOLVED. This grid has zero dependencies, which is exactly
     // why the previous `deps.length > 0` ordering let it through silently.
     expect(screen.queryByTestId('grid-publish-confirm')).toBeNull();
-    void card;
   });
 
   it('🔴 PATH C — the private-matchup SCAN THREW, so the member is invisible to the planner', async () => {
@@ -712,7 +714,7 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     });
     mountApp({ shared, store: {}, appStorage: kv.appStorage });
 
-    const grid = await privateGridCard();
+    await privateGridCard();
     // PREMISE, ASSERTED: the matchup scan really did fail — the private matchup is not
     // listed on its own surface. Without this the refusal below could be about
     // anything.
@@ -754,7 +756,6 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
         'public board that nobody — including you — could resolve afterwards. Reload and try ' +
         'again.',
     );
-    void grid;
   });
 
   it('🔴 PATH C′ — the private-matchup scan TRUNCATED, which is the other half of the report', async () => {
@@ -782,7 +783,9 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     );
     mountApp({ shared, store: {}, appStorage: kv.appStorage });
 
-    const grid = await privateGridCard();
+    // The grid row has to be listed before anything else is asserted, or a failure
+    // below could be about a grid that never loaded. The handle is not needed again.
+    await privateGridCard();
     // PREMISE, ASSERTED: the scan really did stop short — the 21st record is not
     // listed on its own surface, while an early one IS. Without both halves this case
     // cannot tell "truncated" from "the fixture wrote nothing".
