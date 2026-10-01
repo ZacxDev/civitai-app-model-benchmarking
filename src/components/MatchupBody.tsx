@@ -8,11 +8,22 @@
 //
 // 🔴 THE OWNERSHIP RULE IS THE ONE THING THAT MUST NOT FORK. Edit and Withdraw
 // are author-scoped through `isOwnRow` — the app's single ownership predicate —
-// and Report is its mirror (offered only on rows the viewer does NOT own, and
-// only when signed in, because the host rejects an anonymous report). The detail
-// modal is reached by EVERY viewer, most of whom do not own the matchup, so
-// open-coding that decision a second time in the modal is exactly how a
-// non-owner comes to be shown an Edit button the host will refuse.
+// and Report AND VOTE are its mirror (offered only on rows the viewer does NOT
+// own; Report additionally only when signed in, because the host rejects an
+// anonymous report). The detail modal is reached by EVERY viewer, most of whom do
+// not own the matchup, so open-coding that decision a second time in the modal is
+// exactly how a non-owner comes to be shown an Edit button the host will refuse.
+//
+// 🔴 VOTE JOINED THAT MIRROR LATE, AND IT IS THE WEAKEST OF THE FOUR. The other
+// three gate a HOST-ENFORCED permission; a self-vote is something the host happily
+// accepts, so hiding the control is an affordance decision and not a guarantee. See
+// `canVote` below for what that does and does not buy.
+//
+// 🔴 AND IT HIDES THE AFFORDANCE, NOT THE SCORE. An author sees their own matchup's
+// vote total — as `VoteTally`, which is the same `VoteCount` the button renders, with no
+// control around it. ⚠️ This paragraph said the opposite for one revision ("including
+// the vote COUNT it takes off an author's own card"), which was true of the code at the
+// time and is the defect the split fixed.
 //
 // 🔴 "Matchup" is the USER-FACING name only. The wire value stays
 // `data.kind: 'combination'` and the parsed row type is still `CombinationRow`.
@@ -63,7 +74,7 @@ import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { metaText, mutedText, token } from '../theme.js';
 import { Menu, MenuControl, MenuItem } from './Menu.js';
 import { ResourceName } from './ResourceName.js';
-import { VoteButton } from './VoteButton.js';
+import { VoteButton, VoteTally } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface MatchupBodyProps {
@@ -122,6 +133,35 @@ export function MatchupBody({
   const canEdit = isOwn && onEdit !== undefined;
   const canWithdraw = isOwn && onWithdraw !== undefined;
   const canReport = !isOwn && viewerId != null;
+  /**
+   * 🔴 VOTING IS OFFERED ONLY ON ROWS THE VIEWER DOES NOT OWN — the THIRD affordance
+   * on the Report side of the ownership mirror, and an operator decision.
+   *
+   * Self-voting was always available and always slightly dishonest: a matchup's vote
+   * total is what decides whether it becomes one of the grid's rows, so an author
+   * upvoting their own row is ranking their submission with the same instrument
+   * everyone else ranks it with. Taking the control away is the only enforcement this
+   * app can perform — `shared.vote` is a HOST call and the host does not refuse a
+   * self-vote, so a viewer with the network tab open can still cast one. This is a UI
+   * affordance, NOT a guarantee, and nothing here may claim otherwise.
+   *
+   * 🔴 SAME PREDICATE AS Edit/Remove/Report, DELIBERATELY. `isOwnRow` is the app's one
+   * ownership guard; a second ownership test spelled here is exactly how a row comes
+   * to be editable-but-votable (or the reverse). It is also why ANONYMOUS viewers keep
+   * the control: `isOwnRow(row, null)` is false for every row, so a signed-out viewer
+   * still sees the disabled vote button that routes to the sign-in nudge — which is
+   * the behaviour `report.test.tsx`'s signed-out case uses as its positive control.
+   *
+   * 🔴 IT HIDES THE AFFORDANCE AND NOT THE SCORE, AND THAT DISTINCTION COST A ROUND.
+   * For one revision this rendered nothing at all on an author's own row, because
+   * `VoteButton` carried the total INSIDE the button — so "no vote control" silently
+   * meant "no vote count", and an author could not see their own matchup's score on
+   * the card at all. The operator's call was to KEEP the count, which is why
+   * `VoteCount` is now a component of its own and `VoteTally` renders it with no
+   * affordance (see `VoteButton.tsx`). The two branches below are therefore NOT
+   * "control or nothing" — they are "control, or the same number without the control".
+   */
+  const canVote = !isOwn;
 
   return (
     <Group justify="space-between" align="flex-start">
@@ -215,15 +255,23 @@ export function MatchupBody({
             )}
           </Menu>
         )}
-        <VoteButton
-          count={combo.count}
-          voted={voted}
-          disabled={viewerId == null}
-          onVote={() => onVote(combo.key)}
-          onUnvote={() => onUnvote(combo.key)}
-          onRequireAuth={onRequireAuth}
-          data-testid="matchup-vote"
-        />
+        {/* 🔴 ONE `combo.count`, TWO PRESENTATIONS. The branch decides the AFFORDANCE
+            only: every viewer sees the score, and only a non-owner is offered the
+            press. A reader checking "does an author see their own score" should be
+            able to answer it from these few lines. */}
+        {canVote ? (
+          <VoteButton
+            count={combo.count}
+            voted={voted}
+            disabled={viewerId == null}
+            onVote={() => onVote(combo.key)}
+            onUnvote={() => onUnvote(combo.key)}
+            onRequireAuth={onRequireAuth}
+            data-testid="matchup-vote"
+          />
+        ) : (
+          <VoteTally count={combo.count} />
+        )}
       </Group>
     </Group>
   );

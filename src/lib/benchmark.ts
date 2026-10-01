@@ -812,6 +812,32 @@ export function includedSummary(count: number, noun: 'row' | 'column'): string {
   return `The top ${count} by votes are showing as the grid's ${noun}s in your view.`;
 }
 
+/**
+ * The STRUCTURAL summary of a matchup, for a list row or a picker option: how many
+ * model configurations it pits against each other.
+ *
+ * 🔴 IT SAYS "models", NOT "configs", AND THAT IS THE WHOLE POINT OF THE FUNCTION.
+ * "config" is this repo's INTERNAL word — `ModelConfig`, `data.configs`, `MAX_CONFIGS`,
+ * `cellKey`'s `configId` — and none of it is on the wire as copy. A viewer reading
+ * "2 configs" is being shown an implementation noun for a thing they picked from a
+ * MODEL picker: one checkpoint plus its LoRA stack is, to them, one model setup. The
+ * operator asked for "models" and the internal names stay exactly as they are.
+ *
+ * 🔴 ONE RULE, ONE PLACE. The string was open-coded TWICE with the identical ternary —
+ * `App.tsx`'s `matchupPickerItems` (the grid builder's row picker) and
+ * `MatchupsView`'s private-row `meta` (My Benchmarks ▸ Matchups) — which is exactly the
+ * shape that comes out wrong at N−1 sites. Both call this now, so the two surfaces
+ * cannot disagree about the word or about the pluralisation.
+ *
+ * `benchmark.test.ts` pins the output as LITERALS (not derived from this body), and
+ * `gridsView.test.tsx` / `myBenchmarks.test.tsx` each read the RENDERED string on one of
+ * the two surfaces — a unit test alone cannot tell "the helper is right" from "a call
+ * site still open-codes the old string".
+ */
+export function modelCountSummary(count: number): string {
+  return `${count} model${count === 1 ? '' : 's'}`;
+}
+
 // ---------------------------------------------------------------------------
 // Cell dedup — first-append-wins
 // ---------------------------------------------------------------------------

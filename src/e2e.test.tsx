@@ -99,10 +99,41 @@ describe('submit a combination', () => {
     expect(card).toHaveTextContent('My SDXL Combo');
     // 🔴 THE `matchup-included` BADGE IS GONE (the third IA pass — every badge went,
     // on both modals, by operator decision). Asserted as ABSENCE FROM THE DOM rather
-    // than invisibility, with the card's own vote control as the in-band positive
-    // control so a card that failed to render cannot satisfy the null.
-    expect(within(card).getByTestId('matchup-vote')).toBeInTheDocument();
+    // than invisibility, with an in-band positive control so a card that failed to
+    // render cannot satisfy the null.
+    //
+    // ⚠️ THE POSITIVE CONTROL USED TO BE `matchup-vote` AND HAD TO MOVE. This card is
+    // the matchup THIS VIEWER just submitted, so it is their OWN row — and the vote
+    // control is now hidden on an author's own matchups (`MatchupBody`'s `canVote`).
+    // The control that replaces it is the author's `⋮`, which an owner always gets
+    // (Edit + Remove) and which is therefore a reading of the same "the action group
+    // rendered" fact. `matchup-config-summary` is a second, ownership-INDEPENDENT one.
+    expect(within(card).getByTestId('matchup-menu')).toBeInTheDocument();
+    expect(within(card).getByTestId('matchup-config-summary')).toBeInTheDocument();
     expect(within(card).queryByTestId('matchup-included')).toBeNull();
+    // 🔴 AND THE OWN-ROW ARRANGEMENT, ON A ROW THAT CANNOT BE ANYTHING BUT OWN — it is
+    // the matchup this viewer just submitted through the real transports. No vote
+    // control, and the score still readable. The FOREIGN half of the comparison lives
+    // in `myCommunity.test.tsx`'s 2×2 case, which is where two distinct author ids make
+    // it a discriminator; here it is a by-product of a real submit flow, which is worth
+    // having because it is the only reading of this arrangement that goes through the
+    // mock host's own `append` rather than a seeded fixture.
+    expect(
+      within(card).queryByTestId('matchup-vote'),
+      'the submitter was offered a vote on their own fresh matchup',
+    ).toBeNull();
+    expect(
+      within(card).getByTestId('vote-count'),
+      'the submitter cannot see their own fresh matchup’s score',
+    ).toHaveTextContent('0');
+    //
+    // ⚠️ THE POSITIVE CONTROLS ABOVE STAY `matchup-menu` + `matchup-config-summary` AND
+    // ARE DELIBERATELY *NOT* RE-POINTED AT `vote-count`, even though that element is
+    // back on an own row. A positive control proving "the card rendered" must not
+    // depend on the feature the surrounding assertions are about — if the vote split
+    // regressed, a `vote-count`-based control would vanish and the `matchup-included`
+    // null beside it would start passing vacuously. Those two readings are independent
+    // of voting entirely, which is the property that makes them controls.
   });
 });
 

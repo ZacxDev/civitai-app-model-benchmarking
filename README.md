@@ -229,17 +229,22 @@ flows are modals.
   - **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
     [`MatchupForm.tsx`](src/components/MatchupForm.tsx)) — submit + vote on a checkpoint
     (any base model) plus a family-scoped weighted LoRA stack, picked via the resource
-    picker.
+    picker. ⚠️ **Voting is offered on other viewers' matchups only** — an author gets no
+    vote control on their own row, because the total is what decides whether the row
+    becomes one of the grid's rows. That is a UI affordance and **not** enforcement:
+    `shared.vote` is a host call and the host does not refuse a self-vote.
   - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
     [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt: one
     **default** raw prompt string + generation params that runs on *every* ecosystem,
     plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …) that replace the
     prompt and/or patch the params for one base-model family.
-- **My Benchmarks** — the viewer's own grids / matchups / prompts in **one list**
+- **My Benchmarks** — the viewer's own **prompts / matchups / grids** (that order, which
+  is the order a viewer builds them) in **one list**
   ([`MyList.tsx`](src/components/MyList.tsx)) spanning both storage layers: unpublished
-  records carry a **Draft** badge and offer Edit / **Publish** / Discard, published rows
-  offer **Edit** plus a `⋮` holding **Remove** and **Archive** — an author-side hide
-  with a recovery path, described in words next to the control
+  records carry a **Private** badge and offer Edit / **Publish** plus a `⋮` holding
+  **Discard**, published rows offer **Edit** plus a `⋮` holding **Remove** and
+  **Archive** — an author-side hide with a recovery path, described in words next to
+  the control
   ([`src/lib/archive.ts`](src/lib/archive.ts)). Building a grid lives here
   ([`GridForm.tsx`](src/components/GridForm.tsx) +
   [`GridPicker.tsx`](src/components/GridPicker.tsx)): a *grid* is a named, hand-picked

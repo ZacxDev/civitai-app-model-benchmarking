@@ -117,6 +117,17 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
  * row) and it exists for all three nouns including grids. Same testids, same helper,
  * different contents — check WHICH surface a case is on before reading its assertions.
  *
+ * 🔴 `'unpublished'` IS A THIRD MENU, NOT A FOURTH NOUN. `MyList`'s PRIVATE rows grew
+ * their own `⋮` when Discard moved off the row, and it is addressed as
+ * `unpublished-menu` / `unpublished-menu-items` — noun-NEUTRAL, like every other
+ * control on a private row, and deliberately NOT `${noun}-menu`: the published row
+ * beside it owns that id, and `myBenchmarks.test.tsx` asserts a private row has no
+ * `${noun}-menu` as the load-bearing half of "a private row is never offered Archive or
+ * Remove". So `openRowMenu('unpublished', card)` opens the PRIVATE row's menu
+ * (Discard), and `openRowMenu('matchup', card)` the published one (Remove, Archive).
+ * 🔴 PASS `scope` FOR THE PRIVATE ONE: a My list routinely holds a private row AND a
+ * published row at once, and only `scope` says which card a failure is about.
+ *
  * `scope` is the card (or section) the row lives in — required whenever more than one
  * row is on screen, because the trigger testid is per-KIND, not per-row.
  *
@@ -126,7 +137,7 @@ export async function contribute(item: 'matchup' | 'prompt' | 'grid'): Promise<v
  * the case is actually about.
  */
 export async function openRowMenu(
-  noun: 'matchup' | 'prompt' | 'grid',
+  noun: 'matchup' | 'prompt' | 'grid' | 'unpublished',
   scope?: HTMLElement,
 ): Promise<HTMLElement> {
   const q = scope ? within(scope) : screen;

@@ -80,7 +80,7 @@ export interface GridPickerItem {
   name: string;
   /** Optional secondary line. Also searched. */
   description?: string;
-  /** Optional short meta ("3 configs"). Shown, but NOT searched. */
+  /** Optional short meta ("3 models" — see `modelCountSummary`). Shown, but NOT searched. */
   meta?: string;
 }
 
