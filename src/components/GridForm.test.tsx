@@ -121,6 +121,20 @@ describe('🔴 the chosen members render as cards', () => {
     expect(within(form).queryAllByTestId('grid-form-col-card')).toHaveLength(0);
   });
 
+  it('🔴 puts the NAME above the two axes on the single-page EDIT form', () => {
+    // See the same case in `MatchupForm.test.tsx` for the regression this pins: the
+    // step wrappers moved the name input to the bottom of every single-page edit
+    // form, invisibly, because nothing asserted field order. DOCUMENT ORDER only —
+    // jsdom performs no layout.
+    const { form } = renderForm({ initial: FILLED });
+    const nameInput = within(form).getByTestId('grid-form-name');
+    const rows = within(form).getByTestId('grid-form-pick-rows');
+    expect(
+      nameInput.compareDocumentPosition(rows) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the name input is BELOW the axis pickers on the single-page edit form',
+    ).toBeTruthy();
+  });
+
   it('🔴 keeps the COUNT alongside the cards', () => {
     // The count is what the cap is about (20 per axis), and 20 names is not a list
     // you count by eye. Replacing it with cards would have lost that.

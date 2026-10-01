@@ -159,14 +159,23 @@ function filledConfigs(configs: ModelConfig[]): ModelConfig[] {
   return configs.filter((cfg) => cfg && cfg.checkpoint && isNum(cfg.checkpoint.versionId));
 }
 
-/** Human-readable validation errors that block a combination submit. */
+/**
+ * Human-readable validation errors that block a combination submit.
+ *
+ * 🔴 THESE STRINGS ARE VIEWER-FACING, SO THEY SAY "MODEL", NOT "CONFIG". They are
+ * rendered by `MatchupForm`'s error `Alert` — the same modal whose heading, add
+ * button, remove label and per-row name all say "model". They said "config" for one
+ * round AFTER that rename, which put the WIRE word on screen in the one modal the
+ * rename existed for, and two new assertions had pinned it there. `modelCountSummary`
+ * carries the same rule and has its own guard against the same leak.
+ */
 export function validateCombination(input: CombinationInput): string[] {
   const errs: string[] = [];
   if (!input.name.trim()) errs.push('Give the matchup a name.');
   const filled = filledConfigs(input.configs);
-  if (filled.length === 0) errs.push('Add at least one model config (pick a checkpoint).');
-  if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} configs.`);
-  if (filled.some((cfg) => cfg.loras.length > MAX_LORAS)) errs.push(`At most ${MAX_LORAS} LoRAs per config.`);
+  if (filled.length === 0) errs.push('Add at least one model (pick a checkpoint).');
+  if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} models.`);
+  if (filled.some((cfg) => cfg.loras.length > MAX_LORAS)) errs.push(`At most ${MAX_LORAS} LoRAs per model.`);
   return errs;
 }
 

@@ -182,6 +182,28 @@ describe('PromptForm edit mode', () => {
     expect((within(entry).getByTestId('prompt-override-text') as HTMLTextAreaElement).value).toBe('stored flux');
     expect(screen.getByTestId('prompt-submit')).toHaveTextContent('Save changes');
   });
+
+  it('🔴 puts the NAME above the default-prompt section, as it always has', () => {
+    // See the same case in `MatchupForm.test.tsx`. This form is the worst case for
+    // getting it wrong — the default card plus its generation params plus one
+    // override card is already a long scroll, so a name input underneath all of it
+    // is a long way from the field an author came for. DOCUMENT ORDER only; jsdom
+    // performs no layout.
+    const initial: PromptInput = {
+      name: 'Existing',
+      description: '',
+      default: { prompt: 'stored default', params: {} },
+      overrides: {},
+    };
+    render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+
+    const nameInput = screen.getByTestId('prompt-name');
+    const def = screen.getByTestId('prompt-default');
+    expect(
+      nameInput.compareDocumentPosition(def) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the name input is BELOW the default-prompt section on the single-page edit form',
+    ).toBeTruthy();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -240,7 +262,13 @@ describe('🔴 the collapsed per-ecosystem override block', () => {
     ).toBeNull();
   });
 
-  it('🔴 starts REVEALED when the prefill already carries overrides', () => {
+  // ⚠️ GREEN AT BASE — NEW-FEATURE COVERAGE, NOT REGRESSION COVERAGE. At `ec57a8f`
+  // `prompt-override-reveal` does not exist for ANY prompt, so this case's first
+  // assertion is satisfied by the feature's absence rather than by the behaviour it
+  // describes. It is still worth having — it kills the real mutant (seeding
+  // `showOverrides` to a hardcoded `false`, verified) — but it was not watched
+  // failing on pre-change code and must not be counted as if it had been.
+  it('⚠️ INVARIANT GUARD (green at base): starts REVEALED when the prefill already carries overrides', () => {
     // An author who is editing a prompt that HAS overrides demonstrably uses them,
     // and collapsing the picker there would hide the only control that adds the next
     // one — directly above the override cards it adds.
@@ -266,7 +294,12 @@ describe('🔴 the collapsed per-ecosystem override block', () => {
     ).not.toBeNull();
   });
 
-  it('🔴 does NOT hide the override ENTRIES, only the picker', async () => {
+  // ⚠️ PURE INVARIANT GUARD, GREEN AT BASE AND GREEN AT HEAD. Override entries have
+  // always rendered unconditionally; the collapse never touched them. This pins the
+  // boundary of what the collapse is allowed to hide — authored content is not
+  // chrome — and that boundary is exactly what a future "tidy the overrides away"
+  // change would cross. It is not evidence of this PR fixing anything.
+  it('⚠️ INVARIANT GUARD (green at base): does NOT hide the override ENTRIES, only the picker', async () => {
     // The distinction that makes the collapse safe: an override an author has
     // already authored is content, not chrome, and stays on screen. A collapse that
     // swallowed the entries too would hide authored data behind a button.

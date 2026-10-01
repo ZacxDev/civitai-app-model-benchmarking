@@ -177,9 +177,18 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
     expect(
       validateCombination({ name: '', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }),
     ).toContain('Give the matchup a name.');
+    // 🔴 "MODEL", NOT "MODEL CONFIG" — this string is rendered by the matchup
+    // modal's error Alert, and `config` is the WIRE word. It said "model config"
+    // for one round after the surface was reworded to "Models", which put the wire
+    // word on screen in the one modal the rename existed for.
     expect(validateCombination({ name: 'X', description: '', configs: [newConfig()] })).toContain(
-      'Add at least one model config (pick a checkpoint).',
+      'Add at least one model (pick a checkpoint).',
     );
+    // …and it leaks no wire noun at all, which a substring check for the new copy
+    // cannot tell you (the old string CONTAINS the new one).
+    for (const e of validateCombination({ name: '', description: '', configs: [newConfig()] })) {
+      expect(e, `"${e}" leaked the internal noun`).not.toMatch(/config/i);
+    }
   });
 });
 
@@ -1051,8 +1060,8 @@ describe('MAX_CONFIGS — the app-side matchup cap, at its boundary from BOTH si
     });
     expect(
       tooMany,
-      'CAP TOO HIGH (or absent): 101 filled configs must be refused with the "At most 100 configs." error',
-    ).toContain('At most 100 configs.');
+      'CAP TOO HIGH (or absent): 101 filled configs must be refused with the "At most 100 models." error',
+    ).toContain('At most 100 models.');
   });
 
   // The builder and the parser must agree with the validator, or a form that
@@ -1126,8 +1135,8 @@ describe('MAX_LORAS — ⚠️ INVARIANT GUARD on a HOST contract', () => {
           },
         ],
       }),
-      'a 6-LoRA config must be refused with the "At most 5 LoRAs per config." error',
-    ).toContain('At most 5 LoRAs per config.');
+      'a 6-LoRA model must be refused with the "At most 5 LoRAs per model." error',
+    ).toContain('At most 5 LoRAs per model.');
 
     const body = buildCellWorkflowBody(
       {

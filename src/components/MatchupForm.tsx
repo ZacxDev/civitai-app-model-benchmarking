@@ -31,6 +31,7 @@ import {
   Card,
   Group,
   ResourceCard,
+  resourceDisplayName,
   Slider,
   Stack,
   TextInput,
@@ -264,11 +265,54 @@ export function MatchupForm({
    * permanently visible — the gate has to read the first row's CONTENT. Offering a
    * second model before the first one has a checkpoint is how a matchup ends up with
    * a column of empty rows that `validateCombination` then silently drops.
+   *
+   * ⚠️ IT READS THE FIRST ROW, SO REMOVING THE FIRST ROW CAN HIDE THE BUTTON WHILE A
+   * LATER ROW IS COMPLETE — named rather than fixed, because the recovery is the same
+   * action the gate is asking for. Reachable: pick a checkpoint on model 1, Add model,
+   * leave model 2 empty, trash model 1. The survivor has no checkpoint, so "Add model"
+   * goes away (and so does its own trash, on the `length > 1` gate) until the viewer
+   * picks one — which is exactly what the gate wants next anyway. A version reading
+   * `configs.some(c => c.checkpoint)` would instead let a viewer stack empty rows
+   * behind one complete one, which is the state this gate exists to prevent.
    */
   const canAddModel = !!configs[0]?.checkpoint;
 
   return (
     <Stack gap={14} data-testid="matchup-form">
+      {/* 🔴 `MetaStep` IS FIRST IN THE MARKUP, AND THAT IS ABOUT THE *EDIT* FORM.
+          In two-step mode exactly one of these two ever renders, so JSX order is
+          not screen order and this is invisible. In SINGLE-PAGE mode both render
+          bare, and then this IS the field order — name and description at the TOP,
+          which is where they have been since the form shipped.
+
+          Putting `ContentStep` first cost nothing on the create path and silently
+          moved the name input to the BOTTOM of all six edit surfaces: an author
+          opening "Edit prompt" to fix a typo got the default-prompt card, its
+          generation params and every override card first. Nothing in the suite
+          pinned field order, so the gate could not see it — `MatchupForm.test.tsx`'s
+          "puts the NAME above the model list" case is what closes that. The operator
+          asked only that an edit stay single-page, not that its fields move. */}
+      <MetaStep multiStep={multiStep} step={step}>
+        <Stack gap={14}>
+          <TextInput
+            label="Matchup name"
+            required
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            placeholder="e.g. Realism showdown"
+            data-testid="matchup-name"
+          />
+          <Textarea
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            placeholder="What are these model setups being compared on?"
+            data-testid="matchup-description"
+            minRows={2}
+          />
+        </Stack>
+      </MetaStep>
+
       <ContentStep multiStep={multiStep} step={step}>
         <Stack gap={14}>
           <strong>
@@ -362,7 +406,7 @@ export function MatchupForm({
                         <Group gap={8} align="center">
                           <div style={{ width: 140 }}>
                             <Slider
-                              aria-label={`Weight for ${l.modelName ?? l.versionId}`}
+                              aria-label={`Weight for ${resourceDisplayName(loraInfo(l))}`}
                               min={l.minStrength ?? -1}
                               max={l.maxStrength ?? 2}
                               step={0.05}
@@ -378,7 +422,17 @@ export function MatchupForm({
                             variant="subtle"
                             color="error"
                             onClick={() => removeLora(cfg.id, l.versionId)}
-                            aria-label={`Remove ${l.modelName ?? `#${l.versionId}`}`}
+                            /* 🔴 THE SAME NAME THE CARD SHOWS, THROUGH THE SAME
+                               FUNCTION. These two controls kept a hand-rolled
+                               `modelName ?? '#'+versionId` while `loraInfo` above
+                               had already moved to upstream's frozen
+                               `resourceDisplayName` — which ALSO treats a
+                               whitespace-only name as absent. So a LoRA named '  '
+                               rendered as `#2002` on the card while announcing
+                               "Remove   " here, and `getByRole('button', {name})`
+                               stopped matching what is on screen. One rule, one
+                               place — and the place is upstream's. */
+                            aria-label={`Remove ${resourceDisplayName(loraInfo(l))}`}
                           >
                             Remove
                           </Button>
@@ -409,27 +463,6 @@ export function MatchupForm({
           )}
         </Stack>
       </ContentStep>
-
-      <MetaStep multiStep={multiStep} step={step}>
-        <Stack gap={14}>
-          <TextInput
-            label="Matchup name"
-            required
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="e.g. Realism showdown"
-            data-testid="matchup-name"
-          />
-          <Textarea
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.currentTarget.value)}
-            placeholder="What are these model setups being compared on?"
-            data-testid="matchup-description"
-            minRows={2}
-          />
-        </Stack>
-      </MetaStep>
 
       {/* 🔴 OUTSIDE BOTH STEPS. Submit runs `validateCombination` over the WHOLE
           input, so an error raised on step 2 can be about step 1's content ("Add at

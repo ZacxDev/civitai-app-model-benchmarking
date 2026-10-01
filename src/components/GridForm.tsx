@@ -158,6 +158,27 @@ export function GridForm({
 
   return (
     <Stack gap={12} data-testid="grid-form">
+      {/* 🔴 `MetaStep` FIRST — see the same comment in `MatchupForm`. Invisible in
+          two-step mode (only one of the two renders); in SINGLE-PAGE (edit) mode it
+          is the field order, and the name belongs at the top where it has been
+          since this form shipped. */}
+      <MetaStep multiStep={multiStep} step={step}>
+        <Stack gap={12}>
+          <TextInput
+            label="Grid name"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            data-testid="grid-form-name"
+          />
+          <Textarea
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            data-testid="grid-form-description"
+          />
+        </Stack>
+      </MetaStep>
+
       <ContentStep multiStep={multiStep} step={step}>
         <Stack gap={12}>
           {/* The two axes. Counts are rendered from the CHOSEN key arrays, so what
@@ -207,23 +228,6 @@ export function GridForm({
           </span>
         </Stack>
       </ContentStep>
-
-      <MetaStep multiStep={multiStep} step={step}>
-        <Stack gap={12}>
-          <TextInput
-            label="Grid name"
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-            data-testid="grid-form-name"
-          />
-          <Textarea
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.currentTarget.value)}
-            data-testid="grid-form-description"
-          />
-        </Stack>
-      </MetaStep>
 
       {/* 🔴 OUTSIDE BOTH STEPS — `validateGrid` runs over the whole input, so an error
           raised on step 2 can be about step 1's axes ("Pick at least one matchup"). */}

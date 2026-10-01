@@ -251,6 +251,32 @@ export function PromptForm({
 
   return (
     <Stack gap={14} data-testid="prompt-form">
+      {/* 🔴 `MetaStep` FIRST — see the same comment in `MatchupForm`. In two-step
+          mode only one of the two renders, so this is invisible; in SINGLE-PAGE
+          (edit) mode it is the field order, and the name belongs at the top where
+          it has always been. This form is the worst case for getting it wrong: the
+          default-prompt card plus one override card is already a long scroll. */}
+      <MetaStep multiStep={multiStep} step={step}>
+        <Stack gap={14}>
+          <TextInput
+            label="Prompt name"
+            required
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            placeholder="e.g. Cyberpunk portrait"
+            data-testid="prompt-name"
+          />
+          <Textarea
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            placeholder="What is this prompt testing?"
+            data-testid="prompt-description"
+            minRows={2}
+          />
+        </Stack>
+      </MetaStep>
+
       <ContentStep multiStep={multiStep} step={step}>
         <Stack gap={14}>
       {/* DEFAULT section — always present; applies to every ecosystem. */}
@@ -350,27 +376,6 @@ export function PromptForm({
       ))}
         </Stack>
       </ContentStep>
-
-      <MetaStep multiStep={multiStep} step={step}>
-        <Stack gap={14}>
-          <TextInput
-            label="Prompt name"
-            required
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="e.g. Cyberpunk portrait"
-            data-testid="prompt-name"
-          />
-          <Textarea
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.currentTarget.value)}
-            placeholder="What is this prompt testing?"
-            data-testid="prompt-description"
-            minRows={2}
-          />
-        </Stack>
-      </MetaStep>
 
       {/* 🔴 OUTSIDE BOTH STEPS — `validatePrompt` runs over the whole input, so an
           error raised on step 2 can be about step 1's prompt text. */}

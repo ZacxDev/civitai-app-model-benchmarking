@@ -75,7 +75,12 @@ describe('MatchupForm multi-model builder', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     const errs = screen.getByTestId('matchup-errors');
     expect(errs).toHaveTextContent('Give the matchup a name.');
-    expect(errs).toHaveTextContent('Add at least one model config');
+    expect(errs).toHaveTextContent('Add at least one model (pick a checkpoint).');
+    // 🔴 AND THE ALERT A VIEWER READS SAYS NO WIRE WORD. This assertion is the whole
+    // reason the copy moved: the heading, add button, remove label and per-row name
+    // all said "model" while the error said "model config", and the earlier version
+    // of this very line PINNED the wire word in place.
+    expect(errs.textContent, 'the error Alert leaked the internal noun').not.toMatch(/config/i);
   });
 
   it('submits a TWO-model matchup', async () => {
@@ -121,6 +126,39 @@ describe('MatchupForm edit mode', () => {
     expect((screen.getByTestId('matchup-name') as HTMLInputElement).value).toBe('Existing combo');
     expect(screen.getAllByTestId('config-card')).toHaveLength(2);
     expect(screen.getByTestId('matchup-submit')).toHaveTextContent('Save changes');
+  });
+
+  it('🔴 puts the NAME above the model list, as it always has', () => {
+    // 🔴 THIS WAS AN UNDISCLOSED REGRESSION FOR ONE ROUND, AND NOTHING SAW IT.
+    // Introducing the step wrappers put `ContentStep` first in the markup, which is
+    // invisible on the paged CREATE path (only one step renders) and silently moved
+    // the name input to the BOTTOM of all six single-page EDIT surfaces — an author
+    // opening "Edit matchup" to fix a typo got the whole model list first. No
+    // assertion in the repo pinned field order, so the gate could not see it. The
+    // operator asked only that an edit stay single-page, not that its fields move.
+    //
+    // DOCUMENT ORDER, not geometry: jsdom performs no layout, so this pins the only
+    // thing that is verifiable here — and it is what the visual order follows in an
+    // unpositioned column.
+    const initial: CombinationInput = {
+      name: 'Existing combo',
+      description: 'd',
+      configs: [
+        {
+          id: 'a',
+          checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+          loras: [],
+        },
+      ],
+    };
+    render(<MatchupForm pickResource={vi.fn()} onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+
+    const nameInput = screen.getByTestId('matchup-name');
+    const card = screen.getByTestId('config-card');
+    expect(
+      nameInput.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the name input is BELOW the model list on the single-page edit form',
+    ).toBeTruthy();
   });
 });
 
@@ -526,8 +564,27 @@ describe('🔴 the two-step CREATE flow', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     const errs = screen.queryByTestId('matchup-errors');
     expect(errs, 'the step-1 failure was not reported on step 2').not.toBeNull();
-    expect(errs).toHaveTextContent('Add at least one model config');
+    expect(errs).toHaveTextContent('Add at least one model');
     // …and it is readable from step 2, not stranded on the page the viewer left.
     expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
+
+    // 🔴 AND THE ALERT IS OUTSIDE THE STEP, NOT MERELY VISIBLE ON IT. This half was
+    // MISSING for a round, and an audit mutant proved the gap: moving the `Alert`
+    // INSIDE `MetaStep` — the exact arrangement the production comment says must not
+    // happen — left this file 18/18 GREEN, because "readable on step 2" is equally
+    // true of an alert nested in step 2. The description claimed a STRUCTURAL
+    // property and the implementation checked one side of it.
+    expect(
+      screen.getByTestId('form-step-meta').contains(errs),
+      'the error Alert is nested INSIDE a step — pressing Back now discards the one message that says to press Back',
+    ).toBe(false);
+
+    // …and the behavioural half of the same claim: it SURVIVES the trip back.
+    await userEvent.click(screen.getByTestId('form-back'));
+    expect(screen.queryByTestId('form-step-content')).not.toBeNull();
+    expect(
+      screen.queryByTestId('matchup-errors'),
+      'the error vanished on Back, so the viewer is on step 1 with no idea what to fix',
+    ).not.toBeNull();
   });
 });
