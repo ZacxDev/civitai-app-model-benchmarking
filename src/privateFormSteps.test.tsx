@@ -192,10 +192,16 @@ describe('🔴 the PRIVATE matchup path (`draft`) — step shape, both direction
     await waitFor(() => expect(within(section).getByTestId('unpublished-card')).toBeInTheDocument());
     await userEvent.click(within(section).getByTestId('unpublished-edit'));
     const form = await screen.findByTestId('matchup-form');
+    // 🔴 SHAPE FIRST, VALUE SECOND, AND THE ORDER IS LOAD-BEARING. The value read
+    // below is a `getByTestId` inside `expect(...)`, which THROWS during argument
+    // evaluation when the form is wrongly paged — pre-empting the named diagnostics
+    // in `expectSinglePageEdit` with a bare "Unable to find an element". Measured:
+    // with the value check first, the mutant that pages a resumed private matchup
+    // reported the element, not the claim.
+    expectSinglePageEdit(form, 'matchup-name', 'config-card');
     expect((within(form).getByTestId('matchup-name') as HTMLInputElement).value).toBe(
       'A stored private matchup',
     );
-    expectSinglePageEdit(form, 'matchup-name', 'config-card');
   });
 });
 
@@ -214,10 +220,11 @@ describe('🔴 the PRIVATE prompt path (`unpub-prompt`) — step shape, both dir
     await waitFor(() => expect(within(section).getByTestId('unpublished-card')).toBeInTheDocument());
     await userEvent.click(within(section).getByTestId('unpublished-edit'));
     const form = await screen.findByTestId('prompt-form');
+    // Shape first — see the matchup case for why the order matters.
+    expectSinglePageEdit(form, 'prompt-name', 'prompt-default');
     expect((within(form).getByTestId('prompt-name') as HTMLInputElement).value).toBe(
       'A stored private prompt',
     );
-    expectSinglePageEdit(form, 'prompt-name', 'prompt-default');
   });
 });
 
@@ -236,10 +243,11 @@ describe('🔴 the PRIVATE grid path (`unpub-grid`) — step shape, both directi
     await waitFor(() => expect(within(section).getByTestId('unpublished-card')).toBeInTheDocument());
     await userEvent.click(within(section).getByTestId('unpublished-edit'));
     const form = await screen.findByTestId('grid-form');
+    // Shape first — see the matchup case. The grid's step-1 content is the two
+    // axis pickers.
+    expectSinglePageEdit(form, 'grid-form-name', 'grid-form-pick-rows');
     expect((within(form).getByTestId('grid-form-name') as HTMLInputElement).value).toBe(
       'A stored private grid',
     );
-    // The grid's step-1 content is the two axis pickers.
-    expectSinglePageEdit(form, 'grid-form-name', 'grid-form-pick-rows');
   });
 });
