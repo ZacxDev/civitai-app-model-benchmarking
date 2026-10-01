@@ -26,8 +26,18 @@ import { describe, expect, it, vi } from 'vitest';
 // A NAMED import, which it was not for one draft. The namespace form existed so a
 // not-yet-exported `modelSitePath` could not redden the whole file at link time — and
 // that export is now gone (see `./ResourceName.tsx`), so the reason went with it.
-// `ResourceName` itself exists on `origin/main`, so every case below still failed on
-// its own merits when this file was run against the base component.
+// `ResourceName` itself exists on `origin/main`, so this file imports and runs cleanly
+// against the base component.
+//
+// 🔴 AND WHAT IT DOES THERE SPLITS EXACTLY ALONG THE TWO BLOCKS BELOW, which is worth
+// stating because a draft of this paragraph claimed "every case below still failed on
+// its own merits" — an overclaim, and one this file's own UNLINKED header contradicts
+// a hundred lines down. `origin/main`'s component is `ResourceName({ name, style })`:
+// it declares no `modelId`/`versionId` props and always returns the `<span>`. So the
+// four LINKED cases fail there on their own merits — real regression coverage — and the
+// four UNLINKED ones PASS, because they pin precisely the shape the base component
+// already has. They are INVARIANT GUARDS, and counting them as regression coverage is
+// the one mislabeling this PR is otherwise careful to avoid.
 import { ResourceName } from './ResourceName.js';
 
 // 🔴 THE HOOK IS MOCKED HERE, AND ONLY HERE. `ResourceName` out of tree has no SDK

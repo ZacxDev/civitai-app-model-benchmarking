@@ -192,7 +192,7 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
   // It asserted that every item declares `--civitai-nav-depth` equal to its depth, and
   // that `NAV_DEPTH_STEP_PX` is 14. It CANNOT observe what its name claims. Its only
   // comparand for "the upstream step" was `NAV_DEPTH_STEP_PX`, imported from the
-  // component under test, and the pinned `@civitai/components@0.4.1` installed here
+  // component under test, and the pinned `components-react@^0.4.1` (installed `0.4.3`)
   // SHIPS NO NAV ELEMENT AT ALL — so drift from the real 0.8.1 / 0.9.0 shape (a
   // different property name, a different step, or depth expressed some other way) is
   // structurally invisible to it. It could only ever fail if someone edited this repo's

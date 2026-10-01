@@ -44,8 +44,9 @@
 //    the host's note on `'new_tab'` records it as "NOT MEASURED: any non-Chromium
 //    engine" — so it would be a dead control on an unknown share of viewers. The
 //    operator's call is `target: 'current'` (the default, hence omitted below): it
-//    works in every engine, and #5209's closing condition is literally the parent
-//    frame landing on the civitai.com model page.
+//    works in every engine, and what #5209 ASKED FOR was literally the parent frame
+//    landing on the civitai.com model page. (Past tense deliberately — that issue is
+//    closed; see the note further down before citing it as live.)
 //
 // 3. ❌ A PLAIN `<a target="_blank">` BUILT FROM THE HOST ORIGIN — PERMITTED, AND
 //    WORSE THAN NO LINK. `allow-popups` IS in `ALLOWED_SANDBOX_TOKENS`, so a popup
@@ -259,12 +260,26 @@ export function ResourceName({
            ABSENCE OF ONE. A draft here carried `outline: focused ? … : 'none'` behind a
            `useState`, on the reasoning that an inline style cannot express a
            pseudo-class. The reasoning was sound and the premise was wrong: NOTHING
-           suppresses the UA's `:focus-visible` ring on this button. Measured across
-           `index.html`, all of `src/`, and the pack's injected stylesheet
-           (`@civitai/blocks-react/dist/ui/styles.js`), the only `outline: none` is on
-           `[data-civitai-ui='modal']` ITSELF — no descendant combinator, so it cannot
-           reach here. The state's own `'none'` was the only thing hiding the ring it
-           then re-added.
+           suppresses the UA's `:focus-visible` ring on this button. The state's own
+           `'none'` was the only thing hiding the ring it then re-added.
+           🔴 THE ENUMERATION IS THE WHOLE EVIDENCE, so it names every sheet that can
+           reach this element — FIVE, because `main.tsx` injects two of them at runtime
+           and a draft of this comment listed only three:
+             1. `index.html` + `src/index.css` — no `outline` at all.
+             2. `@civitai/blocks-react/dist/ui/styles.js` (`injectBlocksStyles()`) — one
+                `outline: none`, on `[data-civitai-ui='modal']` ITSELF, no descendant
+                combinator, so it cannot reach here. It also carries three
+                `:focus-visible { outline: 2px solid var(--civitai-color-primary) }`
+                rules, for the pack's OWN elements.
+             3. `@civitai/components@0.4.3` (via `injectStyles()`) — one `outline: none`,
+                nested under `[data-civitai-ui-control]:focus`. That attribute is set by
+                the pack's form controls; this button does not carry it.
+             4. `@civitai/theme` (0.4.0, and 0.3.2 transitively) — zero `outline`,
+                zero `:focus`.
+             5. `@civitai/components@0.9.0` — Lit shadow styles, unreachable from light
+                DOM, and nothing in this app imports it.
+           Every other `outline` write in the pack is an INLINE style on its own
+           elements (`TipButton`, `ReportButton`, `ResourceCard`, `pickerOverlay`).
            ⚠️ So the UA ring is what a keyboard viewer gets, and it is REAL
            `:focus-visible` rather than the mouse-press-too approximation the state
            gave. It is not token-coloured: the pack styles its OWN components with

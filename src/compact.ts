@@ -251,7 +251,8 @@ export const TOOLTIP_GAP_PX = 6;
  *     point and the next bullet is its third instance.
  *   - `SideNav` is hand-built for the same reason one level up — the upstream
  *     `<civitai-nav-list>` / `<civitai-nav-item>` are real but this repo is pinned to
- *     `@civitai/components@0.4.1`, which ships neither (see `SideNav.tsx` for the
+ *     `@civitai/components-react@^0.4.1` (installed `0.4.3`), which ships neither
+ *     (see `SideNav.tsx` for the
  *     five-package bump that gates the swap). Its items are `<button>`s carrying
  *     `padding: 6px 10px` around a 13px line — ~31px, and this nav is the page's ONLY
  *     primary navigation. 🔴 AND THE SWAP WILL NOT FIX IT: upstream's own

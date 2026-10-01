@@ -16,22 +16,28 @@
 // them**, and the reason this repo could not adopt the upstream MENU does not carry
 // over to the upstream NAV.
 //
-// 🔵 THE SWAP IS GATED ON BUMPING `@civitai/components-react`, which this repo holds
-// at `^0.4.1` (installed `0.4.3`) — a version that ships no nav element, so nothing in
-// this file can yet be verified against the real thing from here.
+// ── 🔵 THE GATE ON THE SWAP (the "five-package bump") ───────────────────────
 //
-// ⚠️ THIS PARAGRAPH NAMED A DIFFERENT GATE AND IT IS NOW WRONG. It read "GATED ONLY ON
-// THE FIVE-PACKAGE BUMP, whose own prerequisite is starters **PR #487**
-// (`loading`/`decoding` passthrough on `CivitaiImage`) — still OPEN at the time of
-// writing". Four of those five packages moved with `blocks-react@0.61.0`, and #487 has
-// landed, so neither half describes the situation any more. The remaining blocker, the
-// cost of clearing it, and the measurements behind both belong with whoever does that
-// bump — not here, where nobody can act on them.
+// 🔴 THIS IS THE PARAGRAPH FIVE OTHER FILES POINT AT by the name "the five-package
+// bump" — `compact.ts`, `mobile-responsive.test.tsx`, `sideNav.test.tsx` (twice,
+// including a re-add instruction for a deleted case) and `Menu.tsx`. The NAME is kept
+// for that reason even though it is now inaccurate: retiring it here while six pointers
+// still use it is the rot this header exists to avoid. Read it as an alias.
 //
-// ⚠️ AND `@civitai/components@0.9.0` IS ALREADY IN THE INSTALL GRAPH, transitively via
-// `blocks-react@0.61.0`. That does NOT make the nav elements usable: this app imports
-// nothing from it. It is noted because the 0.4.x copy is also present, and the two
-// cannot collide on a `civitai-*` tag name only because 0.4.x defines zero custom
+// ⚠️ WHAT IT ACTUALLY IS NOW — four of the five moved with `blocks-react@0.61.0`
+// (`app-sdk`, `blocks-react`, `sdk`, `theme`), so the gate is a ONE-package bump:
+// `@civitai/components-react`, which this repo holds at `^0.4.1` (installed `0.4.3`)
+// and which ships no nav element at that major. Its own stated prerequisite, starters
+// **PR #487** (`loading`/`decoding` passthrough on `CivitaiImage`), HAS LANDED —
+// `CivitaiImage` in `components@0.9.0` declares both — so that half of the old gate is
+// clear. What remains is the `Image`/`Tooltip`/`injectStyles` migration that rides with
+// the bump; its cost is measured in the PR that holds the bump back, not here.
+//
+// So nothing in this file can yet be verified against the real thing from this repo.
+// ⚠️ `@civitai/components@0.9.0` IS already in the install graph, transitively via
+// `blocks-react@0.61.0` — that does NOT make the nav elements usable, because this app
+// imports nothing from it. It is noted because the 0.4.x copy is also present, and the
+// two cannot collide on a `civitai-*` tag name only because 0.4.x defines zero custom
 // elements (measured at 0.4.3: 0 of its 2 JS files mention `customElements`).
 //
 // ⚠️ PROVENANCE, STATED PLAINLY: the upstream shape described below was MEASURED BY

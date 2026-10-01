@@ -85,7 +85,9 @@
 //
 // ⚠️ AND THE TWO FILES DISAGREED FOR TWO WHOLE ROUNDS, not one. `sideNav.test.tsx`
 // states the compatible fact — "the pinned `@civitai/components@0.4.1` installed here
-// SHIPS NO NAV ELEMENT AT ALL" — and it landed in `035bc14`, a round-0 CORRECTION
+// SHIPS NO NAV ELEMENT AT ALL" (⚠️ its VERSION is stale the same way this block's was;
+// installed is `0.4.3`, and the no-nav-element half is unaffected) — and it landed in
+// `035bc14`, a round-0 CORRECTION
 // commit, i.e. AFTER the wrong line here (`c6d7896`) and without noticing it. A draft
 // of this paragraph said the two were "in the same diff"; they were not, and the real
 // history is worse: a round dedicated to correcting false claims read the installed
