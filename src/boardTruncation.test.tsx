@@ -452,7 +452,13 @@ describe("a grid's missing members, on a board the app could not finish reading"
       expect(el, 'the dangling grid never rendered').toBeTruthy();
       return el!;
     });
-    expect(screen.getByTestId('board-truncated-notice')).toBeInTheDocument();
+    // 🔴 PHASE 1'S PREMISE IS NAMED SEPARATELY FROM PHASE 2'S CLAIM. A mutant that
+    // breaks the SUCCESS arm's `prefix` and one that breaks the CATCH arm's both end
+    // with no notice on screen, and only the message says which arm moved.
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'phase 1 did not disclose truncation — the premise failed before the sequence began',
+    ).not.toBeNull();
     expect(card.querySelector('[data-testid="grid-card-missing"]')).toHaveTextContent(
       NOTICE(true),
     );
