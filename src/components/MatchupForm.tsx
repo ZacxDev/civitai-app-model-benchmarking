@@ -104,11 +104,34 @@ function checkpointInfo(ref: CheckpointRef): BlockResourceInfo {
 /**
  * `LoraRef` → `BlockResourceInfo`.
  *
- * 🔴 `modelId ?? 0` IS SAFE BECAUSE NOTHING READS IT — measured: `ResourceCard`
- * references `modelId` ZERO times (it is not a link, on purpose). `LoraRef.modelId`
- * is optional FOREVER by design (see `types.ts`: rows published before the field
- * existed can never be backfilled), so there is no value to pass through on an old
- * row and no consumer to mislead.
+ * 🔴 `modelId ?? 0` IS SAFE, BUT NOT FOR THE REASON THIS COMMENT USED TO GIVE. It
+ * said "SAFE BECAUSE NOTHING READS IT … no consumer to mislead". The second clause is
+ * now FALSE: `civitai/civitai` **#5250** shipped `scope: 'site'`, and
+ * `components/ResourceName.tsx` reads `LoraRef.modelId` to build a civitai.com link.
+ * A `0` reaching it would render a link to `/models/0`.
+ *
+ * 🔴 IT IS SAFE BECAUSE THE `0` CANNOT TRAVEL, which is a narrower and checkable
+ * claim. Two independent reasons, both verified rather than reasoned:
+ *
+ *   1. THIS COERCION IS RENDER-ONLY AND ONE-WAY. `loraInfo` exists to feed the
+ *      upstream `ResourceCard` and two `resourceDisplayName` aria-labels. Its result
+ *      is never fed back to `loraFromPick` — that function is called ONLY on a fresh
+ *      pick (`patchConfig(..., loras: [...cfg.loras, loraFromPick(pick)])`), where
+ *      `BlockResourceInfo.modelId` is required by the picker. So nothing in this form
+ *      can write `modelId: 0` onto the wire, and a legacy LoRA edited here keeps its
+ *      field absent rather than gaining a zero.
+ *   2. `ResourceCard` STILL DOES NOT READ IT — re-measured in the installed
+ *      `@civitai/blocks-react@0.61.0`, not carried over from the 0.51.0 reading:
+ *      `modelId` appears in that module exactly once, in a comment saying it is "NOT
+ *      A LINK, on purpose".
+ *
+ * And `ResourceName` rejects a non-positive, non-finite id on its own account too, so
+ * the rule is enforced where it is consumed and not only where it is produced. One
+ * rule, two places it cannot be got wrong.
+ *
+ * `LoraRef.modelId` is optional FOREVER by design (see `types.ts`: rows published
+ * before the field existed can never be backfilled), so there genuinely is no value
+ * to pass through on an old row.
  *
  * 🔴 AN EMPTY `baseModel` IS HONEST AND COSTS NOTHING ON SCREEN. `LoraRef` stores
  * no base model — the LoRA was picked family-scoped to the checkpoint's, so the

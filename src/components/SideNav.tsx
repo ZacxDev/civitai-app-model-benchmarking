@@ -16,11 +16,31 @@
 // them**, and the reason this repo could not adopt the upstream MENU does not carry
 // over to the upstream NAV.
 //
-// 🔵 THE SWAP IS GATED ONLY ON THE FIVE-PACKAGE BUMP, whose own prerequisite is
-// starters **PR #487** (`loading`/`decoding` passthrough on `CivitaiImage`) — still
-// OPEN at the time of writing. The installed versions here are
-// `@civitai/components@0.4.1` / `components-react@0.4.1`, which ship no nav element,
-// so nothing in this file could be verified against the real thing from this repo.
+// 🔵 THE GATE MOVED, AND THIS PARAGRAPH IS RE-MEASURED RATHER THAN RESTATED. It read
+// "THE SWAP IS GATED ONLY ON THE FIVE-PACKAGE BUMP, whose own prerequisite is starters
+// **PR #487** (`loading`/`decoding` passthrough on `CivitaiImage`) — still OPEN at the
+// time of writing". Measured on this tree: #487 has LANDED — `CivitaiImage` in
+// `@civitai/components@0.9.0` declares `loading: ImageLoading` and
+// `decoding: ImageDecoding`, both documented as passed straight through — so that
+// prerequisite is met.
+//
+// 🔴 AND THE "FIVE-PACKAGE BUMP" IS NOW A ONE-PACKAGE BUMP, which is a smaller gate
+// described wrongly. Four of the five moved for the `scope: 'site'` work
+// (`app-sdk@0.54.0`, `blocks-react@0.61.0`, `sdk@0.10.0`, `theme@0.4.0`);
+// `components-react` was deliberately HELD at `^0.4.1`, because nothing peer-depends on
+// it and 0.9.1 is a total API replacement — React `Image`/`Tooltip`/`injectStyles`
+// become Lit custom-element wrappers, `fallback` goes from `ReactNode` to `string`,
+// `wrapperStyle` disappears, and `<civitai-image>`'s `<img>` moves into a shadow root
+// so `src`/`alt` become properties rather than attributes (which breaks
+// `toHaveAttribute('src', …)` at eight sites, `money-path.test.tsx` among them).
+//
+// So the remaining gate on THIS swap is that one bump and the `Image`/`Tooltip`
+// migration that rides with it. The installed versions are still
+// `@civitai/components@0.4.1` / `components-react@0.4.1`, which ship no nav element, so
+// nothing in this file can yet be verified against the real thing from this repo.
+// ⚠️ Note `@civitai/components@0.9.0` IS now in the install graph transitively, via
+// `blocks-react@0.61.0` — but this app imports nothing from it, and 0.4.1 defines ZERO
+// custom elements (measured), so the two copies cannot collide on a tag name.
 //
 // ⚠️ PROVENANCE, STATED PLAINLY: the upstream shape described below was MEASURED BY
 // THE OPERATOR against the real 0.8.1 / 0.9.0 elements, not by this repo. It is

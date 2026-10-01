@@ -1,28 +1,40 @@
 // The MATCHUP DETAIL MODAL's resource titles, driven through the real App.
 //
-// ⚠ THIS FILE WAS `matchupModalLinks.test.tsx` AND ASSERTED THE OPPOSITE. It
-// pinned a checkpoint link, a LoRA link, and two `NAVIGATE` payloads carrying
-// `target: 'current'`. Renamed and inverted rather than deleted, because the
-// SUBJECT did not change — "what does this modal do when a viewer presses a
-// resource name" — only the answer did. The links were removed before release:
-// all three routes out of a block's sandboxed iframe are shut, and the one that is
-// permitted would land the viewer on civitai.com LOGGED OUT.
-// `components/ResourceName.tsx`'s header carries the measurement, including the live
-// `sandbox="allow-scripts allow-forms"` reading that settled it. (It used to say
-// `lib/resourceLink.ts`; that module is deleted and the record moved rather than went.)
+// ⚠ THIS FILE HAS NOW ASSERTED BOTH ANSWERS, AND THE HISTORY IS THE POINT. It began
+// as `matchupModalLinks.test.tsx` pinning a checkpoint link, a LoRA link and two
+// `NAVIGATE` payloads. It was renamed and INVERTED when the links were removed before
+// release — every route out of a block's sandboxed iframe was shut. It is inverted
+// BACK now, because `civitai/civitai` **#5250** shipped `scope: 'site'` on `NAVIGATE`
+// and opened one of those routes. The SUBJECT never changed — "what does this modal do
+// when a viewer presses a resource name" — only the answer, twice. Renaming rather
+// than deleting is what makes that legible.
 //
-// 🔴 WHAT THIS FILE COVERS THAT `components/ResourceName.test.tsx` CANNOT: the
-// SEAM. `ResourceName` is trivially correct in isolation — it is one `<span>` —
-// and its own tests are structurally blind to a MODAL that renders a title some
-// other way, or that keeps a stray handler on an ancestor. The cases below open the
-// real modal, enumerate every title in it, press each one, and watch the outbound
-// message stream. "Verified in isolation" is exactly how a dead affordance would
-// survive here.
+// 🔴 WHAT SURVIVED THE INVERSION, AND MUST KEEP SURVIVING IT. The old file's zeros on
+// `window.open` / `location.href` / `location.assign` / `location.replace` are NOT
+// relics of the no-navigation posture — they pin a hazard that is unchanged. An
+// `<a href>` or a `location.href =` inside this iframe navigates THE IFRAME, replacing
+// the running block with an opaque-origin, logged-out civitai.com inside the app
+// frame, and same-frame navigation needs no sandbox token at all. The ONE channel that
+// is legitimate is the host message. So this file now asserts a POSITIVE on that
+// channel and keeps every negative on the others.
 //
-// 🔴 THE TWO FIXTURES STILL DIFFER ON `modelId`, and that is deliberate even though
-// nothing renders it now: a LoRA WITH the field and a LoRA WITHOUT it must be
-// INDISTINGUISHABLE in the DOM. A modal that still branched on it — the state this
-// change removed — shows up as a difference between them.
+// 🔴 WHAT THIS FILE COVERS THAT `components/ResourceName.test.tsx` CANNOT: the SEAM.
+// `ResourceName` can be perfect in isolation while the MODAL renders a title some
+// other way, forgets to pass `modelId`, or passes the WRONG one. The cases below open
+// the real modal, enumerate every title in it, press each one, and read the outbound
+// message stream — so a modal that wired the checkpoint's id onto the LoRA fails here
+// and nowhere else. "Verified in isolation" is exactly how that would survive.
+//
+// 🔴 THE TWO LoRA FIXTURES DIFFER ON `modelId`, AND NOW THEY MUST RENDER DIFFERENTLY.
+// That is the reverse of what this file asserted a moment ago (they had to be
+// INDISTINGUISHABLE), and it is the same fixture pair doing the work: a LoRA published
+// before the field existed can never be backfilled, so it has no page to go to and
+// must stay plain text while its neighbour becomes a control.
+//
+// 🔴 EVERY ID IN THE FIXTURES IS PAIRWISE DISTINCT — checkpoint model 500 / version
+// 1001, LoRA model 900 / version 2002. Fixtures whose values could coincide cannot see
+// a mutant that reads the checkpoint's model id for the LoRA, or the model id where the
+// version id belongs.
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -68,7 +80,7 @@ function comboRow(key: string, title: string, loras: unknown[]): SharedItem {
   } as unknown as SharedItem;
 }
 
-/** A LoRA written AFTER `LoraRef.modelId` existed. Still not rendered as a link. */
+/** A LoRA written AFTER `LoraRef.modelId` existed — the LINKABLE one. */
 const WITH_MODEL_ID = {
   versionId: 2002,
   modelId: 900,
@@ -78,7 +90,7 @@ const WITH_MODEL_ID = {
   maxStrength: 1.5,
 };
 
-/** A LoRA written BEFORE the field existed — permanently without it. */
+/** A LoRA written BEFORE the field existed — permanently without it, so permanently plain. */
 const WITHOUT_MODEL_ID = {
   versionId: 4004,
   weight: 0.6,
@@ -144,11 +156,16 @@ async function openMatchupDetail(): Promise<HTMLElement> {
   return screen.findByTestId('matchup-detail');
 }
 
+/** Every `NAVIGATE` payload the block has asked the host for, in order. */
+function navigates(seen: { type: string; payload?: unknown }[]): unknown[] {
+  return seen.filter((m) => m.type === 'NAVIGATE').map((m) => m.payload);
+}
+
 // ---------------------------------------------------------------------------
 // NAVIGATION INTERCEPTION — every channel this jsdom lets a test observe.
 //
 // 🔴 WHY THIS EXISTS, AND IT IS A GAP THAT WAS FOUND BY MUTATION, NOT BY REVIEW.
-// The first version of the behavioural case below asserted only that no `NAVIGATE`
+// An earlier version of the behavioural case asserted only that no `NAVIGATE`
 // message was emitted. That pins a MECHANISM, not a STATE — and two isolated
 // mutants walked straight past it. Each added ONLY an `onClick` to `ResourceName`,
 // keeping the `<span>`, keeping `textDecoration: 'none'`, touching nothing else:
@@ -156,16 +173,17 @@ async function openMatchupDetail(): Promise<HTMLElement> {
 //     onClick={() => window.open('https://civitai.com/models/1', '_blank')}
 //     onClick={() => { window.location.href = 'https://civitai.com/models/1' }}
 //
-// Both SURVIVED a full green suite (781 passed, rc 0): tag is `SPAN`, no `role`, no
-// `<a>` in the subtree, and neither emits a host message — while the element is
-// fully interactive and does exactly the broken thing the component exists to
-// prevent.
+// Both SURVIVED a full green suite (781 passed, rc 0): tag was `SPAN`, no `role`, no
+// `<a>` in the subtree, and neither emits a host message.
 //
-// 🔴 THE SECOND MUTANT IS THE SERIOUS ONE. Same-frame navigation needs NO sandbox
-// token at all — `allow-top-navigation` governs the TOP context, not the frame's
-// own — so `window.location.href = …` genuinely executes in production and replaces
-// the running block with civitai.com INSIDE the app frame, at an opaque origin,
-// logged out. A live, visible, broken state.
+// 🔴 AND THAT IS WHY THE RECORDER SURVIVES #5250 UNCHANGED. The component is a control
+// now, so "is it interactive" no longer separates right from wrong — WHICH CHANNEL it
+// reaches for is the whole question. The second mutant above is still the serious one:
+// same-frame navigation needs NO sandbox token at all (`allow-top-navigation` governs
+// the TOP context, not the frame's own), so `window.location.href = …` genuinely
+// executes in production and replaces the running block with civitai.com INSIDE the
+// app frame, at an opaque origin, logged out. A live, visible, broken state — and one
+// that would look, to a viewer, almost exactly like the feature working.
 //
 // ── 🔴 WHAT IS COVERED, AND WHAT IS NOT — MEASURED, NOT ASSUMED ──────────────
 //
@@ -209,8 +227,8 @@ async function openMatchupDetail(): Promise<HTMLElement> {
 //     `document.` spelling escapes.
 //   ✗ a programmatically created-and-clicked `<a href>`. jsdom performs no
 //     navigation for it and reports nothing this recorder can see (measured: no
-//     throw, `href` unchanged). The subtree sweep in the case above catches an
-//     anchor that is RENDERED; one created in a handler is invisible.
+//     throw, `href` unchanged). The subtree sweep below catches an anchor that is
+//     RENDERED; one created in a handler is invisible.
 //
 // Neither is a shape anyone writes by accident while trying to make a title
 // clickable, which is the threat model here. They are real, and they are named.
@@ -283,14 +301,17 @@ function interceptNavigation(): { rec: NavRecorder; restore: () => void } {
   };
 }
 
-describe('the matchup detail modal renders its resources as plain text', () => {
-  it('🔴 shows every resource name, and NONE of them is interactive', async () => {
+describe('the matchup detail modal links its resources to civitai.com', () => {
+  it('🔴 shows every resource name; the linkable ones are controls and the un-linkable one is not', async () => {
     mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
     const modal = await openMatchupDetail();
 
-    // The names are all THERE — this is the positive control for every null
-    // below. A modal that rendered no resources at all would otherwise satisfy
-    // "nothing is a link" perfectly.
+    // The names are all THERE — the positive control for every assertion below. A
+    // modal that rendered no resources at all would satisfy half of them perfectly.
+    const byName = (t: string) =>
+      within(modal)
+        .getAllByTestId('resource-name')
+        .find((el) => el.textContent === t)!;
     const names = within(modal)
       .getAllByTestId('resource-name')
       .map((el) => el.textContent);
@@ -298,31 +319,51 @@ describe('the matchup detail modal renders its resources as plain text', () => {
     expect(names).toContain('Detail Tweaker');
     expect(names).toContain('Old Tweaker');
 
-    // …and NOT ONE of them is a control, on three independent readings.
-    for (const el of within(modal).getAllByTestId('resource-name')) {
-      expect(el.tagName).toBe('SPAN');
-      expect(el).toHaveStyle({ textDecoration: 'none' });
-      expect(el).not.toHaveAttribute('role');
+    // 🔴 THE LINKABLE PAIR — a control, and one that SAYS WHERE IT GOES. The
+    // accessible name is asserted because the visible text is only the model name:
+    // a viewer about to leave the app has to be told, and `aria-label` is the only
+    // thing that tells them.
+    for (const t of ['JuggernautXL', 'Detail Tweaker']) {
+      const el = byName(t);
+      expect(el.tagName, `${t} is not a control`).toBe('BUTTON');
+      expect(el).toHaveAttribute('type', 'button');
+      expect(el).toHaveAccessibleName(`Open ${t} on Civitai`);
+      // Not `'none'` — the affordance a touch viewer can actually see, where a
+      // pointer cursor never appears at all.
+      expect(el).not.toHaveStyle({ textDecoration: 'none' });
+      expect(el).toHaveStyle({ textDecoration: 'underline' });
     }
-    // 🔴 AND THE MODAL HOLDS NO LINK AT ALL — a whole-subtree sweep, not a
-    // per-name check, because the affordance could be reintroduced on a WRAPPER
-    // rather than on the name itself and every assertion above would stay green.
+
+    // 🔴 AND THE UN-LINKABLE ONE IS UNCHANGED — not a disabled button, not a styled
+    // control: the same inert `<span>` it has always been. `LoraRef.modelId` is
+    // optional forever, so this is a permanent case and not a migration state.
+    const legacy = byName('Old Tweaker');
+    expect(legacy.tagName).toBe('SPAN');
+    expect(legacy).toHaveStyle({ textDecoration: 'none' });
+    expect(legacy).not.toHaveAttribute('role');
+
+    // 🔴 AND THE MODAL STILL HOLDS NO ANCHOR AT ALL — a whole-subtree sweep, and the
+    // guard that did NOT invert with the rest of this file. An `<a href>` here would
+    // navigate THIS iframe to an opaque-origin, logged-out civitai.com; that hazard is
+    // untouched by #5250. Also `role="link"`: a button must not announce itself as one,
+    // because middle-click, copy-link-address and a status-bar URL do not exist here.
     expect(modal.querySelectorAll('a')).toHaveLength(0);
     expect(within(modal).queryAllByRole('link')).toHaveLength(0);
   });
 
-  it('🔴 pressing every resource name navigates NOWHERE, by ANY channel', async () => {
-    // The behavioural half, and the one that has to pin a STATE rather than a
-    // mechanism: a `<span onClick>` carries no role and no tag a structural check
-    // can see, so the only thing that settles it is pressing each title and
-    // watching every channel a handler could reach for. See the header above for
-    // which channels those are, which two mutants proved the earlier
-    // NAVIGATE-only version blind to, and what is still not covered.
+  it('🔴 pressing a resource name asks the host to leave for civitai.com, by THAT channel only', async () => {
     const { seen } = mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
     const modal = await openMatchupDetail();
 
-    const titles = within(modal).getAllByTestId('resource-name');
-    expect(titles.length, 'no resource titles rendered — the sweep below is vacuous').toBe(3);
+    const byName = (t: string) =>
+      within(modal)
+        .getAllByTestId('resource-name')
+        .find((el) => el.textContent === t)!;
+    expect(
+      within(modal).getAllByTestId('resource-name').length,
+      'no resource titles rendered — every assertion below is vacuous',
+    ).toBe(3);
+    expect(navigates(seen), 'a NAVIGATE was sent before anything was pressed').toEqual([]);
 
     const { rec, restore } = interceptNavigation();
     try {
@@ -338,7 +379,12 @@ describe('the matchup detail modal renders its resources as plain text', () => {
       window.location.assign('control://assign');
       window.location.replace('control://replace');
       expect(
-        { open: rec.open.length, href: rec.href.length, assign: rec.assign.length, replace: rec.replace.length },
+        {
+          open: rec.open.length,
+          href: rec.href.length,
+          assign: rec.assign.length,
+          replace: rec.replace.length,
+        },
         'a navigation channel could not be observed — the zeros below would be meaningless',
       ).toEqual({ open: 1, href: 2, assign: 1, replace: 1 });
 
@@ -348,34 +394,80 @@ describe('the matchup detail modal renders its resources as plain text', () => {
       rec.assign.length = 0;
       rec.replace.length = 0;
 
-      for (const el of titles) await userEvent.click(el);
+      // ---- THE CHECKPOINT TITLE ----
+      //
+      // 🔴 THE WHOLE PAYLOAD, BY VALUE, IN ONE ASSERTION — not `toContain`, not a
+      // `path` check with `scope` left unread. Three mutants live in these three
+      // fields and each would pass a looser test:
+      //
+      //   - drop `{ scope: 'site' }` → the field is OMITTED (the SDK sends it only
+      //     when set) and the host resolves the path under THIS APP's own route,
+      //     shallowly. Nothing errors, no message is missing, and the viewer stays
+      //     in the app looking at a URL the route does not serve. That is the
+      //     pre-#5250 behaviour returning silently, and an exact-object compare is
+      //     the only thing that sees it.
+      //   - drop the `?modelVersionId=` suffix → the link lands on the model's
+      //     DEFAULT version, which is the wrong one for a benchmark citing an exact
+      //     checkpoint build.
+      //   - read the wrong id → caught because 500 / 1001 / 900 / 2002 are pairwise
+      //     distinct.
+      //
+      // `target: 'current'` is asserted because it is the operator's decision, not a
+      // default we are indifferent to: `'new_tab'` needs a sandbox token the host
+      // strips from every block, and the host's own note records it as unmeasured
+      // outside Chromium. A silent switch to it would be a dead control.
+      await userEvent.click(byName('JuggernautXL'));
+      expect(navigates(seen)).toEqual([
+        { path: 'models/500?modelVersionId=1001', scope: 'site', target: 'current' },
+      ]);
 
-      // 🔴 THE WHOLE RECORDER, IN ONE ASSERTION. Compared as an object rather than
-      // four separate `toHaveLength(0)` calls so a failure REPORTS THE URL a
-      // handler reached for — "expected { href: ['https://civitai.com/models/1'] }
+      // ---- THE LINKABLE LoRA ----
+      // Its OWN ids, which is the seam assertion: the modal must pass `l.modelId`
+      // and `l.versionId`, not the enclosing config's checkpoint.
+      await userEvent.click(byName('Detail Tweaker'));
+      expect(navigates(seen)).toEqual([
+        { path: 'models/500?modelVersionId=1001', scope: 'site', target: 'current' },
+        { path: 'models/900?modelVersionId=2002', scope: 'site', target: 'current' },
+      ]);
+
+      // ---- THE UN-LINKABLE LoRA ----
+      // 🔴 PRESSED ANYWAY. "It is a span" is a structural claim; this is the
+      // behavioural one, and it is the half that catches a `<span onClick>` — the
+      // exact shape of the two mutants in the header above.
+      await userEvent.click(byName('Old Tweaker'));
+      expect(
+        navigates(seen),
+        'a resource with no modelId asked the host to navigate — to where?',
+      ).toHaveLength(2);
+
+      // 🔴 AND NOT ONE OF THE THREE PRESSES TOUCHED A SAME-FRAME CHANNEL. Compared as
+      // a whole object rather than four `toHaveLength(0)` calls so a failure REPORTS
+      // THE URL a handler reached for — "expected { href: ['https://civitai.com/…'] }
       // to equal {}" names the mutant; "expected 1 to be 0" does not.
-      expect(rec, 'a resource title navigated — nothing may advertise an action it cannot perform').toEqual(
-        { open: [], href: [], assign: [], replace: [] },
-      );
+      expect(
+        rec,
+        'a resource title navigated the IFRAME — the host message is the only legitimate channel',
+      ).toEqual({ open: [], href: [], assign: [], replace: [] });
     } finally {
       // Restore BEFORE any assertion can throw past it — a leaked `window.location`
       // stand-in would corrupt every later case in this file.
       restore();
     }
 
-    // …and the host message channel, which is a separate claim from the three
-    // above: `useCivitaiNavigate` does not touch `window.location` at all, it posts
-    // a message. 🔴 POSITIVE CONTROL ON THIS OBSERVER TOO — the mock host reports
-    // the handshake and RESIZE regardless, so a zero from the filter alone could
-    // equally mean an observer wired to nothing.
+    // 🔴 POSITIVE CONTROL ON THE MESSAGE OBSERVER TOO. The two `toEqual` assertions
+    // above are positives and so cannot be satisfied by an observer wired to nothing
+    // — but the `toHaveLength(2)` one is a bounded negative, so say out loud that this
+    // stream carries traffic of its own (the handshake and RESIZE) and is being read.
     expect(seen.length, 'the outbound observer saw nothing at all').toBeGreaterThan(0);
-    expect(seen.filter((m) => m.type === 'NAVIGATE')).toHaveLength(0);
   });
 
-  it('🔴 a LoRA WITH a modelId and one WITHOUT render identically', async () => {
-    // The state this change removed. `modelId` is still stored and round-tripped —
-    // `renameWireCompat.test.ts` covers both directions — so the field is present
-    // on one of these two and absent on the other, and the DOM must not care.
+  it('🔴 a LoRA WITH a modelId and one WITHOUT render as DIFFERENT elements', async () => {
+    // ⚠️ THIS CASE USED TO ASSERT THE EXACT OPPOSITE — "render identically", down to an
+    // `outerHTML` comparison with the names substituted out. It is inverted rather than
+    // deleted because it is the same question (does the DOM reveal `modelId`?) and the
+    // answer moved: before #5250 a difference was the defect, now sameness is. The old
+    // form would pass if `ResourceName` ignored `modelId` altogether, which is the
+    // regression this now catches.
     mount([comboRow('mk1', 'Mixed Combo', [WITHOUT_MODEL_ID, WITH_MODEL_ID])]);
     const modal = await openMatchupDetail();
 
@@ -386,11 +478,13 @@ describe('the matchup detail modal renders its resources as plain text', () => {
     const linked = byName('Detail Tweaker');
     const legacy = byName('Old Tweaker');
 
-    expect(linked.tagName).toBe(legacy.tagName);
-    expect(linked.getAttribute('style')).toBe(legacy.getAttribute('style'));
-    expect(linked.outerHTML.replace('Detail Tweaker', 'X')).toBe(
-      legacy.outerHTML.replace('Old Tweaker', 'X'),
-    );
+    expect(linked.tagName).toBe('BUTTON');
+    expect(legacy.tagName).toBe('SPAN');
+    // 🔴 THE SHARED TESTID IS DELIBERATE AND IS ASSERTED. Several suites enumerate
+    // resource titles by it; a split into `resource-link`/`resource-name` would make
+    // every one of those counts silently partial.
+    expect(linked).toHaveAttribute('data-testid', 'resource-name');
+    expect(legacy).toHaveAttribute('data-testid', 'resource-name');
   });
 
   it('shows no badges in the modal — the third IA pass removed every one', async () => {

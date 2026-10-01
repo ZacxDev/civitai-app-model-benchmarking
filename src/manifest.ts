@@ -29,7 +29,7 @@
 //      runtime dependencies so it can ship into the sandboxed iframe.
 //
 // This module is already test-only (`manifest.test.ts` is its only importer, and
-// `navigationDormancy.test.ts`'s ledger asserts it is outside `main.tsx`'s graph), so
+// `sourceScanLedger.test.ts`'s ledger asserts it is outside `main.tsx`'s graph), so
 // the node-only subpath costs the browser bundle nothing.
 //
 // ⚠️ PASSING THIS IS NECESSARY, NOT SUFFICIENT. `defineBlock`'s own `KNOWN_GAPS`

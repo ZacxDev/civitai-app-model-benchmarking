@@ -323,7 +323,7 @@ ONE bridge transport serve both packages, so the block never stands up two). One
 module is neither pure logic nor transport: [`sourceScan.ts`](src/lib/sourceScan.ts)
 reads `node:fs` and exists only for the structural test guards (the `src/` walker and
 the production-import walk they share). Nothing in production may import it, and
-`navigationDormancy.test.ts`'s scaffolding ledger asserts that it does not.
+`sourceScanLedger.test.ts`'s scaffolding ledger asserts that it does not.
 
 <!-- lib-inventory:end -->
 
