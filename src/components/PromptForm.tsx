@@ -26,6 +26,7 @@ import { metaText } from '../theme.js';
 import { validatePrompt, type PromptInput } from '../lib/benchmark.js';
 import { ECOSYSTEMS, ecosystemMeta } from '../lib/ecosystem.js';
 import { defaultParamsForEcosystem, SAMPLERS, isKnownSampler } from '../lib/gen-defaults.js';
+import { ContentStep, MetaStep, StepNav, type FormStep } from './FormSteps.js';
 
 /** Sampler dropdown options: a "no sampler" choice (Flux uses none), every known
  * sampler, and — so an edit never silently drops an older stored value — the
@@ -46,6 +47,12 @@ export interface PromptFormProps {
   initial?: PromptInput;
   /** Submit button label (defaults to "Submit prompt"; "Save changes" in edit mode). */
   submitLabel?: string;
+  /**
+   * Two-step CREATE flow: the prompt first, then name + description. FALSE (the
+   * default) is the single-page EDIT shape. Set by `App.tsx` from the modal kind,
+   * never inferred from `initial` — see `FormSteps.tsx`.
+   */
+  multiStep?: boolean;
 }
 
 /** The default section always exists; seed its params with the SDXL-family
@@ -157,7 +164,13 @@ function ParamFields({
   );
 }
 
-export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptFormProps): React.JSX.Element {
+export function PromptForm({
+  onSubmit,
+  onCancel,
+  initial,
+  submitLabel,
+  multiStep = false,
+}: PromptFormProps): React.JSX.Element {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [def, setDef] = useState<PromptDefault>(() => initial?.default ?? seedDefault());
@@ -166,6 +179,24 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
     overridesFromInitial(initial),
   );
   const [addEco, setAddEco] = useState<string>(ECOSYSTEMS[0].key);
+  const [step, setStep] = useState<FormStep>('content');
+  /**
+   * Whether the per-ecosystem override PICKER is revealed.
+   *
+   * 🔴 COLLAPSED BY DEFAULT, AND THE DEFAULT IS COMPUTED FROM THE PREFILL, NOT
+   * HARDCODED. Overrides are the rare case — a prompt runs its DEFAULT on every
+   * ecosystem unless the author narrows it — so the ecosystem `Select` plus its
+   * two-line hint were permanent chrome in front of a feature most authors never
+   * use. But a prompt that ALREADY HAS overrides is being edited by someone who
+   * clearly does use them, and collapsing the picker there would hide the only
+   * control that adds the next one, directly above the override cards it adds.
+   *
+   * ⚠️ IT IS `useState`, SO IT IS THE INITIAL VALUE ONLY — removing the last
+   * override does NOT re-collapse the picker. That is deliberate: a control
+   * vanishing underneath the button you just pressed is worse than a revealed
+   * control you can ignore.
+   */
+  const [showOverrides, setShowOverrides] = useState(() => overridesFromInitial(initial).length > 0);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -220,23 +251,34 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
 
   return (
     <Stack gap={14} data-testid="prompt-form">
-      <TextInput
-        label="Prompt name"
-        required
-        value={name}
-        onChange={(e) => setName(e.currentTarget.value)}
-        placeholder="e.g. Cyberpunk portrait"
-        data-testid="prompt-name"
-      />
-      <Textarea
-        label="Description"
-        value={description}
-        onChange={(e) => setDescription(e.currentTarget.value)}
-        placeholder="What is this prompt testing?"
-        data-testid="prompt-description"
-        minRows={2}
-      />
+      {/* 🔴 `MetaStep` FIRST — see the same comment in `MatchupForm`. In two-step
+          mode only one of the two renders, so this is invisible; in SINGLE-PAGE
+          (edit) mode it is the field order, and the name belongs at the top where
+          it has always been. This form is the worst case for getting it wrong: the
+          default-prompt card plus one override card is already a long scroll. */}
+      <MetaStep multiStep={multiStep} step={step}>
+        <Stack gap={14}>
+          <TextInput
+            label="Prompt name"
+            required
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            placeholder="e.g. Cyberpunk portrait"
+            data-testid="prompt-name"
+          />
+          <Textarea
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            placeholder="What is this prompt testing?"
+            data-testid="prompt-description"
+            minRows={2}
+          />
+        </Stack>
+      </MetaStep>
 
+      <ContentStep multiStep={multiStep} step={step}>
+        <Stack gap={14}>
       {/* DEFAULT section — always present; applies to every ecosystem. */}
       <Card withBorder padding="md" data-testid="prompt-default">
         <Stack gap={10}>
@@ -260,28 +302,46 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
         </Stack>
       </Card>
 
-      {/* OPTIONAL per-ecosystem overrides. */}
-      <Card withBorder padding="md">
-        <Group gap={8} align="flex-end">
-          <div style={{ flex: 1 }}>
-            <Select
-              label="Add a per-ecosystem override"
-              value={addEco}
-              onChange={setAddEco}
-              options={available.map((e) => ({ value: e.key, label: e.label }))}
-              disabled={available.length === 0}
-              data-testid="prompt-add-override-select"
-            />
-          </div>
-          <Button onClick={addOverride} disabled={available.length === 0} data-testid="prompt-add-override">
+      {/* OPTIONAL per-ecosystem overrides, COLLAPSED behind one secondary button.
+          🔴 THE WHOLE BLOCK COLLAPSES — the ecosystem `Select`, the add button AND
+          the hint. Hiding only the select would leave an "Add override" button that
+          cannot say which ecosystem it is about; hiding only the hint would leave the
+          chrome and drop the explanation, which is the half that earns its space.
+          See `showOverrides` for why the initial value is computed, not hardcoded. */}
+      {showOverrides ? (
+        <Card withBorder padding="md">
+          <Group gap={8} align="flex-end">
+            <div style={{ flex: 1 }}>
+              <Select
+                label="Add a per-ecosystem override"
+                value={addEco}
+                onChange={setAddEco}
+                options={available.map((e) => ({ value: e.key, label: e.label }))}
+                disabled={available.length === 0}
+                data-testid="prompt-add-override-select"
+              />
+            </div>
+            <Button onClick={addOverride} disabled={available.length === 0} data-testid="prompt-add-override">
+              Add override
+            </Button>
+          </Group>
+          <span style={{ ...metaText, display: 'block', marginTop: 6 }} data-testid="prompt-overrides-hint">
+            Optional. A model runs the DEFAULT prompt unless you add an override for its
+            checkpoint's ecosystem (SDXL, Pony, Flux, …).
+          </span>
+        </Card>
+      ) : (
+        <Group justify="flex-start">
+          <Button
+            size="sm"
+            variant="light"
+            onClick={() => setShowOverrides(true)}
+            data-testid="prompt-override-reveal"
+          >
             Add override
           </Button>
         </Group>
-        <span style={{ ...metaText, display: 'block', marginTop: 6 }} data-testid="prompt-overrides-hint">
-          Optional. A config runs the DEFAULT prompt unless you add an override for its checkpoint's ecosystem
-          (SDXL, Pony, Flux, …).
-        </span>
-      </Card>
+      )}
 
       {overrides.map(({ eco, value }) => (
         <Card key={eco} withBorder padding="md" data-testid="prompt-override-entry" data-eco={eco}>
@@ -314,7 +374,11 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
           </Stack>
         </Card>
       ))}
+        </Stack>
+      </ContentStep>
 
+      {/* 🔴 OUTSIDE BOTH STEPS — `validatePrompt` runs over the whole input, so an
+          error raised on step 2 can be about step 1's prompt text. */}
       {errors.length > 0 && (
         <Alert color="error" data-testid="prompt-errors">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -329,9 +393,14 @@ export function PromptForm({ onSubmit, onCancel, initial, submitLabel }: PromptF
         <Button variant="subtle" onClick={onCancel} data-testid="prompt-cancel">
           Cancel
         </Button>
-        <Button onClick={submit} loading={busy} data-testid="prompt-submit">
-          {submitLabel ?? 'Submit prompt'}
-        </Button>
+        {multiStep && (
+          <StepNav step={step} onNext={() => setStep('meta')} onBack={() => setStep('content')} />
+        )}
+        {(!multiStep || step === 'meta') && (
+          <Button onClick={submit} loading={busy} data-testid="prompt-submit">
+            {submitLabel ?? 'Submit prompt'}
+          </Button>
+        )}
       </Group>
     </Stack>
   );

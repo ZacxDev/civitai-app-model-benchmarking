@@ -23,6 +23,19 @@ async function fillDefault(form: HTMLElement, name = 'P', prompt = 'a cat') {
   fireEvent.change(within(form).getByTestId('prompt-default-text'), { target: { value: prompt } });
 }
 
+/**
+ * Reveal the per-ecosystem override PICKER, which is collapsed behind one
+ * secondary button for a prompt that has no overrides yet.
+ *
+ * ⚠️ A HELPER, NOT A BYPASS — the collapse itself is pinned by its own paired case
+ * below. This exists so the cases that are ABOUT override behaviour do not each
+ * re-assert the reveal, which would make that one case's failure the only honest
+ * report of a broken collapse.
+ */
+async function revealOverrides(form: HTMLElement) {
+  await userEvent.click(within(form).getByTestId('prompt-override-reveal'));
+}
+
 describe('PromptForm default section', () => {
   it('seeds the default params with the SDXL-family generator defaults, threaded to onSubmit', async () => {
     const { onSubmit, form } = renderForm();
@@ -97,6 +110,7 @@ describe('PromptForm per-ecosystem overrides', () => {
     const { onSubmit, form } = renderForm();
     await fillDefault(form, 'P', 'default prompt');
 
+    await revealOverrides(form);
     await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Pony');
     await userEvent.click(within(form).getByTestId('prompt-add-override'));
     const entry = await within(form).findByTestId('prompt-override-entry');
@@ -120,6 +134,7 @@ describe('PromptForm per-ecosystem overrides', () => {
   it('a Flux override pre-fills Flux params (cfg 3.5 / steps 25, NO sampler / clipSkip)', async () => {
     const { onSubmit, form } = renderForm();
     await fillDefault(form, 'P', 'base');
+    await revealOverrides(form);
     await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Flux');
     await userEvent.click(within(form).getByTestId('prompt-add-override'));
     const entry = await within(form).findByTestId('prompt-override-entry');
@@ -136,6 +151,7 @@ describe('PromptForm per-ecosystem overrides', () => {
   it('removes an override', async () => {
     const { onSubmit, form } = renderForm();
     await fillDefault(form, 'P', 'base');
+    await revealOverrides(form);
     await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Pony');
     await userEvent.click(within(form).getByTestId('prompt-add-override'));
     const entry = await within(form).findByTestId('prompt-override-entry');
@@ -165,5 +181,214 @@ describe('PromptForm edit mode', () => {
     expect(entry).toHaveAttribute('data-eco', 'Flux');
     expect((within(entry).getByTestId('prompt-override-text') as HTMLTextAreaElement).value).toBe('stored flux');
     expect(screen.getByTestId('prompt-submit')).toHaveTextContent('Save changes');
+  });
+
+  it('🔴 puts the NAME above the default-prompt section, as it always has', () => {
+    // See the same case in `MatchupForm.test.tsx`. This form is the worst case for
+    // getting it wrong — the default card plus its generation params plus one
+    // override card is already a long scroll, so a name input underneath all of it
+    // is a long way from the field an author came for. DOCUMENT ORDER only; jsdom
+    // performs no layout.
+    const initial: PromptInput = {
+      name: 'Existing',
+      description: '',
+      default: { prompt: 'stored default', params: {} },
+      overrides: {},
+    };
+    render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+
+    const nameInput = screen.getByTestId('prompt-name');
+    const def = screen.getByTestId('prompt-default');
+    expect(
+      nameInput.compareDocumentPosition(def) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the name input is BELOW the default-prompt section on the single-page edit form',
+    ).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 THE OVERRIDE BLOCK COLLAPSES BEHIND ONE SECONDARY BUTTON.
+//
+// What collapses is the WHOLE block — the ecosystem `Select`, the add button AND
+// the hint. Overrides are the rare case (a prompt runs its default on every
+// ecosystem unless narrowed), so that was permanent chrome in front of a feature
+// most authors never touch.
+//
+// 🔴 PAIRED IN ONE CASE. "The picker is absent" alone passes against a form that
+// deleted the feature outright; "the picker is present" alone passes against the
+// old always-visible block. Both directions, one case, or neither is coverage.
+// ---------------------------------------------------------------------------
+
+describe('🔴 the collapsed per-ecosystem override block', () => {
+  it('🔴 hides the whole block until the secondary button is pressed, then shows ALL of it', async () => {
+    const { form } = renderForm();
+
+    // POSITIVE CONTROL: the form and its DEFAULT section are mounted, so the nulls
+    // below are a collapsed block rather than an unrendered form.
+    expect(within(form).getByTestId('prompt-default')).toBeInTheDocument();
+
+    // Collapsed: all three parts absent, one button in their place.
+    expect(within(form).queryByTestId('prompt-add-override-select')).toBeNull();
+    expect(within(form).queryByTestId('prompt-add-override')).toBeNull();
+    expect(within(form).queryByTestId('prompt-overrides-hint')).toBeNull();
+    const reveal = within(form).queryByTestId('prompt-override-reveal');
+    expect(reveal, 'no control offers the overrides at all').not.toBeNull();
+    expect(reveal).toHaveTextContent('Add override');
+
+    await userEvent.click(reveal!);
+
+    // Revealed: all three parts present, and the reveal button has done its job and
+    // gone — leaving two "Add override" buttons would be two controls doing
+    // different things under one name.
+    //
+    // 🔴 EACH CARRIES ITS OWN MESSAGE. A bare `.not.toBeNull()` fails as "expected
+    // null not to be null", which does not say WHICH of the three parts stayed
+    // hidden — measured, from the mutant whose reveal button does not reveal.
+    expect(
+      within(form).queryByTestId('prompt-add-override-select'),
+      'the ecosystem select stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-add-override'),
+      'the add-override button stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-overrides-hint'),
+      'the explanatory hint stayed hidden after the reveal',
+    ).not.toBeNull();
+    expect(
+      within(form).queryByTestId('prompt-override-reveal'),
+      'the reveal button is still there — two controls now spell "Add override"',
+    ).toBeNull();
+  });
+
+  // ⚠️ GREEN AT BASE — NEW-FEATURE COVERAGE, NOT REGRESSION COVERAGE. At `ec57a8f`
+  // `prompt-override-reveal` does not exist for ANY prompt, so this case's first
+  // assertion is satisfied by the feature's absence rather than by the behaviour it
+  // describes. It is still worth having — it kills the real mutant (seeding
+  // `showOverrides` to a hardcoded `false`, verified) — but it was not watched
+  // failing on pre-change code and must not be counted as if it had been.
+  it('⚠️ INVARIANT GUARD (green at base): starts REVEALED when the prefill already carries overrides', () => {
+    // An author who is editing a prompt that HAS overrides demonstrably uses them,
+    // and collapsing the picker there would hide the only control that adds the next
+    // one — directly above the override cards it adds.
+    const initial: PromptInput = {
+      name: 'Existing',
+      description: '',
+      default: { prompt: 'stored default', params: {} },
+      overrides: { Flux: { prompt: 'stored flux', params: {} } },
+    };
+    render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+
+    expect(
+      screen.queryByTestId('prompt-override-reveal'),
+      'a prompt that ALREADY has overrides opened with the picker collapsed',
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('prompt-add-override-select'),
+      'the ecosystem select is missing on a prompt that already has overrides',
+    ).not.toBeNull();
+    expect(
+      screen.queryByTestId('prompt-overrides-hint'),
+      'the hint is missing on a prompt that already has overrides',
+    ).not.toBeNull();
+  });
+
+  // ⚠️ PURE INVARIANT GUARD, GREEN AT BASE AND GREEN AT HEAD. Override entries have
+  // always rendered unconditionally; the collapse never touched them. This pins the
+  // boundary of what the collapse is allowed to hide — authored content is not
+  // chrome — and that boundary is exactly what a future "tidy the overrides away"
+  // change would cross. It is not evidence of this PR fixing anything.
+  it('⚠️ INVARIANT GUARD (green at base): does NOT hide the override ENTRIES, only the picker', async () => {
+    // The distinction that makes the collapse safe: an override an author has
+    // already authored is content, not chrome, and stays on screen. A collapse that
+    // swallowed the entries too would hide authored data behind a button.
+    const initial: PromptInput = {
+      name: 'Existing',
+      description: '',
+      default: { prompt: 'stored default', params: {} },
+      overrides: { Flux: { prompt: 'stored flux', params: {} } },
+    };
+    render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+    expect(screen.getByTestId('prompt-override-entry')).toHaveAttribute('data-eco', 'Flux');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 THE TWO-STEP CREATE FLOW — paired, for the same reason as `MatchupForm`'s.
+// ---------------------------------------------------------------------------
+
+describe('🔴 the two-step CREATE flow', () => {
+  it('🔴 pages a NEW prompt (prompt text, then name) and pages an EDIT not at all', async () => {
+    const { unmount } = render(
+      <PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} multiStep />,
+    );
+
+    // Step 1: the prompt itself, no name, no submit.
+    // 🔴 EVERY READ CARRIES ITS OWN MESSAGE — a bare `.not.toBeNull()` reports
+    // "expected null not to be null", which names nothing in a case that makes a
+    // dozen of them across two shapes.
+    expect(
+      screen.queryByTestId('form-step-content'),
+      'a NEW prompt did not open on step 1 — `multiStep` is not being honoured',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'step 2 is mounted while on step 1').toBeNull();
+    expect(screen.queryByTestId('prompt-default'), 'step 1 holds no default section').not.toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'the name input leaked onto step 1').toBeNull();
+    expect(
+      screen.queryByTestId('prompt-submit'),
+      'step 1 offers Submit — it would submit a nameless prompt',
+    ).toBeNull();
+    expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
+
+    await userEvent.click(screen.getByTestId('form-next'));
+
+    // Step 2: the name + description, no prompt section.
+    expect(screen.queryByTestId('form-step-meta'), 'Next did not reach step 2').not.toBeNull();
+    expect(screen.queryByTestId('form-step-content'), 'step 1 is still mounted on step 2').toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'step 2 holds no name input').not.toBeNull();
+    expect(
+      screen.queryByTestId('prompt-description'),
+      'step 2 holds no description input',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('prompt-default'), 'the prompt section leaked onto step 2').toBeNull();
+    expect(screen.queryByTestId('prompt-submit'), 'step 2 offers no Submit').not.toBeNull();
+    expect(screen.queryByTestId('form-back'), 'step 2 offers no way back').not.toBeNull();
+    unmount();
+
+    // EDIT: one page, no step machinery, BOTH sections present.
+    const initial: PromptInput = {
+      name: 'Existing',
+      description: '',
+      default: { prompt: 'stored default', params: {} },
+      overrides: {},
+    };
+    render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
+    expect(screen.queryByTestId('form-step-content'), 'an EDIT was wrapped in step 1').toBeNull();
+    expect(screen.queryByTestId('form-step-meta'), 'an EDIT was wrapped in step 2').toBeNull();
+    expect(screen.queryByTestId('form-next'), 'an EDIT offers Next — it was paged').toBeNull();
+    expect(screen.queryByTestId('form-back'), 'an EDIT offers Back — it was paged').toBeNull();
+    expect(
+      screen.queryByTestId('prompt-default'),
+      'the EDIT page holds no default section',
+    ).not.toBeNull();
+    expect(screen.queryByTestId('prompt-name'), 'the EDIT page holds no name input').not.toBeNull();
+  });
+
+  it('🔴 submits what BOTH steps collected', async () => {
+    const onSubmit = vi.fn<(input: PromptInput) => Promise<void>>();
+    render(<PromptForm onSubmit={onSubmit} onCancel={vi.fn()} multiStep />);
+
+    fireEvent.change(screen.getByTestId('prompt-default-text'), {
+      target: { value: 'a paged cat' },
+    });
+    await userEvent.click(screen.getByTestId('form-next'));
+    await userEvent.type(screen.getByTestId('prompt-name'), 'Paged prompt');
+    await userEvent.click(screen.getByTestId('prompt-submit'));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const input = onSubmit.mock.calls[0]![0];
+    expect(input.name).toBe('Paged prompt');
+    expect(input.default.prompt).toBe('a paged cat');
   });
 });

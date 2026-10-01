@@ -2993,7 +2993,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'combo'}
           onClose={closeModal}
-          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'Submit a matchup'}
+          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'New Matchup'}
           size="lg"
         >
           {modal.kind === 'combo' && (
@@ -3002,6 +3002,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               pickResource={deps.pickResource}
               initial={modal.edit ? combinationToInput(modal.edit) : undefined}
               submitLabel={modal.edit ? 'Save changes' : undefined}
+              /* 🔴 THE MODAL KIND DECIDES THE SHAPE, NOT `initial`. A create is two
+                 steps (models, then name + description); an edit is one page. Read off
+                 `modal.edit` here because that is the thing that actually distinguishes
+                 them — the private paths below use `modal.existing` for the same reason,
+                 and `initial` is undefined on a NEW private record too. */
+              multiStep={!modal.edit}
               onSubmit={
                 modal.edit
                   ? (input) => updateCombination(modal.edit!.key, input)
@@ -3032,6 +3038,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               pickResource={deps.pickResource}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveDraft(modal.localId, input)}
               onCancel={closeModal}
             />
@@ -3054,6 +3061,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               key={modal.localId}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveUnpubPrompt(modal.localId, input)}
               onCancel={closeModal}
             />
@@ -3069,7 +3077,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           title={
             modal.kind === 'unpub-grid' && modal.existing
               ? 'Edit your unpublished grid'
-              : 'New grid (not published yet)'
+              : 'New Grid'
           }
           size="lg"
         >
@@ -3080,6 +3088,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               promptItems={promptPickerItems}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveUnpubGrid(modal.localId, input)}
               onCancel={closeModal}
             />
@@ -3105,7 +3114,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'prompt'}
           onClose={closeModal}
-          title={modal.kind === 'prompt' && modal.edit ? 'Edit prompt' : 'Submit a prompt'}
+          title={modal.kind === 'prompt' && modal.edit ? 'Edit prompt' : 'New Prompt'}
           size="lg"
         >
           {modal.kind === 'prompt' && (
@@ -3113,6 +3122,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               key={modal.edit?.key ?? 'new'}
               initial={modal.edit ? promptToInput(modal.edit) : undefined}
               submitLabel={modal.edit ? 'Save changes' : undefined}
+              multiStep={!modal.edit}
               onSubmit={
                 modal.edit ? (input) => updatePrompt(modal.edit!.key, input) : submitPrompt
               }

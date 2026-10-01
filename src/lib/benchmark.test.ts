@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
 
-import type { CombinationRow, ModelConfig, PromptRow, ResultRow } from '../types.js';
+import type { CheckpointRef, CombinationRow, ModelConfig, PromptRow, ResultRow } from '../types.js';
 import { buildGridPayload } from './grids.js';
 import {
   buildCellWorkflowBody,
@@ -22,6 +22,7 @@ import {
   loraFromPick,
   MAX_CONFIGS,
   MAX_LORAS,
+  modelConfigLabel,
   modelCountSummary,
   newConfig,
   parseCombination,
@@ -176,9 +177,18 @@ describe('combination payload (v2 multi-config, moderation split)', () => {
     expect(
       validateCombination({ name: '', description: '', configs: [{ id: 'a', checkpoint: checkpointFromPick(CKPT), loras: [] }] }),
     ).toContain('Give the matchup a name.');
+    // 🔴 "MODEL", NOT "MODEL CONFIG" — this string is rendered by the matchup
+    // modal's error Alert, and `config` is the WIRE word. It said "model config"
+    // for one round after the surface was reworded to "Models", which put the wire
+    // word on screen in the one modal the rename existed for.
     expect(validateCombination({ name: 'X', description: '', configs: [newConfig()] })).toContain(
-      'Add at least one model config (pick a checkpoint).',
+      'Add at least one model (pick a checkpoint).',
     );
+    // …and it leaks no wire noun at all, which a substring check for the new copy
+    // cannot tell you (the old string CONTAINS the new one).
+    for (const e of validateCombination({ name: '', description: '', configs: [newConfig()] })) {
+      expect(e, `"${e}" leaked the internal noun`).not.toMatch(/config/i);
+    }
   });
 });
 
@@ -721,8 +731,84 @@ describe('flattenConfigs (grid rows are configs grouped under combos)', () => {
     expect(rows[0].comboName).toBe('One');
     expect(rows[0].comboCount).toBe(3);
     expect(configLabel(rows[0])).toBe('base');
-    // Falls back to checkpoint name when no label
-    expect(configLabel(rows[2])).toBe('JuggernautXL');
+    // 🔴 THIS EXPECTATION MOVED, AND IT IS NOT A WEAKENING. It read
+    // `'JuggernautXL'` — the checkpoint name alone — because the derived label used
+    // to stop at the checkpoint. The matchup form no longer OFFERS a label input, so
+    // the derived label is now what a viewer actually sees for most rows, and it
+    // names the LoRA stack too (`sdxlConfig`'s fixture carries one). Covered
+    // directly, with the author-label half beside it, by the `modelConfigLabel`
+    // describe block below.
+    expect(configLabel(rows[2])).toBe('JuggernautXL + Detail Tweaker');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 `modelConfigLabel` — THE ONE RULE FOR "WHAT IS THIS MODEL CALLED", and the
+// reason it needs its own cases rather than riding on `configLabel`'s.
+//
+// The matchup form removed the per-model label INPUT and derives the name from the
+// checkpoint + LoRAs instead. The hazard that creates is NOT that generation is
+// wrong — it is that generation becomes UNCONDITIONAL and silently replaces every
+// author-written label already stored on the public board, including other authors'
+// rows this app can never rewrite.
+//
+// 🔴 SO THE TWO HALVES ARE PINNED IN ONE CASE EACH WAY ROUND, DELIBERATELY. A test
+// that only checked "an absent label generates" passes against an implementation
+// that ignores stored labels entirely — i.e. against the exact regression. A test
+// that only checked "an author label shows" passes against the OLD code, which
+// generated nothing. Neither direction alone is coverage.
+// ---------------------------------------------------------------------------
+
+describe('modelConfigLabel', () => {
+  it("🔴 shows the AUTHOR'S label when there is one, and generates only when there is not", () => {
+    const authored = sdxlConfig({ label: 'variant B' });
+    const derived = sdxlConfig({ label: undefined });
+
+    // The fixture's author label is NOT a substring of what generation would
+    // produce, and generation's output is NOT a substring of the label — so neither
+    // assertion can pass for the other's reason.
+    expect(modelConfigLabel(authored, 0)).toBe('variant B');
+    expect(modelConfigLabel(derived, 0)).toBe('JuggernautXL + Detail Tweaker');
+  });
+
+  it('treats a whitespace-only author label as absent', () => {
+    // `'   '` renders as nothing at all, which is the failure the trim exists for.
+    expect(modelConfigLabel(sdxlConfig({ label: '   ' }), 0)).toBe('JuggernautXL + Detail Tweaker');
+  });
+
+  it('names EVERY LoRA in the stack, in order, and drops nameless ones', () => {
+    const two = sdxlConfig({
+      label: undefined,
+      loras: [
+        { versionId: 2002, weight: 1, modelName: 'Detail Tweaker' },
+        { versionId: 3003, weight: 1, modelName: 'Film Grain' },
+      ],
+    });
+    expect(modelConfigLabel(two, 0)).toBe('JuggernautXL + Detail Tweaker + Film Grain');
+
+    // A LoRA with no usable name is dropped rather than joined as an empty segment —
+    // a trailing " + " reads as a rendering bug, not as a nameless LoRA.
+    const nameless = sdxlConfig({
+      label: undefined,
+      loras: [{ versionId: 2002, weight: 1, modelName: '  ' }],
+    });
+    expect(modelConfigLabel(nameless, 0)).toBe('JuggernautXL');
+  });
+
+  it('falls back to a POSITIONAL name only when there is no checkpoint name either', () => {
+    // The builder holds half-filled rows (`newConfig()` mints one with no
+    // checkpoint at all), so this path is reachable from the form, not just from a
+    // malformed stored row.
+    const blank = { id: 'x', checkpoint: undefined as unknown as CheckpointRef, loras: [] };
+    expect(modelConfigLabel(blank, 0)).toBe('Model 1');
+    expect(modelConfigLabel(blank, 4)).toBe('Model 5');
+
+    // 🔴 AND THE POSITIONAL NOUN IS THE VIEWER-FACING ONE. It said "Config N" while
+    // the surface said "Model configs"; the surface says "Models" now, and a
+    // fallback that still said "Config" would leak the WIRE word (`ModelConfig`,
+    // `data.configs`) onto a screen — the same leak `modelCountSummary` is guarded
+    // against above.
+    expect(modelConfigLabel(blank, 0)).not.toMatch(/config/i);
   });
 });
 
@@ -974,8 +1060,8 @@ describe('MAX_CONFIGS — the app-side matchup cap, at its boundary from BOTH si
     });
     expect(
       tooMany,
-      'CAP TOO HIGH (or absent): 101 filled configs must be refused with the "At most 100 configs." error',
-    ).toContain('At most 100 configs.');
+      'CAP TOO HIGH (or absent): 101 filled configs must be refused with the "At most 100 models." error',
+    ).toContain('At most 100 models.');
   });
 
   // The builder and the parser must agree with the validator, or a form that
@@ -1049,8 +1135,8 @@ describe('MAX_LORAS — ⚠️ INVARIANT GUARD on a HOST contract', () => {
           },
         ],
       }),
-      'a 6-LoRA config must be refused with the "At most 5 LoRAs per config." error',
-    ).toContain('At most 5 LoRAs per config.');
+      'a 6-LoRA model must be refused with the "At most 5 LoRAs per model." error',
+    ).toContain('At most 5 LoRAs per model.');
 
     const body = buildCellWorkflowBody(
       {

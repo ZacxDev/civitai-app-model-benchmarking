@@ -382,8 +382,14 @@ describe('🔴 the vote control is offered on OTHER viewers’ matchups only', (
 async function fillAndSavePromptPrivately(name: string, text: string) {
   await userEvent.click(await screen.findByTestId('new-unpublished'));
   const form = await screen.findByTestId('prompt-form');
-  fireEvent.change(within(form).getByTestId('prompt-name'), { target: { value: name } });
+  // 🔴 A NEW private prompt is a two-step create: the prompt on step 1, the name on
+  // step 2. A resumed one is a single page, so `form-next` is the discriminant
+  // rather than an assumption about which opener was used.
   fireEvent.change(within(form).getByTestId('prompt-default-text'), { target: { value: text } });
+  if (within(form).queryByTestId('form-next') !== null) {
+    await userEvent.click(within(form).getByTestId('form-next'));
+  }
+  fireEvent.change(within(form).getByTestId('prompt-name'), { target: { value: name } });
   await userEvent.click(within(form).getByTestId('prompt-submit'));
   await waitFor(() => expect(screen.queryByTestId('prompt-form')).toBeNull());
 }

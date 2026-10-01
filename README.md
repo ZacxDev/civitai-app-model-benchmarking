@@ -37,9 +37,10 @@ block never holds credentials either way — the host injects the viewer identit
 a scoped token at runtime. [Which is which](#two-transports-one-block).
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
-three things: model **matchups** (up to eight configs, each a checkpoint + a
-family-scoped weighted LoRA stack), **prompts** (one default prompt + params that
-runs on every ecosystem, plus optional per-ecosystem overrides for SDXL / Pony /
+three things: model **matchups** (up to [`MAX_CONFIGS`](src/lib/benchmark.ts)
+**models**, each a checkpoint + a family-scoped weighted LoRA stack), **prompts**
+(one default prompt + params that runs on every ecosystem, plus optional
+per-ecosystem overrides for SDXL / Pony /
 Flux / …), and **grids** — a named, hand-picked set of matchups (rows) × prompts
 (columns). **Every published grid is its own matrix**, and any viewer can open
 anyone else's; a system-owned **Top Grid** (the top-voted matchups × the top-voted
@@ -54,6 +55,18 @@ so every model compares side-by-side on identical prompts — for **all** viewer
 > that is the persisted `data.kind` discriminator, frozen forever, and it is
 > never a name for the product concept. Where you see `combination` in code font
 > it is the wire value; the prose noun is always *matchup*.
+>
+> **The same split applies one level down.** What a matchup groups is a **model**
+> in the UI — one checkpoint plus its LoRA stack — and a `config` on the wire
+> (`ModelConfig`, `data.configs`, `MAX_CONFIGS`, `configId` on a `result`). That
+> word is frozen too, for the same reason, and `renameWireCompat.test.ts` pins it.
+> This README keeps using `config` when it is talking about the stored shape.
+>
+> ⚠ This paragraph said "up to **eight** configs" until the modal rework, and that
+> had been wrong since `MAX_CONFIGS` was raised to 100 (PR #70) — the prose quoted
+> a number nobody re-read. It names the symbol now, which cannot go stale.
+> Recorded rather than quietly corrected: a stale figure on a public mirror is
+> read as the contract.
 
 > **The platform has no concept of a "benchmark," "matchup," or "grid."** That
 > entire model is owned by this app. The platform only provides generic,
