@@ -691,8 +691,9 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
       '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
         'among your private items. Publishing is refused rather than putting a key on the ' +
-        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
-        'and remove it.',
+        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
+        'keeps members it cannot show, so editing the grid cannot remove it — discard this ' +
+        'grid and build it again.',
     );
     // 🔴 AND NO DIALOG WAS INVOLVED. This grid has zero dependencies, which is exactly
     // why the previous `deps.length > 0` ordering let it through silently.
@@ -837,6 +838,19 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
 
     const grid = await privateGridCard();
     await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+
+    // 🔴 THE NEGATIVE CONTROL COMES FIRST, AND IT IS THE **SAME BUTTON**. An earlier
+    // draft asserted on `grid-form-cancel` — the CREATE form's cancel, a different
+    // component with no `disabled` prop and no relation to `gridPublishBusy` — so it
+    // excluded nothing: a permanently dead Cancel (`disabled={true}`) SURVIVED the
+    // whole dom tier, 45 files green. Reading `grid-publish-cancel` in BOTH states is
+    // what makes the pair discriminating.
+    const cancelIdle = await screen.findByTestId('grid-publish-cancel');
+    expect(
+      cancelIdle,
+      'Cancel is dead before the cascade even starts — a permanently disabled button',
+    ).not.toBeDisabled();
+
     await userEvent.click(await screen.findByTestId('grid-publish-go'));
 
     // PREMISE: the cascade really is mid-flight — nothing has landed yet.
@@ -848,17 +862,77 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
         throw new Error('Cancel is live while the cascade is appending');
     });
 
-    // …and the NEGATIVE CONTROL, after the cascade finishes: Cancel is not disabled
-    // unconditionally. Without this, "disabled" is satisfied by a button that is
-    // always dead, which is a different defect with the same assertion.
+    // Release and let the cascade finish, so the case leaves no pending promise.
     release();
     await waitFor(() => {
       if (base.appends.length < 2)
         throw new Error(`only ${base.appends.length} of 2 appends have landed`);
     });
-    await userEvent.click(await screen.findByTestId('new-unpublished'));
-    const cancelOnFreshDialog = await screen.findByTestId('grid-form-cancel');
-    expect(cancelOnFreshDialog, 'a not-busy dialog control is disabled too').not.toBeDisabled();
+  });
+
+  it('🔴 `CASCADE_NO_KEY` IS REACHABLE, and this is the case that drives it', async () => {
+    // 🔴 AN EARLIER ROUND PROPOSED DELETING THIS GUARD AS DEAD CODE. It is not: the
+    // viewer publishes the private MATCHUP directly, and while that append is still in
+    // flight publishes the GRID that names it. `publishRecord`'s `submittingRef` early
+    // return fires for the dependency, `key` is `undefined`, and the cascade refuses
+    // rather than publishing a grid whose member key it could not rewrite — which is
+    // the whole hazard, reached from inside.
+    const base = fakeShared({ seed: BOARD });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let gateFirst = true;
+    const shared: SharedStore = {
+      ...base.shared,
+      async append(value) {
+        if (gateFirst) {
+          gateFirst = false;
+          await gate;
+        }
+        return base.shared.append(value);
+      },
+    };
+    mountApp({ shared, store: seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])) });
+
+    // Publish the private matchup on its own surface; its append hangs on the gate.
+    await openMyList('matchup');
+    const matchupCard = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('unpublished-card')
+        .find((c) => c.getAttribute('data-local-id') === DRAFT_LOCAL_ID);
+      if (!el) throw new Error('the private matchup is not listed');
+      return el;
+    });
+    await userEvent.click(within(matchupCard).getByTestId('unpublished-publish'));
+    // PREMISE: that append really is in flight, so `submittingRef` holds the id.
+    expect(base.appends, 'the gate did not hold the matchup append').toHaveLength(0);
+
+    // Now publish the grid that names it.
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    await userEvent.click(await screen.findByTestId('grid-publish-go'));
+
+    const notice = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('no cascade notice rendered for the no-key path');
+      return el;
+    });
+    const text = (notice.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(
+      text,
+      'the no-key refusal does not name its own cause — `CASCADE_NO_KEY` never reached the viewer',
+    ).toContain('this app refused a second publish of the same record');
+    // 🔴 AND THE GRID DID NOT GO OUT. That is the claim; the sentence is how it is
+    // explained. Only the matchup's own (gated) append may ever land here.
+    release();
+    await waitFor(() => {
+      if (base.appends.length < 1) throw new Error('the gated matchup append never landed');
+    });
+    expect(
+      appendLedger(base.appends).filter((e) => e.startsWith('grid:')),
+      'the grid published with a member key it could not rewrite',
+    ).toEqual([]);
   });
 
   it('🔴 THE NEGATIVE CONTROL: the SAME grid publishes when its member IS accountable', async () => {
@@ -880,6 +954,115 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
       'grid:Mixed Grid',
     ]);
     expect(screen.queryByTestId('grid-publish-error')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// 🔴 THE BOARD READ'S OUTCOME — refusing is right, blaming the member is not
+// ===========================================================================
+//
+// 🔴 THE REGRESSION THESE PIN, AND IT WAS INTRODUCED BY THE REFUSAL ITSELF. The
+// boundary first shipped reading a `boardTruncated` boolean that `App` wrote only on
+// the board read's SUCCESS arm. A read that THREW — and the window before the first
+// read resolves — therefore looked identical to "read the whole board, found nothing":
+// every ordinary published member fell through to `unresolved`, and the refusal told
+// the viewer the member was not on the board and to EDIT THE GRID AND REMOVE IT.
+//
+// 🔴 FOLLOWING THAT ADVICE DESTROYS GOOD MEMBERS over a publish that would have
+// worked a second later. The refusal is right; its cause and its remedy were wrong.
+describe('🔴 a grid of ORDINARY published members, on a board this app could not read', () => {
+  /** The grid under test names two real board rows and nothing private. */
+  const boardOnlyGrid = () => privateGrid(['mk-a'], ['qk-1']);
+
+  it('🔴 P1 — the board read THREW: refused, but never "remove them"', async () => {
+    const { shared: good, appends } = fakeShared({ seed: BOARD });
+    const shared: SharedStore = {
+      ...good,
+      async list() {
+        throw new Error('BOARD_UNAVAILABLE');
+      },
+    };
+    mountApp({ shared, store: seedStore(boardOnlyGrid()) });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+
+    await waitFor(() => {
+      if (screen.queryByTestId('grid-publish-error') === null && appends.length === 0)
+        throw new Error('the publish neither refused nor appended — it never resolved');
+    });
+    const text = (screen.getByTestId('grid-publish-error').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    // 🔴 THE CLAIM THAT MATTERS MOST, FIRST: no destructive remedy.
+    expect(
+      text,
+      'the viewer is told to REMOVE members the app never read — following this destroys the grid',
+    ).not.toMatch(/remove/i);
+    expect(
+      text,
+      'the notice asserts the members are not on a board the app could not read',
+    ).not.toMatch(/not on the board/);
+    expect(text).toContain('has not been able to read the board');
+    // The refusal itself is correct — nothing unaccountable may go out.
+    expect(appendLedger(appends)).toEqual([]);
+  });
+
+  it('🔴 P2 — THE POSITIVE CONTROL: the SAME grid publishes against a working read', async () => {
+    // Without this, P1 and P3 are satisfiable by a boundary that refuses every grid.
+    // Same grid, same code, the only difference is whether the board read works.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    mountApp({ shared, store: seedStore(boardOnlyGrid()) });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+
+    await waitFor(() => {
+      if (appends.length < 1) throw new Error('the board-only grid did not publish');
+    });
+    expect(appendLedger(appends)).toEqual(['grid:Mixed Grid']);
+    expect(
+      screen.queryByTestId('grid-publish-error'),
+      'a grid of ordinary published members was refused against a WORKING board read',
+    ).toBeNull();
+  });
+
+  it('🔴 P3 — the board read is still IN FLIGHT: same refusal, same non-destructive copy', async () => {
+    // The first read has not resolved, so no board row is known yet. This is the state
+    // a viewer reaches by pressing Publish immediately on load.
+    const { shared: good, appends } = fakeShared({ seed: BOARD });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const shared: SharedStore = {
+      ...good,
+      async list(opts) {
+        await gate;
+        return good.list(opts);
+      },
+    };
+    mountApp({ shared, store: seedStore(boardOnlyGrid()) });
+
+    const grid = await privateGridCard();
+    // PREMISE: the board genuinely has not loaded — its own loading state is up.
+    expect(appends, 'the gate did not hold the board read').toHaveLength(0);
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+
+    await waitFor(() => {
+      if (screen.queryByTestId('grid-publish-error') === null && appends.length === 0)
+        throw new Error('the publish neither refused nor appended — it never resolved');
+    });
+    const text = (screen.getByTestId('grid-publish-error').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    expect(
+      text,
+      'an unread board tells the viewer to remove members that are perfectly fine',
+    ).not.toMatch(/remove/i);
+    expect(text).toContain('has not been able to read the board');
+    expect(appendLedger(appends)).toEqual([]);
+    release();
   });
 });
 
@@ -984,6 +1167,164 @@ describe('🔴 a cascade failure is REPORTED even when the grid’s record is re
     );
     // 🔴 AND THE WIRE AGREES WITH THE SENTENCE: the matchup landed, the grid did not.
     expect(appendLedger(appends)).toEqual([`combination:${DRAFT_NAME}`]);
+  });
+});
+
+// ===========================================================================
+// 🔴 THE NOTICE'S LIFETIME — it must outlive a nav, and NOT outlive its own fix
+// ===========================================================================
+
+describe('🔴 the grid-publish notice clears when the viewer does what it asked', () => {
+  it('🔴 refused, then a SUCCESSFUL publish clears the alert — in one mount', async () => {
+    // 🔴 THE DEFECT THIS CLOSES, MEASURED ACROSS THREE STEPS IN ONE MOUNT: the direct
+    // publish path never cleared `gridPublishError`, so a viewer who got a refusal and
+    // then published successfully was left looking at a red alert saying the publish
+    // had been refused. A refusal whose point is to be actionable must not outlive the
+    // action that answers it.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    mountApp({
+      shared,
+      store: {
+        // One grid naming a key nothing can account for → refused.
+        [unpubGridKey('ug-bad')]: {
+          ...privateGrid(['mk-a', 'dm-nowhere'], ['qk-1']),
+          localId: 'ug-bad',
+          name: 'Bad Grid',
+        },
+        // …and one of ordinary published members → publishes.
+        [unpubGridKey('ug-good')]: {
+          ...privateGrid(['mk-a'], ['qk-1']),
+          localId: 'ug-good',
+          name: 'Good Grid',
+        },
+      },
+    });
+
+    const cardFor = async (localId: string): Promise<HTMLElement> => {
+      await openMyList('grid');
+      return waitFor(() => {
+        const el = screen
+          .getAllByTestId('unpublished-card')
+          .find((c) => c.getAttribute('data-local-id') === localId);
+        if (!el) throw new Error(`the private grid ${localId} is not listed`);
+        return el;
+      });
+    };
+
+    // ---- STEP 1: the refusal renders ----
+    await userEvent.click(within(await cardFor('ug-bad')).getByTestId('unpublished-publish'));
+    const notice = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('step 1 did not refuse — the premise failed');
+      return el;
+    });
+    expect(notice).toHaveTextContent('discard this grid and build it again');
+    expect(appendLedger(appends)).toEqual([]);
+
+    // ---- STEP 2: a publish that SUCCEEDS ----
+    await userEvent.click(within(await cardFor('ug-good')).getByTestId('unpublished-publish'));
+    await waitFor(() => {
+      if (appends.length < 1) throw new Error('step 2 did not publish — the premise failed');
+    });
+    expect(appendLedger(appends)).toEqual(['grid:Good Grid']);
+
+    // ---- STEP 3: the alert is gone ----
+    expect(
+      screen.queryByTestId('grid-publish-error'),
+      'the refusal alert survived a publish that succeeded',
+    ).toBeNull();
+  });
+
+  it('🔴 EDITING cannot remove an unaccountable member — so the remedy sentence names DISCARD', async () => {
+    // 🔴 THIS IS WHY THE REFUSAL'S REMEDY CHANGED. An earlier draft said "Edit the grid
+    // and remove it", written without checking the route. MEASURED HERE: `GridPicker`
+    // renders only keys present in `items`, an unaccountable key is in none of the
+    // three sources so it is never rendered, and `order` carries it through
+    // `onConfirm([...order])` unchanged — the picker's own invariant 3 ("nothing is
+    // ever silently dropped") keeps it ON PURPOSE. Re-saving the grid changes nothing
+    // and the publish is refused again.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    const kv = fakeAppStorage({
+      [unpubGridKey(GRID_LOCAL_ID)]: privateGrid(['mk-a', 'dm-nowhere'], ['qk-1']),
+    });
+    mountApp({ shared, store: {}, appStorage: kv.appStorage });
+
+    // Edit the grid and re-confirm the matchup axis — the "remove it" route.
+    await userEvent.click(within(await privateGridCard()).getByTestId('unpublished-edit'));
+    const form = await screen.findByTestId('grid-form');
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    const rowList = await screen.findByTestId('grid-pick-rows');
+    // PREMISE, ASSERTED: the unaccountable key is NOT offered as a row, and the picker
+    // says so — so there is nothing to deselect.
+    expect(
+      within(rowList)
+        .getAllByTestId('grid-pick-rows-option')
+        .map((el) => el.getAttribute('data-key')),
+      'the unaccountable key is listed after all — this case tests nothing',
+    ).toEqual(['mk-a']);
+    expect(within(rowList).getByTestId('grid-pick-rows-unlisted')).toHaveTextContent(
+      'no longer on the board',
+    );
+    await userEvent.click(within(rowList).getByTestId('grid-pick-rows-confirm'));
+    await userEvent.click(within(form).getByTestId('grid-form-submit'));
+
+    // 🔴 THE MEASUREMENT: the saved record STILL names it.
+    const written = await waitFor(() => {
+      const hit = [...kv.sets].reverse().find((w) => w.key.startsWith('unpub:grid:v1:'));
+      if (!hit) throw new Error('the edit was never saved');
+      return hit.value as UnpublishedGrid;
+    });
+    expect(
+      written.matchupKeys,
+      'the picker DID drop the unlisted key — then the remedy sentence should say "edit", not "discard"',
+    ).toEqual(['mk-a', 'dm-nowhere']);
+
+    // …so the publish is refused again, which is what makes DISCARD the honest remedy.
+    await userEvent.click(within(await privateGridCard()).getByTestId('unpublished-publish'));
+    const notice = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('the second publish was not refused');
+      return el;
+    });
+    expect(notice).toHaveTextContent('editing the grid cannot remove it');
+    expect(appendLedger(appends)).toEqual([]);
+  });
+
+  it('🔴 …but it DOES survive a nav away and back — argued last round, measured now', async () => {
+    // 🔴 THIS WAS ON MY OWN "NOT VERIFIED" LIST. It followed from `App` holding the
+    // state while `MyGridsView` renders it, and an independent probe confirmed it; it
+    // is pinned here so it is measured rather than argued.
+    //
+    // ⚠️ IT IS THE OPPOSITE OF `MyList`'s OWN CHANNEL, which holds its error in LOCAL
+    // state and loses it on the same nav — `publishPointerFailure.test.tsx` pins that
+    // as a characterisation. Two channels, two lifetimes, both stated.
+    const { shared } = fakeShared({ seed: BOARD });
+    mountApp({
+      shared,
+      store: {
+        [unpubGridKey(GRID_LOCAL_ID)]: privateGrid(['mk-a', 'dm-nowhere'], ['qk-1']),
+      },
+    });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    await waitFor(() => {
+      if (screen.queryByTestId('grid-publish-error') === null)
+        throw new Error('the refusal did not render — the premise failed');
+    });
+
+    await userEvent.click(await screen.findByTestId('nav-home'));
+    // PREMISE, ASSERTED: the surface really is unmounted, so the return below is a
+    // re-render and not a nav that navigated nowhere.
+    await screen.findByTestId('grid-open-panel');
+    expect(screen.queryByTestId('my-grids-view')).toBeNull();
+    expect(screen.queryByTestId('grid-publish-error')).toBeNull();
+
+    await openMyList('grid');
+    expect(
+      screen.queryByTestId('grid-publish-error'),
+      'the grid-publish notice did NOT survive the nav — `App` is not holding it after all',
+    ).not.toBeNull();
   });
 });
 

@@ -218,6 +218,25 @@ export function cascadeConfirmNotice(gridName: string, deps: readonly CascadeDep
 }
 
 /**
+ * What the board snapshot the app currently HOLDS is — not what the in-flight
+ * request is doing.
+ *
+ * 🔴 IT DESCRIBES THE SNAPSHOT, NOT THE REQUEST, and that distinction is what keeps
+ * it from firing spuriously. `App` re-reads the board after every publish, so a
+ * value that went back to `'unread'` whenever a request started would refuse the
+ * NEXT publish for a few hundred milliseconds every time — while `items` still held
+ * a perfectly good complete snapshot. So the value is written only when a read
+ * RESOLVES or REJECTS, and `'unread'` means "no read has ever resolved", which is
+ * exactly the state in which the rows are genuinely unknown.
+ *
+ *   - `'unread'`    — no read has resolved yet. The board rows are unknown.
+ *   - `'error'`     — the most recent read REJECTED. Anything held is stale at best.
+ *   - `'truncated'` — a read resolved but hit its page cap: the snapshot is a PREFIX.
+ *   - `'complete'`  — a read resolved having seen every row the host offered.
+ */
+export type BoardRead = 'unread' | 'error' | 'truncated' | 'complete';
+
+/**
  * 🔴 THE PUBLISH BOUNDARY: may this grid go to `shared.append` at all?
  *
  * Returns `null` to proceed, or the viewer-facing REFUSAL. One predicate, called by
@@ -267,21 +286,56 @@ export function cascadeConfirmNotice(gridName: string, deps: readonly CascadeDep
  * Those member keys are already public, and that form's pickers are board-only so a
  * local id cannot be added. §11.2's carry-through is unchanged there.
  *
- * 🔴 `scanComplete` CHANGES ONLY THE MESSAGE, AND THAT IS DELIBERATE. Per-key
- * positive accounting is what makes the refusal safe: `deps` and `resolved` both
- * mean a record was actually READ, so a key in either is accountable whatever the
- * scan did. An incomplete scan can only push an accountable key INTO `unresolved`,
- * which refuses. What the flag buys is an honest CAUSE: "this member is gone" and
- * "this app could not read your private items" are different sentences, and only one
- * of them is true at a time.
+ * 🔴 `scanComplete` AND `boardRead` CHANGE ONLY THE MESSAGE, AND THAT IS DELIBERATE.
+ * Per-key positive accounting is what makes the refusal safe: `deps` and `resolved`
+ * both mean a record was actually READ, so a key in either is accountable whatever
+ * either scan did. An incomplete scan can only push an accountable key INTO
+ * `unresolved`, which refuses. What the flags buy is an honest CAUSE and a
+ * non-destructive REMEDY — "this member is gone, remove it" and "this app could not
+ * read, reload" are different sentences, only one is true at a time, and following
+ * the wrong one destroys good members.
+ *
+ * ⚠️ THE FUNCTION RETURNS `null` BEFORE EITHER FLAG IS READ when `unresolved` is
+ * empty, and that is on purpose rather than an oversight: a complete-looking grid
+ * publishes even mid-read, because every one of its keys was positively accounted
+ * for. Do not read the flags as a second, independent gate — they are not one.
+ * (`App`'s own comment on the private-scan re-arm used to claim they were; that
+ * comment is corrected and now says what it actually closes, which is nothing about
+ * the decision.)
+ *
+ * ⚠️ A RESIDUAL UNSUPPORTED CLAIM SURVIVES IN THE `'complete'` BRANCH, and this says
+ * so rather than closing over it. `splitRows` silently drops a board row whose `data`
+ * does not parse, so a member naming such a row reads as unaccountable while the row
+ * is on the board — and that branch tells the viewer to remove it. The same residual
+ * is recorded on `missingMembersNotice` for the same reason, and closing it needs
+ * `splitRows` to report the keys it SKIPPED, which is a change to the scan's return
+ * shape and is deliberately not made here. It is the narrow case (an app-shape
+ * failure, not a routine one) rather than the broad one the `boardRead` split closed.
  */
 export function cascadeRefusal(spec: {
   gridName: string;
   plan: GridCascadePlan;
   /** Were BOTH private-record scans known complete — neither thrown nor truncated? */
   scanComplete: boolean;
-  /** Did the board scan hit its page cap? Decides whether "not on the board" may be said. */
-  boardTruncated: boolean;
+  /**
+   * What the board snapshot this app currently HOLDS actually is.
+   *
+   * 🔴 IT REPLACED A `boardTruncated: boolean`, AND THE BOOLEAN WAS A MEASURED
+   * REGRESSION. Its docstring said it "decides whether 'not on the board' may be
+   * said" — a relationship claim whose implementation inspected one side: the flag
+   * was written only on the board read's SUCCESS arm, so a read that THREW, and the
+   * window BEFORE the first read resolves, both left it `false` with an empty board.
+   * Every ordinary published member then fell through to `unresolved` and this
+   * function refused with the branch asserting the member is not on the board and
+   * telling the viewer to **delete it** — destroying good members over a publish that
+   * would have worked a second later. Measured: 0 appends, that exact sentence, and
+   * the same grid publishing fine against a working read.
+   *
+   * ⚠️ So the four values are not decoration. "I could not read the board" and "I
+   * read the board and it is not there" are different facts with OPPOSITE remedies,
+   * and only the second one may ever suggest removing anything.
+   */
+  boardRead: BoardRead;
 }): string | null {
   const n = spec.plan.unresolved.length;
   if (n === 0) return null;
@@ -289,24 +343,47 @@ export function cascadeRefusal(spec: {
   const tail =
     `Publishing is refused rather than putting ${n === 1 ? 'a key' : 'keys'} on the public ` +
     `board that nobody — including you — could resolve afterwards.`;
+  const isAre = n === 1 ? 'it is' : 'they are';
   if (!spec.scanComplete) {
     return (
       `${head}, because this app could not read all of your private items. It therefore ` +
-      `cannot tell whether ${n === 1 ? 'it is' : 'they are'} yours and unpublished, or simply ` +
-      `gone. ${tail} Reload and try again.`
+      `cannot tell whether ${isAre} yours and unpublished, or simply gone. ${tail} Reload ` +
+      `and try again.`
     );
   }
-  if (spec.boardTruncated) {
+  // 🔴 NO REMEDY THAT DELETES ANYTHING ON EITHER INCOMPLETE-BOARD BRANCH. The member
+  // may be a perfectly ordinary published row this app has not read.
+  if (spec.boardRead === 'unread' || spec.boardRead === 'error') {
     return (
-      `${head}: ${n === 1 ? 'it is' : 'they are'} not among your private items, and not in ` +
-      `the part of the board this app could read — this board has more entries than one load ` +
-      `fetches. ${tail} Reload and try again, or edit the grid and remove ` +
-      `${n === 1 ? 'it' : 'them'}.`
+      `${head}, because this app has not been able to read the board. It therefore cannot ` +
+      `tell whether ${isAre} published rows it has not seen, or gone. ${tail} Reload and ` +
+      `try again.`
     );
   }
+  if (spec.boardRead === 'truncated') {
+    return (
+      `${head}: ${isAre} not among your private items, and not in the part of the board this ` +
+      `app could read — this board has more entries than one load fetches. ${tail} ` +
+      `⚠ A retry may not help: the same members may be past the same cap every time.`
+    );
+  }
+  // 🔴 THE REMEDY NAMES THE ONE ROUTE THAT EXISTS, and the previous one did not.
+  // "Edit the grid and remove it" was written without checking the route, and
+  // MEASURED FALSE: `GridPicker` renders only keys present in `items`, an
+  // unaccountable key is in none of the three sources so it is never rendered, and
+  // `order` carries it through `onConfirm([...order])` unchanged — the picker's own
+  // invariant 3 ("nothing is ever silently dropped") keeps it ON PURPOSE. So the
+  // member cannot be deselected and re-saving the grid changes nothing. A test drives
+  // exactly that and then the route below.
+  //
+  // ⚠️ DISCARD-AND-REBUILD IS A POOR REMEDY AND IT IS THE TRUE ONE FOR THIS BUILD. The
+  // better fix is a per-member remove control on `GridForm`'s axis cards, which is a
+  // form change with its own verification and is NOT made here; it is named in the PR
+  // so it closes on a merged PR rather than on nobody deciding.
   return (
-    `${head}: ${n === 1 ? 'it is' : 'they are'} not on the board and not among your private ` +
-    `items. ${tail} Edit the grid and remove ${n === 1 ? 'it' : 'them'}.`
+    `${head}: ${isAre} not on the board and not among your private items. ${tail} ` +
+    `⚠ The picker keeps members it cannot show, so editing the grid cannot remove ` +
+    `${n === 1 ? 'it' : 'them'} — discard this grid and build it again.`
   );
 }
 
@@ -409,9 +486,16 @@ export function cascadeStoppedNotice(spec: {
     );
   }
   // 🔴 THE "still lists them" CLAUSE IS CONDITIONAL, because with nothing published
-  // there is no "them" and the sentence would refer to an empty set. That state is
-  // reachable: the direct, no-dependency publish path reaches this arm with an empty
-  // `published` whenever the grid's own `append` is refused.
+  // there is no "them" and the sentence would refer to an empty set.
+  //
+  // ⚠️ THE EMPTY-`published` CASE IS DEFENSIVE: NO UI ROUTE REACHES IT, and it is
+  // pinned by a direct unit call only. This is the THIRD rationale written on this
+  // branch and the first two are both dead — the original (a retry inside a dialog
+  // left open after the grid was refused) was killed by moving `closeModal()` into
+  // `finally`, and its replacement (the direct no-dependency publish path) was never
+  // true: all three `cascadeStoppedNotice` call sites are inside `runGridCascade`,
+  // which only the dialog reaches, and the dialog opens only on `deps.length > 0`.
+  // Rather than supply a fourth, this says it has none.
   const tail =
     spec.published.length === 0
       ? 'so it is still private.'

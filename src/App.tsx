@@ -207,6 +207,7 @@ import {
   cascadeStoppedNotice,
   planGridCascade,
   remapGridKeys,
+  type BoardRead,
   type CascadeDep,
   type GridCascadePlan,
   type MemberSources,
@@ -421,6 +422,20 @@ const PRIVATE_PICK_LABEL = 'Private';
  * — nothing was appended and no host call failed — so quoting a made-up host message
  * there would be a lie about where the refusal came from. The cascade refuses rather
  * than publishing a grid whose member key it cannot rewrite.
+ *
+ * 🔴 AND IT IS REACHABLE, MEASURED — an earlier round proposed deleting this constant
+ * and its throw as dead code, and that was wrong. The `submittingRef` early return is
+ * taken when the viewer publishes a private matchup and, while that append is still in
+ * flight, publishes a grid that names it: the cascade's dependency publish short-
+ * circuits, `key` is `undefined`, and this string reaches the viewer.
+ * `src/gridDraftsCascade.test.tsx` drives exactly that.
+ *
+ * ⚠️ THE OTHER EARLY RETURN IS A DIFFERENT ROUTE AND IS STILL UNREACHABLE. The
+ * `publishedThisSession` guard below has no known caller that can reach it (every
+ * caller resolves its id out of an already-filtered list) and no test. Declining to
+ * delete the two as a PAIR over-reached: this one is rescued by measurement, that one
+ * is not, and it is kept on its own much weaker argument — one line guarding an
+ * irreversible append.
  */
 const CASCADE_NO_KEY = 'this app refused a second publish of the same record';
 
@@ -613,10 +628,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
+  /**
+   * What the board snapshot in `items` IS: unread, errored, a prefix, or whole.
+   *
+   * 🔴 IT REPLACED A BARE `boardTruncated` BOOLEAN, which was written ONLY on the
+   * read's success arm — so a read that THREW, and the window before the first read
+   * resolves, were both indistinguishable from "read the whole board, found nothing".
+   * The grid-publish boundary read that flag and refused ordinary publishes with copy
+   * telling the viewer to DELETE good members. Measured as a regression introduced by
+   * the private-member change; see `cascadeRefusal`'s `boardRead` docblock.
+   *
+   * 🔴 ONE WRITER, AND `boardTruncated` IS DERIVED FROM IT rather than stored beside
+   * it. Two pieces of state describing one read is exactly the shape that let them
+   * disagree in the first place.
+   *
+   * ⚠️ IT IS NOT RESET WHEN A RE-READ STARTS, deliberately. `App` re-reads after every
+   * publish, and `items` keeps the previous snapshot throughout — so resetting would
+   * refuse the next publish for the length of a round trip while a perfectly good
+   * complete snapshot was in hand. It is written on RESOLVE and on REJECT only.
+   */
+  const [boardRead, setBoardRead] = useState<BoardRead>('unread');
   /** The board scan hit its page cap, so every ranking below is over a PREFIX of
    * the board rather than all of it. Surfaced in the UI — see the disclosure by
-   * the view switch. */
-  const [boardTruncated, setBoardTruncated] = useState(false);
+   * the view switch. DERIVED: see {@link boardRead} for the single writer. */
+  const boardTruncated = boardRead === 'truncated';
   // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
   // every `list()`, so the row IS the vote state — there is nothing to hold in
   // parallel and nothing to persist. This used to be `useState` hydrated from a
@@ -796,9 +831,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
         setItems(merged);
-        setBoardTruncated(all.truncated);
+        setBoardRead(all.truncated ? 'truncated' : 'complete');
       } catch (e) {
-        if (!cancelled) setError(errMsg(e));
+        if (!cancelled) {
+          setError(errMsg(e));
+          // 🔴 THE ARM THAT USED TO WRITE NOTHING. Leaving the previous value here is
+          // what made a THROWN read indistinguishable from a complete one, and the
+          // grid-publish boundary then told the viewer to delete good members.
+          setBoardRead('error');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -955,24 +996,35 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * 🔴 DID THE TWO PRIVATE-MEMBER SCANS SEE EVERYTHING? Read by the grid-publish
    * boundary (`cascadeRefusal`) and by nothing else.
    *
-   * It exists because the scans below FAIL OPEN and must not. `forEachStoredKey`
-   * RETURNS `{truncated, pages}` precisely so a caller can act on an incomplete
-   * view — `lib/kv.ts` carries a 🔴 saying truncation "is not uniformly harmless…
-   * for one of them it is a MONEY decision" — and all three of these scans
-   * discarded that report. The in-flight rehydrate honours its own
-   * (`inflightScanTruncatedRef`); this was the half that did not.
+   * 🔴 WHAT IT ACTUALLY DOES: it decides the refusal's **wording**, not the refusal.
+   * This is the THIRD draft of this paragraph and the first two over-claimed, so the
+   * correction is stated before the history. `cascadeRefusal` returns `null` on
+   * `unresolved.length === 0` BEFORE it reads this flag, and that function's own
+   * docblock says so in terms — two comments in one PR asserted opposite things.
+   * Per-key positive accounting is the guard; this flag only chooses between "this
+   * member is gone, remove it" and "this app could not read your private items,
+   * reload" — which matters a great deal, because following the wrong one destroys
+   * good members.
    *
-   * The measured consequence: the `draft:v1:` listing THROWS, the `catch` below
-   * swallows it on purpose (a KV failure must not take the public board down), the
-   * grid's OWN prefix reads fine — so the grid is listed and publishable while its
-   * private member is invisible to the planner, and the member's local id goes
-   * onto the public board with no error at all.
+   * What it DOES still buy, measured: `forEachStoredKey` RETURNS `{truncated, pages}`
+   * precisely so a caller can act on an incomplete view — `lib/kv.ts` carries a 🔴
+   * saying truncation "is not uniformly harmless… for one of them it is a MONEY
+   * decision" — and all three of these scans discarded that report. The honest-cause
+   * split is what reading it buys. (Two cases pin it: a scan that THROWS, and one
+   * that TRUNCATES at the 20-page cap.)
    *
-   * 🔴 FALSE IS THE SAFE DEFAULT AND IT IS RE-ARMED ON EVERY RUN. It flips true only
-   * when BOTH scans completed without throwing and without truncating. It is NOT
-   * written on a cancelled run: a `shouldStop` exit reports `truncated: false` over a
-   * PARTIAL read, so trusting it there would assert completeness about a scan that
-   * stopped half-way — the superseding run is what sets it instead.
+   * ⚠️ AND THE RELATED HAZARD IS CLOSED BY SOMETHING ELSE ENTIRELY, so do not read
+   * this flag as closing it: the `draft:v1:` listing throwing, the `catch` below
+   * swallowing it on purpose (a KV failure must not take the public board down), and
+   * the grid's own prefix reading fine — that fail-open path is closed by the member
+   * key landing in `unresolved` and the boundary refusing on it. The flag's absence
+   * would change only the sentence the viewer reads.
+   *
+   * 🔴 FALSE IS THE SAFE DEFAULT. It flips true only when BOTH scans completed without
+   * throwing and without truncating, and it is NOT written on a cancelled run: a
+   * `shouldStop` exit reports `truncated: false` over a PARTIAL read, so trusting it
+   * there would assert completeness about a scan that stopped half-way — the
+   * superseding run is what sets it instead.
    *
    * ⚠️ A REF, NOT STATE, DELIBERATELY: every reader is a callback that runs at press
    * time, and a ref cannot hand one a value from an earlier render. Nothing renders
@@ -982,9 +1034,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   useEffect(() => {
     if (!ready) return;
-    // 🔴 RE-ARMED BEFORE EITHER SCAN RUNS, so the window while they are in flight is
-    // treated as "we have not seen everything" rather than inheriting the last run's
-    // answer. A publish landing in that window is refused, not permitted.
+    // ⚠️ RE-ARMED BEFORE EITHER SCAN RUNS — AND IT CLOSES NOTHING ABOUT THE PUBLISH
+    // DECISION. An earlier draft of this comment said "a publish landing in that
+    // window is refused, not permitted", which is FALSE: `cascadeRefusal` returns
+    // `null` on an empty `unresolved` before this flag is read, so a grid whose keys
+    // are all accountable publishes mid-scan, correctly. What the re-arm buys is that
+    // a publish in that window which IS refused says "could not read your private
+    // items" rather than inheriting the last run's "the member is gone, remove it".
+    // It is a wording guarantee. Nothing more, and it is written here as nothing more.
     privateScanCompleteRef.current = false;
     if (!viewer) {
       // Anonymous: the host rejects every per-viewer write and reads back null,
@@ -2710,9 +2767,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         gridName: rec.name || 'Untitled grid',
         plan,
         scanComplete: privateScanCompleteRef.current,
-        boardTruncated,
+        boardRead,
       }),
-    [boardTruncated],
+    [boardRead],
   );
 
   /**
@@ -2763,6 +2820,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         setModal({ kind: 'grid-publish', localId, deps: plan.deps });
         return;
       }
+      // 🔴 CLEAR THE PREVIOUS NOTICE BEFORE THE ATTEMPT, not only on the dialog path.
+      // Measured: a viewer who followed a refusal's advice — edit the grid, remove the
+      // member, publish — SUCCEEDED and was left looking at the red alert saying the
+      // publish had been refused. The refusal's whole point is to be actionable, so an
+      // alert that outlives the action it asked for undoes that.
+      setGridPublishError(null);
       await publishUnpubGrid(rec, plan.resolved);
     },
     [unpublishedGrids, planFor, refusalFor, publishUnpubGrid],
@@ -2805,8 +2868,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       if (!rec) return;
       const plan = planFor(rec);
       const gridName = rec.name || 'Untitled grid';
-      // 🔴 RE-CHECKED AT THE PRESS, NOT ONLY AT THE OPEN. Nothing irreversible has
-      // happened yet, so this is the last point a refusal is free.
+      // ⚠️ RE-CHECKED AT THE PRESS — DEFENSIVE, AND LABELLED AS SUCH RATHER THAN
+      // LEFT READING AS LOAD-BEARING. An independent trace found NO in-tab route that
+      // changes the plan between the dialog opening and this press (the modal covers
+      // every surface that could publish or discard a dependency, and the create form
+      // cannot be opened from under it), so no test drives this and a mutant deleting
+      // it would SURVIVE. It is kept because nothing irreversible has happened yet, so
+      // a refusal here is free — not because a reachable path needs it.
       const refusal = refusalFor(rec, plan);
       if (refusal !== null) throw new Error(refusal);
       const resolved = new Map(plan.resolved);
@@ -3641,11 +3709,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           opened={
             modal.kind === 'grid-publish' && !!gridPublishRec && modal.deps.length > 0
           }
-          /* 🔴 `onClose` IS GATED ON `busy` FOR THE SAME REASON Cancel IS. `Modal`
-             serves Escape and the overlay through this one callback, so leaving it
-             live while the cascade runs would let either of them do exactly what the
-             disabled button is stopped from doing — close the dialog while appends
-             continue. */
+          /* 🔴 `onClose` IS GATED ON `busy`, AND IT IS THE WHOLE FIX. Measured in
+             `@civitai/blocks-react`'s `Modal.js`: Escape, the overlay click AND the ×
+             all route through this ONE callback — so a no-op here closes all three
+             while the cascade appends. That is wider than an earlier draft of this
+             comment claimed (it named only Escape and the overlay).
+             ⚠️ `closeOnEscape` IS THEREFORE REDUNDANT DEFENCE, not a second gate, and
+             is labelled as such: the no-op `onClose` already stops Escape whatever
+             this prop says. Kept to state the ownership at the seam, the same way
+             `GridPicker` keeps its own. No test drives Escape or the overlay. */
           onClose={gridPublishBusy ? () => {} : closeModal}
           closeOnEscape={!gridPublishBusy}
           title="Publish this grid"

@@ -422,14 +422,13 @@ describe('🔴 cascadeStoppedNotice — four outcomes, and the one that is NOT h
   });
 
   it('🔴 THE GRID failed with NOTHING published: no dangling "them"', () => {
-    // Reachable, not defensive: the DIRECT, no-dependency publish path reaches this arm
-    // with an empty `published` whenever the grid's own `append` is refused. The "still
-    // lists them" clause must not survive into a sentence that has no "them".
-    //
-    // ⚠️ THE REASON GIVEN HERE BEFORE WAS WRONG and is corrected rather than reworded:
-    // it said a cascade whose dependencies all landed and whose grid was refused leaves
-    // a plan with no dependencies for a retry. The dialog now CLOSES on both outcomes,
-    // so there is no in-dialog retry, and that path does not reach this arm.
+    // ⚠️ DEFENSIVE — NO UI ROUTE REACHES THIS STATE, and this case is the only thing
+    // that exercises it. Both previous rationales are dead: the in-dialog retry was
+    // killed by moving `closeModal()` into `finally`, and "the direct no-dependency
+    // publish path" was never true — every `cascadeStoppedNotice` call site is inside
+    // `runGridCascade`, which only the dialog reaches, and the dialog opens only on a
+    // non-empty dependency list. The copy is still worth pinning: the "still lists
+    // them" clause must not survive into a sentence that has no "them".
     const text = norm(
       cascadeStoppedNotice({
         gridName: 'Mixed Grid',
@@ -504,10 +503,30 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           unresolved: [],
         },
         scanComplete: true,
-        boardTruncated: false,
+        boardRead: 'complete',
       }),
       'a fully accountable grid was refused — publishing is broken, not guarded',
     ).toBeNull();
+  });
+
+  it('🔴 PERMITS a fully accountable grid even while the board is UNREAD or ERRORED', () => {
+    // 🔴 THE OTHER HALF OF THE REGRESSION. The fix had to stop refusing ordinary
+    // publishes on an unread board — but it must not start refusing on the FLAGS
+    // either. These two states return `null` because `unresolved` is empty, which is
+    // the whole design: per-key positive accounting is the guard, the flags only pick
+    // the sentence. A boundary that gated on `boardRead` would refuse every publish
+    // for the length of a page load.
+    for (const boardRead of ['unread', 'error', 'truncated'] as const) {
+      expect(
+        cascadeRefusal({
+          gridName: 'G',
+          plan: { deps: [DEP_M], resolved: new Map(), unresolved: [] },
+          scanComplete: false,
+          boardRead,
+        }),
+        `boardRead=${boardRead} refused a grid whose every key is accounted for`,
+      ).toBeNull();
+    }
   });
 
   it('🔴 REFUSES an unaccountable member, and the refusal is the whole string', () => {
@@ -515,14 +534,15 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       gridName: 'Mixed Grid',
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: true,
-      boardTruncated: false,
+      boardRead: 'complete',
     });
     expect(text, 'an unaccountable member was PERMITTED onto the public board').not.toBeNull();
     expect(norm(text!)).toBe(
       '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
         'among your private items. Publishing is refused rather than putting a key on the ' +
-        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
-        'and remove it.',
+        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
+        'keeps members it cannot show, so editing the grid cannot remove it — discard this ' +
+        'grid and build it again.',
     );
   });
 
@@ -533,14 +553,15 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
           gridName: 'Mixed Grid',
           plan: planWith([DEAD_MATCHUP_ID, DEAD_PROMPT_ID]),
           scanComplete: true,
-          boardTruncated: false,
+          boardRead: 'complete',
         })!,
       ),
     ).toBe(
       '2 members of “Mixed Grid” cannot be accounted for: they are not on the board and not ' +
         'among your private items. Publishing is refused rather than putting keys on the ' +
-        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
-        'and remove them.',
+        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
+        'keeps members it cannot show, so editing the grid cannot remove them — discard ' +
+        'this grid and build it again.',
     );
   });
 
@@ -555,7 +576,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: false,
-        boardTruncated: false,
+        boardRead: 'complete',
       })!,
     );
     expect(
@@ -580,7 +601,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         gridName: 'Mixed Grid',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
-        boardTruncated: true,
+        boardRead: 'truncated',
       })!,
     );
     expect(
@@ -591,9 +612,69 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       '1 member of “Mixed Grid” cannot be accounted for: it is not among your private items, ' +
         'and not in the part of the board this app could read — this board has more entries ' +
         'than one load fetches. Publishing is refused rather than putting a key on the public ' +
-        'board that nobody — including you — could resolve afterwards. Reload and try again, ' +
-        'or edit the grid and remove it.',
+        'board that nobody — including you — could resolve afterwards. ⚠ A retry may not ' +
+        'help: the same members may be past the same cap every time.',
     );
+  });
+
+  it.each(['unread', 'error'] as const)(
+    '🔴 boardRead=%s NEVER tells the viewer to remove the member — it is a REGRESSION guard',
+    (boardRead) => {
+      // 🔴 THE MEASURED REGRESSION THIS BRANCH EXISTS FOR. `boardRead` replaced a
+      // `boardTruncated` boolean that was written only on the board read's SUCCESS
+      // arm — so a read that THREW, and the window before the first read resolves,
+      // were both `false`, every ordinary published member fell through to
+      // `unresolved`, and this function refused with the branch that says the member
+      // is not on the board and tells the viewer to DELETE it. A viewer who followed
+      // that advice destroyed good members over a publish that would have worked a
+      // second later.
+      const text = norm(
+        cascadeRefusal({
+          gridName: 'Mixed Grid',
+          plan: planWith(['mk-a', 'qk-1']),
+          scanComplete: true,
+          boardRead,
+        })!,
+      );
+      // The two named claims FIRST, in the order the hazard matters: no destructive
+      // remedy, and no assertion about a board this app never read.
+      expect(
+        text,
+        `boardRead=${boardRead} advises destroying a grid whose members the app never read`,
+      ).not.toMatch(/remove|discard/i);
+      expect(
+        text,
+        `boardRead=${boardRead} asserts the members are not on the board it could not read`,
+      ).not.toMatch(/not on the board/);
+      expect(text).toBe(
+        '2 members of “Mixed Grid” cannot be accounted for, because this app has not been ' +
+          'able to read the board. It therefore cannot tell whether they are published rows ' +
+          'it has not seen, or gone. Publishing is refused rather than putting keys on the ' +
+          'public board that nobody — including you — could resolve afterwards. Reload and ' +
+          'try again.',
+      );
+    },
+  );
+
+  it('🔴 ONLY the `complete` branch may advise DESTROYING anything', () => {
+    // The relationship, over the whole enum, so a fifth value cannot quietly inherit
+    // the destructive remedy. `complete` is the one state in which the app really did
+    // read every row the host offered, so "it is not there" is a claim it can make —
+    // and only there may it suggest discarding the grid.
+    const destructive: string[] = [];
+    for (const boardRead of ['unread', 'error', 'truncated', 'complete'] as const) {
+      const text = cascadeRefusal({
+        gridName: 'G',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        scanComplete: true,
+        boardRead,
+      })!;
+      if (/discard/i.test(text)) destructive.push(boardRead);
+    }
+    expect(
+      destructive,
+      'a board state the app could not fully read still advises destroying the grid',
+    ).toEqual(['complete']);
   });
 
   it('🔴 THE INCOMPLETE SCAN WINS over the truncated board — one cause, named', () => {
@@ -604,7 +685,7 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
       gridName: 'G',
       plan: planWith([DEAD_MATCHUP_ID]),
       scanComplete: false,
-      boardTruncated: true,
+      boardRead: 'truncated',
     })!;
     expect(both).toContain('could not read all of your private items');
     expect(both, 'two causes were named at once').not.toMatch(/not in the part of the board/);
@@ -612,9 +693,11 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
 
   it('🔴 no branch claims the key is REMOVED, and every branch refuses in words', () => {
     for (const spec of [
-      { scanComplete: true, boardTruncated: false },
-      { scanComplete: true, boardTruncated: true },
-      { scanComplete: false, boardTruncated: false },
+      { scanComplete: true, boardRead: 'complete' },
+      { scanComplete: true, boardRead: 'truncated' },
+      { scanComplete: true, boardRead: 'unread' },
+      { scanComplete: true, boardRead: 'error' },
+      { scanComplete: false, boardRead: 'complete' },
     ] as const) {
       const text = cascadeRefusal({
         gridName: 'G',
