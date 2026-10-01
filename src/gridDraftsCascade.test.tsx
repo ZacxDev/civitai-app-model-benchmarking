@@ -467,7 +467,15 @@ describe('🔴 publishing a grid publishes its private members FIRST, by name', 
     await userEvent.click(within(card).getByTestId('unpublished-publish'));
     await userEvent.click(await screen.findByTestId('grid-publish-go'));
 
-    await waitFor(() => expect(appends).toHaveLength(3));
+    // 🔴 THE ANCHOR IS `>= 3`, NOT `=== 3`, AND THAT IS THE MEASUREMENT RATHER THAN
+    // SLOPPINESS. A mutant that publishes the grid FIRST appends it twice (the second
+    // publish reads a stale `publishedThisSession`), so a `toHaveLength(3)` anchor
+    // died on ITS OWN diff — 4 instead of 3 — and the order assertion below never
+    // executed. Waiting for "at least the three we expect" lets the equality be the
+    // thing that fails, with its own diagnostic.
+    await waitFor(() => {
+      if (appends.length < 3) throw new Error(`only ${appends.length} of 3 appends have landed`);
+    });
     // 🔴 AN EQUALITY OVER THE WHOLE LOG, IN CALL ORDER. This is the claim: the grid is
     // LAST. Reversing it would leave a public grid pointing at private rows, which
     // nothing in this app can repair.
@@ -559,14 +567,28 @@ describe('🔴 publishing a grid publishes its private members FIRST, by name', 
     // friction on the path this app already had. It is also the control for the
     // confirm cases above: without it, "the dialog opened" could be the dialog
     // opening unconditionally.
+    //
+    // ⚠️ AN INVARIANT GUARD, NOT REGRESSION COVERAGE — labelled, because the
+    // distinction matters. It is GREEN AT `2881c47`: at base there is no confirm at
+    // all, so "publishes with no confirm" was trivially true. What it pins is that
+    // the NEW branch did not make the old path worse. Measured: red-at-base is 8 of
+    // the 10 cases in this file; this one and the `New Grid` title are the two that
+    // were already green.
     const { shared, appends } = fakeShared({ seed: BOARD });
     mountApp({ shared, store: seedStore(privateGrid(['mk-a'], ['qk-1'])) });
 
     const card = await privateGridCard();
     await userEvent.click(within(card).getByTestId('unpublished-publish'));
 
+    // 🔴 THE NAMED CLAIM FIRST. `userEvent.click` is awaited, so React has flushed and
+    // a dialog that was going to open is already in the DOM. Asserting the append
+    // ledger first would instead time out with a diff and this assertion's own
+    // diagnostic would never run.
+    expect(
+      screen.queryByTestId('grid-publish-confirm'),
+      'a no-dependency grid still asked',
+    ).toBeNull();
     await waitFor(() => expect(appendLedger(appends)).toEqual(['grid:Mixed Grid']));
-    expect(screen.queryByTestId('grid-publish-confirm'), 'a no-dependency grid still asked').toBeNull();
     // The keys went out untouched — nothing to rewrite.
     expect(gridKeysOf(appends[0]!)).toEqual({ matchupKeys: ['mk-a'], promptKeys: ['qk-1'] });
   });

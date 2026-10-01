@@ -278,7 +278,17 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
     // 🔴 EVERY card is in the zero-read state STRUCTURALLY — `grid-preview-empty` is a
     // different node from `grid-preview`, so there is no id array a refactor could
     // hand to the hook by accident.
-    await waitFor(() => expect(screen.getAllByTestId('grid-preview-empty')).toHaveLength(3));
+    // 🔴 NAMED ANCHORS, NOT A BARE `getAllByTestId` INSIDE `waitFor`. A
+    // testing-library "unable to find" kills the case with ITS message and this
+    // case's own diagnostics never execute — the pre-emption this repo has measured
+    // repeatedly. Throwing a named Error inside the `waitFor` keeps the message.
+    await waitFor(() => {
+      const empties = screen.queryAllByTestId('grid-preview-empty');
+      if (empties.length !== 3)
+        throw new Error(
+          `expected one zero-read placeholder per card (3), found ${empties.length} — a card is missing its strip`,
+        );
+    });
     expect(screen.queryAllByTestId('grid-preview')).toEqual([]);
     expect(mockGetImages, 'an empty grid still issued a gated read').toHaveBeenCalledTimes(0);
     unmount();
@@ -289,11 +299,22 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
     // `getImages` wired to nothing — or a `GatedCell` prop that never reached the strip
     // — would report, and the zero above would certify a dead feature.
     renderMine({ unpublished: [PRIVATE_BOARD], results: ALL_RESULTS });
-    await waitFor(() => expect(screen.getAllByTestId('grid-preview')).toHaveLength(3));
-    await waitFor(() => expect(mockGetImages).toHaveBeenCalledTimes(3));
+    await waitFor(() => {
+      const strips = screen.queryAllByTestId('grid-preview');
+      if (strips.length !== 3)
+        throw new Error(
+          `expected one read-bearing strip per card (3), found ${strips.length} — a card is missing its strip`,
+        );
+    });
+    await waitFor(() => {
+      if (mockGetImages.mock.calls.length < 3)
+        throw new Error(
+          `the per-card reads have not all landed: ${mockGetImages.mock.calls.length} of 3`,
+        );
+    });
 
     // 🔴 ONE CALL PER CARD, AS AN EQUALITY. Per-tile would be 4 + 1 + 1 = 6.
-    expect(mockGetImages).toHaveBeenCalledTimes(3);
+    expect(mockGetImages, 'the read count is not exactly one per card').toHaveBeenCalledTimes(3);
     // …and each call's ids are attributable, because the three grids name different
     // members. `gk-all` spans every cell in row-major order; `gk-one` one cell;
     // the private board-member grid one other cell.
@@ -320,15 +341,31 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
     // asked for.
     renderMine({ unpublished: [PRIVATE_BOARD], results: ALL_RESULTS });
 
-    const pub = await waitFor(() => within(pubCard('gk-one')).getByTestId('grid-preview'));
-    await waitFor(() => expect(within(pub).getAllByTestId('result-image')).toHaveLength(1));
+    const pub = await waitFor(() => {
+      const el = within(pubCard('gk-one')).queryByTestId('grid-preview');
+      if (el === null) throw new Error('the PUBLISHED own-grid card has no thumbnail strip');
+      return el;
+    });
+    await waitFor(() => {
+      const imgs = within(pub).queryAllByTestId('result-image');
+      if (imgs.length !== 1)
+        throw new Error(`the published card's strip rendered ${imgs.length} images, not 1`);
+    });
     expect(within(pub).getByTestId('result-image')).toHaveAttribute(
       'src',
       'https://image.civitai.com/gated-22.jpeg',
     );
 
-    const priv = within(privCard('ug-board')).getByTestId('grid-preview');
-    await waitFor(() => expect(within(priv).getAllByTestId('result-image')).toHaveLength(1));
+    const priv = await waitFor(() => {
+      const el = within(privCard('ug-board')).queryByTestId('grid-preview');
+      if (el === null) throw new Error('the PRIVATE grid row has no thumbnail strip');
+      return el;
+    });
+    await waitFor(() => {
+      const imgs = within(priv).queryAllByTestId('result-image');
+      if (imgs.length !== 1)
+        throw new Error(`the private row's strip rendered ${imgs.length} images, not 1`);
+    });
     // 🔴 A DIFFERENT IMAGE FROM THE PUBLISHED CARD'S. If both cards rendered the same
     // id this case could not tell "the private card has its own strip" from "the
     // published card's strip was found twice".
@@ -354,11 +391,16 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
 
     await waitFor(() => expect(screen.getAllByTestId('unpublished-card')).toHaveLength(2));
     // The control FIRST, so the counter is known to move in this render.
-    await waitFor(() =>
-      expect(within(privCard('ug-board')).getByTestId('grid-preview')).toBeInTheDocument(),
-    );
-    await waitFor(() => expect(mockGetImages).toHaveBeenCalledTimes(1));
-    expect(readLedger()).toEqual(['[11]']);
+    await waitFor(() => {
+      const el = within(privCard('ug-board')).queryByTestId('grid-preview');
+      if (el === null)
+        throw new Error('the control row (private grid of BOARD members) has no strip');
+    });
+    await waitFor(() => {
+      if (mockGetImages.mock.calls.length < 1)
+        throw new Error('the control row issued no gated read — this case cannot see a zero');
+    });
+    expect(readLedger(), 'the control row did not read exactly its own cell').toEqual(['[11]']);
 
     // …and the private-member-only grid: the empty node, no strip, and NO second call.
     const only = privCard('ug-private');
@@ -384,8 +426,15 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
         result('mk-b', 'cfg-b', 'qk-2', [17, 18]),
       ],
     });
-    const strip = await waitFor(() => within(pubCard('gk-all')).getByTestId('grid-preview'));
-    expect(strip).toHaveAttribute('data-preview-count', '6');
+    const strip = await waitFor(() => {
+      const el = within(pubCard('gk-all')).queryByTestId('grid-preview');
+      if (el === null) throw new Error('the capped card has no thumbnail strip');
+      return el;
+    });
+    expect(strip, 'the strip is not capped at GRID_PREVIEW_MAX').toHaveAttribute(
+      'data-preview-count',
+      '6',
+    );
     expect(within(strip).getByTestId('grid-preview-more')).toHaveTextContent(
       '+2 more outputs in this grid.',
     );

@@ -246,10 +246,23 @@ describe('🔴 nameList and cascadeCounts', () => {
   });
 
   it('counts each axis and OMITS an axis with nothing in it', () => {
-    expect(cascadeCounts([DEP_M, DEP_P])).toBe('1 matchup and 1 prompt');
-    expect(cascadeCounts([DEP_M, DEP_M2])).toBe('2 matchups');
-    expect(cascadeCounts([DEP_P])).toBe('1 prompt');
-    expect(cascadeCounts([DEP_M, DEP_M2, DEP_P])).toBe('2 matchups and 1 prompt');
+    // 🔴 THE SINGLE-AXIS ARMS COME FIRST, AND THAT ORDER IS THE MEASUREMENT. The
+    // MIXED case cannot say WHICH arm a mutation removed, so with it first every
+    // arm-removing mutant dies on "the mixed-axis count is wrong" and the
+    // arm-specific diagnostics never execute — measured, on the mutant that deletes
+    // the prompt arm. Each arm is now asserted alone, before the mixed case.
+    //
+    // ⚠️ The counts are deliberately 2-vs-1 rather than 1-vs-1 in the last case, so a
+    // SWAP of the two arms is visible as well as a deletion.
+    expect(cascadeCounts([DEP_P]), 'the prompt arm is missing from the counts').toBe('1 prompt');
+    expect(cascadeCounts([DEP_M]), 'the matchup arm is missing from the counts').toBe('1 matchup');
+    expect(cascadeCounts([DEP_M, DEP_M2]), 'the matchup-only count is wrong').toBe('2 matchups');
+    expect(cascadeCounts([DEP_M, DEP_P]), 'the mixed-axis count is wrong').toBe(
+      '1 matchup and 1 prompt',
+    );
+    expect(cascadeCounts([DEP_M, DEP_M2, DEP_P]), 'the 2×1 mixed count is wrong').toBe(
+      '2 matchups and 1 prompt',
+    );
   });
 });
 
@@ -325,11 +338,15 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
         hostError: 'RATE_LIMITED',
       }),
     );
+    // 🔴 THE NAMED CLAIM COMES FIRST, DELIBERATELY. A whole-string `.toBe` placed
+    // above it would kill every mutant with ITS diff and this assertion's own
+    // diagnostic would never execute — the pre-emption this repo has measured five
+    // times. The `.toBe` below is the stronger guard and is kept; it just runs second.
+    expect(text, 'the empty-publish branch still refers to "them"').not.toMatch(/them/);
     expect(text).toBe(
       'Nothing was published. The grid “Mixed Grid” itself could not be published ' +
         '(RATE_LIMITED), so it is still private.',
     );
-    expect(text, 'the empty-publish branch still refers to "them"').not.toMatch(/them/);
   });
 
   it('🔴 no branch promises a rollback, and every one quotes the host error verbatim', () => {
@@ -356,7 +373,7 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
 
 describe('🔴 cascadeUnresolvedNotice — the whole string, both pluralisations', () => {
   it('singular', () => {
-    expect(norm(cascadeUnresolvedNotice(1))).toBe(
+    expect(norm(cascadeUnresolvedNotice(1)), 'the singular unresolved notice moved').toBe(
       '1 member of this grid cannot be found — not on the board and not among your private ' +
         'items. Publishing keeps it listed, and the grid renders without it.',
     );
