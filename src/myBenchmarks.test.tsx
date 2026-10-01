@@ -689,7 +689,15 @@ const draftMatchup = {
   localId: 'dm-1',
   name: 'An unpublished matchup',
   description: '',
-  configs: comboData('cfg-draft').configs,
+  /**
+   * 🔴 TWO CONFIGS, DELIBERATELY, AND `comboData` CANNOT SERVE HERE. It builds exactly
+   * ONE config, which puts the row's structural summary on the SINGULAR branch of
+   * `modelCountSummary` — and a fixture pinned to the singular cannot see a mutant that
+   * drops the plural `s`, nor one that hardcodes the string, because "1 model" is what
+   * both produce. Two is the smallest count that exercises the plural; the row's meta
+   * is therefore "2 models", asserted as a whole literal below.
+   */
+  configs: [...comboData('cfg-draft-1').configs, ...comboData('cfg-draft-2').configs],
   updatedAt: '2026-09-07T00:00:00.000Z',
 };
 const draftPrompt = {
@@ -1004,10 +1012,10 @@ describe('🔴 change 5: one list per noun, with the state on the row', () => {
       ).toBeTruthy();
     });
 
-    it(`${noun}: a DRAFT row is badged, can be published, and is never offered Archive`, async () => {
+    it(`${noun}: a PRIVATE row is badged "Private", can be published, and is never offered Archive`, async () => {
       // 🔴 THE INERT-CONTROL CASE, half one. Archive hides a SHARED row from the
-      // viewer's own list; a draft has no shared row, so an Archive here would write
-      // a per-viewer key naming nothing and do nothing at all.
+      // viewer's own list; a private record has no shared row, so an Archive here would
+      // write a per-viewer key naming nothing and do nothing at all.
       mountBoth();
       await screen.findByTestId('grid-view');
       await openMyList(noun);
@@ -1015,17 +1023,39 @@ describe('🔴 change 5: one list per noun, with the state on the row', () => {
       const draft = within(await screen.findByTestId(`my-list-${noun}`)).getByTestId(
         'unpublished-card',
       );
-      expect(within(draft).getByTestId('draft-badge')).toHaveTextContent('Draft');
+      // 🔴 THE WHOLE STRING, with `toBe` on `textContent` rather than
+      // `toHaveTextContent` — which is a SUBSTRING match and would stay green on
+      // "Private draft", i.e. on exactly the half-done rename this pins.
+      //
+      // ⚠️ IT READ 'Draft' UNTIL THE RENAME. The testid keeps the old word on purpose
+      // (it is a selector, not copy); the rendered word is "Private", because what the
+      // state actually means is "no other viewer can see this", not "unfinished".
+      // RED AT `7c20155` for all three nouns.
+      expect(within(draft).getByTestId('draft-badge').textContent).toBe('Private');
       expect(within(draft).getByTestId('unpublished-publish')).toBeInTheDocument();
       expect(within(draft).getByTestId('unpublished-edit')).toBeInTheDocument();
-      expect(within(draft).getByTestId('unpublished-discard')).toBeInTheDocument();
 
-      // NO archive, and no ⋮ for one to hide in — the stronger claim, because an
-      // absent testid alone would also hold for a control sitting in a closed menu
-      // one press away.
+      // 🔴 DISCARD IS BEHIND THE ROW'S OWN `⋮` — ABSENT until it opens, then present
+      // INSIDE the panel. Both halves, in this order, because either alone is empty:
+      // the absence alone is satisfied by a Discard that was simply deleted, and the
+      // presence alone is satisfied by a Discard still sitting on the row.
+      // RED AT `7c20155`, where the control is on the row and there is no menu to open.
+      expect(
+        within(draft).queryByTestId('unpublished-discard'),
+        'Discard is still on the row — it belongs in the ⋮',
+      ).toBeNull();
+      const privateMenu = await openRowMenu('unpublished', draft);
+      expect(within(privateMenu).getByTestId('unpublished-discard')).toBeInTheDocument();
+
+      // NO archive, and no PUBLISHED-row ⋮ for one to hide in — the stronger claim,
+      // because an absent testid alone would also hold for a control sitting in a
+      // closed menu one press away. Asserted over the whole card AND over the private
+      // menu that now exists on it, so the new panel cannot become the hiding place.
       expect(within(draft).queryByTestId('archive-action')).toBeNull();
+      expect(within(privateMenu).queryByTestId('archive-action')).toBeNull();
       expect(within(draft).queryByTestId(`${noun}-menu`)).toBeNull();
       expect(within(draft).queryByTestId(`${noun}-withdraw`)).toBeNull();
+      expect(within(privateMenu).queryByTestId(`${noun}-withdraw`)).toBeNull();
     });
 
     it(`${noun}: a PUBLISHED row is never badged and is never offered Publish`, async () => {
@@ -1060,6 +1090,39 @@ describe('🔴 change 5: one list per noun, with the state on the row', () => {
       expect(within(menu).queryByTestId('unpublished-discard')).toBeNull();
     });
   }
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE STRUCTURAL SUMMARY SAYS "models", NOT "configs".
+  //
+  // "config" is this repo's INTERNAL noun (`ModelConfig`, `data.configs`,
+  // `MAX_CONFIGS`, `ResultData.configId`) and none of it is viewer copy. The row
+  // summary leaked it: a matchup with two model setups read "2 configs". The operator
+  // asked for "models"; `lib/benchmark.ts`'s `modelCountSummary` owns the string for
+  // both of its call sites, and `lib/benchmark.test.ts` pins the function's output as
+  // literals. This case is the RENDERED half — a unit test alone cannot tell "the
+  // helper is right" from "the call site still open-codes the old string".
+  // -------------------------------------------------------------------------
+  it('🔴 a private MATCHUP row summarises its models as "N models", never "N configs"', async () => {
+    // RED AT `7c20155`: the row read "2 configs".
+    mountBoth();
+    await screen.findByTestId('grid-view');
+    await openMyList('matchup');
+
+    const draft = within(await screen.findByTestId('my-list-matchup')).getByTestId(
+      'unpublished-card',
+    );
+    const meta = within(draft).getByTestId('unpublished-meta');
+    // 🔴 THE WHOLE STRING, as a LITERAL typed out here — not `modelCountSummary(2)`.
+    // An expectation read out of the implementation passes whatever the
+    // implementation says, which is the one thing a copy guard must not do.
+    // `draftMatchup` carries TWO configs on purpose (see its fixture): the plural is
+    // the branch a dropped `s` and a hardcoded literal both fail on.
+    expect(meta.textContent).toBe('2 models');
+    // …and the internal word is not merely outnumbered, it is ABSENT from the row.
+    expect(draft.textContent ?? '', 'the internal noun "config" reached a viewer').not.toMatch(
+      /config/i,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

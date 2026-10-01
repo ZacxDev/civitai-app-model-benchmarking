@@ -1105,6 +1105,73 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
 });
 
 // ===========================================================================
+// The grid builder's ROW PICKER summarises a matchup by MODELS, not "configs"
+// ===========================================================================
+
+describe("🔴 the row picker's structural summary says \"models\"", () => {
+  // 🔴 WHY HERE AND NOT ONLY IN A UNIT TEST. The string comes from
+  // `modelCountSummary` (`lib/benchmark.ts`), which `lib/benchmark.test.ts` pins as
+  // literals — but the helper has TWO call sites and a unit test is blind to a call
+  // site that still open-codes the old `${n} config${…}` ternary. Both of them did,
+  // identically, which is the shape that comes out wrong at N−1 sites. This case reads
+  // the RENDERED option on `App`'s side (`matchupPickerItems` → `GridForm` →
+  // `GridPicker`); `myBenchmarks.test.tsx` reads `MatchupsView`'s side.
+  it('reads "N models" on a picker option, at both the singular and the plural', async () => {
+    // RED AT `7c20155`: the options read "1 config" / "2 configs".
+    //
+    // 🔴 A TWO-CONFIG MATCHUP IS SEEDED ALONGSIDE THE SHARED FIXTURE RATHER THAN
+    // CHANGING IT. Every `MATCHUPS` row carries exactly ONE config, so the shared
+    // fixture can only ever exercise the SINGULAR branch — and a fixture pinned to the
+    // singular cannot tell `${n} model` from `${n} model${n === 1 ? '' : 's'}`, nor
+    // either from a hardcoded "1 model". Widening `MATCHUPS` in place would move the
+    // cell counts (configs × prompts) that a dozen cases in this file assert, so the
+    // extra row is additive: it is not in any `MATCHUPS`-derived expectation.
+    const twoConfig = row('mk-pair', 2, 'Pair', {
+      v: 2,
+      kind: 'combination',
+      configs: [
+        {
+          id: 'cfg-pair-a',
+          checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+          loras: [],
+        },
+        {
+          id: 'cfg-pair-b',
+          checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+          loras: [],
+        },
+      ],
+    });
+    const s = fakeShared({ seed: [...MATCHUPS, twoConfig, ...PROMPTS] });
+    renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    await contribute('grid');
+    const form = await screen.findByTestId('grid-form');
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    const picker = await screen.findByTestId('grid-pick-rows');
+    const optionFor = (key: string): HTMLElement =>
+      within(picker)
+        .getAllByTestId('grid-pick-rows-option')
+        .find((el) => el.getAttribute('data-key') === key)!;
+
+    // 🔴 LITERALS, typed out here rather than built from `modelCountSummary` — an
+    // expectation read out of the implementation agrees with a wrong implementation.
+    // `toContain` on the option, because the option also carries the matchup's name.
+    expect(optionFor('mk-echo').textContent ?? '').toContain('1 model');
+    expect(optionFor('mk-pair').textContent ?? '').toContain('2 models');
+    // …and the internal noun reaches neither. `/config/i` over the OPTION, not the
+    // whole page: `grid-form`'s own copy is not what this case is about.
+    for (const key of ['mk-echo', 'mk-pair']) {
+      expect(
+        optionFor(key).textContent ?? '',
+        `${key}'s option leaked the internal noun "config"`,
+      ).not.toMatch(/config/i);
+    }
+  });
+});
+
+// ===========================================================================
 // The private → publish boundary, for grids
 // ===========================================================================
 

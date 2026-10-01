@@ -142,6 +142,7 @@ import {
   DEFAULT_TOP_N,
   flattenConfigs,
   isOwnRow,
+  modelCountSummary,
   promptToInput,
   reconcileOptimistic,
   resolveCell,
@@ -1029,7 +1030,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         key: c.key,
         name: c.name || `#${c.key}`,
         description: c.description,
-        meta: `${c.data.configs.length} config${c.data.configs.length === 1 ? '' : 's'}`,
+        // 🔴 THE COPY LIVES IN `modelCountSummary`, NOT HERE. This ternary was
+        // open-coded identically in `MatchupsView` too; see that helper for why the
+        // viewer-facing noun is "models" while every internal name stays "config".
+        meta: modelCountSummary(c.data.configs.length),
       })),
     [combinations],
   );

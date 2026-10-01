@@ -20,6 +20,7 @@ import {
   indexResultsByCell,
   isOwnRow,
   loraFromPick,
+  modelCountSummary,
   newConfig,
   parseCombination,
   parsePrompt,
@@ -671,6 +672,35 @@ describe('includedSummary (header copy)', () => {
   it('uses the noun it is given', () => {
     expect(includedSummary(3, 'column')).toContain("grid's columns");
     expect(includedSummary(3, 'row')).toContain("grid's rows");
+  });
+});
+
+describe('modelCountSummary (the row/picker structural summary)', () => {
+  // 🔴 LITERALS, NOT `\`${n} model\``. The point of the helper is the exact wording —
+  // an expectation built the same way the implementation builds it agrees with a wrong
+  // implementation, which is how a copy guard comes to guard nothing.
+  //
+  // ⚠️ THE SUBJECT: this string read "N configs" on both of its render surfaces until
+  // the rename. "config" is the repo's internal noun and appears in no wire value and
+  // no viewer copy anywhere else; "models" is what a viewer picked. The two RENDERED
+  // halves are pinned separately — `myBenchmarks.test.tsx` (My Benchmarks ▸ Matchups,
+  // private row) and `gridsView.test.tsx` (the grid builder's row picker) — because a
+  // green unit test cannot tell "the helper is right" from "a call site still
+  // open-codes the old string".
+  it('says "models", and agrees in number', () => {
+    expect(modelCountSummary(1)).toBe('1 model');
+    expect(modelCountSummary(2)).toBe('2 models');
+    expect(modelCountSummary(8)).toBe('8 models');
+  });
+
+  it('never says "config" at any count, including the degenerate ones', () => {
+    // 0 is reachable only through a parse that produced an empty config list, which
+    // `parseCombination` rejects — but the helper is a pure string function and a
+    // caller is entitled to a sane answer rather than "0 config".
+    expect(modelCountSummary(0)).toBe('0 models');
+    for (const n of [0, 1, 2, 3, 8]) {
+      expect(modelCountSummary(n), `"${n}" leaked the internal noun`).not.toMatch(/config/i);
+    }
   });
 });
 

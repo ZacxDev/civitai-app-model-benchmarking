@@ -32,6 +32,7 @@ import {
 } from './test-helpers.js';
 import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
+import { unpubGridKey } from './lib/grids.js';
 import { UNPUB_PROMPT_PREFIX, unpubPromptKey } from './lib/unpubPrompts.js';
 import type { CombinationData, PromptData } from './types.js';
 
@@ -203,6 +204,95 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
 });
 
 // ---------------------------------------------------------------------------
+// 🔴 VOTING IS OFFERED ON OTHER PEOPLE'S MATCHUPS AND NOT ON YOUR OWN.
+//
+// An operator decision, and the third affordance on the Report side of the
+// ownership mirror (`MatchupBody`'s `canVote`, through the app's ONE `isOwnRow`
+// predicate). A matchup's vote total decides whether it becomes one of the grid's
+// rows, so an author upvoting their own submission is ranking it with the same
+// instrument everyone else ranks it with.
+//
+// 🔴 THE PAIR IS THE WHOLE TEST, IN ONE CASE, OVER ONE RENDER. A one-sided
+// assertion here is worthless in both directions: "absent on mine" alone is
+// satisfied by a vote control deleted for EVERYONE, and "present on theirs" alone
+// is satisfied by a control shown to everyone. Two distinct `authorUserId`s on one
+// board, read off the same DOM, is the only shape that discriminates — this file's
+// header states the rule and the `includedCount={0}`-at-two-of-four-call-sites
+// incident is why it is stated at all.
+//
+// ⚠️ WHAT IT IS NOT: enforcement. `shared.vote` is a HOST call and the host does not
+// refuse a self-vote, so this is an affordance and nothing stops a viewer with the
+// network tab open. Nothing in this app can claim otherwise.
+// ---------------------------------------------------------------------------
+
+describe('🔴 the vote control is offered on OTHER viewers’ matchups only', () => {
+  it('is ABSENT on the viewer’s own row and PRESENT on a foreign one, same board', async () => {
+    // RED AT `7c20155`: the control rendered on both rows, so the first assertion
+    // failed while the second already passed.
+    const { shared } = fakeShared({
+      seed: [
+        row('mine', 'My matchup', VIEWER_ID, comboData, 5),
+        row('theirs', 'Their matchup', OTHER_ID, comboData, 9),
+      ],
+    });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
+
+    await screen.findByTestId('matchups-view');
+    await waitFor(() => expect(keysOf('matchup-card')).toHaveLength(2));
+    const cardFor = (key: string): HTMLElement =>
+      screen.queryAllByTestId('matchup-card').find((el) => el.getAttribute('data-key') === key)!;
+
+    // FOREIGN — the control is there, and it carries the host's count. The count is
+    // read too, because a control that rendered with no number would be a different
+    // defect passing this assertion.
+    const theirs = cardFor('theirs');
+    expect(within(theirs).getByTestId('matchup-vote')).toBeInTheDocument();
+    expect(within(theirs).getByTestId('vote-count')).toHaveTextContent('9');
+
+    // OWN — ABSENT FROM THE DOM, not merely disabled or invisible. `queryByTestId` is
+    // the only form that distinguishes the three.
+    const mine = cardFor('mine');
+    expect(
+      within(mine).queryByTestId('matchup-vote'),
+      'the viewer was offered a vote on their own matchup',
+    ).toBeNull();
+    // 🔴 AND THE CARD IS A REAL, FULLY RENDERED CARD. Without this the null above is
+    // satisfied by a row that failed to render at all — the in-band positive control
+    // that makes the absence a claim about ownership rather than about mounting. Two
+    // readings: the author's own `⋮` (which only an owner is given) and the
+    // ownership-independent config summary.
+    expect(within(mine).getByTestId('matchup-menu')).toBeInTheDocument();
+    expect(within(mine).getByTestId('matchup-config-summary')).toBeInTheDocument();
+
+    // 🔴 AND IT IS THE *SAME* RULE ON THE VIEWER'S OWN SURFACE, where every row is
+    // theirs by construction — so an implementation that gated on the SURFACE rather
+    // than on `isOwnRow` would pass the community half above and fail here.
+    const mySection = await openMy();
+    await waitFor(() => expect(keysOf('matchup-card')).toEqual(['mine']));
+    expect(within(mySection).queryByTestId('matchup-vote')).toBeNull();
+  });
+
+  it('🔴 keeps the control for an ANONYMOUS viewer, who owns nothing', async () => {
+    // 🔴 THE EDGE `isOwnRow` DECIDES AND A HAND-ROLLED `viewerId === authorUserId`
+    // WOULD GET WRONG. A signed-out viewer has `viewerId: null`, which is not equal to
+    // any author id, so NO row is theirs and every row keeps its (disabled) vote
+    // button routing to the sign-in nudge. `report.test.tsx`'s signed-out case uses
+    // exactly that control as its in-band positive control, so a gate that hid it from
+    // anonymous viewers would break an unrelated guard for an unrelated reason.
+    const { shared } = fakeShared({
+      seed: [
+        row('mine', 'A matchup', VIEWER_ID, comboData, 5),
+        row('theirs', 'Another matchup', OTHER_ID, comboData, 9),
+      ],
+    });
+    await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, null);
+
+    await waitFor(() => expect(keysOf('matchup-card')).toHaveLength(2));
+    expect(screen.queryAllByTestId('matchup-vote')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Criterion 6 — the prompt half of the publish boundary (the matchup half lives
 // in drafts.test.tsx, which drives the same boundary through the same App).
 // ---------------------------------------------------------------------------
@@ -339,13 +429,31 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     //   (b) the row is still what `list()` returns, with its vote total intact,
     expect(listed.items.map((i) => i.key).sort()).toEqual(['mine', 'theirs']);
     expect(listed.items.find((i) => i.key === 'mine')!.count).toBe(VOTES);
-    //   (c) and the archiver still sees it in Community, votes and all.
+    //   (c) and the archiver still sees it in Community, as a real card carrying its
+    //       own name rather than a husk.
     await openCommunity();
     await waitFor(() => expect(keysOf('matchup-card').sort()).toEqual(['mine', 'theirs']));
     const stillThere = screen.queryAllByTestId('matchup-card').find(
       (el) => el.getAttribute('data-key') === 'mine',
     )!;
-    expect(within(stillThere).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
+    expect(stillThere).toHaveTextContent('My matchup');
+    //
+    // ⚠️ (c) USED TO READ `vote-count` OFF THIS CARD, AND THAT ELEMENT IS GONE FROM
+    // IT — not hidden, and not a regression. `VoteButton` carries the total inside
+    // itself and the vote control is now author-hidden (`MatchupBody`'s `canVote`);
+    // `mine` is, by construction, the archiver's OWN row. The votes-intact claim is
+    // unweakened: (b) above reads the SAME number straight off `shared.list()`, which
+    // is where an archive-as-delete or an archive-as-rewrite would actually show. What
+    // (c) is for is that the row is still ON the archiver's community board, and the
+    // name is the reading of that which does not depend on ownership.
+    //
+    // 🔴 AND THE FOREIGN CARD IS THE POSITIVE CONTROL ON THE ABSENCE. Without it, a
+    // vote control deleted for EVERYONE would satisfy the null below.
+    const theirs = screen.queryAllByTestId('matchup-card').find(
+      (el) => el.getAttribute('data-key') === 'theirs',
+    )!;
+    expect(within(theirs).getByTestId('vote-count')).toHaveTextContent('3');
+    expect(within(stillThere).queryByTestId('matchup-vote')).toBeNull();
   });
 
   it('renders the honest wording next to the control, as the whole sentence', async () => {
@@ -610,40 +718,71 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
 });
 
 // ---------------------------------------------------------------------------
-// "draft" is a STATE MARKER on one badge and nowhere else in the rendered
-// vocabulary — while the STORAGE prefix keeps the word forever.
+// "draft" is a STORAGE word and NOTHING ELSE — it renders in ZERO viewer-facing
+// places, while the storage prefix keeps it forever.
 //
-// 🔴 THIS GUARD AND A FEATURE DISAGREED, AND THE GUARD IS THE HALF THAT MOVED. It
-// used to assert the word renders NOWHERE AT ALL (§11.1). The My Benchmarks
-// consolidation merged the unpublished list and the published list into ONE list,
-// and that is exactly what §11.1's premise rested on: the word was unnecessary
-// because the STATE was carried by the ADDRESS — a record under the "Not published
-// yet" heading was unpublished by virtue of being there. One list has no address to
-// read the state off, so the state has to be ON the row, and the operator chose the
-// one-word marker everyone already understands.
+// 🔴 THIS GUARD HAS MOVED TWICE, IN OPPOSITE DIRECTIONS, AND IT IS BACK AT ITS
+// STRONGEST FORM. §11.1 wrote it as "the word renders NOWHERE AT ALL". The My
+// Benchmarks consolidation merged the unpublished list and the published list into
+// ONE list and broke §11.1's premise — the word had been unnecessary because the
+// STATE was carried by the ADDRESS (a record under the "Not published yet" heading
+// was unpublished by virtue of being there), and one list has no address to read the
+// state off. So the state went ON the row as a one-word badge, and this guard was
+// NARROWED to exclude that one enumerated node.
 //
-// ⚠️ SO THIS IS A NARROWING, NOT A DELETION, AND THE NARROWING IS STRUCTURAL. The
-// scan still runs over every surface it ever ran over; what it excludes is the
-// enumerated element `[data-testid="draft-badge"]`, by REMOVING that node before
-// reading the text — not by allowlisting the string "Draft", which any new copy
-// could then smuggle past. The badge's own text is pinned separately and whole, and
-// its PRESENCE is a positive control, so the exclusion cannot come to cover a badge
-// that has quietly stopped rendering.
+// 🔴 THE RENAME INVERTS THE NARROWING AWAY AGAIN. The badge reads **"Private"** now
+// (operator decision, and the honest word: the one thing the state means is that no
+// other viewer can see the record — see the badge's docblock in `MyList.tsx`). So the
+// badge is no longer an exception to anything, and the whole exclusion machinery is
+// RETIRED rather than retargeted:
 //
-// 🔴 WHAT DID NOT CHANGE: the forms, the headings, the empty lines and both
-// community boards still may not say it. The old surface said "Draft"/"Drafts" in
-// its explanatory sub-line as well; that line is deleted (see `MyList`), which is
-// what makes "exactly one site" true rather than aspirational.
+//   - GONE: `textOutsideBadge()`, which cloned `<body>` and removed every
+//     `[data-testid="draft-badge"]` before reading the text. Nothing needs removing.
+//   - GONE: its NEGATIVE control, `expect(bodyText()).toMatch(/draft/i)`. That
+//     assertion existed to prove the exclusion was subtracting something REAL rather
+//     than passing because the word was never there — and it now asserts the exact
+//     opposite of the invariant. Keeping it would make the file self-contradictory;
+//     keeping it inverted (`.not.toMatch`) would be a second spelling of the scan
+//     below, over the same string.
+//   - KEPT, AND IT IS THE PART THAT MATTERS: the POSITIVE controls. A scan reading an
+//     empty or unmounted DOM reports "no draft" and proves nothing, so every surface
+//     is checked to contain its OWN copy before the absence is read off it.
+//
+// 🔴 THE SCAN IS STILL `document.body.textContent`, I.E. GENUINELY THE WHOLE PAGE —
+// which includes `compact.ts`, whose stylesheet is injected as a `<style>` element so
+// every COMMENT inside that template literal lands in the body text. (That has cost a
+// gate round: a stray "draft" in CSS commentary fails this case with a stack trace
+// pointing at a test file.) Note the two `draft` mentions in `compact.ts` are JSDoc
+// OUTSIDE the template and are compiled away, which is why they do not trip it.
+//
+// 🔴 WHAT DID NOT CHANGE: the forms, the headings, the empty lines and both community
+// boards still may not say it. The old surface said "Draft"/"Drafts" in its
+// explanatory sub-line as well; that line is deleted (see `MyList`).
 // ---------------------------------------------------------------------------
 
-describe('🔴 "draft" is a storage word plus ONE state badge, and nothing else', () => {
-  it('renders nowhere but the badge, on every surface that used to say it', async () => {
+describe('🔴 "draft" is a storage word and renders NOWHERE a viewer can read it', () => {
+  it('renders on no surface at all, badge included, on every surface that used to say it', async () => {
     // 🔴 THE SCAN IS OVER RENDERED TEXT, NOT SOURCE. The prefix, the types and the
     // analytics event all still spell "draft" on purpose — a source grep would
     // therefore have to allowlist them and would stop meaning anything. What §11.1
     // decided is about what a viewer READS, so that is what is measured, across
-    // every surface the old drafts panel touched: both sub-tabs of both views, and
-    // both private forms.
+    // every surface the old drafts panel touched: both community boards, all THREE
+    // My Benchmarks destinations, and both private forms.
+    //
+    // 🔴 THE WALK INCLUDES **GRIDS** NOW, AND IT DID NOT BEFORE. That was a real gap
+    // rather than a tidy-up: `MyList` renders the same badge for all three nouns, so a
+    // reword applied to two of them would have left the third saying the old word with
+    // nothing in the repo reading it. The walk is as wide as the sentence describing
+    // it — which is the rule this file's anon-walk case records the hard way.
+    const unpublishedGrid = {
+      v: 1,
+      localId: 'ug1',
+      name: 'An unpublished grid',
+      description: '',
+      matchupKeys: ['mine'],
+      promptKeys: ['p-mine'],
+      updatedAt: '2026-09-07T00:00:00.000Z',
+    };
     const unpublishedMatchup = {
       v: 1,
       localId: 'l1',
@@ -669,26 +808,20 @@ describe('🔴 "draft" is a storage word plus ONE state badge, and nothing else'
     const { appStorage } = fakeAppStorage({
       [draftKey('l1')]: unpublishedMatchup,
       [unpubPromptKey('up1')]: unpublishedPrompt,
+      [unpubGridKey('ug1')]: unpublishedGrid,
     });
     await renderApp({ shared, appStorage }, signedIn);
 
-    const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
     /**
-     * Rendered text with the ONE enumerated state badge REMOVED — a node removal, not
-     * a string allowlist, so no new copy can hide behind the word the badge happens to
-     * carry. `compact.ts` injects its sheet as a `<style>`, whose comment text lands in
-     * `document.body.textContent`, so this really is the whole page.
+     * The WHOLE rendered page, with nothing subtracted.
+     *
+     * `compact.ts` injects its sheet as a `<style>`, whose comment text lands in
+     * `document.body.textContent`, so this really is everything — markup and
+     * stylesheet commentary alike.
      */
-    const textOutsideBadge = () => {
-      const clone = document.body.cloneNode(true) as HTMLElement;
-      for (const el of clone.querySelectorAll('[data-testid="draft-badge"]')) el.remove();
-      return (clone.textContent ?? '').replace(/\s+/g, ' ');
-    };
+    const bodyText = () => (document.body.textContent ?? '').replace(/\s+/g, ' ');
     const noDraft = (where: string) =>
-      expect(
-        textOutsideBadge(),
-        `the word "draft" is rendered outside the state badge on ${where}`,
-      ).not.toMatch(/draft/i);
+      expect(bodyText(), `the word "draft" is rendered on ${where}`).not.toMatch(/draft/i);
 
     await screen.findByTestId('matchups-view');
     noDraft('Matchups / Community');
@@ -705,17 +838,18 @@ describe('🔴 "draft" is a storage word plus ONE state badge, and nothing else'
     // prove nothing.
     expect(bodyText()).toContain('Your matchups');
     expect(bodyText()).toContain('An unpublished matchup');
-    // 🔴 SECOND POSITIVE CONTROL, ON THE EXCLUSION ITSELF. The badge is really here,
-    // its whole text is the one word, and it is on the DRAFT row rather than loose on
-    // the page — so `textOutsideBadge()` is subtracting something real. Without this,
-    // a badge that stopped rendering would make the narrowed guard pass MORE easily.
+    // 🔴 SECOND POSITIVE CONTROL, AND IT IS WHY THE BADGE IS STILL READ HERE AT ALL.
+    // The state marker has not been DELETED — it has been RE-WORDED. A guard that only
+    // said "nothing says draft" would be satisfied by a badge that stopped rendering,
+    // i.e. by losing the one thing on the row that tells a viewer the record is not
+    // public. So its whole text is pinned, as `toBe` on `textContent` rather than
+    // `toHaveTextContent` (a SUBSTRING match, which would stay green on "Private
+    // draft" — precisely the half-done rename this is for), and its position on the
+    // unpublished row is pinned too.
     const badges = within(mySection).getAllByTestId('draft-badge');
     expect(badges).toHaveLength(1);
-    expect(badges[0]!.textContent).toBe('Draft');
+    expect(badges[0]!.textContent).toBe('Private');
     expect(within(mySection).getByTestId('unpublished-card')).toContainElement(badges[0]!);
-    // …and the scan WOULD see it if it were not excluded — the negative control that
-    // separates "the exclusion works" from "the word was never there".
-    expect(bodyText()).toMatch(/draft/i);
     noDraft('Matchups / My');
 
     // The private matchup form (the old "New draft" / "Save draft" modal).
@@ -740,5 +874,23 @@ describe('🔴 "draft" is a storage word plus ONE state badge, and nothing else'
     await userEvent.click(within(promptsSection).getByTestId('unpublished-edit'));
     await screen.findByTestId('prompt-form');
     noDraft('the private prompt form');
+    await userEvent.click(screen.getByTestId('prompt-cancel'));
+
+    // 🔴 THE THIRD NOUN, which this walk never visited. `MyList` renders the SAME
+    // badge for grids, so a reword that reached matchups and prompts and missed grids
+    // would have been invisible here.
+    const gridsSection = await openMyList('grid');
+    await waitFor(() =>
+      expect(within(gridsSection).getByTestId('unpublished-card')).toBeInTheDocument(),
+    );
+    expect(bodyText()).toContain('An unpublished grid');
+    const gridBadges = within(gridsSection).getAllByTestId('draft-badge');
+    expect(gridBadges).toHaveLength(1);
+    expect(gridBadges[0]!.textContent).toBe('Private');
+    noDraft('Grids / My');
+
+    await userEvent.click(within(gridsSection).getByTestId('unpublished-edit'));
+    await screen.findByTestId('grid-form');
+    noDraft('the private grid form');
   });
 });

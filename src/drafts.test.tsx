@@ -42,6 +42,7 @@ import {
   fakeShared,
   immediateSleep,
   openMyList,
+  openRowMenu,
   openView,
 } from './test-helpers.js';
 import { DRAFT_PREFIX, draftKey, parseDraft } from './lib/drafts.js';
@@ -177,8 +178,12 @@ describe('🔴 criterion 7: no private path ever calls shared.append', () => {
       expect(screen.getByTestId('unpublished-name')).toHaveTextContent('Draft one renamed'),
     );
 
-    // DISCARD — still the private path.
-    await userEvent.click(screen.getByTestId('unpublished-discard'));
+    // DISCARD — still the private path, and now behind the row's own `⋮`: the
+    // control is UNMOUNTED until the menu opens, not merely restyled.
+    const privateCard = screen.getByTestId('unpublished-card');
+    await userEvent.click(
+      within(await openRowMenu('unpublished', privateCard)).getByTestId('unpublished-discard'),
+    );
     await waitFor(() => expect(screen.queryByTestId('unpublished-card')).toBeNull());
 
     // 🔴 THE GUARD. `append` is the moment a record becomes world-readable, and
@@ -391,11 +396,25 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     expect(updates[0].value.title).toBe('Live matchup, edited');
     expect(appends, 'an edit minted a NEW row instead of updating the live one').toEqual([]);
 
-    // 🔴 AND THE VOTE TOTAL SURVIVES, on screen, after the post-edit re-fetch.
+    // 🔴 AND THE VOTE TOTAL SURVIVES. The row is still the same row on screen, after
+    // the post-edit re-fetch…
     const card = await screen.findByTestId('matchup-card');
     await waitFor(() => expect(card).toHaveTextContent('Live matchup, edited'));
     expect(card.getAttribute('data-key')).toBe(LIVE_KEY);
-    expect(within(card).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
+    // …and the total is read off the SHARED STORE rather than off the card.
+    //
+    // ⚠️ RETRACTED PRECISELY: this used to assert `vote-count` INSIDE the card, and
+    // that element no longer exists HERE. `VoteButton` carries the count inside
+    // itself, and the vote control is now hidden on the viewer's OWN matchups
+    // (`MatchupBody`'s `canVote`) — this row is the viewer's own, by construction,
+    // because the case is about editing a row you authored. So the rendered reading
+    // is not weakened, it is UNAVAILABLE on this surface; the store read is the same
+    // claim at the only place that can still answer it, and it is the one that would
+    // actually be unrecoverable if `append` had been used (a new row starts at zero).
+    // The ON-SCREEN half of the claim is the `data-key` identity above: a minted row
+    // would carry a different key.
+    const listed = await shared.list({});
+    expect(listed.items.find((i) => i.key === LIVE_KEY)!.count).toBe(VOTES);
   });
 
   it('renders no ghost card for a pointer whose shared row is not in hand', async () => {

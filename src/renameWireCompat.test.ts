@@ -656,7 +656,19 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     // neither. A non-zero count is what proves the pattern CAN see them, and the two
     // literals are what prove it sees the right ones.
     expect(PANEL_TESTIDS.length, 'the panelTestId scan matched nothing').toBeGreaterThan(0);
-    expect(PANEL_TESTIDS.slice().sort()).toEqual(['matchup-menu-items', 'prompt-menu-items']);
+    // 🔴 THREE LITERAL PANELS NOW, AND THE THIRD IS NOT MATCHUP-SPELLED.
+    // `unpublished-menu-items` is `MyList`'s PRIVATE-row overflow panel, added when
+    // Discard moved off the row and behind a `⋮`. It deliberately does NOT reuse
+    // `${noun}-menu-items` — the published row on that same surface owns that name, and
+    // `myBenchmarks.test.tsx` asserts a private row carries no `${noun}-menu` at all as
+    // the load-bearing half of "a private row is never offered Archive or Remove".
+    // Spelled as a literal rather than a template because the private row's whole
+    // control set is noun-neutral (`unpublished-card`, `-edit`, `-publish`, `-discard`).
+    expect(PANEL_TESTIDS.slice().sort()).toEqual([
+      'matchup-menu-items',
+      'prompt-menu-items',
+      'unpublished-menu-items',
+    ]);
     // 🔴 POSITIVE CONTROL ON THE FOURTH PATTERN. `MyList`'s one `⋮` serves all three
     // nouns through a TEMPLATED `panelTestId`, so without this pattern `grid-menu-items`
     // is rendered on every published grid row and absent from `ALL_TESTIDS` — and the
