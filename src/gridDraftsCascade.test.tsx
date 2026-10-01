@@ -677,6 +677,13 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
       appendLedger(appends),
       'a discarded private member’s LOCAL ID went to the public board',
     ).toEqual([]);
+    // 🔴 AND THE ID ITSELF, NAMED. The ledger above says nothing was appended; this
+    // says what would have been on the wire if it had been. At the pre-fix base the
+    // grid row's `data.matchupKeys` carried this exact string, permanently.
+    expect(
+      JSON.stringify(appends),
+      'the unaccountable LOCAL ID reached the public board',
+    ).not.toContain(DRAFT_LOCAL_ID);
     const notice = refusalNode();
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
       '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
@@ -722,6 +729,13 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
 
     await settlePublish(appends);
     expect(appendLedger(appends), 'the FAIL-OPEN path still reaches the board').toEqual([]);
+    // 🔴 AND THE ID ITSELF, NAMED. The ledger above says nothing was appended; this
+    // says what would have been on the wire if it had been. At the pre-fix base the
+    // grid row's `data.matchupKeys` carried this exact string, permanently.
+    expect(
+      JSON.stringify(appends),
+      'the unaccountable LOCAL ID reached the public board',
+    ).not.toContain(DRAFT_LOCAL_ID);
     const notice = refusalNode();
     // 🔴 AND THE COPY NAMES THE RIGHT CAUSE. "not among your private items" would be a
     // claim the app has no evidence for here — it could not read them.
@@ -733,6 +747,53 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
         'again.',
     );
     void grid;
+  });
+
+  it('🔴 CANCEL IS DISABLED WHILE THE CASCADE RUNS — it cannot undo what it looks like it undoes', async () => {
+    // 🔴 WHAT IT USED TO DO: change modal state, and nothing else. The promise kept
+    // appending, so a live Cancel sat beside copy that says "Publishing cannot be
+    // undone" offering exactly the undo that does not exist.
+    //
+    // The first `append` is GATED so the press is observable mid-flight — without a
+    // pending call there is no "while it runs" to assert anything about.
+    const base = fakeShared({ seed: BOARD });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const shared: SharedStore = {
+      ...base.shared,
+      async append(value) {
+        await gate;
+        return base.shared.append(value);
+      },
+    };
+    mountApp({ shared, store: seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])) });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    await userEvent.click(await screen.findByTestId('grid-publish-go'));
+
+    // PREMISE: the cascade really is mid-flight — nothing has landed yet.
+    expect(base.appends, 'the gate did not hold the first append').toHaveLength(0);
+    await waitFor(() => {
+      const cancel = screen.queryByTestId('grid-publish-cancel');
+      if (cancel === null) throw new Error('the dialog closed before Cancel could be read');
+      if (!cancel.hasAttribute('disabled'))
+        throw new Error('Cancel is live while the cascade is appending');
+    });
+
+    // …and the NEGATIVE CONTROL, after the cascade finishes: Cancel is not disabled
+    // unconditionally. Without this, "disabled" is satisfied by a button that is
+    // always dead, which is a different defect with the same assertion.
+    release();
+    await waitFor(() => {
+      if (base.appends.length < 2)
+        throw new Error(`only ${base.appends.length} of 2 appends have landed`);
+    });
+    await userEvent.click(await screen.findByTestId('new-unpublished'));
+    const cancelOnFreshDialog = await screen.findByTestId('grid-form-cancel');
+    expect(cancelOnFreshDialog, 'a not-busy dialog control is disabled too').not.toBeDisabled();
   });
 
   it('🔴 THE NEGATIVE CONTROL: the SAME grid publishes when its member IS accountable', async () => {
