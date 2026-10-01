@@ -34,7 +34,24 @@ import { ecosystemForBaseModel } from './ecosystem.js';
 // declarations from inside function bodies, never at module-evaluation time.
 import { parseGrid } from './grids.js';
 
-/** Max LoRAs the server accepts in `additionalResources` (mirrors the Zod gate). */
+/**
+ * Max LoRAs the server accepts in `additionalResources`.
+ *
+ * 🔴 THIS IS A HOST CONTRACT, NOT A TASTE CALL — DO NOT RAISE IT. The number is
+ * `MAX_ADDITIONAL_RESOURCES = 5` in `civitai/civitai`, applied as a Zod `.max()`
+ * on `additionalResources` in
+ * `src/server/schema/blocks/workflow.schema.ts` (line 84 at the time of
+ * measurement). The gate is at the WIRE SCHEMA, i.e. it rejects at submit — so a
+ * larger app-side cap does not buy the viewer a bigger stack, it lets them build
+ * one and then fails after they have done the work and pressed Confirm.
+ *
+ * The previous comment here said only "mirrors the Zod gate", which is true but
+ * unverifiable from inside this repo and so kept getting re-litigated. The
+ * constant and the file are named above precisely so the next person can check it
+ * rather than reopen it. `MAX_CONFIGS` is the opposite kind of number — an app-side
+ * usability cap with no host counterpart — and they must not be reasoned about
+ * together. `benchmark.test.ts` carries an INVARIANT GUARD pinning this at 5.
+ */
 export const MAX_LORAS = 5;
 
 /** Default weight clamp when a picked LoRA carries no recommended range. */
@@ -45,8 +62,25 @@ export const DEFAULT_WEIGHT = 1;
 /** Default included-set size (top-N by votes) for combos AND prompts. */
 export const DEFAULT_TOP_N = 5;
 
-/** Max model configs a single combination can group. */
-export const MAX_CONFIGS = 8;
+/**
+ * Max model configs a single combination can group.
+ *
+ * 🔴 UNLIKE `MAX_LORAS`, THIS HAS NO HOST COUNTERPART. Nothing server-side counts
+ * a combination's configs — a config is this app's own grouping, and each config
+ * runs as its own single-checkpoint workflow. So this is purely an app-side cap,
+ * and raising it from 8 to 100 was an operator request, not a contract change.
+ *
+ * 🔴 WHAT IT COSTS, AND WHAT PAYS FOR IT. This number multiplies the matrix: the
+ * results grid renders one ROW per config, and `MAX_GRID_MATCHUPS` ×
+ * `MAX_GRID_PROMPTS` (both 20, in `grids.ts`) bound the other two axes. At 8 the
+ * worst case was 20×8 = 160 rows / 3,200 cells; at 100 it is 20×100 = 2,000 rows
+ * / 40,000 cells. Every cell is a potential Buzz spend and a filled cell issues a
+ * gated image read, so an unvirtualized 40,000-cell render is a cost surface as
+ * well as a performance one. `ResultsGrid` therefore WINDOWS its rows
+ * (`lib/virtualRows.ts`) — the two changes shipped together and the limit should
+ * not be raised again without re-reading that bound.
+ */
+export const MAX_CONFIGS = 100;
 
 /** The deterministic config id assigned to a migrated v1 combination's single
  * config. A v1 result row (no `configId`) also resolves to this id, so a
