@@ -411,6 +411,43 @@ describe('🔴 selected resources render through the upstream ResourceCard', () 
     }
   });
 
+  it('🔴 names a WHITESPACE-named LoRA by its id — on the card AND in both accessible names', async () => {
+    // 🔴 THIS GUARD WAS MISSING, AND THE AUDIT MEASURED THE COST. Reverting EITHER
+    // aria-label to its hand-rolled `modelName ?? …` form left the suite fully green
+    // — 64 files / 920 tests, rc 0 — so the fix that routed both through upstream's
+    // `resourceDisplayName` shipped with nothing watching it.
+    //
+    // 🔴 A WHITESPACE-ONLY NAME IS THE CASE THAT SEPARATES THE TWO, which is why the
+    // fixture is `'   '` and not `undefined`. `modelName ?? x` only fires on
+    // null/undefined, so it KEEPS the blank string: the card would read `#2002`
+    // (upstream trims, then falls back) while the button announced "Remove" and the
+    // slider "Weight for" — an accessible name that does not match what is on
+    // screen, which is WCAG 2.5.3's whole subject. A fixture of `undefined` would
+    // pass against BOTH implementations and prove nothing.
+    const blank: BlockResourceInfo = { ...LORA_SDXL, modelName: '   ' };
+    const pickResource = async (opts: { resourceType: BlockResourcePickerType }) =>
+      opts.resourceType === 'Checkpoint' ? CKPT_SDXL : blank;
+    render(<MatchupForm pickResource={pickResource} onSubmit={vi.fn()} onCancel={vi.fn()} />);
+    await userEvent.click(screen.getByTestId('pick-checkpoint'));
+    await waitFor(() => expect(screen.getByTestId('checkpoint-card')).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId('add-lora'));
+    await waitFor(() => expect(screen.getByTestId('lora-row')).toBeInTheDocument());
+
+    const expected = `#${blank.versionId}`;
+    // The CARD, via upstream's frozen fallback…
+    expect(screen.getByTestId('lora-row-name').textContent).toBe(expected);
+    // …and BOTH accessible names AGREE WITH IT. Read by role+name, so the assertion
+    // fails if the label drifts from the visible text in either direction.
+    expect(
+      screen.queryByRole('button', { name: `Remove ${expected}` }),
+      'the Remove button no longer announces the name the card shows',
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('slider', { name: `Weight for ${expected}` }),
+      'the weight slider no longer announces the name the card shows',
+    ).not.toBeNull();
+  });
+
   it("🔴 keeps the weight slider and Remove reachable, in the card's actions slot", async () => {
     await renderWithLora();
     const lora = screen.getByTestId('lora-row');

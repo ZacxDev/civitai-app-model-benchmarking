@@ -271,9 +271,23 @@ export function MatchupForm({
    * action the gate is asking for. Reachable: pick a checkpoint on model 1, Add model,
    * leave model 2 empty, trash model 1. The survivor has no checkpoint, so "Add model"
    * goes away (and so does its own trash, on the `length > 1` gate) until the viewer
-   * picks one — which is exactly what the gate wants next anyway. A version reading
-   * `configs.some(c => c.checkpoint)` would instead let a viewer stack empty rows
-   * behind one complete one, which is the state this gate exists to prevent.
+   * picks one — which is exactly what the gate wants next anyway.
+   *
+   * 🔴 WHY `configs[0]` AND NOT `configs.some(c => c.checkpoint)`: BECAUSE THE ASK
+   * SAYS "THE FIRST MODEL", AND FOR NO OTHER REASON. That is the whole justification;
+   * do not go looking for a better one.
+   *
+   * ⚠️ A SECOND, STRONGER-SOUNDING RATIONALE WAS WRITTEN HERE AND IS RETRACTED. It
+   * said `some(...)` "would instead let a viewer stack empty rows behind one complete
+   * one, which is the state this gate exists to prevent". That is FALSE, and an audit
+   * caught it: the button renders under a bare `{canAddModel && …}` with only a
+   * `>= MAX_CONFIGS` disable, so once row 0 has a checkpoint "Add model" is visible
+   * UNCONDITIONALLY and a viewer can stack up to 99 empty rows behind one complete
+   * one TODAY. `some(...)` permits the identical state. The two expressions differ
+   * ONLY on the first-row-removal case named in the paragraph above — where `some(...)`
+   * would be strictly BETTER. So the retracted sentence argued against the one change
+   * that would improve the edge case it had just disclosed. Nothing justifies
+   * preferring `configs[0]` on behaviour; only the ask's wording does.
    */
   const canAddModel = !!configs[0]?.checkpoint;
 
@@ -423,15 +437,20 @@ export function MatchupForm({
                             color="error"
                             onClick={() => removeLora(cfg.id, l.versionId)}
                             /* 🔴 THE SAME NAME THE CARD SHOWS, THROUGH THE SAME
-                               FUNCTION. These two controls kept a hand-rolled
-                               `modelName ?? '#'+versionId` while `loraInfo` above
-                               had already moved to upstream's frozen
-                               `resourceDisplayName` — which ALSO treats a
+                               FUNCTION. These two controls each kept their OWN
+                               hand-rolled fallback — this one `modelName ??
+                               '#'+versionId`, the slider's `modelName ?? versionId`
+                               with no `#` at all — while `loraInfo` above had
+                               already moved to upstream's frozen
+                               `resourceDisplayName`, which ALSO treats a
                                whitespace-only name as absent. So a LoRA named '  '
                                rendered as `#2002` on the card while announcing
                                "Remove   " here, and `getByRole('button', {name})`
                                stopped matching what is on screen. One rule, one
-                               place — and the place is upstream's. */
+                               place — and the place is upstream's. Pinned by
+                               "names a WHITESPACE-named LoRA by its id", which was
+                               missing for a round: reverting either label left all
+                               920 tests green. */
                             aria-label={`Remove ${resourceDisplayName(loraInfo(l))}`}
                           >
                             Remove

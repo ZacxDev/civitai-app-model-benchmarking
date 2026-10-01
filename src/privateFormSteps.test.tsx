@@ -7,9 +7,18 @@
 // single page. The three forms each pin that for themselves (`MatchupForm.test.tsx`,
 // `PromptForm.test.tsx`, `GridForm.test.tsx`) by passing `multiStep` directly — which
 // is exactly what makes them blind to the thing that actually decides it in
-// production: six `multiStep={…}` expressions in `App.tsx`. The three PUBLIC ones
-// were covered incidentally; the three PRIVATE ones were not, and an audit measured
-// the cost — each of these mutants left 63 files / 914 tests GREEN:
+// production: FIVE `multiStep={…}` expressions in `App.tsx`, plus one form instance
+// that passes no prop at all.
+//
+// ⚠️ THAT COUNT SAID "SIX" FOR A ROUND AND WAS WRONG — corrected because a reader
+// hunting a sixth expression will not find one. The sixth form instance is the
+// PUBLISHED-grid edit modal (`modal.kind === 'grid'`), which relies on `GridForm`'s
+// `multiStep = false` default. That path is NOT an uncovered gap: flipping the
+// default to `true` kills 6 tests, 4 of them in `myBenchmarks.test.tsx`.
+//
+// The two PUBLIC create expressions were covered incidentally; the three PRIVATE ones
+// were not, and an audit measured the cost — each of these mutants left 63 files /
+// 914 tests GREEN:
 //
 //   `draft`        `multiStep={!modal.existing}` -> `multiStep`        (a RESUMED private matchup gets paged)
 //   `draft`                                      -> `multiStep={false}` (a NEW private matchup loses step 2)
@@ -73,9 +82,12 @@ const STORED_PROMPT = {
 /**
  * A stored private grid.
  *
- * ⚠️ THE TWO AXIS KEYS ARE NOT DECORATION — `parseUnpubGrid` RETURNS `null` for a
- * record whose BOTH axes are empty (`unpubGrids.ts:88`), so a grid seeded with empty
- * arrays never reaches the list and the resume opener below has nothing to click.
+ * ⚠️ AT LEAST ONE AXIS KEY IS NOT DECORATION — `parseUnpubGrid` returns `null` only
+ * when BOTH axes are empty (`unpubGrids.ts:88` is `&&`), so a grid seeded with two
+ * empty arrays never reaches the list and the resume opener below has nothing to
+ * click. ONE key would therefore suffice; both are given because a grid with one axis
+ * is not a shape the builder can produce, and this fixture should not be the only
+ * place such a shape exists.
  * The keys point at no real board row on purpose: this case is about the form's step
  * shape, and `GridForm` renders a dangling key as a named card, so a withdrawn
  * member cannot change the shape under test.
