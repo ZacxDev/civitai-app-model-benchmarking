@@ -18,11 +18,14 @@
 //
 // ── 🔵 THE GATE ON THE SWAP (the "five-package bump") ───────────────────────
 //
-// 🔴 THIS IS THE PARAGRAPH FIVE OTHER FILES POINT AT by the name "the five-package
-// bump" — `compact.ts`, `mobile-responsive.test.tsx`, `sideNav.test.tsx` (twice,
-// including a re-add instruction for a deleted case) and `Menu.tsx`. The NAME is kept
-// for that reason even though it is now inaccurate: retiring it here while six pointers
-// still use it is the rot this header exists to avoid. Read it as an alias.
+// 🔴 THIS IS THE PARAGRAPH SIX POINTERS IN FOUR OTHER FILES AIM AT, by the name "the
+// five-package bump" — `compact.ts` (1), `mobile-responsive.test.tsx` (1),
+// `sideNav.test.tsx` (2, one of them a re-add instruction for a deleted case) and
+// `Menu.tsx` (2). ⚠️ Counted, because a draft of this line said "FIVE OTHER FILES",
+// then listed four, then said "six pointers" — three figures, one right. An undercount
+// is precisely how a pointer gets left behind, which is the hazard this paragraph
+// exists to close. The NAME is kept even though it is now inaccurate: retiring it here
+// while those six stand is the rot. Read it as an alias.
 //
 // ⚠️ WHAT IT ACTUALLY IS NOW — four of the five moved with `blocks-react@0.61.0`
 // (`app-sdk`, `blocks-react`, `sdk`, `theme`), so the gate is a ONE-package bump:

@@ -262,24 +262,42 @@ export function ResourceName({
            pseudo-class. The reasoning was sound and the premise was wrong: NOTHING
            suppresses the UA's `:focus-visible` ring on this button. The state's own
            `'none'` was the only thing hiding the ring it then re-added.
-           🔴 THE ENUMERATION IS THE WHOLE EVIDENCE, so it names every sheet that can
-           reach this element — FIVE, because `main.tsx` injects two of them at runtime
-           and a draft of this comment listed only three:
-             1. `index.html` + `src/index.css` — no `outline` at all.
+           🔴 THE ENUMERATION IS THE WHOLE EVIDENCE, so it names every sheet that
+           reaches this document. ⚠️ TWO EARLIER DRAFTS GOT IT WRONG — the first listed
+           three sources, the second listed five but ATTRIBUTED THE INJECTED ONE TO THE
+           WRONG PACKAGE. What is actually in the document:
+             1. `index.html`'s inline `<style>`, `src/index.css`, and the two sheets
+                THIS APP injects as elements (`App.tsx`'s `compact-styles` and
+                `layout-styles`, from `compact.ts`) — no `outline` anywhere in `src/`.
              2. `@civitai/blocks-react/dist/ui/styles.js` (`injectBlocksStyles()`) — one
                 `outline: none`, on `[data-civitai-ui='modal']` ITSELF, no descendant
                 combinator, so it cannot reach here. It also carries three
                 `:focus-visible { outline: 2px solid var(--civitai-color-primary) }`
                 rules, for the pack's OWN elements.
-             3. `@civitai/components@0.4.3` (via `injectStyles()`) — one `outline: none`,
-                nested under `[data-civitai-ui-control]:focus`. That attribute is set by
-                the pack's form controls; this button does not carry it.
-             4. `@civitai/theme` (0.4.0, and 0.3.2 transitively) — zero `outline`,
+             3. 🔴 `@civitai/components@0.9.0`'s `components.css` — and THIS is the one
+                the previous draft misfiled as "Lit shadow styles, unreachable from
+                light DOM, and nothing in this app imports it". It is a LIGHT-DOM
+                `@layer civitai.components` sheet and it IS injected: `ui/styles.js`
+                imports `componentsCss` + `injectStyles` from `@civitai/components`,
+                which pnpm resolves FOR BLOCKS-REACT to 0.9.0, and
+                `injectBlocksStyles()` writes it. Its only `outline: none` is nested
+                under `[data-civitai-ui-control]:focus` — an attribute the pack's form
+                controls carry and this button does not.
+             4. ⚠️ `@civitai/components@0.4.3` (`main.tsx`'s own `injectStyles()`) is a
+                NO-OP, which is the half that inverted. Both majors guard on the same
+                `data-civitai-components` marker and early-return if it exists, and
+                `main.tsx` calls `injectBlocksStyles()` BEFORE `injectComponentStyles()`
+                — so 0.9.0's sheet lands first and 0.4.3's never does. Its own
+                `outline: none` happens to sit on the same selector, which is why the
+                conclusion survived a wrong premise.
+             5. `@civitai/theme` (0.4.0, and 0.3.2 transitively) — zero `outline`,
                 zero `:focus`.
-             5. `@civitai/components@0.9.0` — Lit shadow styles, unreachable from light
-                DOM, and nothing in this app imports it.
-           Every other `outline` write in the pack is an INLINE style on its own
-           elements (`TipButton`, `ReportButton`, `ResourceCard`, `pickerOverlay`).
+           Every other `outline` in the pack is an INLINE style on its own elements
+           (`TipButton`, `ReportButton`, `pickerOverlay`). ⚠️ NOT `ResourceCard`: a
+           draft named it, but its only match is `variant: "outline"` on a `Badge`.
+           🔴 THE FORWARD HAZARD, stated because this comment is load-bearing for a
+           queued change: `SideNav.tsx`'s gate IS a `components-react` bump, and after
+           it `main.tsx`'s call is no longer a no-op. Re-run this enumeration then.
            ⚠️ So the UA ring is what a keyboard viewer gets, and it is REAL
            `:focus-visible` rather than the mouse-press-too approximation the state
            gave. It is not token-coloured: the pack styles its OWN components with

@@ -57,7 +57,10 @@
 //
 // 🔴 LIVE, MEASURED ON THIS TREE (the only half that describes what this repo
 // builds against). `package.json` pins `@civitai/components-react: ^0.4.1`;
-// installed are `components-react@0.4.3` and, transitively, `components@0.4.3`.
+// installed are `components-react@0.4.3` and, transitively, `components@0.4.3` — AND
+// ALSO `components@0.9.0`, by way of `blocks-react@0.61.0`. Naming only the 0.4.x copy
+// is what made the deleted scan above readable as a claim about "the installed
+// package" when two majors are present.
 // ⚠️ THOSE TWO NUMBERS READ `0.4.1` UNTIL THE `blocks-react@0.61.0` BUMP, and both
 // were wrong before it too: `0.4.1` is the DECLARED RANGE's floor, not the resolved
 // version, and `^0.4.1` has resolved to `0.4.3` since that patch was published. Read
@@ -66,27 +69,41 @@
 // `0.4.1 → 0.4.3` in this change, as a side effect of re-resolving the unchanged
 // range; the declared range did not move.)
 // Their `exports` maps are `["."]` and `[".", "./styles.css"]` — there is NO
-// `./elements` subpath. Enumerated with `find -L … -print0 | xargs -0
-// grep -l` over all 1016 files under `node_modules/.pnpm/@civitai+*` (`-L` because
-// pnpm's layout is symlinks, and `grep -r` here honours `.gitignore`):
+// `./elements` subpath, which is the fact that matters: this app cannot import a menu
+// element from what it depends on.
 //
-//     Civitai        121 files   ← positive control, the scan can see the tree
-//     ReportButton     8 files   ← positive control, a real exported component
-//     menuitem        16 files   ← positive control, the role IS shipped
-//     CivitaiMenu      0 files
-//     civitai-menu     0 files
-//     popover-open     0 files
-//     showPopover      0 files
+// 🔴 THE TABLE THAT USED TO BE HERE IS DELETED, AND READ WHY BEFORE RE-ADDING ONE. It
+// was a tree-wide scan labelled "LIVE, MEASURED ON THIS TREE", reporting 1016 corpus
+// files and `CivitaiMenu 0 / civitai-menu 0 / popover-open 0 / showPopover 0`. Re-run
+// by its own stated method on the CURRENT tree it gives 2069 files and
+// `22 / 47 / 19 / 19` — every load-bearing zero is now non-zero, and the three
+// "positive controls" moved too (`Civitai` 121→452, `menuitem` 16→32).
 //
-// 🔴 SO THE SWAP *IS* GATED ON A VERSION BUMP ON THIS TREE, and the line that said
-// otherwise is RETRACTED. It read: "THE SWAP is gated on either of those closing …
-// It is NOT gated on a version bump." That is false here for the plainest possible
-// reason — the installed package ships no menu element to swap to.
+// ⚠️ NOTHING WAS MISMEASURED THE FIRST TIME; THE TREE CHANGED UNDER IT. The hits are
+// all in `@civitai/blocks-react@0.61.0` (25 files) and `@civitai/components@0.9.0`
+// (22) — both pulled in by the `scope: 'site'` dependency bump. A TREE-WIDE scan
+// cannot express "the package THIS APP depends on ships no menu element", because the
+// tree now contains a package that does. So the table read as "the element is here, go
+// swap" — the exact opposite of the sentence it was evidence for.
+//
+// 🔴 SO THE SWAP *IS* STILL GATED ON A VERSION BUMP, on the narrower and durable
+// evidence: `components-react@0.4.3`'s `exports` is `["."]` with no `./elements`, and
+// nothing in `src/` imports `@civitai/components` at all. (`components@0.9.0` IS in
+// the graph transitively and DOES export `./civitai-menu` — see further down — which
+// is why the gate is a dependency change and not an upstream fix.) The line that said
+// "It is NOT gated on a version bump" stays RETRACTED.
+//
+// 🔴 THE REUSABLE LESSON: a scan scoped WIDER than the claim it supports goes wrong
+// when the tree grows, silently and in the reassuring direction. Scope the corpus to
+// the packages the claim is about, and say so in the command.
 //
 // ⚠️ AND THE TWO FILES DISAGREED FOR TWO WHOLE ROUNDS, not one. `sideNav.test.tsx`
-// states the compatible fact — "the pinned `@civitai/components@0.4.1` installed here
-// SHIPS NO NAV ELEMENT AT ALL" (⚠️ its VERSION is stale the same way this block's was;
-// installed is `0.4.3`, and the no-nav-element half is unaffected) — and it landed in
+// stated the compatible fact — quoted AS IT READ AT `035bc14`: "the pinned
+// `@civitai/components@0.4.1` installed here SHIPS NO NAV ELEMENT AT ALL". ⚠️ Quoted
+// historically on purpose: that string no longer exists, because the same commit that
+// corrected this block's own version also rewrote it to name the installed `0.4.3`. An
+// earlier annotation here said it "IS stale", which was true when written and false by
+// the time it was committed. The no-nav-element half was never affected. It landed in
 // `035bc14`, a round-0 CORRECTION
 // commit, i.e. AFTER the wrong line here (`c6d7896`) and without noticing it. A draft
 // of this paragraph said the two were "in the same diff"; they were not, and the real

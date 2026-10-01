@@ -723,7 +723,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
    * has no such field, so the only possible source is the app's own record and holding
    * it is not a second copy of anything. VERIFIED on the installed pin rather than taken
-   * from upstream's wording: `@civitai/sdk@0.8.0`'s `SharedItem`
+   * from upstream's wording: `@civitai/sdk`'s `SharedItem` (re-measured at the
+   * installed 0.10.0, after the `scope: 'site'` bump moved it off 0.8.0 — the field
+   * set is unchanged and `viewerReported` appears nowhere in the package)
    * (`dist/shared-storage/index.d.ts:28`) declares exactly `key`, `authorUserId`,
    * `value`, `count`, `createdAt`, `updatedAt`, `viewerVoted` — no `viewerReported` and
    * nothing like it. (`ReportButtonProps.reported`'s JSDoc makes the same point about a

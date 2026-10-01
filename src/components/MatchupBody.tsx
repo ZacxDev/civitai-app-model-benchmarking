@@ -67,8 +67,12 @@
 //      The whole record — the three routes, the live `sandbox="allow-scripts
 //      allow-forms"` / `trustTier: 'unverified'` reading, and the `private-run`
 //      surface where site navigation is refused and the block cannot tell — is in
-//      `./ResourceName.tsx`'s header. Filed as `civitai/civitai` #5209; this closes
-//      the app half of it, the live click-through is the other half.
+//      `./ResourceName.tsx`'s header. Filed as `civitai/civitai` #5209, which upstream
+//      CLOSED on the host change (#5250) — so this is the app half of a closed issue,
+//      and the live click-through is a verification step owed on this change rather
+//      than a tracked item. ⚠️ This read "this closes the app half of it", which
+//      presupposed an open issue; `ResourceName.tsx` names that exact construction as
+//      the defect and a sweep for it missed this sibling.
 
 import type { ReactNode } from 'react';
 
