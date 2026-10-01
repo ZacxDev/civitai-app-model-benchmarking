@@ -266,6 +266,26 @@ function plural(n: number, one: string, many: string): string {
  * whose `data` blob does not parse" (rare, and an app-shape failure). It did not
  * eliminate it.
  *
+ * 🔴 THAT NARROWING WAS FALSE FOR ONE RANGE, AND SAYING SO IS THE POINT OF THIS
+ * PARAGRAPH. While `App` derived `boardTruncated` as `boardRead === 'truncated'`, a
+ * board over the page cap loaded as a prefix and then ANY routine reload whose
+ * `list()` threw flipped the flag to `false` — with `items` untouched and still
+ * holding that prefix, because the catch arm never calls `setItems`. Every member
+ * past the cap then arrived here on the complete-scan branch and was reported as
+ * REMOVED BY ITS AUTHOR: exactly the broad, routine claim the split was supposed to
+ * have narrowed away. `App` now keeps the prefix bit as a property of `items` rather
+ * than of the latest request, and `boardTruncation.test.tsx` drives the
+ * truncated-then-thrown sequence. The narrowing above is accurate again; it was not
+ * for the length of that range.
+ *
+ * ⚠️ WHAT IT STILL DOES NOT COVER, stated because the sibling DOES cover it: this
+ * function takes a truncation boolean and nothing else, so it cannot tell a COMPLETE
+ * snapshot from a complete-but-STALE one (the latest read threw). It says "their
+ * authors removed them" in that window. That reading is supportable — the member was
+ * genuinely absent when the snapshot was taken — but it is NOT the same claim
+ * `cascadeRefusal` makes, and that function's docblock retracts an earlier sentence
+ * asserting the two residuals were equivalent.
+ *
  * Eliminating it needs `splitRows` to report the keys it SKIPPED, so the resolver
  * can tell "unread" from "unreadable" and say a third thing. That is a change to
  * the scan's return shape and is deliberately not made here.

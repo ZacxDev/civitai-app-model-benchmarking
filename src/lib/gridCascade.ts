@@ -303,14 +303,26 @@ export type BoardRead = 'unread' | 'error' | 'truncated' | 'complete';
  * comment is corrected and now says what it actually closes, which is nothing about
  * the decision.)
  *
- * ⚠️ A RESIDUAL UNSUPPORTED CLAIM SURVIVES IN THE `'complete'` BRANCH, and this says
- * so rather than closing over it. `splitRows` silently drops a board row whose `data`
- * does not parse, so a member naming such a row reads as unaccountable while the row
- * is on the board — and that branch tells the viewer to remove it. The same residual
- * is recorded on `missingMembersNotice` for the same reason, and closing it needs
- * `splitRows` to report the keys it SKIPPED, which is a change to the scan's return
- * shape and is deliberately not made here. It is the narrow case (an app-shape
- * failure, not a routine one) rather than the broad one the `boardRead` split closed.
+ * ⚠️ THE `'complete'` BRANCH'S RESIDUAL IS NOW HEDGED IN THE COPY RATHER THAN MERELY
+ * DISCLOSED HERE — see that branch. `splitRows` drops a board row whose `data` does
+ * not parse, and `parseCombination` returns null for any `d.v` other than 1 or 2, so a
+ * future `v: 3` row is dropped wholesale; the sentence no longer asserts an absence it
+ * cannot establish, and it names trying a newer build before destroying anything.
+ * Eliminating the ambiguity still needs `splitRows` to report the keys it SKIPPED,
+ * which is a change to the scan's return shape and is deliberately not made here.
+ *
+ * 🔴 AND THE EQUIVALENCE THIS PARAGRAPH USED TO CLAIM IS RETRACTED. It said "the same
+ * residual is recorded on `missingMembersNotice` for the same reason". That was
+ * checked and it does NOT hold as an equivalence, in two directions:
+ *   - this function distinguishes `'unread'` and `'error'` from `'complete'`;
+ *     `missingMembersNotice` takes only a truncation boolean, so it cannot, and it
+ *     says "their authors removed them" on a complete-but-STALE snapshot. (That
+ *     reading is supportable — the member really was absent when the snapshot was
+ *     taken — but it is a different claim from this function's, not the same one.)
+ *   - this function's copy is now hedged for the unparseable case and that one's is
+ *     not.
+ * The two are SIBLINGS WITH DIFFERENT INPUTS, not one rule in two places. Do not
+ * "unify" them on the strength of the retracted sentence.
  */
 export function cascadeRefusal(spec: {
   gridName: string;
@@ -351,13 +363,42 @@ export function cascadeRefusal(spec: {
       `and try again.`
     );
   }
-  // 🔴 NO REMEDY THAT DELETES ANYTHING ON EITHER INCOMPLETE-BOARD BRANCH. The member
-  // may be a perfectly ordinary published row this app has not read.
-  if (spec.boardRead === 'unread' || spec.boardRead === 'error') {
+  // 🔴 THE DESTRUCTIVE BRANCH IS THE ONLY EXPLICIT ONE, AND EVERY OTHER STATE FALLS
+  // THROUGH TO SAFE. It was the other way round — three `if`s and then the
+  // discard-the-grid advice as the fall-through default — in a function whose whole
+  // thesis is that only a state that really read the board may suggest destroying
+  // anything. `tsc` cannot see a new `BoardRead` member reaching a fall-through, so a
+  // fifth value would have inherited the destructive remedy silently. Inverted, a
+  // fifth value inherits "reload and try again", which is wrong-but-harmless rather
+  // than wrong-and-irreversible.
+  if (spec.boardRead === 'complete') {
+    // 🔴 THE REMEDY NAMES THE ONE ROUTE THAT EXISTS, and the first one did not.
+    // "Edit the grid and remove it" was written without checking the route, and
+    // MEASURED FALSE: `GridPicker` renders only keys present in `items`, an
+    // unaccountable key is in none of the three sources so it is never rendered, and
+    // `order` carries it through `onConfirm([...order])` unchanged — the picker's own
+    // invariant 3 ("nothing is ever silently dropped") keeps it ON PURPOSE. So the
+    // member cannot be deselected and re-saving the grid changes nothing. A test
+    // drives exactly that and then the route below.
+    //
+    // 🔴 AND THE "not on the board" CLAIM IS HEDGED, which closes the residual this
+    // docblock used to merely DISCLOSE. `splitRows` drops a board row whose `data`
+    // does not parse, and `parseCombination` returns null for any `d.v` other than 1
+    // or 2 — so a future `v: 3` row is dropped wholesale and every grid naming it
+    // reached this branch and was told to discard itself over a row that is on the
+    // board. The sentence no longer asserts absence it cannot establish, and it names
+    // the cheaper thing to try first.
+    //
+    // ⚠️ DISCARD-AND-REBUILD IS STILL A POOR REMEDY AND IT IS STILL THE ONLY ONE THIS
+    // BUILD HAS. The better fix is a per-member remove control on `GridForm`'s axis
+    // cards — a form change with its own verification, named in the PR so it closes on
+    // a merged PR rather than on nobody deciding.
     return (
-      `${head}, because this app has not been able to read the board. It therefore cannot ` +
-      `tell whether ${isAre} published rows it has not seen, or gone. ${tail} Reload and ` +
-      `try again.`
+      `${head}: ${isAre} not among your private items, and not on the board as this ` +
+      `build can read it — ${n === 1 ? 'it is' : 'they are'} either gone, or in a shape ` +
+      `this build does not understand. ${tail} ⚠ The picker keeps members it cannot ` +
+      `show, so editing the grid cannot remove ${n === 1 ? 'it' : 'them'}: try a newer ` +
+      `build first, and discard this grid and build it again if that does not help.`
     );
   }
   if (spec.boardRead === 'truncated') {
@@ -367,23 +408,13 @@ export function cascadeRefusal(spec: {
       `⚠ A retry may not help: the same members may be past the same cap every time.`
     );
   }
-  // 🔴 THE REMEDY NAMES THE ONE ROUTE THAT EXISTS, and the previous one did not.
-  // "Edit the grid and remove it" was written without checking the route, and
-  // MEASURED FALSE: `GridPicker` renders only keys present in `items`, an
-  // unaccountable key is in none of the three sources so it is never rendered, and
-  // `order` carries it through `onConfirm([...order])` unchanged — the picker's own
-  // invariant 3 ("nothing is ever silently dropped") keeps it ON PURPOSE. So the
-  // member cannot be deselected and re-saving the grid changes nothing. A test drives
-  // exactly that and then the route below.
-  //
-  // ⚠️ DISCARD-AND-REBUILD IS A POOR REMEDY AND IT IS THE TRUE ONE FOR THIS BUILD. The
-  // better fix is a per-member remove control on `GridForm`'s axis cards, which is a
-  // form change with its own verification and is NOT made here; it is named in the PR
-  // so it closes on a merged PR rather than on nobody deciding.
+  // 🔴 THE DEFAULT, AND IT IS THE SAFE ONE. `'unread'`, `'error'`, and any future
+  // member of the union land here: the member may be a perfectly ordinary published
+  // row this app has not read, so nothing in this sentence destroys anything.
   return (
-    `${head}: ${isAre} not on the board and not among your private items. ${tail} ` +
-    `⚠ The picker keeps members it cannot show, so editing the grid cannot remove ` +
-    `${n === 1 ? 'it' : 'them'} — discard this grid and build it again.`
+    `${head}, because this app has not been able to read the board. It therefore cannot ` +
+    `tell whether ${isAre} published rows it has not seen, or gone. ${tail} Reload and ` +
+    `try again.`
   );
 }
 

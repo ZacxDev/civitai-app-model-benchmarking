@@ -689,11 +689,12 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     ).not.toContain(DRAFT_LOCAL_ID);
     const notice = refusalNode();
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
-      '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
-        'among your private items. Publishing is refused rather than putting a key on the ' +
-        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
-        'keeps members it cannot show, so editing the grid cannot remove it — discard this ' +
-        'grid and build it again.',
+      '1 member of “Mixed Grid” cannot be accounted for: it is not among your private items, ' +
+        'and not on the board as this build can read it — it is either gone, or in a shape ' +
+        'this build does not understand. Publishing is refused rather than putting a key on ' +
+        'the public board that nobody — including you — could resolve afterwards. ⚠ The ' +
+        'picker keeps members it cannot show, so editing the grid cannot remove it: try a ' +
+        'newer build first, and discard this grid and build it again if that does not help.',
     );
     // 🔴 AND NO DIALOG WAS INVOLVED. This grid has zero dependencies, which is exactly
     // why the previous `deps.length > 0` ordering let it through silently.

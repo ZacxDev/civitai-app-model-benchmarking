@@ -629,29 +629,58 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
   /**
-   * What the board snapshot in `items` IS: unread, errored, a prefix, or whole.
+   * The board read, as TWO FACTS THAT MOVE INDEPENDENTLY, in one state value.
    *
-   * 🔴 IT REPLACED A BARE `boardTruncated` BOOLEAN, which was written ONLY on the
-   * read's success arm — so a read that THREW, and the window before the first read
-   * resolves, were both indistinguishable from "read the whole board, found nothing".
-   * The grid-publish boundary read that flag and refused ordinary publishes with copy
-   * telling the viewer to DELETE good members. Measured as a regression introduced by
-   * the private-member change; see `cascadeRefusal`'s `boardRead` docblock.
+   * 🔴 THEY ARE NOT THE SAME FACT, AND CONFLATING THEM HAS NOW BROKEN TWICE — in
+   * opposite directions. The history is kept because the second break was caused by
+   * the fix for the first:
    *
-   * 🔴 ONE WRITER, AND `boardTruncated` IS DERIVED FROM IT rather than stored beside
-   * it. Two pieces of state describing one read is exactly the shape that let them
-   * disagree in the first place.
+   *   BREAK 1 — a bare `boardTruncated` boolean written only on the read's SUCCESS
+   *   arm. A read that THREW, and the window before the first read resolves, were
+   *   both indistinguishable from "read the whole board, found nothing", so the
+   *   grid-publish boundary refused ordinary publishes with copy telling the viewer
+   *   to DELETE good members.
    *
-   * ⚠️ IT IS NOT RESET WHEN A RE-READ STARTS, deliberately. `App` re-reads after every
-   * publish, and `items` keeps the previous snapshot throughout — so resetting would
-   * refuse the next publish for the length of a round trip while a perfectly good
-   * complete snapshot was in hand. It is written on RESOLVE and on REJECT only.
+   *   BREAK 2 — the fix made `boardTruncated` a DERIVATION of a single
+   *   `BoardRead`: `boardRead === 'truncated'`. That removed the disagreement
+   *   between two state values and created a new one with `items`. A board over the
+   *   page cap loads (`'truncated'`), then ANY routine reload whose `list()` throws
+   *   takes the catch arm and writes `'error'` — while `items` is UNTOUCHED and still
+   *   holds the truncated PREFIX, because the catch never calls `setItems`. So
+   *   `boardTruncated` flipped to false over a prefix: the `board-truncated-notice`
+   *   DISAPPEARED (presenting a prefix as the whole board, which is the silent
+   *   ordering lie that notice exists to prevent) and `missingMembersNotice` flipped
+   *   to the false "their authors removed them".
+   *
+   * 🔴 SO THE RULE IS ABOUT WHAT EACH FIELD IS A PROPERTY **OF**:
+   *   - `outcome` is a property of the LATEST REQUEST. It answers "can I trust that
+   *     a key absent from the snapshot is genuinely absent?" — only `'complete'` can.
+   *   - `prefix` is a property of `items`. It answers "is the snapshot I am ranking
+   *     over the whole board?" and it may therefore change ONLY when `items` does.
+   *
+   * They live in ONE state value so they are written together, by one `set` per
+   * outcome, rather than as two `useState`s a future arm could update by halves.
+   *
+   * ⚠️ NEITHER IS RESET WHEN A RE-READ STARTS, deliberately. `App` re-reads after
+   * every publish and `items` keeps the previous snapshot throughout, so resetting
+   * would refuse the next publish for the length of a round trip while a perfectly
+   * good snapshot was in hand. Written on RESOLVE and on REJECT only.
    */
-  const [boardRead, setBoardRead] = useState<BoardRead>('unread');
-  /** The board scan hit its page cap, so every ranking below is over a PREFIX of
-   * the board rather than all of it. Surfaced in the UI — see the disclosure by
-   * the view switch. DERIVED: see {@link boardRead} for the single writer. */
-  const boardTruncated = boardRead === 'truncated';
+  const [boardSnapshot, setBoardSnapshot] = useState<{ outcome: BoardRead; prefix: boolean }>({
+    outcome: 'unread',
+    prefix: false,
+  });
+  /** What the latest read DID — the grid-publish boundary's input. */
+  const boardRead = boardSnapshot.outcome;
+  /**
+   * The snapshot in `items` is a PREFIX of the board, so every ranking over it — the
+   * vote order, the top-N that becomes a grid's rows and columns, the "Included"
+   * counts — covers part of the board while looking like the whole of it. Surfaced by
+   * the `board-truncated-notice` and by `missingMembersNotice`.
+   *
+   * 🔴 IT TRACKS `items`, NOT THE LATEST REQUEST — see BREAK 2 above.
+   */
+  const boardTruncated = boardSnapshot.prefix;
   // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
   // every `list()`, so the row IS the vote state — there is nothing to hold in
   // parallel and nothing to persist. This used to be `useState` hydrated from a
@@ -831,14 +860,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
         setItems(merged);
-        setBoardRead(all.truncated ? 'truncated' : 'complete');
+        // Both fields, written together with the `items` they describe.
+        setBoardSnapshot({
+          outcome: all.truncated ? 'truncated' : 'complete',
+          prefix: all.truncated,
+        });
       } catch (e) {
         if (!cancelled) {
           setError(errMsg(e));
-          // 🔴 THE ARM THAT USED TO WRITE NOTHING. Leaving the previous value here is
-          // what made a THROWN read indistinguishable from a complete one, and the
-          // grid-publish boundary then told the viewer to delete good members.
-          setBoardRead('error');
+          // 🔴 THE OUTCOME MOVES AND `prefix` IS CARRIED THROUGH UNCHANGED. Two
+          // separate bugs meet on this line. Writing nothing here made a THROWN read
+          // look complete (BREAK 1); writing a whole new value made it look UNtruncated
+          // (BREAK 2) — this arm does not call `setItems`, so the snapshot it describes
+          // is the one the previous read left, prefix and all.
+          setBoardSnapshot((prev) => ({ outcome: 'error', prefix: prev.prefix }));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -997,8 +1032,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * boundary (`cascadeRefusal`) and by nothing else.
    *
    * 🔴 WHAT IT ACTUALLY DOES: it decides the refusal's **wording**, not the refusal.
-   * This is the THIRD draft of this paragraph and the first two over-claimed, so the
-   * correction is stated before the history. `cascadeRefusal` returns `null` on
+   * This is the SECOND draft of this paragraph — there is ONE prior, and it
+   * over-claimed — so the correction is stated before the history. (Re-measured, not
+   * taken on report: `privateScanCompleteRef` and its docblock were introduced in
+   * `17fa294` — `grep -c` is 0 at `3ebb2d9` and `7b8e592` — and nothing touched
+   * `src/App.tsx` between `17fa294` and `fad129a`. The sibling count on
+   * `cascadeStoppedNotice`'s empty-`published` arm says THIRD and that one is right;
+   * these two numbers are independent and were wrong independently.) `cascadeRefusal` returns `null` on
    * `unresolved.length === 0` BEFORE it reads this flag, and that function's own
    * docblock says so in terms — two comments in one PR asserted opposite things.
    * Per-key positive accounting is the guard; this flag only chooses between "this

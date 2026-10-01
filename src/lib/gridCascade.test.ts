@@ -40,6 +40,7 @@ import {
   nameList,
   planGridCascade,
   remapGridKeys,
+  type BoardRead,
   type CascadeDep,
   type GridCascadePlan,
   type MemberSources,
@@ -538,11 +539,12 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
     });
     expect(text, 'an unaccountable member was PERMITTED onto the public board').not.toBeNull();
     expect(norm(text!)).toBe(
-      '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
-        'among your private items. Publishing is refused rather than putting a key on the ' +
-        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
-        'keeps members it cannot show, so editing the grid cannot remove it — discard this ' +
-        'grid and build it again.',
+      '1 member of “Mixed Grid” cannot be accounted for: it is not among your private items, ' +
+        'and not on the board as this build can read it — it is either gone, or in a shape ' +
+        'this build does not understand. Publishing is refused rather than putting a key on ' +
+        'the public board that nobody — including you — could resolve afterwards. ⚠ The ' +
+        'picker keeps members it cannot show, so editing the grid cannot remove it: try a ' +
+        'newer build first, and discard this grid and build it again if that does not help.',
     );
   });
 
@@ -557,11 +559,13 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
         })!,
       ),
     ).toBe(
-      '2 members of “Mixed Grid” cannot be accounted for: they are not on the board and not ' +
-        'among your private items. Publishing is refused rather than putting keys on the ' +
-        'public board that nobody — including you — could resolve afterwards. ⚠ The picker ' +
-        'keeps members it cannot show, so editing the grid cannot remove them — discard ' +
-        'this grid and build it again.',
+      '2 members of “Mixed Grid” cannot be accounted for: they are not among your private ' +
+        'items, and not on the board as this build can read it — they are either gone, or ' +
+        'in a shape this build does not understand. Publishing is refused rather than ' +
+        'putting keys on the public board that nobody — including you — could resolve ' +
+        'afterwards. ⚠ The picker keeps members it cannot show, so editing the grid cannot ' +
+        'remove them: try a newer build first, and discard this grid and build it again if ' +
+        'that does not help.',
     );
   });
 
@@ -657,19 +661,38 @@ describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
   );
 
   it('🔴 ONLY the `complete` branch may advise DESTROYING anything', () => {
-    // The relationship, over the whole enum, so a fifth value cannot quietly inherit
-    // the destructive remedy. `complete` is the one state in which the app really did
-    // read every row the host offered, so "it is not there" is a claim it can make —
-    // and only there may it suggest discarding the grid.
+    // 🔴 THE LOOP IS DERIVED FROM `BoardRead`, NOT TYPED OUT BESIDE IT. It used to be
+    // a `['unread','error','truncated','complete'] as const` literal under a
+    // description that claimed "the relationship, over the whole enum, so a fifth
+    // value cannot quietly inherit the destructive remedy" — a docstring naming a
+    // relationship whose body inspected one side, for the third time in this PR. A
+    // fifth union member simply would not have been visited.
+    //
+    // `satisfies Record<BoardRead, 1>` is what fixes that at COMPILE time: adding a
+    // member to `BoardRead` makes this object literal fail to type-check until it is
+    // listed here, so the loop cannot silently stop covering the enum.
+    const EVERY_BOARD_READ = {
+      unread: 1,
+      error: 1,
+      truncated: 1,
+      complete: 1,
+    } satisfies Record<BoardRead, 1>;
+    const states = Object.keys(EVERY_BOARD_READ) as BoardRead[];
+    // POSITIVE CONTROL on the derivation: it really did enumerate something.
+    expect(states.length, 'the derived enum list is empty — this case covers nothing').toBe(4);
+
     const destructive: string[] = [];
-    for (const boardRead of ['unread', 'error', 'truncated', 'complete'] as const) {
+    for (const boardRead of states) {
       const text = cascadeRefusal({
         gridName: 'G',
         plan: planWith([DEAD_MATCHUP_ID]),
         scanComplete: true,
         boardRead,
       })!;
-      if (/discard/i.test(text)) destructive.push(boardRead);
+      // 🔴 EVERY DESTRUCTIVE VERB, NOT JUST "discard". The old pattern was
+      // `/discard/i` alone, so a remedy spelled "delete" or "remove" passed — a
+      // spelled guard walkable by rewording the one word it knew.
+      if (/discard|delete|remove/i.test(text)) destructive.push(boardRead);
     }
     expect(
       destructive,
