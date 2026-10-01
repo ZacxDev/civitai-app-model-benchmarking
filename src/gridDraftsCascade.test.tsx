@@ -913,26 +913,34 @@ describe('🔴 an unaccountable member REFUSES the publish, on every path to it'
     await userEvent.click(within(grid).getByTestId('unpublished-publish'));
     await userEvent.click(await screen.findByTestId('grid-publish-go'));
 
-    const notice = await waitFor(() => {
-      const el = screen.queryByTestId('grid-publish-error');
-      if (el === null) throw new Error('no cascade notice rendered for the no-key path');
-      return el;
-    });
-    const text = (notice.textContent ?? '').replace(/\s+/g, ' ').trim();
-    expect(
-      text,
-      'the no-key refusal does not name its own cause — `CASCADE_NO_KEY` never reached the viewer',
-    ).toContain('this app refused a second publish of the same record');
-    // 🔴 AND THE GRID DID NOT GO OUT. That is the claim; the sentence is how it is
-    // explained. Only the matchup's own (gated) append may ever land here.
-    release();
+    // 🔴 THE WIRE CLAIM FIRST, AND THE SETTLE WAITS ON EITHER OUTCOME. Waiting on the
+    // notice alone pre-empts it: a mutant that SKIPS the no-key throw publishes the
+    // grid happily, so the notice never appears and the only assertion about the local
+    // id going public never executes. Measured — that mutant died on the notice's wait.
     await waitFor(() => {
-      if (base.appends.length < 1) throw new Error('the gated matchup append never landed');
+      const published = appendLedger(base.appends).some((e) => e.startsWith('grid:'));
+      if (screen.queryByTestId('grid-publish-error') === null && !published)
+        throw new Error('the grid publish neither refused nor appended — it never resolved');
     });
     expect(
       appendLedger(base.appends).filter((e) => e.startsWith('grid:')),
       'the grid published with a member key it could not rewrite',
     ).toEqual([]);
+
+    // …and the refusal names its own cause, which is what `CASCADE_NO_KEY` is for.
+    const text = (screen.getByTestId('grid-publish-error').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    expect(
+      text,
+      'the no-key refusal does not name its own cause — `CASCADE_NO_KEY` never reached the viewer',
+    ).toContain('this app refused a second publish of the same record');
+
+    // Release the gate so the case leaves no pending promise behind.
+    release();
+    await waitFor(() => {
+      if (base.appends.length < 1) throw new Error('the gated matchup append never landed');
+    });
   });
 
   it('🔴 THE NEGATIVE CONTROL: the SAME grid publishes when its member IS accountable', async () => {
