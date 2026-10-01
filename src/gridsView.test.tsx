@@ -1189,7 +1189,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     // button it happened to start from was never the claim.
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'My sweep');
 
     // Rows.
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
@@ -1208,6 +1207,11 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
       .find((el) => el.getAttribute('data-key') === 'qk-whisky')!;
     await userEvent.click(colOption);
     await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    // 🔴 STEP 2 HOLDS THE NAME. A grid create pages the two axes first, so the name
+    // input does not exist until `form-next` is pressed — and neither does Submit.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'My sweep');
 
     await userEvent.click(within(form).getByTestId('grid-form-submit'));
 
@@ -1241,8 +1245,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Escape survivor');
-    await userEvent.type(within(form).getByTestId('grid-form-description'), 'both axes chosen');
 
     // Both axes picked FIRST, so the state Escape could destroy is real state and
     // not an empty form that would look identical either way.
@@ -1267,6 +1269,16 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     expect(within(form).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
     expect(within(form).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
 
+    // 🔴 THE NAME AND DESCRIPTION LIVE ON STEP 2 NOW, so they are typed there and the
+    // walk returns to step 1 — which is where the picker is. That is a WIDENING of
+    // this case, not a workaround: the state Escape could destroy now includes state
+    // entered on a page that is no longer mounted, which is strictly more than the
+    // original claim covered.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Escape survivor');
+    await userEvent.type(within(form).getByTestId('grid-form-description'), 'both axes chosen');
+    await userEvent.click(within(form).getByTestId('form-back'));
+
     // Re-open the row picker and press Escape.
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
     await screen.findByTestId('grid-pick-rows');
@@ -1282,13 +1294,17 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     // The picker closed…
     await waitFor(() => expect(screen.queryByTestId('grid-pick-rows')).toBeNull());
-    // …and the form did NOT. Every piece of unsaved state is still there.
+    // …and the form did NOT. Every piece of unsaved state is still there — the two
+    // key selections HERE on step 1…
     const after = screen.getByTestId('grid-form');
-    expect(within(after).getByTestId('grid-form-name')).toHaveValue('Escape survivor');
-    expect(within(after).getByTestId('grid-form-description')).toHaveValue('both axes chosen');
     expect(within(after).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
     expect(within(after).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    // …and the name and description on step 2, which Escape never had on screen.
+    await userEvent.click(within(after).getByTestId('form-next'));
+    expect(within(after).getByTestId('grid-form-name')).toHaveValue('Escape survivor');
+    expect(within(after).getByTestId('grid-form-description')).toHaveValue('both axes chosen');
 
     // And the form still WORKS afterwards — Escape left no half-torn-down state.
     await userEvent.click(within(after).getByTestId('grid-form-submit'));
@@ -1318,7 +1334,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Refused');
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
     const rowPicker = await screen.findByTestId('grid-pick-rows');
     await userEvent.click(
@@ -1335,6 +1350,10 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
         .find((el) => el.getAttribute('data-key') === 'qk-whisky')!,
     );
     await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    // Step 2 holds the name and the Submit (a create pages the axes first).
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Refused');
 
     await userEvent.click(within(form).getByTestId('grid-form-submit'));
 

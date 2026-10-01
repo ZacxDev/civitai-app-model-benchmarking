@@ -109,19 +109,33 @@ async function openCommunity() {
   await openView('Matchups');
 }
 
-/** Drive the private matchup form: open it, name it, pick a checkpoint, save. */
+/**
+ * Drive the private matchup form: open it, pick a checkpoint, name it, save.
+ *
+ * 🔴 IT HANDLES BOTH SHAPES, AND THE ORDER IS WHY. A NEW private matchup is a
+ * TWO-STEP create (models on step 1, name + description on step 2); a RESUMED one
+ * is a single page. So the checkpoint is picked BEFORE the name is typed — on the
+ * two-step shape the name input does not exist until `form-next` is pressed — and
+ * `form-next`'s presence is the discriminant rather than a flag passed in, so this
+ * helper keeps working whichever opener it is handed.
+ */
 async function fillAndSavePrivately(name: string, opener: HTMLElement) {
   await userEvent.click(opener);
   const form = await screen.findByTestId('matchup-form');
+
+  if (within(form).queryByTestId('checkpoint-card') === null) {
+    await userEvent.click(within(form).getByTestId('pick-checkpoint'));
+    await waitFor(() =>
+      expect(within(form).getByTestId('checkpoint-card')).toHaveTextContent('JuggernautXL'),
+    );
+  }
+  if (within(form).queryByTestId('form-next') !== null) {
+    await userEvent.click(within(form).getByTestId('form-next'));
+  }
+
   const nameInput = within(form).getByTestId('matchup-name');
   await userEvent.clear(nameInput);
   await userEvent.type(nameInput, name);
-  if (within(form).queryByTestId('checkpoint-name') === null) {
-    await userEvent.click(within(form).getByTestId('pick-checkpoint'));
-    await waitFor(() =>
-      expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'),
-    );
-  }
   await userEvent.click(within(form).getByTestId('matchup-submit'));
   await waitFor(() => expect(screen.queryByTestId('matchup-form')).toBeNull());
 }

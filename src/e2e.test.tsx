@@ -86,13 +86,16 @@ describe('submit a combination', () => {
     await openView('Matchups');
     await userEvent.click(await screen.findByTestId('submit-matchup'));
     const form = await screen.findByTestId('matchup-form');
-    await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
+    // 🔴 STEP 1 IS THE MODELS, STEP 2 IS THE NAME — the name input does not exist
+    // until `form-next` is pressed, so the name is typed last here.
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
-    await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
-    // ecosystem is derived + shown
-    expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('SDXL');
+    await waitFor(() => expect(within(form).getByTestId('checkpoint-card')).toHaveTextContent('JuggernautXL'));
+    // ecosystem is derived + shown, on its own line beside the resource card
+    expect(within(form).getByTestId('checkpoint-ecosystem')).toHaveTextContent('SDXL');
     await userEvent.click(within(form).getByTestId('add-lora'));
     await waitFor(() => expect(within(form).getByTestId('lora-row')).toBeInTheDocument());
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'My SDXL Combo');
     await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     const card = await screen.findByTestId('matchup-card');
@@ -144,7 +147,6 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
     await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
-    await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
 
     // The DEFAULT prompt (applies to every ecosystem).
     fireEvent.change(within(form).getByTestId('prompt-default-text'), {
@@ -152,6 +154,9 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
     });
 
     // Add a Pony override (its prompt pre-fills from the default; then edit it).
+    // 🔴 THE OVERRIDE PICKER IS COLLAPSED for a prompt with no overrides yet, so the
+    // secondary button has to be pressed before the ecosystem select exists.
+    await userEvent.click(within(form).getByTestId('prompt-override-reveal'));
     await userEvent.selectOptions(within(form).getByTestId('prompt-add-override-select'), 'Pony');
     await userEvent.click(within(form).getByTestId('prompt-add-override'));
     const ponyOverride = await within(form).findByTestId('prompt-override-entry');
@@ -159,6 +164,9 @@ describe('submit a prompt (default + a per-ecosystem override)', () => {
       target: { value: 'score_9 portrait' },
     });
 
+    // 🔴 STEP 2 holds the name — a create pages the prompt first.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('prompt-name'), 'Portrait Test');
     await userEvent.click(within(form).getByTestId('prompt-submit'));
 
     const card = await screen.findByTestId('prompt-card');

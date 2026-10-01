@@ -72,15 +72,16 @@ function MemberBody({ item }: { item?: GridPickerItem }): React.JSX.Element {
 }
 
 /**
- * 🔴 THE TWO TESTIDS ARE SPELLED OUT AS LITERALS ON THE `Card`, AND THE BRANCH THAT
- * COSTS IS DELIBERATE. The obvious shape — one `Card` with `data-testid={testId}`
+ * 🔴 THE TWO TESTIDS ARE SPELLED OUT AS INLINE LITERALS ON THE `Card`, AND THE
+ * BRANCH THAT COSTS IS DELIBERATE. The obvious shape — ONE `Card` taking its testid
  * from a prop — was written first and `renameWireCompat.test.ts` rejected it,
- * correctly: that file's INDIRECT-site ledger exists because a testid arriving
- * through a variable is invisible to its `data-testid="literal"` scan, and the
- * `testId` pass-throughs it DOES allow are only harmless because their literal sits
- * at the call site under `data-testid=`. Mine would have sat under `testId=`, i.e. a
- * genuine new blind spot of the kind that ledger says "must never be" added. So the
- * `Card` shell is written twice and the BODY is shared — the duplication is one
+ * correctly. That file's INDIRECT-site ledger exists because a testid arriving
+ * through a variable is invisible to its raw-source scan, and the `testId`
+ * pass-throughs the ledger DOES allow are harmless only because each one's literal
+ * still sits at the CALL SITE under the real attribute name, where the scan finds
+ * it. This one's would have sat under a prop name of its own invention — a genuine
+ * new blind spot, of exactly the kind that ledger says must never be added. So the
+ * `Card` shell is written twice and the BODY is shared: the duplication is one
  * attribute, and it buys two production ids the ledger can see.
  */
 function AxisCards({

@@ -29,10 +29,18 @@
 // open at a time, so the ids stay unambiguous in the document.
 //
 // 🔴 AND THEY ARE LITERALS IN THE MARKUP rather than values threaded through a
-// prop. The same scan reads `data-testid="literal"` out of raw source; an id that
-// arrives via a variable is invisible to it, which is the blind spot that whole
-// file is built against. A `data-testid={step === 'content' ? … : …}` ternary here
-// would have been exactly that — two production ids the ledger cannot see.
+// prop or chosen by a ternary. That scan reads the testid ATTRIBUTE out of RAW
+// SOURCE, matching only a double-quoted literal spelled inline; an id that arrives
+// via a variable or an expression is invisible to it, which is the blind spot that
+// whole file is built against. One wrapper picking between the two ids with a
+// conditional would have been exactly that — two production ids the ledger cannot
+// see — so there are two components instead, each spelling its own.
+//
+// ⚠️ AND FOR THE SAME REASON NOTHING BELOW WRITES THE ATTRIBUTE IN PROSE. The scan
+// does not skip comments, so an attribute-shaped example in a docblock is read as a
+// RENDERED id: a quoted one invents a testid that exists nowhere, and a braced one
+// counts as an indirect site against a ledger that pins their exact number. Both
+// shapes were written here first and both turned that file red.
 
 import { Button } from '@civitai/blocks-react/ui';
 
