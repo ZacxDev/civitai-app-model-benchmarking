@@ -252,9 +252,18 @@ describe('🔴 the collapsed per-ecosystem override block', () => {
     };
     render(<PromptForm onSubmit={vi.fn()} onCancel={vi.fn()} initial={initial} />);
 
-    expect(screen.queryByTestId('prompt-override-reveal')).toBeNull();
-    expect(screen.queryByTestId('prompt-add-override-select')).not.toBeNull();
-    expect(screen.queryByTestId('prompt-overrides-hint')).not.toBeNull();
+    expect(
+      screen.queryByTestId('prompt-override-reveal'),
+      'a prompt that ALREADY has overrides opened with the picker collapsed',
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('prompt-add-override-select'),
+      'the ecosystem select is missing on a prompt that already has overrides',
+    ).not.toBeNull();
+    expect(
+      screen.queryByTestId('prompt-overrides-hint'),
+      'the hint is missing on a prompt that already has overrides',
+    ).not.toBeNull();
   });
 
   it('🔴 does NOT hide the override ENTRIES, only the picker', async () => {
