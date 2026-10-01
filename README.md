@@ -283,7 +283,12 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 directly, for the one publish path all three share — and
 [`archive.ts`](src/lib/archive.ts) (the author-side hide) and
 [`roving.ts`](src/lib/roving.ts) (the arrow-key index arithmetic the sidebar and the
-row menu share — it was open-coded in both and wrong in both the same way). The two
+row menu share — it was open-coded in both and wrong in both the same way) and
+[`virtualRows.ts`](src/lib/virtualRows.ts) (the results matrix's row-windowing
+decision: which config rows to mount at a given scroll position, plus the two
+spacer heights that keep the scroll extent constant — a pure function of four
+numbers because jsdom lays nothing out, so a rule reachable only through real
+layout would be untestable here). The two
 that are **not** pure logic are the transport seam described in
 [Two transports, one block](#two-transports-one-block):
 [`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes
