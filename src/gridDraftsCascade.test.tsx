@@ -1027,6 +1027,79 @@ describe('🔴 a grid of ORDINARY published members, on a board this app could n
     ).toBeNull();
   });
 
+  it('🔴 P1′ — a RE-READ threw after a good one: the stale snapshot must not license deletion', async () => {
+    // 🔴 FOUND BY A MUTANT THAT WOULD OTHERWISE SURVIVE. `'unread'` is the initial
+    // value, so deleting `setBoardRead('error')` from the read's catch arm changes
+    // NOTHING on P1 or P3 — both are first-read failures and stay `'unread'`, which is
+    // already the non-destructive branch. The state the assignment actually buys is
+    // this one: a read SUCCEEDS, `items` fills, a later read THROWS, and without the
+    // assignment `boardRead` stays `'complete'` over a snapshot the app no longer
+    // trusts — so the refusal goes back to "discard this grid" on a stale board.
+    //
+    // The second read is triggered by the app itself: `publishRecord` calls `reload()`.
+    const good = fakeShared({ seed: BOARD });
+    let reads = 0;
+    const shared: SharedStore = {
+      ...good.shared,
+      async list(opts) {
+        reads += 1;
+        if (reads === 1) return good.shared.list(opts);
+        throw new Error('BOARD_UNAVAILABLE');
+      },
+    };
+    mountApp({
+      shared,
+      store: {
+        [unpubGridKey('ug-clean')]: {
+          ...privateGrid(['mk-a'], ['qk-1']),
+          localId: 'ug-clean',
+          name: 'Clean Grid',
+        },
+        [unpubGridKey('ug-bad')]: {
+          ...privateGrid(['mk-a', 'dm-nowhere'], ['qk-1']),
+          localId: 'ug-bad',
+          name: 'Bad Grid',
+        },
+      },
+    });
+
+    const cardFor = async (localId: string): Promise<HTMLElement> => {
+      await openMyList('grid');
+      return waitFor(() => {
+        const el = screen
+          .getAllByTestId('unpublished-card')
+          .find((c) => c.getAttribute('data-local-id') === localId);
+        if (!el) throw new Error(`the private grid ${localId} is not listed`);
+        return el;
+      });
+    };
+
+    // PREMISE 1: the FIRST read succeeded, so the clean grid publishes — which is also
+    // what fires the re-read that then throws.
+    await userEvent.click(within(await cardFor('ug-clean')).getByTestId('unpublished-publish'));
+    await waitFor(() => {
+      if (good.appends.length < 1) throw new Error('the clean grid did not publish');
+    });
+    // PREMISE 2: a second read really was attempted and really did fail.
+    await waitFor(() => {
+      if (reads < 2) throw new Error('no re-read was issued — the premise failed');
+    });
+
+    // Now the unaccountable grid. The board snapshot in hand is stale.
+    await userEvent.click(within(await cardFor('ug-bad')).getByTestId('unpublished-publish'));
+    const text = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('the stale-board publish was not refused');
+      return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    expect(
+      text,
+      'a FAILED re-read still licenses "discard this grid" over a snapshot the app does not trust',
+    ).not.toMatch(/discard/i);
+    expect(text).toContain('has not been able to read the board');
+    expect(appendLedger(good.appends)).toEqual(['grid:Clean Grid']);
+  });
+
   it('🔴 P3 — the board read is still IN FLIGHT: same refusal, same non-destructive copy', async () => {
     // The first read has not resolved, so no board row is known yet. This is the state
     // a viewer reaches by pressing Publish immediately on load.
