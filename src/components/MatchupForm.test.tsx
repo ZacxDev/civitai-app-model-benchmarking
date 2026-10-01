@@ -422,8 +422,16 @@ describe('🔴 selected resources render through the upstream ResourceCard', () 
     // null/undefined, so it KEEPS the blank string: the card would read `#2002`
     // (upstream trims, then falls back) while the button announced "Remove" and the
     // slider "Weight for" — an accessible name that does not match what is on
-    // screen, which is WCAG 2.5.3's whole subject. A fixture of `undefined` would
-    // pass against BOTH implementations and prove nothing.
+    // screen, which is WCAG 2.5.3's whole subject.
+    //
+    // ⚠️ AND THE REASON GIVEN HERE FOR *NOT* USING `undefined` WAS WRONG. It said an
+    // `undefined` fixture "would pass against BOTH implementations and prove nothing".
+    // Measured: it passes against the Remove revert but FAILS against the slider
+    // revert, because the slider's old fallback had no `#` (see the production
+    // comment) — so `undefined` yields `2002` there against the card's `#2002`. The
+    // FIXTURE CHOICE still stands and is the stronger one: `'   '` kills BOTH reverts,
+    // whereas `undefined` only kills one and only by accident of that missing `#`,
+    // which a future edit could add back. Pin the case that does not depend on it.
     const blank: BlockResourceInfo = { ...LORA_SDXL, modelName: '   ' };
     const pickResource = async (opts: { resourceType: BlockResourcePickerType }) =>
       opts.resourceType === 'Checkpoint' ? CKPT_SDXL : blank;
@@ -434,8 +442,12 @@ describe('🔴 selected resources render through the upstream ResourceCard', () 
     await waitFor(() => expect(screen.getByTestId('lora-row')).toBeInTheDocument());
 
     const expected = `#${blank.versionId}`;
-    // The CARD, via upstream's frozen fallback…
-    expect(screen.getByTestId('lora-row-name').textContent).toBe(expected);
+    // The CARD, via upstream's frozen fallback. `queryByTestId` + a named null check
+    // first, so a vanished name span reports THAT rather than throwing inside
+    // `expect(...)` during argument evaluation and skipping the two claims below.
+    const nameEl = screen.queryByTestId('lora-row-name');
+    expect(nameEl, 'the card rendered no name element at all').not.toBeNull();
+    expect(nameEl!.textContent).toBe(expected);
     // …and BOTH accessible names AGREE WITH IT. Read by role+name, so the assertion
     // fails if the label drifts from the visible text in either direction.
     expect(

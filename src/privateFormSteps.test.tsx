@@ -7,14 +7,12 @@
 // single page. The three forms each pin that for themselves (`MatchupForm.test.tsx`,
 // `PromptForm.test.tsx`, `GridForm.test.tsx`) by passing `multiStep` directly — which
 // is exactly what makes them blind to the thing that actually decides it in
-// production: FIVE `multiStep={…}` expressions in `App.tsx`, plus one form instance
-// that passes no prop at all.
-//
-// ⚠️ THAT COUNT SAID "SIX" FOR A ROUND AND WAS WRONG — corrected because a reader
-// hunting a sixth expression will not find one. The sixth form instance is the
-// PUBLISHED-grid edit modal (`modal.kind === 'grid'`), which relies on `GridForm`'s
-// `multiStep = false` default. That path is NOT an uncovered gap: flipping the
-// default to `true` kills 6 tests, 4 of them in `myBenchmarks.test.tsx`.
+// production: FIVE `multiStep={…}` expressions in `App.tsx` (`:3010`, `:3041`,
+// `:3064`, `:3091`, `:3125`), plus ONE form instance that passes no prop at all —
+// the published-grid edit modal (`modal.kind === 'grid'`, `:3103`), which relies on
+// `GridForm`'s `multiStep = false` default. That defaulting path is NOT an uncovered
+// gap: flipping the default to `true` kills 6 tests, 4 of them in
+// `myBenchmarks.test.tsx`.
 //
 // The two PUBLIC create expressions were covered incidentally; the three PRIVATE ones
 // were not, and an audit measured the cost — each of these mutants left 63 files /

@@ -264,30 +264,47 @@ export function MatchupForm({
    * one), so a `configs.length > 0` gate would be permanently true and the control
    * permanently visible — the gate has to read the first row's CONTENT. Offering a
    * second model before the first one has a checkpoint is how a matchup ends up with
-   * a column of empty rows that `validateCombination` then silently drops.
+   * a column of empty rows.
+   *
+   * ⚠️ WHERE EMPTY ROWS ACTUALLY GO, because this sentence named the wrong function
+   * for two rounds: `validateCombination` only COUNTS them (to raise "Add at least one
+   * model"); the row that gets DROPPED is dropped by `buildCombinationPayload`
+   * (`filledConfigs`, `benchmark.ts:204`). And `buildDraft` drops NOTHING — it maps
+   * every row — so a PRIVATE matchup persists its empty rows into the per-viewer store.
    *
    * ⚠️ IT READS THE FIRST ROW, SO REMOVING THE FIRST ROW CAN HIDE THE BUTTON WHILE A
    * LATER ROW IS COMPLETE — named rather than fixed, because the recovery is the same
-   * action the gate is asking for. Reachable: pick a checkpoint on model 1, Add model,
-   * leave model 2 empty, trash model 1. The survivor has no checkpoint, so "Add model"
-   * goes away (and so does its own trash, on the `length > 1` gate) until the viewer
-   * picks one — which is exactly what the gate wants next anyway.
+   * action the gate is asking for: the survivor has no checkpoint, so "Add model" goes
+   * away until the viewer picks one, which is what the gate wants next anyway.
    *
    * 🔴 WHY `configs[0]` AND NOT `configs.some(c => c.checkpoint)`: BECAUSE THE ASK
    * SAYS "THE FIRST MODEL", AND FOR NO OTHER REASON. That is the whole justification;
-   * do not go looking for a better one.
+   * do not go looking for a better one. Two have been tried and both were false —
+   * if you are about to write a third, that is the thing to notice.
    *
-   * ⚠️ A SECOND, STRONGER-SOUNDING RATIONALE WAS WRITTEN HERE AND IS RETRACTED. It
-   * said `some(...)` "would instead let a viewer stack empty rows behind one complete
-   * one, which is the state this gate exists to prevent". That is FALSE, and an audit
-   * caught it: the button renders under a bare `{canAddModel && …}` with only a
+   * ⚠️ RATIONALE #1, RETRACTED. It said `some(...)` "would instead let a viewer stack
+   * empty rows behind one complete one, which is the state this gate exists to
+   * prevent". FALSE: the button renders under a bare `{canAddModel && …}` with only a
    * `>= MAX_CONFIGS` disable, so once row 0 has a checkpoint "Add model" is visible
-   * UNCONDITIONALLY and a viewer can stack up to 99 empty rows behind one complete
-   * one TODAY. `some(...)` permits the identical state. The two expressions differ
-   * ONLY on the first-row-removal case named in the paragraph above — where `some(...)`
-   * would be strictly BETTER. So the retracted sentence argued against the one change
-   * that would improve the edge case it had just disclosed. Nothing justifies
-   * preferring `configs[0]` on behaviour; only the ask's wording does.
+   * UNCONDITIONALLY and a viewer can stack up to 99 empty rows behind one complete one
+   * TODAY. `some(...)` permits the identical state.
+   *
+   * ⚠️ RATIONALE #2, ALSO RETRACTED, AND IT WAS THE REPLACEMENT FOR #1 — written in
+   * the very block that exists to stop #1 being re-derived. It said the two
+   * expressions "differ ONLY on the first-row-removal case named above, where
+   * `some(...)` would be strictly BETTER". MEASURED against both implementations with
+   * the same fixtures, and that is wrong on BOTH halves:
+   *   - on the TWO-row recipe this docblock used to name (filled, empty → trash row
+   *     0), "Add model" is ABSENT under `configs[0]` AND under `some(...)`. They are
+   *     IDENTICAL there; `some(...)` is not "better", it changes nothing.
+   *   - the minimum state on which they differ needs THREE rows:
+   *     `[filled, empty, filled]` → trash row 0 → `[empty, filled]`. "Add model" is
+   *     absent under `configs[0]` and PRESENT under `some(...)`.
+   * So a maintainer acting on #2 reproduces the 2-row recipe, sees no difference, and
+   * concludes this block is as unreliable as the sentence it replaced.
+   *
+   * 🔴 THE STANDING ANSWER: nothing justifies preferring `configs[0]` on BEHAVIOUR.
+   * Only the ask's wording does. Do not supply a reason; there isn't one.
    */
   const canAddModel = !!configs[0]?.checkpoint;
 
@@ -443,14 +460,12 @@ export function MatchupForm({
                                with no `#` at all — while `loraInfo` above had
                                already moved to upstream's frozen
                                `resourceDisplayName`, which ALSO treats a
-                               whitespace-only name as absent. So a LoRA named '  '
+                               whitespace-only name as absent. So a LoRA named '   '
                                rendered as `#2002` on the card while announcing
                                "Remove   " here, and `getByRole('button', {name})`
                                stopped matching what is on screen. One rule, one
                                place — and the place is upstream's. Pinned by
-                               "names a WHITESPACE-named LoRA by its id", which was
-                               missing for a round: reverting either label left all
-                               920 tests green. */
+                               "names a WHITESPACE-named LoRA by its id". */
                             aria-label={`Remove ${resourceDisplayName(loraInfo(l))}`}
                           >
                             Remove
