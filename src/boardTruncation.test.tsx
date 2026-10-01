@@ -434,6 +434,13 @@ describe("a grid's missing members, on a board the app could not finish reading"
    * safe because both fields live in ONE state value — co-location does not stop an
    * arm writing one half, and this mutant was exactly that. What holds the pair is the
    * two writers and their discipline, which is what that docblock now says.
+   *
+   * ⚠️ AND THIS IS AN **INVARIANT GUARD**, NOT REGRESSION COVERAGE — labelled, with the
+   * measurement. It is GREEN at `917f329`: the shipped code already behaved correctly
+   * in this direction, so there was no defect to go red on. What was missing was the
+   * TEST, and its verification is therefore the mutant rather than a base reading —
+   * `{ outcome: 'error', prefix: true }` in the catch arm SURVIVED the whole suite
+   * before this case existed and dies on this case's own message now.
    */
   it('🔴 a later THROWN read does not INVENT a prefix over a complete snapshot', async () => {
     let failReads = false;
