@@ -337,7 +337,11 @@ export function ResourceName({
            WRONG PACKAGE. What is actually in the document:
              1. `index.html`'s inline `<style>`, `src/index.css`, and the two sheets
                 THIS APP injects as elements (`App.tsx`'s `compact-styles` and
-                `layout-styles`, from `compact.ts`) — no `outline` anywhere in `src/`.
+                `layout-styles`, from `compact.ts`) — no `outline` in any sheet this
+                app owns. (⚠️ NOT "nowhere in `src/`", which a draft of this line
+                claimed: `GridPicker.tsx:380` has one. It is an INLINE style on that
+                component's own element, so it reaches no sheet and no selector — see
+                the note at the end of this block.)
              2. `@civitai/blocks-react/dist/ui/styles.js` (`injectBlocksStyles()`) — one
                 `outline: none`, on `[data-civitai-ui='modal']` ITSELF, no descendant
                 combinator, so it cannot reach here. It also carries three
@@ -374,15 +378,31 @@ export function ResourceName({
            such rules), which a local component cannot reach without a stylesheet this
            app does not have. Tinting it from here is possible and deliberately NOT
            done — it would rest on UA cascade behaviour jsdom cannot verify.
-           🔴 WHAT MUST NEVER COME BACK IS A SUPPRESSION IN ANY SPELLING, WHICH IS
-           WIDER THAN THE ONE THIS COMMENT USED TO NAME. It said "`outline: 'none'`",
-           and `ResourceName.test.tsx` guarded exactly that word — so `outline: 0`,
-           `outlineStyle: 'none'` and `outlineWidth: 0` each SURVIVED the guard while
-           suppressing the ring identically, and `outline: 0` is the *more* common reset
-           idiom. The guard now enumerates the button's DECLARED style properties and
-           requires none of them to begin with `outline`, so the regression it pins is
-           the STATE (this button declares no outline) rather than a word a tidy-up can
-           respell. `GridPicker.tsx:380` is NOT a precedent for the state: it keys on a
+           🔴 WHAT MUST NEVER COME BACK IS A SUPPRESSION, AND THE GUARD THAT PINS IT
+           HAS BEEN WIDENED TWICE BECAUSE EACH EARLIER VERSION READ WIDER THAN IT WAS.
+           ⚠️ Draft 1 of this comment named "`outline: 'none'`" and
+           `ResourceName.test.tsx` guarded exactly that word — so `outline: 0`,
+           `outlineStyle: 'none'` and `outlineWidth: 0` each SURVIVED while suppressing
+           the ring identically, and `outline: 0` is the *more* common reset idiom.
+           ⚠️ Draft 2 enumerated the DECLARED property names, required none to begin
+           with `outline`, and claimed the family was thereby closed — "a suppression
+           has to be spelled as some `outline*` property to exist at all". THAT WAS
+           FALSE. `all: 'unset'` — the idiomatic one-line replacement for exactly the
+           chrome strip this style object opens with — resets `outline-style` to its
+           initial `none` without ever naming it, and SURVIVED that guard 8/8.
+           🔴 THE GUARD NOW HAS TWO ARMS: no declared name may begin with `outline`,
+           and no declared `all`. Over today's CSS property registry that is every
+           inline declaration which can switch this ring off, `all` being the only
+           shorthand besides `outline` itself whose sub-properties include the outline
+           longhands. ⚠️ IT IS STILL NOT CLOSED, and the three open shapes are named
+           here rather than left for the next reader to rediscover: a reset shorthand
+           CSS adds later walks it exactly as `all` did; a CALLER's `style` is outside
+           the default render the guard reads (this branch defends `textDecoration` and
+           `cursor` by re-declaring them after the spread, and cannot defend a property
+           it never sets); and a declared-style read cannot see a ring killed by a class
+           or a sheet — which is what the five-sheet enumeration above is for, and why
+           it has to be re-run on a `@civitai/*` bump.
+           `GridPicker.tsx:380` is NOT a precedent for the state: it keys on a
            SELECTION, which has no pseudo-class. Focus has one. */
       }}
     >

@@ -102,27 +102,70 @@ describe('ResourceName — LINKED (a usable modelId)', () => {
     // button's chrome would reach for and which an earlier draft of this component
     // shipped.
     //
-    // ⚠️ THIS LINE USED TO BE `expect(el).not.toHaveStyle({ outline: 'none' })`, AND
-    // THAT GUARD WAS WALKABLE BY REWORDING. Measured one mutant at a time against the
-    // button's style object, with that assertion in place: `outline: 'none'` KILLED,
-    // but `outline: 0`, `outlineStyle: 'none'` and `outlineWidth: 0` each SURVIVED a
-    // full green file (8/8). All three suppress the UA ring exactly as `'none'` does,
-    // and `outline: 0` is the *more* common reset idiom — so the guard read as coverage
-    // while leaving the likelier spelling open. Enumerating the DECLARED property names
-    // closes the whole family instead of the one word: a suppression has to be spelled
-    // as some `outline*` property to exist at all, and none may be present.
+    // ⚠️ THIS GUARD HAS BEEN WALKED TWICE, AND THE SECOND TIME BY A SHORTHAND THAT
+    // NEVER SAYS `outline`. Round 1: the line was
+    // `expect(el).not.toHaveStyle({ outline: 'none' })`; measured one mutant at a time
+    // against the button's style object, `outline: 'none'` KILLED, but `outline: 0`,
+    // `outlineStyle: 'none'` and `outlineWidth: 0` each SURVIVED a full green file
+    // (8/8). All three suppress the UA ring exactly as `'none'` does, and `outline: 0`
+    // is the *more* common reset idiom. Round 2: enumerating the declared names and
+    // requiring none to begin with `outline` closed those three — and `all: 'unset'`
+    // (or `all: 'initial'`) then SURVIVED 8/8 in turn. Measured: with that one
+    // declaration added to the chrome block, `Array.from(el.style)` reads
+    // `['background','padding','margin','color','text-align','all','text-decoration','cursor']`,
+    // which holds no `outline*` name at all; written as the chrome block's *replacement*
+    // it reads `['all','text-align','text-decoration','cursor']`, same verdict. In a
+    // real browser `all: unset` resets `outline-style` to its initial `none`, so the
+    // ring is gone — while `textDecoration`/`cursor` survive because they are declared
+    // after it, so no neighbouring assertion fires either. That is the exact doorway
+    // `./ResourceName.tsx`'s own comment names: `all: 'unset'` is the idiomatic
+    // one-line replacement for the UA-chrome strip that block opens with.
     //
-    // ⚠️ `Array.from(el.style)` is the authored-longhand list, not a computed cascade.
-    // Measured in this jsdom: a React `{ outline: 'none' }` yields `['outline']` and is
-    // NOT expanded into `outline-color/-style/-width`, so a prefix test over the
-    // declared names sees each of the four spellings as itself.
+    // 🔴 SO THE GUARD IS TWO ARMS, AND THIS IS EXACTLY WHAT THEY REACH — no more:
+    //   (1) no DECLARED property name begins with `outline`, in any value spelling;
+    //   (2) no DECLARED `all`, in any value spelling (`unset`/`initial`/`revert`/…).
+    // Over today's CSS property registry those two arms are the whole set of inline
+    // declarations that can switch this ring off: `outline-style`/`-width` do it by
+    // name, the `outline` shorthand resets them, and `all` is the only OTHER shorthand
+    // whose sub-properties include the outline longhands. 🔴 THAT IS A CLAIM ABOUT
+    // TODAY'S REGISTRY, NOT A CLOSURE PROOF — a reset shorthand CSS adds later would
+    // walk this guard exactly as `all` did, and nothing here would notice. Both arms
+    // test the NAME, so no value spelling evades either.
     //
-    // ⚠️ jsdom performs no layout and renders no UA focus ring, so this CANNOT say the
-    // ring is visible — only that the component declares nothing that would switch it
-    // off, and that the control is reachable by keyboard at all.
+    // 🔴 AND THREE SHAPES IT CANNOT REACH AT ALL, stated rather than implied, because
+    // the previous draft of this block asserted the family was closed — "a suppression
+    // has to be spelled as some `outline*` property to exist at all, and none may be
+    // present" — and that sentence was false on the day it was written:
+    //   (a) A CALLER-SUPPLIED `style`. This case renders the component's DEFAULT, so a
+    //       caller's own `outline`/`all` is outside the reading. `MatchupBody.tsx:214`
+    //       does pass a style object in, and the caller-override case further down
+    //       passes one with no `outline` key. The component defends `textDecoration`
+    //       and `cursor` by re-declaring them AFTER the spread, and CANNOT defend a
+    //       non-declaration — there is nothing to put after the spread for a property
+    //       it never sets.
+    //   (b) A ring suppressed by a CSS CLASS or a STYLESHEET RULE: a declared-style
+    //       read cannot see the cascade. That axis is covered separately — and only as
+    //       a one-off enumeration, not as a guard — by the five-sheet list in
+    //       `./ResourceName.tsx`, which has to be re-run on a `@civitai/*` bump.
+    //   (c) Whether the ring is VISIBLE. jsdom performs no layout and renders no UA
+    //       focus ring, so this says only that the component declares nothing that
+    //       would switch it off, and that the control is reachable by keyboard at all.
+    //
+    // ⚠️ `Array.from(el.style)` is the authored-declaration list, not a computed
+    // cascade. Measured in this jsdom (25.0.1): a React `{ outline: 'none' }` yields
+    // `['outline']` and is NOT expanded into `outline-color/-style/-width`, so a prefix
+    // test over the declared names sees each of the four `outline*` spellings as
+    // itself; `{ all: 'unset' }` yields the name `'all'` and — unlike a real browser —
+    // does NOT erase the longhands declared before it, so arm (2) must read the name
+    // rather than infer a reset from what went missing.
+    const declared = Array.from(el.style);
     expect(
-      Array.from(el.style).filter((prop) => prop.startsWith('outline')),
+      declared.filter((prop) => prop.startsWith('outline')),
       'the button declares an outline property — that is the focus ring being suppressed',
+    ).toEqual([]);
+    expect(
+      declared.filter((prop) => prop === 'all'),
+      'the button declares `all` — a reset shorthand that switches the UA focus ring off without ever naming `outline`',
     ).toEqual([]);
     await userEvent.tab();
     expect(el).toHaveFocus();

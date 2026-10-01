@@ -333,7 +333,11 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   than by reading down from here, cannot read (a)/(b) as current — and because (c) is
   still the live hazard that decides the element.
 - 🔴 **RESOURCE LINKS ARE IMPOSSIBLE FROM AN APP BLOCK TODAY — all three routes measured
-  shut, do not re-derive this.** (a) `useCivitaiNavigate(path,'current')` — the host
+  shut, do not re-derive this.** **[CORRECTED 2026-10-01 — THIS HEADLINE IS FALSE AS
+  WRITTEN. Routes (a) and (b) are OPEN since `civitai/civitai` #5250, and resource links
+  now SHIP in this app; only (c) is still shut. Read the bullet above before using
+  anything below this line. The original wording is kept because a reader may already
+  have acted on it.]** (a) `useCivitaiNavigate(path,'current')` — the host
   rewrites every `NAVIGATE` path to `/apps/run/<slug>/<cleaned>` and shallow-pushes
   (`civitai/civitai` `PageBlockHost.tsx:1883`); the payload's `target` is read **zero**
   times. It is DELIBERATE: that file's security posture at `:175` says a block "can
@@ -346,7 +350,11 @@ Raised out of this repo's failed adoption attempt; none is ours to close.
   `intersectSandbox`) the popup INHERITS the opener's sandbox. **Measured live on the
   running host page: `sandbox="allow-scripts allow-forms"`, no `allow-same-origin`, i.e.
   `trustTier='unverified'`** — so the tab would load civitai.com at an opaque origin,
-  logged out. 🔵 **The unlock is a TRUST-TIER change, not a code change.** Filed as
+  logged out. 🔵 **The unlock is a TRUST-TIER change, not a code change.** **[CORRECTED
+  2026-10-01 — WRONG. `scope: 'site'` is granted PER SURFACE by the host's
+  `BLOCK_HOST_SITE_NAVIGATION` record, not by trust tier, which is exactly why #5250's
+  unlock landed while this block still runs at `trustTier: 'unverified'`. See the bullet
+  above.]** Filed as
   `civitai/civitai#5209` with the measurement. `LoraRef.modelId` and its round-trip were
   KEPT so the data accrues from today (another author's shared rows can never be
   migrated); `lib/resourceLink.ts` was DELETED because a 4-line string builder has no
