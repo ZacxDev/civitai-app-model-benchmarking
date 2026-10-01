@@ -34,15 +34,37 @@ import { describe, expect, it } from 'vitest';
 import {
   cascadeConfirmNotice,
   cascadeCounts,
+  cascadeLandedSentence,
+  cascadeRefusal,
   cascadeStoppedNotice,
-  cascadeUnresolvedNotice,
   nameList,
   planGridCascade,
   remapGridKeys,
   type CascadeDep,
+  type GridCascadePlan,
   type MemberSources,
 } from './gridCascade.js';
+import { newLocalId } from './unpublished.js';
 import type { GridInput } from './grids.js';
+
+/**
+ * 🔴 LOCAL-ID-SHAPED FIXTURES, MINTED BY THE REAL MINTER.
+ *
+ * The unresolved-bucket case used to feed `'gone-1'` / `'gone-2'`, which are not
+ * local-id-shaped — so it could not tell the CORRECT pass-through (a withdrawn
+ * SHARED key) from the FORBIDDEN one (an unaccountable per-viewer LOCAL id), and the
+ * three paths that put a local id on the public board walked straight past it.
+ * `newLocalId` is what `drafts.ts`/`unpubPrompts.ts` actually call, so these strings
+ * have production's shape rather than a guessed one.
+ *
+ * ⚠️ AND THE SHAPE IS NOT WHAT THE GUARD TESTS. `cascadeRefusal` refuses on STATE —
+ * "is this key in one of the three buckets?" — never on the key's text, because a
+ * host-minted shared key's real shape is not verified anywhere in this repo. These
+ * fixtures exist so the case EXERCISES the dangerous input, not so the code can
+ * pattern-match it.
+ */
+const DEAD_MATCHUP_ID = newLocalId('draft');
+const DEAD_PROMPT_ID = newLocalId('unpubprompt');
 
 const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
 
@@ -146,18 +168,42 @@ describe('🔴 planGridCascade classifies every member key', () => {
     expect(plan.resolved.get('dm-1')).toBe('fk_7');
   });
 
-  it('a key in NONE of the three buckets is `unresolved` and nothing else', () => {
+  it('🔴 a LOCAL ID in NONE of the three buckets lands in `unresolved`', () => {
+    // 🔴 THE INPUT THE OLD VERSION OF THIS CASE COULD NOT EXERCISE. Its fixtures were
+    // `'gone-1'` / `'gone-2'`, which look like withdrawn shared keys — the ONE thing
+    // this bucket could hold before private members existed, and the one thing it is
+    // right to carry through. These are LOCAL IDS with no live record and no pointer,
+    // which is what three measured paths produce, and what must never reach the board.
     const plan = planGridCascade(
-      grid(['gone-1'], ['gone-2']),
+      grid([DEAD_MATCHUP_ID], [DEAD_PROMPT_ID]),
       sources({ board: ['mk-a'] }),
       sources({ board: ['qk-1'] }),
     );
-    expect(plan.deps).toEqual([]);
-    expect([...plan.resolved.entries()]).toEqual([]);
+    expect(plan.deps, 'an unaccountable local id was queued as a publishable dependency').toEqual(
+      [],
+    );
+    expect(
+      [...plan.resolved.entries()],
+      'an unaccountable local id was given a key out of nowhere',
+    ).toEqual([]);
     expect(
       plan.unresolved,
-      'a dangling member was not reported — §11.2 calls that case normal, not invisible',
-    ).toEqual(['gone-1', 'gone-2']);
+      'an unaccountable local id did not reach the bucket the publish boundary reads',
+    ).toEqual([DEAD_MATCHUP_ID, DEAD_PROMPT_ID]);
+  });
+
+  it('a WITHDRAWN SHARED key lands in the same bucket — the two are indistinguishable here', () => {
+    // ⚠️ AND THAT IS THE ARGUMENT FOR REFUSING BOTH. Nothing in a key's text separates
+    // them, so `cascadeRefusal` tests the STATE. This case exists to make the
+    // indistinguishability explicit rather than implied: if a future reader wants to
+    // allow the withdrawn case through, THIS is the assertion that tells them the
+    // planner cannot tell them apart.
+    const plan = planGridCascade(
+      grid(['shared_01HZQ8GONE'], []),
+      sources({ board: ['mk-a'] }),
+      sources({}),
+    );
+    expect(plan.unresolved).toEqual(['shared_01HZQ8GONE']);
   });
 
   it('🔴 DEPENDENCIES COME OUT MATCHUPS FIRST, then PROMPTS, each in AUTHORED order', () => {
@@ -288,14 +334,26 @@ describe('🔴 cascadeConfirmNotice — the whole string, and what it must not p
   });
 });
 
-describe('🔴 cascadeStoppedNotice — three branches, three whole strings', () => {
-  it('A DEPENDENCY failed: names what landed, what did not, and that the grid did not', () => {
+describe('🔴 cascadeLandedSentence — the shared half, both pluralisations and the zero', () => {
+  it('names every published item, with the verb agreeing', () => {
+    expect(cascadeLandedSentence([]), 'the zero sentence moved').toBe('Nothing was published.');
+    expect(cascadeLandedSentence(['A']), 'the singular sentence moved').toBe(
+      '1 item was published and is now public and permanent: A.',
+    );
+    expect(cascadeLandedSentence(['A', 'B']), 'the plural sentence moved').toBe(
+      '2 items were published and are now public and permanent: A and B.',
+    );
+  });
+});
+
+describe('🔴 cascadeStoppedNotice — four outcomes, and the one that is NOT here', () => {
+  it('A DEPENDENCY’s APPEND was refused: names what landed, what did not, and that the grid did not', () => {
     expect(
       norm(
         cascadeStoppedNotice({
           gridName: 'Mixed Grid',
           published: ['Private Matchup P'],
-          stoppedAt: 'Private Prompt Q',
+          stoppedAt: { name: 'Private Prompt Q', appended: false },
           hostError: 'QUOTA_EXCEEDED',
         }),
       ),
@@ -303,6 +361,35 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
       '1 item was published and is now public and permanent: Private Matchup P. ' +
         'Private Prompt Q could not be published (QUOTA_EXCEEDED), so the grid “Mixed Grid” ' +
         'was not published either — a public grid must not point at a private row. The grid ' +
+        'is unchanged and still private.',
+    );
+  });
+
+  it('🔴 A DEPENDENCY’s POINTER write failed: it IS published, and the sentence says so', () => {
+    // 🔴 THE ARM THAT DID NOT EXIST, AND THE SELF-CONTRADICTION IT REPLACES. This
+    // sub-case was routed into the `appended: false` arm above with the dependency
+    // left OUT of `published`, so the notice opened "Nothing was published." and then
+    // quoted a host error about a row the append log proves is public and permanent.
+    // One sentence, contradicting itself. The dependency is now named in `published`
+    // (its row really is public) and the arm says which HALF failed.
+    const text = norm(
+      cascadeStoppedNotice({
+        gridName: 'Mixed Grid',
+        published: ['Private Matchup P'],
+        stoppedAt: { name: 'Private Matchup P', appended: true },
+        hostError: 'QUOTA_EXCEEDED',
+      }),
+    );
+    // The named claim first: it must NOT say nothing was published.
+    expect(
+      text,
+      'the half-published arm still claims nothing was published, about a public row',
+    ).not.toMatch(/Nothing was published/);
+    expect(text).toBe(
+      '1 item was published and is now public and permanent: Private Matchup P. But Private ' +
+        "Matchup P's own private copy could not be updated with its key (QUOTA_EXCEEDED), so " +
+        'you have no stored handle on that row. The grid “Mixed Grid” was not published — a ' +
+        'public grid must not point at a member this app can no longer account for. The grid ' +
         'is unchanged and still private.',
     );
   });
@@ -326,10 +413,14 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
   });
 
   it('🔴 THE GRID failed with NOTHING published: no dangling "them"', () => {
-    // Reachable, not defensive: a cascade whose dependencies all landed and whose grid
-    // was refused leaves a plan with no dependencies, so a second failing attempt
-    // arrives here with an empty `published`. The "still lists them" clause must not
-    // survive into a sentence that has no "them".
+    // Reachable, not defensive: the DIRECT, no-dependency publish path reaches this arm
+    // with an empty `published` whenever the grid's own `append` is refused. The "still
+    // lists them" clause must not survive into a sentence that has no "them".
+    //
+    // ⚠️ THE REASON GIVEN HERE BEFORE WAS WRONG and is corrected rather than reworded:
+    // it said a cascade whose dependencies all landed and whose grid was refused leaves
+    // a plan with no dependencies for a retry. The dialog now CLOSES on both outcomes,
+    // so there is no in-dialog retry, and that path does not reach this arm.
     const text = norm(
       cascadeStoppedNotice({
         gridName: 'Mixed Grid',
@@ -351,7 +442,8 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
 
   it('🔴 no branch promises a rollback, and every one quotes the host error verbatim', () => {
     for (const spec of [
-      { published: ['A'], stoppedAt: 'B' },
+      { published: ['A'], stoppedAt: { name: 'B', appended: false } },
+      { published: ['A', 'B'], stoppedAt: { name: 'B', appended: true } },
       { published: ['A', 'B'], stoppedAt: null },
       { published: [], stoppedAt: null },
     ] as const) {
@@ -371,24 +463,166 @@ describe('🔴 cascadeStoppedNotice — three branches, three whole strings', ()
   });
 });
 
-describe('🔴 cascadeUnresolvedNotice — the whole string, both pluralisations', () => {
-  it('singular', () => {
-    expect(norm(cascadeUnresolvedNotice(1)), 'the singular unresolved notice moved').toBe(
-      '1 member of this grid cannot be found — not on the board and not among your private ' +
-        'items. Publishing keeps it listed, and the grid renders without it.',
+// ===========================================================================
+// 🔴 cascadeRefusal — THE PUBLISH BOUNDARY
+//
+// This replaces `cascadeUnresolvedNotice`, which DISCLOSED an unaccountable member
+// and let the publish proceed. Three measured paths put a per-viewer LOCAL ID on the
+// permanent public board that way, with no error and (because all three have zero
+// dependencies) no dialog either. Round 0 proposed deleting the disclosure; this is
+// the stronger reading — it is kept and rewired onto the REFUSAL path, which is where
+// a viewer can act on it.
+// ===========================================================================
+
+/** A plan with `n` unaccountable members and nothing else — the refusal's only input. */
+const planWith = (unresolved: string[]): GridCascadePlan => ({
+  deps: [],
+  resolved: new Map(),
+  unresolved,
+});
+
+describe('🔴 cascadeRefusal — what may reach `shared.append`', () => {
+  it('🔴 PERMITS a plan whose every member is accounted for', () => {
+    // The NEGATIVE CONTROL for every refusal below. Without it, "refuses" is
+    // satisfiable by a boundary that refuses unconditionally — which would break
+    // publishing outright and pass every other case in this block.
+    expect(
+      cascadeRefusal({
+        gridName: 'Mixed Grid',
+        plan: {
+          deps: [DEP_M],
+          resolved: new Map([['dp-1', 'fk_2']]),
+          unresolved: [],
+        },
+        scanComplete: true,
+        boardTruncated: false,
+      }),
+      'a fully accountable grid was refused — publishing is broken, not guarded',
+    ).toBeNull();
+  });
+
+  it('🔴 REFUSES an unaccountable member, and the refusal is the whole string', () => {
+    const text = cascadeRefusal({
+      gridName: 'Mixed Grid',
+      plan: planWith([DEAD_MATCHUP_ID]),
+      scanComplete: true,
+      boardTruncated: false,
+    });
+    expect(text, 'an unaccountable member was PERMITTED onto the public board').not.toBeNull();
+    expect(norm(text!)).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
+        'among your private items. Publishing is refused rather than putting a key on the ' +
+        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
+        'and remove it.',
     );
   });
 
-  it('plural', () => {
-    expect(norm(cascadeUnresolvedNotice(2))).toBe(
-      '2 members of this grid cannot be found — not on the board and not among your private ' +
-        'items. Publishing keeps them listed, and the grid renders without them.',
+  it('plural, same branch', () => {
+    expect(
+      norm(
+        cascadeRefusal({
+          gridName: 'Mixed Grid',
+          plan: planWith([DEAD_MATCHUP_ID, DEAD_PROMPT_ID]),
+          scanComplete: true,
+          boardTruncated: false,
+        })!,
+      ),
+    ).toBe(
+      '2 members of “Mixed Grid” cannot be accounted for: they are not on the board and not ' +
+        'among your private items. Publishing is refused rather than putting keys on the ' +
+        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
+        'and remove them.',
     );
   });
 
-  it('🔴 does NOT claim the key is dropped, because `normalizeKeys` keeps it', () => {
-    // §11.2 carries a dangling key into the payload rather than truncating, so a
-    // sentence saying it is removed would describe behaviour the app does not have.
-    expect(cascadeUnresolvedNotice(2)).not.toMatch(/remov|dropp|delet|discard/i);
+  it('🔴 an INCOMPLETE PRIVATE SCAN names THAT cause, not a removal', () => {
+    // 🔴 THE INVERSION THE `ScanResult` CAPTURE EXISTS FOR. When the `draft:v1:`
+    // listing throws or truncates, the member may be sitting in the viewer's own
+    // storage unread — so "not among your private items" would be a claim the app has
+    // no evidence for. Same honesty rule as `missingMembersNotice`'s `boardTruncated`
+    // split, one store over.
+    const text = norm(
+      cascadeRefusal({
+        gridName: 'Mixed Grid',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        scanComplete: false,
+        boardTruncated: false,
+      })!,
+    );
+    expect(
+      text,
+      'the incomplete-scan branch still asserts the member is not among the private items',
+    ).not.toMatch(/not among your private items/);
+    expect(text).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for, because this app could not read ' +
+        'all of your private items. It therefore cannot tell whether it is yours and ' +
+        'unpublished, or simply gone. Publishing is refused rather than putting a key on the ' +
+        'public board that nobody — including you — could resolve afterwards. Reload and try ' +
+        'again.',
+    );
+  });
+
+  it('🔴 a TRUNCATED BOARD SCAN does not claim the member is "not on the board"', () => {
+    // Finding 7: the old disclosure asserted "not on the board" unconditionally.
+    // "Missing" is a set difference against the rows the scan actually READ, so on a
+    // truncated board the member may be there and simply unfetched.
+    const text = norm(
+      cascadeRefusal({
+        gridName: 'Mixed Grid',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        scanComplete: true,
+        boardTruncated: true,
+      })!,
+    );
+    expect(
+      text,
+      'the truncated-board branch still asserts the member is not on the board',
+    ).not.toMatch(/not on the board/);
+    expect(text).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for: it is not among your private items, ' +
+        'and not in the part of the board this app could read — this board has more entries ' +
+        'than one load fetches. Publishing is refused rather than putting a key on the public ' +
+        'board that nobody — including you — could resolve afterwards. Reload and try again, ' +
+        'or edit the grid and remove it.',
+    );
+  });
+
+  it('🔴 THE INCOMPLETE SCAN WINS over the truncated board — one cause, named', () => {
+    // Both flags can be true at once. The private-scan cause is the one that makes the
+    // app unable to tell the two cases apart at all, so it is the one reported; a
+    // sentence naming both would leave the viewer no action.
+    const both = cascadeRefusal({
+      gridName: 'G',
+      plan: planWith([DEAD_MATCHUP_ID]),
+      scanComplete: false,
+      boardTruncated: true,
+    })!;
+    expect(both).toContain('could not read all of your private items');
+    expect(both, 'two causes were named at once').not.toMatch(/not in the part of the board/);
+  });
+
+  it('🔴 no branch claims the key is REMOVED, and every branch refuses in words', () => {
+    for (const spec of [
+      { scanComplete: true, boardTruncated: false },
+      { scanComplete: true, boardTruncated: true },
+      { scanComplete: false, boardTruncated: false },
+    ] as const) {
+      const text = cascadeRefusal({
+        gridName: 'G',
+        plan: planWith([DEAD_MATCHUP_ID]),
+        ...spec,
+      })!;
+      // `normalizeKeys` carries a key into the payload rather than truncating it, and
+      // nothing here deletes anything from the stored grid — so a sentence saying the
+      // member was dropped would describe behaviour the app does not have. (The viewer
+      // is ASKED to remove it; that is an instruction, not a claim about what happened,
+      // which is why the pattern is tense-specific.)
+      expect(text, `branch ${JSON.stringify(spec)} claims the key was removed`).not.toMatch(
+        /was (?:removed|dropped|deleted|discarded)/i,
+      );
+      expect(text, `branch ${JSON.stringify(spec)} does not say it refuses`).toContain(
+        'Publishing is refused',
+      );
+    }
   });
 });

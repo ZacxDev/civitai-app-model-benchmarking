@@ -66,6 +66,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import { publishPointerFailedNotice } from './lib/unpublished.js';
@@ -253,19 +254,85 @@ const OBJECTS = [
       matchupKeys: ['mk-alpha'],
       promptKeys: ['qk-tango'],
     }),
+    /**
+     * 🔴 THE GRID ARM NEEDS ITS MEMBERS ON THE BOARD NOW, AND THAT IS A BEHAVIOUR
+     * CHANGE RATHER THAN A FIXTURE TIDY-UP.
+     *
+     * A grid publish is REFUSED when any member key cannot be positively accounted
+     * for — not a board row, not a live private record, not a stored pointer (see
+     * `cascadeRefusal`). That boundary exists because the bucket such a key lands in
+     * is now ALSO where an unaccountable per-viewer LOCAL ID lands, and nothing in a
+     * key's text separates the two. The cost, paid deliberately: a grid one of whose
+     * members was withdrawn is no longer publishable until its author removes it.
+     *
+     * This fixture's grid named `mk-alpha` × `qk-tango` against an EMPTY board, so
+     * under the new boundary it would be refused and never reach `append` at all —
+     * which would make every case below assert nothing. Seeding the two rows restores
+     * the PREMISE this file is about (a publish that succeeds and whose POINTER write
+     * is then refused) instead of silently testing the refusal.
+     */
+    boardSeed: [
+      {
+        key: 'mk-alpha',
+        count: 1,
+        authorUserId: 5,
+        viewerVoted: false,
+        /* ⚠️ A REAL CONFIG, NOT `configs: []`. `parseCombination` drops a row with no
+           usable config, so an empty array would leave `mk-alpha` off the board and the
+           grid would be refused anyway — measured: six red cases with an empty
+           `appends`. The fixture has to satisfy the PARSER, not just the type. */
+        value: {
+          title: 'Member matchup',
+          body: '',
+          data: {
+            v: 2,
+            kind: 'combination',
+            configs: [
+              {
+                id: 'cfg-member',
+                checkpoint: {
+                  versionId: 1001,
+                  modelId: 500,
+                  baseModel: 'SDXL 1.0',
+                  modelName: 'JuggernautXL',
+                },
+                loras: [],
+              },
+            ],
+          },
+        },
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+      {
+        key: 'qk-tango',
+        count: 1,
+        authorUserId: 5,
+        viewerVoted: false,
+        value: {
+          title: 'Member prompt',
+          body: '',
+          data: { v: 3, kind: 'prompt', default: { prompt: 'x', params: {} } },
+        },
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+    ] as SharedItem[],
   },
 ];
 
 describe.each(OBJECTS)(
   '🔴 a $noun whose pointer write is REFUSED after a successful append',
-  ({ noun, view, prefix, storageKey, record }) => {
+  ({ noun, view, prefix, storageKey, record, boardSeed }) => {
     /**
      * Mount with the record seeded and every `set` under its OWN prefix refused.
      * `alsoRefuseDelete` additionally refuses the fallback `delete` on the same
      * prefix — the second of the two outcomes the copy branches on.
      */
     async function arrange(alsoRefuseDelete = false) {
-      const s = fakeShared({ seed: [] });
+      // 🔴 `boardSeed` IS THE GRID ARM'S PREMISE, not decoration — see the field's
+      // docblock. The matchup and prompt arms pass none and are unchanged.
+      const s = fakeShared({ seed: boardSeed ?? [] });
       const kv = fakeAppStorage(
         { [storageKey]: record },
         {},
@@ -405,11 +472,12 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     view,
     storageKey,
     record,
+    boardSeed,
   }) => {
     // 🔴 WITHOUT THIS the cases above are satisfiable by an app that shows the
     // failure notice on EVERY publish. Same fixture, same route, `failSetTimes`
     // omitted — the only difference is whether the host refuses.
-    const s = fakeShared({ seed: [] });
+    const s = fakeShared({ seed: boardSeed ?? [] });
     const kv = fakeAppStorage({ [storageKey]: record });
     mountApp({ shared: s.shared, appStorage: kv.appStorage });
     await openView(view);
@@ -464,7 +532,10 @@ describe('🔴 the half-published notice does NOT survive a nav away (UNGUARDED,
   const GRID = OBJECTS.find((o) => o.noun === 'grid')!;
 
   it('renders on My Benchmarks ▸ Grids, and a trip to Home destroys it', async () => {
-    const s = fakeShared({ seed: [] });
+    // 🔴 SEEDED, LIKE `arrange()` — and for the same reason. Without the two member
+    // rows this grid's publish is REFUSED before it appends anything, and the case
+    // would assert the absence of a notice about a publish that never happened.
+    const s = fakeShared({ seed: GRID.boardSeed ?? [] });
     const kv = fakeAppStorage(
       { [GRID.storageKey]: GRID.record },
       {},

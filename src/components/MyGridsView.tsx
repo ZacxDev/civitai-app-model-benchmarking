@@ -155,6 +155,29 @@ export interface MyGridsViewProps {
    * and it is deliberately not bundled here.
    */
   error: string | null;
+  /**
+   * The grid-publish REFUSAL or CASCADE FAILURE notice, held by `App`.
+   *
+   * 🔴 ITS RENDER SITE IS HERE AND NOT IN THE DIALOG, AND THAT IS THE WHOLE POINT OF
+   * THE PROP. The notice used to render inside the cascade's confirm dialog, nested
+   * under "the grid's record still exists" — and the single most important thing it
+   * has to say arrives at the exact moment that stops being true: when the grid's own
+   * pointer write is refused, `publishRecord` retires the local id, the record leaves
+   * `unpublishedGrids`, and the dialog body became unrenderable. Measured: two rows
+   * public and permanent, and nothing at all on screen.
+   *
+   * It is the SAME argument `MyList` makes one level down about its own
+   * `unpublished-error` ("the failure that matters most is the one where the record
+   * has just been retired FROM the list"), applied one level up — the record's
+   * lifetime must not gate the notice about the record.
+   *
+   * ⚠️ IT IS NOT THE ONLY PUBLISH-FAILURE CHANNEL ON THIS SURFACE, and the other one
+   * is unchanged: the direct, no-dependency publish still rejects into `MyList`, which
+   * renders `unpublished-error` from its own LOCAL state. That one still dies on a nav
+   * away (`publishPointerFailure.test.tsx` pins it as a characterisation). This one
+   * does not, because `App` holds it.
+   */
+  publishError: string | null;
   archivedKeys: Set<string>;
   unpublished: UnpublishedGrid[];
   quotaLine?: string | null;
@@ -194,6 +217,7 @@ export function MyGridsView({
   viewerId,
   loading,
   error,
+  publishError,
   archivedKeys,
   unpublished,
   quotaLine = null,
@@ -228,6 +252,15 @@ export function MyGridsView({
       {error && (
         <Alert color="error" data-testid="grids-error">
           {error}
+        </Alert>
+      )}
+      {/* 🔴 ABOVE THE LIST AND OUTSIDE IT, and unconditional on anything about the
+          grid it is about — see the `publishError` prop. Rendered on the SIGNED-OUT
+          branch too, because `status` is shared: a viewer whose session changed
+          mid-publish should not lose the sentence telling them two rows went public. */}
+      {publishError && (
+        <Alert color="error" data-testid="grid-publish-error">
+          {publishError}
         </Alert>
       )}
       {loading && (

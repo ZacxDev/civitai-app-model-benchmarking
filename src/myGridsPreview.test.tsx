@@ -63,6 +63,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
 
 import { GatedCell } from './components/GatedCell.js';
 import { MyGridsView } from './components/MyGridsView.js';
+import { MyList } from './components/MyList.js';
 import type {
   CombinationRow,
   GridRow,
@@ -239,6 +240,7 @@ function renderMine(
       viewerId={VIEWER_ID}
       loading={false}
       error={null}
+      publishError={null}
       archivedKeys={new Set()}
       unpublished={opts.unpublished ?? []}
       onRequireAuth={vi.fn()}
@@ -413,33 +415,100 @@ describe('🔴 My Benchmarks ▸ Grids: ONE batched read per card, with the zero
     expect(mockGetImages, 'a private member contributed a gated read').toHaveBeenCalledTimes(1);
   });
 
-  it('a card discloses that its strip is a SUBSET, and the cap is the read budget', async () => {
-    // `GRID_PREVIEW_MAX` is 6; four cells carrying two ids each is 8, so the strip is
-    // capped at 6 and the disclosure has to say so — the same rule as the community
-    // board's, on this surface.
-    renderMine({
-      ownGrids: [GRID_ALL],
-      results: [
-        result('mk-a', 'cfg-a', 'qk-1', [11, 12]),
-        result('mk-a', 'cfg-a', 'qk-2', [13, 14]),
-        result('mk-b', 'cfg-b', 'qk-1', [15, 16]),
-        result('mk-b', 'cfg-b', 'qk-2', [17, 18]),
-      ],
-    });
-    const strip = await waitFor(() => {
-      const el = within(pubCard('gk-all')).queryByTestId('grid-preview');
-      if (el === null) throw new Error('the capped card has no thumbnail strip');
-      return el;
-    });
-    expect(strip, 'the strip is not capped at GRID_PREVIEW_MAX').toHaveAttribute(
-      'data-preview-count',
-      '6',
+  // ⚠️ A CAP / SUBSET-DISCLOSURE CASE WAS DELETED FROM HERE, AND SAYING SO IS WORTH
+  // MORE THAN KEEPING IT. It asserted that eight outputs cap to six, disclose
+  // "+2 more outputs in this grid." and still cost ONE call.
+  //
+  // Why it had no reason to exist on THIS surface: `GRID_PREVIEW_MAX` is applied inside
+  // `gridPreviewIds`, which takes NO `cap` parameter — its own docblock records that
+  // the parameter was removed because there was one call site and no test ever passed a
+  // third argument. So the cap cannot differ per caller, and a second surface cannot
+  // get it wrong. It is already pinned where it is decided (`lib/gridEntries.test.ts`)
+  // and where it is rendered (`gridPreview.test.tsx`), and no mutant in this feature's
+  // sweep was killed only by it. Three samples of one claim is two too many.
+  //
+  // What remains asserted here, and is genuinely this surface's: one batched read per
+  // card, the zero, and that a PRIVATE member contributes nothing.
+});
+
+// ===========================================================================
+// 🔴 THE SEAM: `MyGridsView` BUILDS the strip, `MyList` RENDERS it
+// ===========================================================================
+//
+// 🔴 WHY THIS IS A SEPARATE CASE AND NOT A STRONGER ASSERTION IN THE ONES ABOVE.
+// The private row's strip crosses a component boundary: `MyGridsView` constructs a
+// `GridPreview` node and hands it to `MyList` as `MyDraftItem.preview`, and `MyList`
+// renders `{item.preview}`. TWO mutants break that strip — one deleting the node at
+// the producer, one deleting `{item.preview}` at the consumer — and against the cases
+// above they died on the IDENTICAL message, so the sweep's real resolution was 15 of
+// 16 and the seam was not separately diagnosable from its neighbour.
+//
+// This case watches the CONSUMER alone, with a sentinel node no production component
+// could supply, so a mutation at the seam fails here with a message that names the
+// seam. The producer keeps its own message in the cases above.
+//
+// ⚠️ The probe's testid is TEST-ONLY and never reaches production, so it is outside
+// `renameWireCompat.test.ts`'s ledger by construction rather than by exemption.
+describe('🔴 MyList renders the draft row’s `preview` node it was handed', () => {
+  it('a sentinel node supplied by the caller reaches the DOM', () => {
+    render(
+      <MyList
+        noun="grid"
+        drafts={[
+          {
+            localId: 'ug-probe',
+            name: 'Probed grid',
+            meta: '1 × 1',
+            preview: <div data-testid="my-list-preview-probe" />,
+          },
+        ]}
+        rows={[]}
+        keyOf={(r: { key: string }) => r.key}
+        archivedKeys={new Set()}
+        loading={false}
+        onNew={vi.fn()}
+        onEditDraft={vi.fn()}
+        onDiscardDraft={vi.fn()}
+        onPublishDraft={vi.fn()}
+        onEditPublished={vi.fn()}
+        onWithdraw={vi.fn()}
+        renderCard={() => null}
+      />,
     );
-    expect(within(strip).getByTestId('grid-preview-more')).toHaveTextContent(
-      '+2 more outputs in this grid.',
+    // POSITIVE CONTROL on the premise: the row itself rendered, so a null below is
+    // about the `preview` slot and not about a list that rendered nothing.
+    expect(screen.getByTestId('unpublished-card')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('my-list-preview-probe'),
+      'MyList dropped the draft row’s `preview` node — the producer/consumer seam is cut',
+    ).not.toBeNull();
+  });
+
+  it('a draft row with NO `preview` renders unchanged — the slot is optional', () => {
+    // The other direction, so the assertion above cannot be satisfied by a `MyList`
+    // that renders some node unconditionally. Matchup and prompt callers pass nothing.
+    render(
+      <MyList
+        noun="matchup"
+        drafts={[{ localId: 'dm-probe', name: 'No preview', meta: '2 models' }]}
+        rows={[]}
+        keyOf={(r: { key: string }) => r.key}
+        archivedKeys={new Set()}
+        loading={false}
+        onNew={vi.fn()}
+        onEditDraft={vi.fn()}
+        onDiscardDraft={vi.fn()}
+        onPublishDraft={vi.fn()}
+        onEditPublished={vi.fn()}
+        onWithdraw={vi.fn()}
+        renderCard={() => null}
+      />,
     );
-    // 🔴 AND IT IS STILL ONE CALL, carrying SIX ids — not eight, and not six calls.
-    expect(mockGetImages).toHaveBeenCalledTimes(1);
-    expect(readLedger()).toEqual(['[11,12,13,14,15,16]']);
+    expect(screen.getByTestId('unpublished-card')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('my-list-preview-probe'),
+      'MyList rendered a preview node for a row that supplied none',
+    ).toBeNull();
+    expect(screen.queryAllByTestId('grid-preview')).toEqual([]);
   });
 });

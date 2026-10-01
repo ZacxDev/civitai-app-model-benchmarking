@@ -91,12 +91,16 @@ export interface GridCascadePlan {
   resolved: Map<string, string>;
   /**
    * Member keys that are neither a board key, nor a live private record, nor a
-   * pointer.
+   * pointer — i.e. keys this app cannot POSITIVELY ACCOUNT FOR.
    *
-   * 🔴 CARRIED THROUGH UNCHANGED, which is the EXISTING dangling-reference rule
-   * (§11.2 calls a withdrawn member normal) and not a new behaviour: `resolveGrid`
-   * already renders what survives and discloses a count. They are reported here
-   * only so the confirm can say the grid has members it cannot account for.
+   * 🔴 A NON-EMPTY `unresolved` NOW REFUSES THE PUBLISH. See {@link cascadeRefusal}
+   * and the paragraph on its own docblock: before private members existed this
+   * bucket could only hold a WITHDRAWN SHARED KEY, which §11.2 calls normal and
+   * which `normalizeKeys` correctly carries into the payload. It is now ALSO where
+   * an unaccountable per-viewer LOCAL ID lands, and three measured paths reach it
+   * with no error at all. Nothing in a key's text distinguishes the two cases —
+   * a shared key's real shape is not verified anywhere in this repo — so the
+   * boundary refuses both rather than guessing.
    */
   unresolved: string[];
 }
@@ -214,22 +218,115 @@ export function cascadeConfirmNotice(gridName: string, deps: readonly CascadeDep
 }
 
 /**
- * The disclosure for member keys {@link planGridCascade} could place NOWHERE.
+ * 🔴 THE PUBLISH BOUNDARY: may this grid go to `shared.append` at all?
  *
- * 🔴 IT PROMISES NOTHING AND REMOVES NOTHING. §11.2 calls a dangling member normal
- * (its row was withdrawn by its author) and `normalizeKeys` carries the key into the
- * payload rather than truncating — so this sentence states the consequence the viewer
- * will see and does not claim the key is dropped, because it is not.
+ * Returns `null` to proceed, or the viewer-facing REFUSAL. One predicate, called by
+ * BOTH publish entry points (the direct no-dependency publish and the cascade's own
+ * press), so there is no second copy to disagree with this one.
  *
- * Pinned as a whole normalised string by `src/lib/gridCascade.test.ts`.
+ * ── WHY IT REFUSES RATHER THAN DISCLOSES, AND WHAT IT COSTS ────────────────
+ *
+ * 🔴 THE HAZARD. A grid's member list is written to a shared row that is
+ * world-readable and effectively permanent (`shared.update`/`withdraw` are
+ * author-scoped, no merge, no history). A per-viewer LOCAL ID on that row is
+ * unresolvable by every other viewer — and, once the private record behind it is
+ * gone, by its own author too. THREE measured paths put one there with no error:
+ *
+ *   A. the viewer DISCARDS a private matchup the grid names (nothing prunes it from
+ *      any grid), then presses Publish;
+ *   B. a dependency's POINTER write is refused, so `publishRecord` deletes the
+ *      private record after appending — on a retry the id is in neither the private
+ *      names nor the pointers;
+ *   C. 🔴 THE INVERSION, AND THE WORST OF THE THREE: the `draft:v1:` prefix listing
+ *      THROWS. `App` swallows that best-effort so the public board cannot be taken
+ *      down by a KV failure, the grid's OWN prefix reads fine, and the grid is
+ *      therefore listed and publishable WHILE its private member is invisible to the
+ *      planner. That path FAILED OPEN. `lib/kv.ts` already carries a 🔴 saying
+ *      truncation "is not uniformly harmless… for one of them it is a MONEY
+ *      decision", which is why `forEachStoredKey` RETURNS `{truncated, pages}` — and
+ *      all three private-record scans discarded it. `scanComplete` below is that
+ *      report, finally read.
+ *
+ * 🔴 WHY NOT A PREFIX TEST ON `draft_` / `unpubprompt_`. That is a SPELLED guard: it
+ * passes while the hazard exists in a different shape, and it rests on a claim this
+ * repo has never verified — what a host-minted shared key actually looks like. The
+ * boundary tests the STATE (is this key in one of the three buckets?) and not the
+ * key's text.
+ *
+ * ⚠️ AND IT HAS A REAL COST, STATED RATHER THAN HIDDEN: a grid one of whose members
+ * was WITHDRAWN by its author can no longer be published until the author removes it
+ * from the grid. That was publishable before this change, and §11.2 calls a dangling
+ * member normal. Nothing in a key's text separates "withdrawn shared key" from
+ * "unaccountable local id", so the choice is between an annoyance with a clear
+ * remedy (edit the grid; the form already renders such a member as "No longer on the
+ * board") and a permanent, unfixable public row. It is NOT symmetric, so it is not a
+ * close call — but it IS a behaviour change on a path that worked, and a reader
+ * deserves to see that written down.
+ *
+ * ⚠️ WHAT IT DOES NOT TOUCH: `updateGrid`, i.e. editing an ALREADY-PUBLISHED grid.
+ * Those member keys are already public, and that form's pickers are board-only so a
+ * local id cannot be added. §11.2's carry-through is unchanged there.
+ *
+ * 🔴 `scanComplete` CHANGES ONLY THE MESSAGE, AND THAT IS DELIBERATE. Per-key
+ * positive accounting is what makes the refusal safe: `deps` and `resolved` both
+ * mean a record was actually READ, so a key in either is accountable whatever the
+ * scan did. An incomplete scan can only push an accountable key INTO `unresolved`,
+ * which refuses. What the flag buys is an honest CAUSE: "this member is gone" and
+ * "this app could not read your private items" are different sentences, and only one
+ * of them is true at a time.
  */
-export function cascadeUnresolvedNotice(count: number): string {
-  const it = count === 1 ? 'it' : 'them';
+export function cascadeRefusal(spec: {
+  gridName: string;
+  plan: GridCascadePlan;
+  /** Were BOTH private-record scans known complete — neither thrown nor truncated? */
+  scanComplete: boolean;
+  /** Did the board scan hit its page cap? Decides whether "not on the board" may be said. */
+  boardTruncated: boolean;
+}): string | null {
+  const n = spec.plan.unresolved.length;
+  if (n === 0) return null;
+  const head = `${plural(n, 'member', 'members')} of “${spec.gridName}” cannot be accounted for`;
+  const tail =
+    `Publishing is refused rather than putting ${n === 1 ? 'a key' : 'keys'} on the public ` +
+    `board that nobody — including you — could resolve afterwards.`;
+  if (!spec.scanComplete) {
+    return (
+      `${head}, because this app could not read all of your private items. It therefore ` +
+      `cannot tell whether ${n === 1 ? 'it is' : 'they are'} yours and unpublished, or simply ` +
+      `gone. ${tail} Reload and try again.`
+    );
+  }
+  if (spec.boardTruncated) {
+    return (
+      `${head}: ${n === 1 ? 'it is' : 'they are'} not among your private items, and not in ` +
+      `the part of the board this app could read — this board has more entries than one load ` +
+      `fetches. ${tail} Reload and try again, or edit the grid and remove ` +
+      `${n === 1 ? 'it' : 'them'}.`
+    );
+  }
   return (
-    `${plural(count, 'member', 'members')} of this grid cannot be found — not on the board ` +
-    `and not among your private items. Publishing keeps ${it} listed, and the grid renders ` +
-    `without ${it}.`
+    `${head}: ${n === 1 ? 'it is' : 'they are'} not on the board and not among your private ` +
+    `items. ${tail} Edit the grid and remove ${n === 1 ? 'it' : 'them'}.`
   );
+}
+
+/**
+ * "N items were published and are now public and permanent: A and B." — or
+ * "Nothing was published."
+ *
+ * 🔴 EXPORTED BECAUSE A FOURTH OUTCOME REUSES IT AND MUST NOT RE-TYPE IT. When the
+ * GRID's own append lands and the GRID's pointer write is then refused, the honest
+ * report is the dependencies' sentence followed by `publishPointerFailedNotice`'s
+ * EXISTING, already-pinned grid sentence — the grid IS public, so the `stoppedAt:
+ * null` arm below (which says the grid "is still private") would be false. The
+ * caller composes the two; this is the half that is shared.
+ */
+export function cascadeLandedSentence(published: readonly string[]): string {
+  const n = published.length;
+  return n === 0
+    ? 'Nothing was published.'
+    : `${plural(n, 'item', 'items')} ${n === 1 ? 'was' : 'were'} published and ` +
+        `${n === 1 ? 'is' : 'are'} now public and permanent: ${nameList(published)}.`;
 }
 
 /**
@@ -242,47 +339,81 @@ export function cascadeUnresolvedNotice(count: number): string {
  * notice STATES what happened and stops: no "rolled back", no "aborted", no
  * "nothing was published".
  *
- * TWO BRANCHES, because the viewer's next move differs:
- *   - `stoppedAt` names a DEPENDENCY → that item did not publish, so neither did
- *     the grid. The grid still lists everything it listed before.
- *   - `stoppedAt` is `null` → every dependency published and the GRID itself was
- *     refused. A retry publishes only the grid, because each dependency now has a
- *     stored pointer that {@link planGridCascade} resolves without re-appending.
- *     That claim is true exactly here: a dependency whose POINTER write failed
- *     throws, which puts it in the first branch instead.
+ * THREE BRANCHES, because the viewer's next move differs — and the THIRD was added
+ * after the second's docblock was found asserting something false:
  *
- * Both branches are pinned as whole normalised strings by
+ *   - `{ appended: false }` → that dependency's `append` was REFUSED, so neither it
+ *     nor the grid is public. The grid still lists everything it listed before.
+ *   - `{ appended: true }`  → that dependency's `append` LANDED and its pointer write
+ *     did not. Its row is public and permanent, and it is named in `published`; what
+ *     the viewer lost is their own handle on it. 🔴 THIS BRANCH EXISTS BECAUSE THE
+ *     PREVIOUS VERSION ROUTED THIS CASE INTO THE FIRST ONE, which reported "Nothing
+ *     was published." about exactly such a row — a sentence that contradicts itself
+ *     inside one paragraph.
+ *   - `null` → every dependency published and the GRID's own `append` was refused. A
+ *     retry publishes only the grid, because each dependency now has a stored pointer
+ *     that {@link planGridCascade} resolves without re-appending.
+ *
+ * ⚠️ AND A FOURTH OUTCOME IS DELIBERATELY NOT HERE. When the GRID's append lands and
+ * the GRID's pointer write is then refused, the grid IS public — so none of the
+ * branches above may be used, every one of them says it is still private. The caller
+ * composes {@link cascadeLandedSentence} with `publishPointerFailedNotice`'s existing
+ * grid sentence instead, which is the one place that copy lives.
+ *
+ * Every branch is pinned as a whole normalised string by
  * `src/lib/gridCascade.test.ts`, against literals typed out there.
  */
 export function cascadeStoppedNotice(spec: {
   gridName: string;
-  /** Names of the dependencies that DID publish, in publish order. */
+  /**
+   * Names of the dependencies whose row is now PUBLIC, in publish order.
+   *
+   * 🔴 THAT IS "PUBLIC", NOT "FULLY SUCCEEDED", and the difference is the bug this
+   * field's meaning was changed to fix. A dependency whose `append` landed and whose
+   * POINTER write was then refused is public and permanent; the caller puts it in
+   * here and sets `stoppedAt.appended`. Counting it as a failure produced "Nothing
+   * was published." in the same sentence as a host error about a row the append log
+   * proves is on the board.
+   */
   published: readonly string[];
-  /** The dependency that failed, or `null` when the grid itself did. */
-  stoppedAt: string | null;
+  /**
+   * What stopped the cascade:
+   *   - `null` — every dependency landed and the GRID's own `append` was refused.
+   *   - `{ appended: false }` — this dependency's `append` was refused. It is NOT in
+   *     `published`.
+   *   - `{ appended: true }` — this dependency's `append` LANDED and its pointer
+   *     write did not. It IS in `published`, and the copy says which half failed.
+   */
+  stoppedAt: null | { name: string; appended: boolean };
   /** The host's error string. Developer-facing, quoted rather than paraphrased. */
   hostError: string;
 }): string {
-  const n = spec.published.length;
-  const landed =
-    n === 0
-      ? 'Nothing was published.'
-      : `${plural(n, 'item', 'items')} ${n === 1 ? 'was' : 'were'} published and ` +
-        `${n === 1 ? 'is' : 'are'} now public and permanent: ${nameList(spec.published)}.`;
+  const landed = cascadeLandedSentence(spec.published);
+  if (spec.stoppedAt !== null && spec.stoppedAt.appended) {
+    // 🔴 THE HALF-PUBLISHED DEPENDENCY. Its row is public (so it is named in
+    // `landed`); what failed is the per-viewer handle on it. The grid is refused
+    // because that member can no longer be accounted for from this viewer's own
+    // storage — the same boundary `cascadeRefusal` enforces, reached from inside.
+    return (
+      `${landed} But ${spec.stoppedAt.name}'s own private copy could not be updated with ` +
+      `its key (${spec.hostError}), so you have no stored handle on that row. The grid ` +
+      `“${spec.gridName}” was not published — a public grid must not point at a member this ` +
+      `app can no longer account for. The grid is unchanged and still private.`
+    );
+  }
   if (spec.stoppedAt !== null) {
     return (
-      `${landed} ${spec.stoppedAt} could not be published (${spec.hostError}), so the grid ` +
-      `“${spec.gridName}” was not published either — a public grid must not point at a ` +
+      `${landed} ${spec.stoppedAt.name} could not be published (${spec.hostError}), so the ` +
+      `grid “${spec.gridName}” was not published either — a public grid must not point at a ` +
       `private row. The grid is unchanged and still private.`
     );
   }
   // 🔴 THE "still lists them" CLAUSE IS CONDITIONAL, because with nothing published
   // there is no "them" and the sentence would refer to an empty set. That state is
-  // reachable: a cascade whose dependencies all landed and whose grid was then
-  // refused leaves a plan with NO dependencies, so a retry that fails again arrives
-  // here with an empty `published`.
+  // reachable: the direct, no-dependency publish path reaches this arm with an empty
+  // `published` whenever the grid's own `append` is refused.
   const tail =
-    n === 0
+    spec.published.length === 0
       ? 'so it is still private.'
       : 'so it is still private and still lists them. Publishing it again will not ' +
         'publish them a second time.';

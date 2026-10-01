@@ -50,7 +50,13 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 import { draftKey } from './lib/drafts.js';
 import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openMyList } from './test-helpers.js';
+import {
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  openRowMenu,
+} from './test-helpers.js';
 import type {
   CombinationData,
   DraftUnsubmitted,
@@ -166,6 +172,8 @@ function seedStore(grid?: UnpublishedGrid): Record<string, unknown> {
 function mountApp(opts: {
   shared: SharedStore;
   store: Record<string, unknown>;
+  /** Replaces the default per-viewer KV, for the scan-failure and refusal cases. */
+  appStorage?: AppDeps['appStorage'];
   deps?: Partial<AppDeps>;
 }) {
   return render(
@@ -186,7 +194,7 @@ function mountApp(opts: {
           pollIntervalMs: 0,
           sleep: immediateSleep,
           shared: opts.shared,
-          appStorage: fakeAppStorage(opts.store).appStorage,
+          appStorage: opts.appStorage ?? fakeAppStorage(opts.store).appStorage,
           ...opts.deps,
         }}
       />
@@ -591,6 +599,246 @@ describe('🔴 publishing a grid publishes its private members FIRST, by name', 
     await waitFor(() => expect(appendLedger(appends)).toEqual(['grid:Mixed Grid']));
     // The keys went out untouched — nothing to rewrite.
     expect(gridKeysOf(appends[0]!)).toEqual({ matchupKeys: ['mk-a'], promptKeys: ['qk-1'] });
+  });
+});
+
+// ===========================================================================
+// 🔴 THE PUBLISH BOUNDARY — the three paths that put a LOCAL ID on the board
+// ===========================================================================
+//
+// All three share two properties that are why they shipped unnoticed: the grid has
+// ZERO dependencies (so the confirm dialog never opened and the publish went on the
+// FIRST click with nothing shown), and the wire carried a per-viewer local id with NO
+// ERROR anywhere. The refusal is asserted on the APPEND LOG, because a dialog is not
+// what protects the board.
+describe('🔴 an unaccountable member REFUSES the publish, on every path to it', () => {
+  /** The grid-publish notice, wherever on the surface it renders. */
+  async function refusal(): Promise<HTMLElement> {
+    return waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('no grid-publish refusal notice rendered');
+      return el;
+    });
+  }
+
+  it('🔴 PATH A — the viewer DISCARDED the private matchup the grid names', async () => {
+    // `deleteDraft` prunes nothing from any grid (and cannot: a grid is a per-viewer
+    // record this app does not rewrite on another record's delete), so the grid keeps
+    // naming a local id whose record is gone.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    mountApp({ shared, store: seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])) });
+
+    const card = await privateGridCard();
+    // Discard the private MATCHUP, from its own surface.
+    await openMyList('matchup');
+    const matchupCard = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('unpublished-card')
+        .find((c) => c.getAttribute('data-local-id') === DRAFT_LOCAL_ID);
+      if (!el) throw new Error('the private matchup is not listed');
+      return el;
+    });
+    const menu = await openRowMenu('unpublished', matchupCard);
+    await userEvent.click(within(menu).getByTestId('unpublished-discard'));
+    await waitFor(() => {
+      if (
+        screen
+          .queryAllByTestId('unpublished-card')
+          .some((c) => c.getAttribute('data-local-id') === DRAFT_LOCAL_ID)
+      )
+        throw new Error('the private matchup was not discarded — the premise failed');
+    });
+
+    // Back to the grid, and press Publish.
+    const grid = await privateGridCard();
+    expect(grid).toBe(grid); // the row is still listed; the member is what is gone
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+
+    // 🔴 THE CLAIM, ON THE WIRE: nothing was appended at all.
+    const notice = await refusal();
+    expect(
+      appendLedger(appends),
+      'a discarded private member’s LOCAL ID went to the public board',
+    ).toEqual([]);
+    expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for: it is not on the board and not ' +
+        'among your private items. Publishing is refused rather than putting a key on the ' +
+        'public board that nobody — including you — could resolve afterwards. Edit the grid ' +
+        'and remove it.',
+    );
+    // 🔴 AND NO DIALOG WAS INVOLVED. This grid has zero dependencies, which is exactly
+    // why the previous `deps.length > 0` ordering let it through silently.
+    expect(screen.queryByTestId('grid-publish-confirm')).toBeNull();
+    void card;
+  });
+
+  it('🔴 PATH C — the private-matchup SCAN THREW, so the member is invisible to the planner', async () => {
+    // 🔴 THE INVERSION, AND THE ONE THAT FAILED OPEN. `App` swallows this listing's
+    // failure on purpose (a KV failure must not take the public board down), the
+    // GRID's own prefix reads fine, so the grid is listed and publishable while its
+    // private member cannot be seen. `forEachStoredKey` already RETURNED the report
+    // that distinguishes this; all three scans discarded it.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    const kv = fakeAppStorage(seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])), {}, {
+      // Aimed at the MATCHUP prefix only — a blanket failure would also eat the grid
+      // listing, and then there would be no grid to publish and nothing to assert.
+      failListTimes: 9,
+      failListPrefix: 'draft:v1:',
+    });
+    mountApp({ shared, store: {}, appStorage: kv.appStorage });
+
+    const grid = await privateGridCard();
+    // PREMISE, ASSERTED: the matchup scan really did fail — the private matchup is not
+    // listed on its own surface. Without this the refusal below could be about
+    // anything.
+    await openMyList('matchup');
+    expect(
+      screen
+        .queryAllByTestId('unpublished-card')
+        .filter((c) => c.getAttribute('data-local-id') === DRAFT_LOCAL_ID),
+      'the matchup scan did not fail — this case is not testing what it claims',
+    ).toEqual([]);
+
+    const gridAgain = await privateGridCard();
+    await userEvent.click(within(gridAgain).getByTestId('unpublished-publish'));
+
+    const notice = await refusal();
+    expect(appendLedger(appends), 'the FAIL-OPEN path still reaches the board').toEqual([]);
+    // 🔴 AND THE COPY NAMES THE RIGHT CAUSE. "not among your private items" would be a
+    // claim the app has no evidence for here — it could not read them.
+    expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      '1 member of “Mixed Grid” cannot be accounted for, because this app could not read ' +
+        'all of your private items. It therefore cannot tell whether it is yours and ' +
+        'unpublished, or simply gone. Publishing is refused rather than putting a key on the ' +
+        'public board that nobody — including you — could resolve afterwards. Reload and try ' +
+        'again.',
+    );
+    void grid;
+  });
+
+  it('🔴 THE NEGATIVE CONTROL: the SAME grid publishes when its member IS accountable', async () => {
+    // Without this, every refusal above is satisfiable by a boundary that refuses
+    // unconditionally — which would break publishing outright and pass all of them.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    mountApp({ shared, store: seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])) });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    // One dependency, so the dialog opens; confirm it.
+    await userEvent.click(await screen.findByTestId('grid-publish-go'));
+
+    await waitFor(() => {
+      if (appends.length < 2) throw new Error(`only ${appends.length} of 2 appends have landed`);
+    });
+    expect(appendLedger(appends), 'the accountable grid did not publish').toEqual([
+      `combination:${DRAFT_NAME}`,
+      'grid:Mixed Grid',
+    ]);
+    expect(screen.queryByTestId('grid-publish-error')).toBeNull();
+  });
+});
+
+// ===========================================================================
+// 🔴 THE NOTICE'S RENDER SITE — it must outlive the record it is about
+// ===========================================================================
+
+describe('🔴 a cascade failure is REPORTED even when the grid’s record is retired', () => {
+  it('🔴 PATH D — the GRID’s own pointer write is refused after two irreversible appends', async () => {
+    // 🔴 THE REGRESSION THIS CLOSES. The notice used to render INSIDE the confirm
+    // dialog, nested under `gridPublishRec` — which resolves out of a list filtered by
+    // `publishedThisSession`. So at the exact moment the grid's pointer write is
+    // refused, `publishRecord` retires the local id, the record leaves the list, and
+    // the notice became unrenderable: two rows public and permanent, nothing on screen.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    const kv = fakeAppStorage(
+      seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])),
+      {},
+      {
+        // Aimed at the GRID's prefix only, so the DEPENDENCY's publish succeeds in full
+        // and the failure is the grid's own pointer write — the state the notice is for.
+        failSetTimes: 9,
+        failSetPrefix: 'unpub:grid:v1:',
+        failSetError: 'QUOTA_EXCEEDED',
+      },
+    );
+    mountApp({ shared, store: {}, appStorage: kv.appStorage });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    await userEvent.click(await screen.findByTestId('grid-publish-go'));
+
+    // PREMISE: both rows really are public and permanent.
+    await waitFor(() => {
+      if (appends.length < 2) throw new Error(`only ${appends.length} of 2 appends have landed`);
+    });
+    expect(appendLedger(appends)).toEqual([`combination:${DRAFT_NAME}`, 'grid:Mixed Grid']);
+    // PREMISE: the grid's record really was retired, which is what used to take the
+    // notice down with it.
+    await waitFor(() => {
+      if (
+        screen
+          .queryAllByTestId('unpublished-card')
+          .some((c) => c.getAttribute('data-local-id') === GRID_LOCAL_ID)
+      )
+        throw new Error('the grid record was not retired — the premise failed');
+    });
+
+    // 🔴 THE CLAIM: the notice is on screen anyway.
+    const notice = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null)
+        throw new Error('the cascade failure notice is unrenderable once the record retires');
+      return el;
+    });
+    const text = (notice.textContent ?? '').replace(/\s+/g, ' ').trim();
+    // It names what the DEPENDENCY did, and then the grid's own already-pinned
+    // half-published sentence — which says the grid IS public, because it is.
+    expect(text).toContain(
+      `1 item was published and is now public and permanent: ${DRAFT_NAME}.`,
+    );
+    expect(text, 'the grid is public but the notice says it is still private').not.toMatch(
+      /still private/,
+    );
+    expect(text).toContain('Your grid WAS published to the shared board');
+  });
+
+  it('🔴 a DEPENDENCY whose POINTER write fails is reported as PUBLISHED, not as nothing', async () => {
+    // 🔴 THE SELF-CONTRADICTION THIS CLOSES. `publishRecord` throws only AFTER its
+    // `append` resolved, so this dependency's row IS public — and routing it through
+    // the ordinary failure arm produced "Nothing was published." in the same sentence
+    // as a host error about that very row.
+    const { shared, appends } = fakeShared({ seed: BOARD });
+    const kv = fakeAppStorage(
+      seedStore(privateGrid(['mk-a', DRAFT_LOCAL_ID], ['qk-1'])),
+      {},
+      { failSetTimes: 9, failSetPrefix: 'draft:v1:', failSetError: 'QUOTA_EXCEEDED' },
+    );
+    mountApp({ shared, store: {}, appStorage: kv.appStorage });
+
+    const grid = await privateGridCard();
+    await userEvent.click(within(grid).getByTestId('unpublished-publish'));
+    await userEvent.click(await screen.findByTestId('grid-publish-go'));
+
+    const notice = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      if (el === null) throw new Error('no cascade failure notice rendered');
+      return el;
+    });
+    const text = (notice.textContent ?? '').replace(/\s+/g, ' ').trim();
+    // The named claim first — the one the old arm got wrong.
+    expect(
+      text,
+      'a dependency whose row is PUBLIC was reported as "Nothing was published"',
+    ).not.toMatch(/Nothing was published/);
+    expect(text).toBe(
+      `1 item was published and is now public and permanent: ${DRAFT_NAME}. But ` +
+        `${DRAFT_NAME}'s own private copy could not be updated with its key ` +
+        '(QUOTA_EXCEEDED), so you have no stored handle on that row. The grid “Mixed Grid” ' +
+        'was not published — a public grid must not point at a member this app can no longer ' +
+        'account for. The grid is unchanged and still private.',
+    );
+    // 🔴 AND THE WIRE AGREES WITH THE SENTENCE: the matchup landed, the grid did not.
+    expect(appendLedger(appends)).toEqual([`combination:${DRAFT_NAME}`]);
   });
 });
 

@@ -514,6 +514,9 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
         viewerId={opts.viewerId}
         loading={opts.loading ?? false}
         error={opts.error ?? null}
+        /* ⚠️ The grid-publish channel is not this file's subject — it is measured in
+           `src/gridDraftsCascade.test.tsx`, which drives the real `App`. */
+        publishError={null}
         archivedKeys={new Set()}
         unpublished={opts.unpublished ?? []}
         onRequireAuth={vi.fn()}

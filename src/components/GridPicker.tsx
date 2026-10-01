@@ -74,7 +74,17 @@ export type GridPickerAxis = 'matchups' | 'prompts';
 
 /** One selectable row. `key` is the SHARED key that ends up in `GridData`. */
 export interface GridPickerItem {
-  /** Shared key — the identity stored in the grid. Must be unique in `items`. */
+  /**
+   * The identity stored in the grid. Must be unique in `items`.
+   *
+   * 🔴 NOT NECESSARILY A SHARED KEY — this said "Shared key" and that is no longer
+   * true. `App` hands this picker the viewer's OWN PRIVATE matchups and prompts as
+   * well as the board's rows, and a private record carries only a per-viewer LOCAL
+   * id. This component neither knows nor cares which it is; what keeps a local id off
+   * the public board is the publish boundary (`lib/gridCascade.ts`), and what keeps
+   * one out of an already-PUBLISHED grid is that `App` hands THAT form board-only
+   * lists. `types.ts`'s `UnpublishedGrid.matchupKeys` carries the same correction.
+   */
   key: string;
   /** User-visible name. Searched, and part of the option's accessible name. */
   name: string;
