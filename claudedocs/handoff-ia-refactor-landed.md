@@ -36,26 +36,32 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   `view-switch` at **0** as the negative control. ⚠️ The served hash is NOT the locally-built
   one (`index-DkIWM9P2.js`, 447,826 B) — the platform builds on its own image, so **byte
   identity is not available as evidence; the testid deltas are what establish content.**
-- 🔴 **0.4.12 IS `approved/failed` — `Deploy detail: Deploy timed out`.** Approved 18:08, failed
-  18:15. A FOURTH distinct release failure mode for this app, and the LATEST in the pipeline so
-  far: it got past build AND registry push into `deploying`, unlike 0.4.9/0.4.10's
-  `crane push exit: 1`. Fixed by a retry at 0.4.13, no code change — same bundle bytes.
 - ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`, met at 0.4.11, re-met at 0.4.13). Everything in `Next steps` is a NEW arc or a pre-existing deferral. 🔴 This line has now been dropped by THREE successive `State now` replaces and restored each time by the durable-drop warning — carry it forward.
 - 🔴 **0.4.9 is STILL `approved/building`** — unchanged after four more releases, still a
   rollback hazard. Rank 3. Note the contrast that makes it the hazard: `building` is QUEUED,
   while 0.4.12's `failed` is TERMINAL and harmless.
-- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR TWO VERSIONS AT ONCE** — both 0.4.11 and 0.4.13
-  read `approved/live` rc 0 right now, because a per-version record is not retired when a newer
-  one deploys. So rc 0 on an older version is neither a rollback signal nor proof of anything
-  about the live bundle. Details under `How to verify`.
-- **A SECOND OPERATOR FEEDBACK BATCH IS IN FLIGHT (2026-10-01), ~25 items.** `main` =
-  `ec57a8f`. Landed: **#70** (`MAX_CONFIGS` 8→100 + a hand-rolled row window in
-  `lib/virtualRows.ts`, **no new dependency**) and **#71** (sidebar order Prompts/Matchups/
-  Grids · badge reads **Private** · "N models" · no self-vote, `VoteCount`/`VoteTally` split
-  so an author still sees the score · Discard in the ⋮). MERGED-tree gates: **62 files / 884
-  tests**, node 21/304 + dom 41/580, typecheck + build rc 0. **UNRELEASED — 0.4.13 is live and
-  predates both.** Queued: three modals + multi-step (in flight), then draft-grid generation
-  with ephemeral outputs and the cascade publish.
+- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR TWO VERSIONS AT ONCE** (measured: 0.4.11 and
+  0.4.13 both read `approved/live`) — a per-version record is not retired when a newer one
+  deploys, so rc 0 on an older version is neither a rollback signal nor proof about the live
+  bundle. Pair it with the served-bundle grep; see `How to verify`.
+- ✅ **THE SECOND OPERATOR FEEDBACK BATCH IS COMPLETE AND MERGED (2026-10-01). `main` =
+  `66f6122`.** **#70** (`MAX_CONFIGS` 8→100 + a hand-rolled row window in `lib/virtualRows.ts`,
+  **no new dependency**) · **#71** (sidebar → Prompts/Matchups/Grids · badge **Private** ·
+  "N models" · no self-vote, `VoteCount`/`VoteTally` split so an author keeps the score ·
+  Discard in the ⋮) · **#72** (three create modals reworked, two-step creates via a shared
+  `FormSteps`, **`ResourceCard` ADOPTED** not reimplemented) · **#73** (private members in a
+  grid, dependencies-first publish cascade, own-grid thumbnails). Gates on `main`: **67 files /
+  987 tests**, node 22/341 + dom 45/646, typecheck + build rc 0, verified independently.
+  🔴 **ONE ASK WAS NOT BUILT AND IS DELIBERATE** — "allow generating content while grid is
+  draft", held for its own PR because it spends Buzz. 🔴 **ONE WAS CLOSED AS NO:** `MAX_LORAS`
+  stays 5, host-enforced at the wire schema.
+- 🔴 **0.4.14 IS SUBMITTED AND STUCK AT `pending` — THE APPROVAL NEEDS A BROWSER AND THE BRIDGE
+  IS DOWN.** `pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`, source `66f6122` reported clean, 162 files.
+  `browser health` → `extension_connected: false`, 0 instances, `work` last seen
+  2026-10-01T03:13Z (**~16 h**). There is **no CLI approve route** — approval is a moderator
+  action in the web UI only, so this cannot be finished without the operator reconnecting Brave
+  or approving at `https://civitai.com/apps/review/pubreq_01M3WF7EFNJ0T2D0W3TBW3ZAXR`.
+  0.4.13 remains live and the app is HTTP 200; the submit changed nothing in production.
 - 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is
   a LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45
   grid cells ever against a 20×20 board ("you have reached the maximum number of submissions
@@ -63,14 +69,11 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   🔴 Constants, security rationale and the ephemeral-output mechanism that side-steps them are
   in the **cairn entry `model-benchmarking-block`** — deliberately NOT here: this doc **ships
   inside the submitted bundle** and the repo is public.
-- **#66 — six UI changes** (`36777e5`): My Benchmarks open by default · a visible active nav
-  row mirroring `BoardNav`'s segmented control · responsive matrix `minmax(200px, 420px)` ·
-  System-grid badge dropped from both sites · compact-nav grouping + chrome · `token.surface2`
-  DELETED and consolidated to `recessedSurface`. Gates 60 files / 822 tests.
-- **#67 — My Benchmarks rework** (`53609a7`): one `MyList.tsx` per noun replacing
-  `MyPublished.tsx` + `UnpublishedList.tsx` (both deleted) · a primary New CTA · a `Draft`
-  badge with per-state actions · Edit on the row, Remove/Archive in a ⋮ · **`updateGrid` —
-  published grids were not editable at all before this**. Gates 60 files / **846** tests.
+- **#66/#67, shipped in 0.4.13:** My Benchmarks open by default · a visible active nav row ·
+  responsive matrix `minmax(200px, 420px)` · System-grid badge dropped · `token.surface2`
+  consolidated to `recessedSurface` · one `MyList.tsx` per noun (`MyPublished`/
+  `UnpublishedList` deleted) · a primary New CTA · per-state row actions · **`updateGrid` —
+  published grids were not editable at all before it**.
 - **Claim `ia-refactor-landed-1` HELD** (rank 1). `ia-refactor-landed-2` released.
 - ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again. An
   unknown session id answers 200 with an empty array, so that zero cannot distinguish
@@ -81,20 +84,18 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 
 ## Next steps (ranked)
 🔴 **Ranks 1–5 keep their numbers — a live claim is keyed to rank 1. Do not re-rank.**
-1. **The operator judges the live app. ✅ NOW UNBLOCKED — 0.4.13 is live and carries #66/#67.**
-   Covers the 16 taste findings in the contact sheet, plus everything #66/#67 changed that
-   nothing here can see — whether cells render larger, whether the 420px ceiling is right,
-   whether the active nav row is legible in either theme, whether the New CTA reads as primary,
-   and the ⋮ placement. jsdom resolves no layout. Repo `civitai-app-model-benchmarking`.
-   🔴 **The deadlock that blocked this is GONE, and it is worth naming because it will recur:**
-   this rank said "judge the live app" while the live app was three generations behind `main`,
-   and rank 6 said release only AFTER rank 1 — so neither could move. **The operator broke it by
-   choosing to release first** (2026-09-30), on the reasoning that listing media is not
-   version-scoped. The alternative, recorded as viable and not taken: photograph a LOCAL build
-   of `main` in a real browser, which reviews layout without shipping. Either resolves it; the
-   ordering as written does not.
-   forcing: user — the operator commissioned these changes; no automated check in this repo can
-   judge appearance, and they are now live and unjudged.
+1. **The operator judges the live app — BLOCKED ON APPROVING 0.4.14, NOT ON BUILDING ANYTHING.**
+   0.4.13 is live and carries #66/#67; **#70–#73 are submitted as 0.4.14 and `pending`** (see
+   `State now` for the pubreq and the dead browser bridge). Covers the 16 taste findings in the
+   contact sheet, plus everything four PRs changed that nothing here can see — whether cells
+   render larger, whether the 420px ceiling and the 100-config window hold up, whether the
+   two-step modals read well, the ⋮ placement, the thumbnail strips. jsdom resolves no layout.
+   🔴 **The deadlock is worth naming because it recurs:** this rank said "judge the live app"
+   while the live app was generations behind `main`, and rank 6 said release only AFTER rank 1 —
+   neither could move. The operator broke it twice by choosing to release first, on the
+   reasoning that listing media is not version-scoped. The recorded alternative, still viable:
+   photograph a LOCAL build in a real browser, which reviews layout without shipping.
+   forcing: user — no automated check here can judge appearance.
 2. **Repair the store listing.** ✅ The recipe half is DONE and merged (`civitai/civitai`
    **#5247**, squash `7bf4d1bde1`) — 5 states, then cut to 3 boards, crop `h=1224`. 🔴 **But it
    is already stale again:** #66's responsive matrix and #67's list rework both changed the
@@ -121,12 +122,10 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
    was ruled impossible on #485's premise, and #485 is now fixed, so **re-derive what the bump
    actually buys before pricing it.**
    forcing: gate — none external any more; this is now a cost/benefit call, not a wait.
-6. ✅ **DONE 2026-09-30 — #66 + #67 are live as 0.4.13.** Two attempts: **#68** → 0.4.12
-   (approved, then `Deploy timed out`); **#69** → 0.4.13, byte-identical bundle, `approved/live`.
-   Verified by served content, both controls — see `## State now`. 🔴 **The ordering caveat here
-   was DELIBERATELY OVERRIDDEN by the operator**, not skipped: production was three generations
-   behind `main`, so there was nothing live to judge. **Do not re-open**; what remains is rank 1
-   (judging it) and rank 2.
+6. ✅ **CLOSED — #66/#67 shipped as 0.4.13 (2026-09-30), #70–#73 as 0.4.14 (2026-10-01).**
+   0.4.12 failed on `Deploy timed out` and 0.4.13 was a byte-identical retry. The ordering
+   caveat here was DELIBERATELY OVERRIDDEN by the operator both times — production was
+   generations behind `main`, so there was nothing live to judge. **Do not re-open.**
    forcing: none — closed.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -607,15 +606,15 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
 
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build` —
-  **60 files / 846 tests** on `main` @ `7c20155`, and 60 must equal
+  **67 files / 987 tests** on `main` @ `66f6122`, and 67 must equal
   `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files,
   never through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy
   `.envrc`, `direnv allow`, `pnpm install --frozen-lockfile`.
-- Release state: `python3 ~/.config/opencode/skills/civitai-app-fleet/app_state.py model-benchmarking 0.4.13`
-  rc 0, **read UNPIPED**. Same with `0.4.9` is the rank-3 rollback watch. 🔴 **rc 0 alone proves
-  NOTHING about what is serving** — both 0.4.11 and 0.4.13 return rc 0 `approved/live` right now,
-  because a per-version record is not retired when a newer one deploys. Pair it with the bundle
-  grep below, always.
+- Release state: `app_state.py model-benchmarking 0.4.14` — **`pending/-` rc 1 until approved**;
+  `0.4.13` is rc 0 live, `0.4.9` is the rank-3 rollback watch. Read UNPIPED. 🔴 **rc 0 alone
+  proves NOTHING about what is serving** (two versions return it at once). Pair it with the
+  bundle grep below, and read a submission by `--id <pubreq>` — the bare `civitai app status`
+  shows the newest record, which after an approval is the paired `withdrawn` one.
 - Served bundle, positive control in the SAME command:
   ```bash
   B=$(curl -s https://model-benchmarking.civit.ai/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
