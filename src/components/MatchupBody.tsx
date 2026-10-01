@@ -17,8 +17,13 @@
 // 🔴 VOTE JOINED THAT MIRROR LATE, AND IT IS THE WEAKEST OF THE FOUR. The other
 // three gate a HOST-ENFORCED permission; a self-vote is something the host happily
 // accepts, so hiding the control is an affordance decision and not a guarantee. See
-// `canVote` below for what that does and does not buy, including the vote COUNT it
-// takes off an author's own card.
+// `canVote` below for what that does and does not buy.
+//
+// 🔴 AND IT HIDES THE AFFORDANCE, NOT THE SCORE. An author sees their own matchup's
+// vote total — as `VoteTally`, which is the same `VoteCount` the button renders, with no
+// control around it. ⚠️ This paragraph said the opposite for one revision ("including
+// the vote COUNT it takes off an author's own card"), which was true of the code at the
+// time and is the defect the split fixed.
 //
 // 🔴 "Matchup" is the USER-FACING name only. The wire value stays
 // `data.kind: 'combination'` and the parsed row type is still `CombinationRow`.
@@ -69,7 +74,7 @@ import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
 import { metaText, mutedText, token } from '../theme.js';
 import { Menu, MenuControl, MenuItem } from './Menu.js';
 import { ResourceName } from './ResourceName.js';
-import { VoteButton } from './VoteButton.js';
+import { VoteButton, VoteTally } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface MatchupBodyProps {
@@ -147,13 +152,14 @@ export function MatchupBody({
    * still sees the disabled vote button that routes to the sign-in nudge — which is
    * the behaviour `report.test.tsx`'s signed-out case uses as its positive control.
    *
-   * ⚠️ WHAT THIS ALSO HIDES, STATED BECAUSE IT IS A REAL CONSEQUENCE AND NOT A BUG:
-   * the vote COUNT. `VoteButton` renders the total inside itself (`vote-count`), so an
-   * author no longer sees their own matchup's score on this card. It is still visible
-   * to them on the grid's matchup band (`ResultsGrid`'s `▲ {row.comboCount}`) and in
-   * the `matchups-included-summary` header copy. Splitting the count out of the button
-   * so an owner sees a read-only total would be a bigger change than the one asked
-   * for; if the operator wants the number back, that is the shape to build.
+   * 🔴 IT HIDES THE AFFORDANCE AND NOT THE SCORE, AND THAT DISTINCTION COST A ROUND.
+   * For one revision this rendered nothing at all on an author's own row, because
+   * `VoteButton` carried the total INSIDE the button — so "no vote control" silently
+   * meant "no vote count", and an author could not see their own matchup's score on
+   * the card at all. The operator's call was to KEEP the count, which is why
+   * `VoteCount` is now a component of its own and `VoteTally` renders it with no
+   * affordance (see `VoteButton.tsx`). The two branches below are therefore NOT
+   * "control or nothing" — they are "control, or the same number without the control".
    */
   const canVote = !isOwn;
 
@@ -249,7 +255,11 @@ export function MatchupBody({
             )}
           </Menu>
         )}
-        {canVote && (
+        {/* 🔴 ONE `combo.count`, TWO PRESENTATIONS. The branch decides the AFFORDANCE
+            only: every viewer sees the score, and only a non-owner is offered the
+            press. A reader checking "does an author see their own score" should be
+            able to answer it from these few lines. */}
+        {canVote ? (
           <VoteButton
             count={combo.count}
             voted={voted}
@@ -259,6 +269,8 @@ export function MatchupBody({
             onRequireAuth={onRequireAuth}
             data-testid="matchup-vote"
           />
+        ) : (
+          <VoteTally count={combo.count} />
         )}
       </Group>
     </Group>

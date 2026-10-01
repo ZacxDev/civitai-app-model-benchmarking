@@ -396,23 +396,25 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     expect(updates[0].value.title).toBe('Live matchup, edited');
     expect(appends, 'an edit minted a NEW row instead of updating the live one').toEqual([]);
 
-    // 🔴 AND THE VOTE TOTAL SURVIVES. The row is still the same row on screen, after
-    // the post-edit re-fetch…
+    // 🔴 AND THE VOTE TOTAL SURVIVES, ON SCREEN, after the post-edit re-fetch — the
+    // original claim, at the most direct place to read it.
     const card = await screen.findByTestId('matchup-card');
     await waitFor(() => expect(card).toHaveTextContent('Live matchup, edited'));
     expect(card.getAttribute('data-key')).toBe(LIVE_KEY);
-    // …and the total is read off the SHARED STORE rather than off the card.
+    expect(within(card).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
     //
-    // ⚠️ RETRACTED PRECISELY: this used to assert `vote-count` INSIDE the card, and
-    // that element no longer exists HERE. `VoteButton` carries the count inside
-    // itself, and the vote control is now hidden on the viewer's OWN matchups
-    // (`MatchupBody`'s `canVote`) — this row is the viewer's own, by construction,
-    // because the case is about editing a row you authored. So the rendered reading
-    // is not weakened, it is UNAVAILABLE on this surface; the store read is the same
-    // claim at the only place that can still answer it, and it is the one that would
-    // actually be unrecoverable if `append` had been used (a new row starts at zero).
-    // The ON-SCREEN half of the claim is the `data-key` identity above: a minted row
-    // would carry a different key.
+    // ⚠️ THE ROUND TRIP, IN ONE SENTENCE, BECAUSE IT WAS A REAL DEFECT AND NOT CHURN.
+    // This read moved to `shared.list()` for one revision: the vote control is hidden
+    // on the viewer's own matchups (`MatchupBody`'s `canVote`) and this row is the
+    // viewer's own by construction — the case is about editing a row you authored — and
+    // at the time the count was a CHILD of the button, so hiding one hid the other.
+    // `VoteCount`/`VoteTally` made the number independent of the affordance, so the
+    // rendered reading is back.
+    //
+    // 🔴 THE STORE READ IS KEPT ALONGSIDE IT, not replaced by it, because the two fail
+    // for DIFFERENT reasons: this one if the card stops showing the number, that one if
+    // `append` minted a fresh row whose tally starts at zero. Neither subsumes the
+    // other, and the second is the unrecoverable failure.
     const listed = await shared.list({});
     expect(listed.items.find((i) => i.key === LIVE_KEY)!.count).toBe(VOTES);
   });

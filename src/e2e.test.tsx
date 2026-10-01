@@ -111,11 +111,29 @@ describe('submit a combination', () => {
     expect(within(card).getByTestId('matchup-menu')).toBeInTheDocument();
     expect(within(card).getByTestId('matchup-config-summary')).toBeInTheDocument();
     expect(within(card).queryByTestId('matchup-included')).toBeNull();
-    // 🔴 AND THE NEW RULE, ON THE ROW THAT CANNOT BE ANYTHING BUT OWN: no vote control
-    // on your own submission. The foreign half of this pair lives in
-    // `myCommunity.test.tsx`, where two distinct author ids make the pair the
-    // discriminator; here it is a by-product of a real submit flow.
-    expect(within(card).queryByTestId('matchup-vote')).toBeNull();
+    // 🔴 AND THE OWN-ROW ARRANGEMENT, ON A ROW THAT CANNOT BE ANYTHING BUT OWN — it is
+    // the matchup this viewer just submitted through the real transports. No vote
+    // control, and the score still readable. The FOREIGN half of the comparison lives
+    // in `myCommunity.test.tsx`'s 2×2 case, which is where two distinct author ids make
+    // it a discriminator; here it is a by-product of a real submit flow, which is worth
+    // having because it is the only reading of this arrangement that goes through the
+    // mock host's own `append` rather than a seeded fixture.
+    expect(
+      within(card).queryByTestId('matchup-vote'),
+      'the submitter was offered a vote on their own fresh matchup',
+    ).toBeNull();
+    expect(
+      within(card).getByTestId('vote-count'),
+      'the submitter cannot see their own fresh matchup’s score',
+    ).toHaveTextContent('0');
+    //
+    // ⚠️ THE POSITIVE CONTROLS ABOVE STAY `matchup-menu` + `matchup-config-summary` AND
+    // ARE DELIBERATELY *NOT* RE-POINTED AT `vote-count`, even though that element is
+    // back on an own row. A positive control proving "the card rendered" must not
+    // depend on the feature the surrounding assertions are about — if the vote split
+    // regressed, a `vote-count`-based control would vanish and the `matchup-included`
+    // null beside it would start passing vacuously. Those two readings are independent
+    // of voting entirely, which is the property that makes them controls.
   });
 });
 

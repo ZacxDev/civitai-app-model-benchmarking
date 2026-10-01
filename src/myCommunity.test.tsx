@@ -212,13 +212,32 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
 // rows, so an author upvoting their own submission is ranking it with the same
 // instrument everyone else ranks it with.
 //
-// 🔴 THE PAIR IS THE WHOLE TEST, IN ONE CASE, OVER ONE RENDER. A one-sided
-// assertion here is worthless in both directions: "absent on mine" alone is
-// satisfied by a vote control deleted for EVERYONE, and "present on theirs" alone
-// is satisfied by a control shown to everyone. Two distinct `authorUserId`s on one
-// board, read off the same DOM, is the only shape that discriminates — this file's
-// header states the rule and the `includedCount={0}`-at-two-of-four-call-sites
+// 🔴 THE SCORE IS *NOT* PART OF THE AFFORDANCE, AND SEPARATING THEM IS HALF OF WHAT
+// THIS CASE PINS. For one revision the count lived INSIDE the button
+// (`VoteButton`'s child `vote-count`), so hiding the control hid the number and an
+// author could not see their own matchup's score at all. The operator's decision was
+// to KEEP the count: `VoteCount` is its own component now and `VoteTally` renders it
+// with no control around it. So the claim is a 2×2, not a pair:
+//
+//              │ vote-count │ matchup-vote
+//     ─────────┼────────────┼──────────────
+//     own      │  PRESENT   │   ABSENT
+//     foreign  │  PRESENT   │   PRESENT
+//
+// 🔴 ALL FOUR CELLS IN ONE CASE, OVER ONE RENDER, WITH TWO DISTINCT `authorUserId`s.
+// Every one-sided subset is worthless, in a different direction each time: "control
+// absent on mine" alone is satisfied by a control deleted for EVERYONE; "control
+// present on theirs" alone by one shown to everyone; "count present on mine" alone by
+// a count nobody gated. And the diagonal is the one a careless implementation gets
+// wrong — rendering NEITHER on an own row, which is exactly the defect this change
+// fixes and which a pair-without-the-count would have called green. This file's header
+// states the two-author rule, and the `includedCount={0}`-at-two-of-four-call-sites
 // incident is why it is stated at all.
+//
+// 🔴 EACH CELL CARRIES ITS OWN FAILURE MESSAGE, so a mutation that breaks one cannot
+// be mistaken for one that breaks another. That is load-bearing: a mutant removing the
+// count AND the button together would red this case either way and prove nothing about
+// which, so the messages are what make the mutation evidence readable.
 //
 // ⚠️ WHAT IT IS NOT: enforcement. `shared.vote` is a HOST call and the host does not
 // refuse a self-vote, so this is an affordance and nothing stops a viewer with the
@@ -226,13 +245,16 @@ describe('🔴 criterion 5: an authored row appears under My AND in Community', 
 // ---------------------------------------------------------------------------
 
 describe('🔴 the vote control is offered on OTHER viewers’ matchups only', () => {
-  it('is ABSENT on the viewer’s own row and PRESENT on a foreign one, same board', async () => {
-    // RED AT `7c20155`: the control rendered on both rows, so the first assertion
-    // failed while the second already passed.
+  it('own row: score WITHOUT the control; foreign row: both — same board, one render', async () => {
+    // 🔴 THE TWO COUNTS ARE DISTINCT FROM EACH OTHER AND FROM EVERY OTHER NUMBER ON
+    // THE PAGE (5 and 9, against the fake's own 0/1 vote answers), so a tally that
+    // read the wrong row's total, or a hardcoded literal, cannot pass.
+    const MINE_VOTES = 5;
+    const THEIRS_VOTES = 9;
     const { shared } = fakeShared({
       seed: [
-        row('mine', 'My matchup', VIEWER_ID, comboData, 5),
-        row('theirs', 'Their matchup', OTHER_ID, comboData, 9),
+        row('mine', 'My matchup', VIEWER_ID, comboData, MINE_VOTES),
+        row('theirs', 'Their matchup', OTHER_ID, comboData, THEIRS_VOTES),
       ],
     });
     await renderApp({ shared, appStorage: fakeAppStorage().appStorage }, signedIn);
@@ -242,34 +264,77 @@ describe('🔴 the vote control is offered on OTHER viewers’ matchups only', (
     const cardFor = (key: string): HTMLElement =>
       screen.queryAllByTestId('matchup-card').find((el) => el.getAttribute('data-key') === key)!;
 
-    // FOREIGN — the control is there, and it carries the host's count. The count is
-    // read too, because a control that rendered with no number would be a different
-    // defect passing this assertion.
+    // ---- FOREIGN ROW: both cells PRESENT ----
     const theirs = cardFor('theirs');
-    expect(within(theirs).getByTestId('matchup-vote')).toBeInTheDocument();
-    expect(within(theirs).getByTestId('vote-count')).toHaveTextContent('9');
+    expect(
+      within(theirs).queryByTestId('matchup-vote'),
+      'the vote control is missing on a FOREIGN matchup',
+    ).not.toBeNull();
+    expect(
+      within(theirs).getByTestId('vote-count'),
+      'the foreign row lost its score',
+    ).toHaveTextContent(String(THEIRS_VOTES));
+    // …and there the count really is INSIDE the control, which is what makes the own
+    // row's arrangement a different arrangement rather than the same one twice.
+    expect(within(theirs).getByTestId('vote-count').closest('button')).not.toBeNull();
 
-    // OWN — ABSENT FROM THE DOM, not merely disabled or invisible. `queryByTestId` is
-    // the only form that distinguishes the three.
+    // ---- OWN ROW: score PRESENT, control ABSENT ----
     const mine = cardFor('mine');
     expect(
       within(mine).queryByTestId('matchup-vote'),
       'the viewer was offered a vote on their own matchup',
     ).toBeNull();
+    expect(
+      within(mine).getByTestId('vote-count'),
+      'the author cannot see their own matchup’s score',
+    ).toHaveTextContent(String(MINE_VOTES));
+    // 🔴 AND THE SCORE IS NOT A CONTROL IN DISGUISE. A disabled Button, or a `<span>`
+    // with an `onClick`, would satisfy the two assertions above while still offering
+    // the press — so the arrangement is read structurally: nothing focusable anywhere
+    // around the number. `closest('button')` covers the pack's Button (which is where
+    // the count sits on a foreign row), and the role/tabindex sweep covers a
+    // hand-rolled one.
+    const tally = within(mine).getByTestId('vote-tally');
+    expect(within(mine).getByTestId('vote-count').closest('button')).toBeNull();
+    expect(tally.tagName).toBe('SPAN');
+    expect(tally).not.toHaveAttribute('role');
+    expect(tally).not.toHaveAttribute('tabindex');
+    expect(
+      tally.querySelectorAll('button, a[href], [tabindex], [role="button"]'),
+      'the read-only score contains something pressable',
+    ).toHaveLength(0);
+    // 🔴 AND IT IS NAMED. A bare number beside a matchup title says nothing about what
+    // it counts; the plural is spelled because "5" alone is not a sentence a screen
+    // reader can place. A LITERAL, not built from `MINE_VOTES`, so a reword lands here.
+    expect(tally).toHaveAttribute('aria-label', '5 votes');
+
+    // 🔴 THE TALLY IS THE OWN-ROW ARRANGEMENT AND NOTHING ELSE. If it appeared on the
+    // foreign row too, the "count is inside the control" reading above would be
+    // satisfied by a second, loose copy of the number sitting beside it.
+    expect(within(theirs).queryByTestId('vote-tally')).toBeNull();
+
     // 🔴 AND THE CARD IS A REAL, FULLY RENDERED CARD. Without this the null above is
     // satisfied by a row that failed to render at all — the in-band positive control
     // that makes the absence a claim about ownership rather than about mounting. Two
-    // readings: the author's own `⋮` (which only an owner is given) and the
-    // ownership-independent config summary.
+    // readings that do not depend on the vote feature at all: the author's own `⋮`
+    // (which only an owner is given) and the ownership-independent config summary.
     expect(within(mine).getByTestId('matchup-menu')).toBeInTheDocument();
     expect(within(mine).getByTestId('matchup-config-summary')).toBeInTheDocument();
 
     // 🔴 AND IT IS THE *SAME* RULE ON THE VIEWER'S OWN SURFACE, where every row is
     // theirs by construction — so an implementation that gated on the SURFACE rather
-    // than on `isOwnRow` would pass the community half above and fail here.
+    // than on `isOwnRow` would pass the community half above and fail here. Both cells
+    // again: no control, and the score still readable.
     const mySection = await openMy();
     await waitFor(() => expect(keysOf('matchup-card')).toEqual(['mine']));
-    expect(within(mySection).queryByTestId('matchup-vote')).toBeNull();
+    expect(
+      within(mySection).queryByTestId('matchup-vote'),
+      'My Benchmarks offered a vote on the viewer’s own matchup',
+    ).toBeNull();
+    expect(
+      within(mySection).getByTestId('vote-count'),
+      'My Benchmarks hides the author’s own score',
+    ).toHaveTextContent(String(MINE_VOTES));
   });
 
   it('🔴 keeps the control for an ANONYMOUS viewer, who owns nothing', async () => {
@@ -429,31 +494,30 @@ describe('🔴 criterion 12: Archive hides from My only, and says so in words', 
     //   (b) the row is still what `list()` returns, with its vote total intact,
     expect(listed.items.map((i) => i.key).sort()).toEqual(['mine', 'theirs']);
     expect(listed.items.find((i) => i.key === 'mine')!.count).toBe(VOTES);
-    //   (c) and the archiver still sees it in Community, as a real card carrying its
-    //       own name rather than a husk.
+    //   (c) and the archiver still sees it in Community, votes and all.
     await openCommunity();
     await waitFor(() => expect(keysOf('matchup-card').sort()).toEqual(['mine', 'theirs']));
     const stillThere = screen.queryAllByTestId('matchup-card').find(
       (el) => el.getAttribute('data-key') === 'mine',
     )!;
     expect(stillThere).toHaveTextContent('My matchup');
+    expect(within(stillThere).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
     //
-    // ⚠️ (c) USED TO READ `vote-count` OFF THIS CARD, AND THAT ELEMENT IS GONE FROM
-    // IT — not hidden, and not a regression. `VoteButton` carries the total inside
-    // itself and the vote control is now author-hidden (`MatchupBody`'s `canVote`);
-    // `mine` is, by construction, the archiver's OWN row. The votes-intact claim is
-    // unweakened: (b) above reads the SAME number straight off `shared.list()`, which
-    // is where an archive-as-delete or an archive-as-rewrite would actually show. What
-    // (c) is for is that the row is still ON the archiver's community board, and the
-    // name is the reading of that which does not depend on ownership.
+    // ⚠️ THIS ASSERTION WENT AWAY AND HAS COME BACK, and the round trip is worth one
+    // sentence because the reason it left was a real defect. When the vote control was
+    // first hidden on an author's own row the count went with it (it was a child of the
+    // button), so this read had to move to the foreign row and the votes-intact claim
+    // leaned entirely on (b)'s `shared.list()` read. The count is `VoteCount`/
+    // `VoteTally` now — independent of the affordance — so the ORIGINAL, most direct
+    // reading is available again: the archiver's own row, on screen, with its votes.
+    // (b) is kept beside it deliberately: the two fail for different reasons, one if
+    // the render drops the number and one if the store does.
     //
-    // 🔴 AND THE FOREIGN CARD IS THE POSITIVE CONTROL ON THE ABSENCE. Without it, a
-    // vote control deleted for EVERYONE would satisfy the null below.
-    const theirs = screen.queryAllByTestId('matchup-card').find(
-      (el) => el.getAttribute('data-key') === 'theirs',
-    )!;
-    expect(within(theirs).getByTestId('vote-count')).toHaveTextContent('3');
-    expect(within(stillThere).queryByTestId('matchup-vote')).toBeNull();
+    // 🔴 WHAT IS *NOT* ASSERTED HERE ANY MORE: the ownership vote gate. It was added to
+    // this case only as the positive control the retarget needed, and it belongs to the
+    // dedicated 2×2 case above, which drives it with its own fixtures and its own
+    // per-cell messages. A criterion-12 failure should mean "archive is broken", not
+    // "the vote gate moved".
   });
 
   it('renders the honest wording next to the control, as the whole sentence', async () => {
