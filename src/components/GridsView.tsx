@@ -205,7 +205,10 @@ export function GridsView({
     return (
       <Card key={key} withBorder padding="md" data-testid="grid-card" data-key={key}>
         <Stack gap={10} style={{ minWidth: 0 }}>
-        <Group justify="space-between" align="flex-start" gap={10}>
+        {/* 🔴 NO `space-between` ROW HERE ANY MORE — the content column is a direct
+            child of the card's Stack and the actions are its LAST child, below the
+            preview strip. `MatchupBody`'s header carries the measured reflow this
+            removes; all five card shapes took the same change in one pass. */}
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
               <strong data-testid="grid-card-name">{name}</strong>
@@ -244,55 +247,6 @@ export function GridsView({
               </span>
             )}
           </Stack>
-          <Group gap={6} align="center">
-            {/* 🔴 AN ACTION, NOT A TOGGLE. Every button here belongs to a CLOSED
-                grid, because the open one is not listed — a permanently
-                `aria-pressed="false"` toggle would announce a state that has no other
-                value on this surface. */}
-            <Button
-              size="sm"
-              variant="light"
-              onClick={() => onOpen(entryOpenKey(entry))}
-              data-testid="grid-open"
-            >
-              Open
-            </Button>
-            {isOwn && !entry.system && (
-              <WithdrawButton
-                noun="grid"
-                onWithdraw={() => onWithdraw(entry.row.key)}
-                data-testid="grid-withdraw"
-              />
-            )}
-            {!entry.system && !isOwn && signedIn && (
-              <ReportButton
-                /* 🔴 KEYED BY THE ROW, per `ReportButtonProps`' own example: the
-                   settled state belongs to the grid, and this list RE-ORDERS (by vote
-                   count) and gains/loses the open entry as the viewer navigates. */
-                key={entry.row.key}
-                noun="grid"
-                reported={reportedKeys.has(entry.row.key)}
-                onReport={() => onReport(entry.row.key)}
-                data-testid="grid-report"
-              />
-            )}
-            {/* 🔴 THE TOP GRID GETS NO VOTE CONTROL AT ALL — not a disabled one.
-                It has no shared row, so there is no key to pass to
-                `shared.vote`; a greyed button would imply a vote is possible for
-                somebody, and it is possible for nobody. */}
-            {!entry.system && (
-              <VoteButton
-                count={entry.row.count}
-                voted={votedKeys.has(entry.row.key)}
-                disabled={!signedIn}
-                onVote={() => onVote(entry.row.key)}
-                onUnvote={() => onUnvote(entry.row.key)}
-                onRequireAuth={onRequireAuth}
-                data-testid="grid-vote"
-              />
-            )}
-          </Group>
-        </Group>
         {/* 🔴 THE INLINE PREVIEW — real thumbnails, through the gated read, ONE
             batched call per card. `GatedCell` is what issues it, and it is a
             REQUIRED prop: the card can no longer end up with no strip because a
@@ -342,6 +296,57 @@ export function GridsView({
           label={name}
           GatedCell={GatedCell}
         />
+        {/* 🔴 THE ACTION CLUSTER, AT THE BOTTOM OF THE CARD. `row-actions` is the one
+            spelling shared by all five card shapes; see `MatchupBody` for the measured
+            reflow this placement removes and for why the id is noun-neutral. */}
+        <Group gap={6} align="center" data-testid="row-actions">
+          {/* 🔴 AN ACTION, NOT A TOGGLE. Every button here belongs to a CLOSED
+              grid, because the open one is not listed — a permanently
+              `aria-pressed="false"` toggle would announce a state that has no other
+              value on this surface. */}
+          <Button
+            size="sm"
+            variant="light"
+            onClick={() => onOpen(entryOpenKey(entry))}
+            data-testid="grid-open"
+          >
+            Open
+          </Button>
+          {isOwn && !entry.system && (
+            <WithdrawButton
+              noun="grid"
+              onWithdraw={() => onWithdraw(entry.row.key)}
+              data-testid="grid-withdraw"
+            />
+          )}
+          {!entry.system && !isOwn && signedIn && (
+            <ReportButton
+              /* 🔴 KEYED BY THE ROW, per `ReportButtonProps`' own example: the
+                 settled state belongs to the grid, and this list RE-ORDERS (by vote
+                 count) and gains/loses the open entry as the viewer navigates. */
+              key={entry.row.key}
+              noun="grid"
+              reported={reportedKeys.has(entry.row.key)}
+              onReport={() => onReport(entry.row.key)}
+              data-testid="grid-report"
+            />
+          )}
+          {/* 🔴 THE TOP GRID GETS NO VOTE CONTROL AT ALL — not a disabled one.
+              It has no shared row, so there is no key to pass to
+              `shared.vote`; a greyed button would imply a vote is possible for
+              somebody, and it is possible for nobody. */}
+          {!entry.system && (
+            <VoteButton
+              count={entry.row.count}
+              voted={votedKeys.has(entry.row.key)}
+              disabled={!signedIn}
+              onVote={() => onVote(entry.row.key)}
+              onUnvote={() => onUnvote(entry.row.key)}
+              onRequireAuth={onRequireAuth}
+              data-testid="grid-vote"
+            />
+          )}
+        </Group>
         </Stack>
       </Card>
     );

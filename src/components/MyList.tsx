@@ -305,12 +305,18 @@ export function MyList<Row>({
               {/* 🔴 A `Stack` AROUND THE ROW, so an optional `preview` sits BELOW it
                   rather than squeezed into the name column. Matches the published
                   grid cards' shape (`GridsView`'s `entryCard`), which is the point:
-                  a private grid and a published one should read the same way. With
-                  no `preview` the Stack holds exactly one child and the row is
-                  structurally what it was. */}
+                  a private grid and a published one should read the same way.
+                  ⚠️ The sentence that used to end this comment — "with no `preview`
+                  the Stack holds exactly one child and the row is structurally what
+                  it was" — is now FALSE and is removed rather than reworded: the
+                  action cluster is a second child of this Stack unconditionally. */}
               <Stack gap={10} style={{ minWidth: 0 }}>
-              <Group justify="space-between" align="flex-start" gap={10}>
-                <Stack gap={4} style={{ minWidth: 0 }}>
+              {/* 🔴 NO LONGER A `space-between` ROW WITH THE ACTIONS ON THE RIGHT. See
+                  `MatchupBody`'s header for the measured reflow this removes; the
+                  private row shares the shape and therefore the defect. The content
+                  column is now the Stack's own child and the actions are its LAST
+                  child, below the optional `preview`. */}
+              <Stack gap={4} style={{ minWidth: 0 }}>
                   <Group gap={8} align="center">
                     <strong data-testid="unpublished-name">{item.name || `Untitled ${noun}`}</strong>
                     {/* 🔴 THE STATE MARKER, and the ONE place this app names the
@@ -352,7 +358,18 @@ export function MyList<Row>({
                   </Group>
                   {item.description && <span style={mutedText}>{item.description}</span>}
                 </Stack>
-                <Group gap={6} align="center" wrap={false}>
+              {/* 🔴 THE PREVIEW IS CONTENT, SO IT STAYS ABOVE THE ACTIONS. Only
+                  `MyGridsView` passes one (a `GridPreview` thumbnail strip); the
+                  matchup and prompt callers pass nothing and this renders nothing. */}
+              {item.preview}
+              {/* 🔴 THE ACTION CLUSTER, AT THE BOTTOM OF THE CARD. `row-actions` is the
+                  one spelling shared by all five card shapes — see `MatchupBody` for
+                  the measured reflow this placement removes and for why the id is
+                  noun-neutral.
+                  ⚠️ `wrap={false}` is KEPT. It is about the three controls not
+                  breaking apart from each other, which is still true on a full-width
+                  row; it was never what positioned the cluster. */}
+              <Group gap={6} align="center" wrap={false} data-testid="row-actions">
                   <Button
                     size="sm"
                     variant="subtle"
@@ -413,9 +430,7 @@ export function MyList<Row>({
                       data-testid="unpublished-discard"
                     />
                   </Menu>
-                </Group>
               </Group>
-              {item.preview}
               </Stack>
             </Card>
           ))}

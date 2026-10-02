@@ -289,7 +289,10 @@ export function MyGridsView({
     return (
       <Card key={row.key} withBorder padding="md" data-testid="grid-card" data-key={row.key}>
         <Stack gap={10} style={{ minWidth: 0 }}>
-        <Group justify="space-between" align="flex-start" gap={10}>
+        {/* 🔴 NO `space-between` ROW HERE ANY MORE — the content column is a direct
+            child of the card's Stack and the actions are its LAST child, below the
+            preview strip. `MatchupBody`'s header carries the measured reflow this
+            removes; all five card shapes took the same change in one pass. */}
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
               <strong data-testid="grid-card-name">{name}</strong>
@@ -306,12 +309,6 @@ export function MyGridsView({
               </span>
             )}
           </Stack>
-          {/* 🔴 THE ACTIONS COME FROM `MyList`, not from here. Remove used to be an
-              inline button beside an inline Archive; both are behind this row's `⋮`
-              now, and Edit — which a published grid had no route to at all — is the
-              one control on the row. */}
-          <Group gap={6} align="center">{actions}</Group>
-        </Group>
         {/* 🔴 THE INLINE PREVIEW, the SAME component and the SAME budget as the
             community grid cards: ids collected by `gridPreviewIds`, handed to ONE
             `GatedCell`, so a card costs exactly one batched `getImages` call
@@ -323,6 +320,12 @@ export function MyGridsView({
           label={name}
           GatedCell={GatedCell}
         />
+        {/* 🔴 THE ACTIONS COME FROM `MyList`, not from here. Remove used to be an
+            inline button beside an inline Archive; both are behind this row's `⋮`
+            now, and Edit — which a published grid had no route to at all — plus Open
+            are the controls on the row. `row-actions` is the one spelling shared by
+            all five card shapes; see `MatchupBody`. */}
+        <Group gap={6} align="center" data-testid="row-actions">{actions}</Group>
         </Stack>
       </Card>
     );

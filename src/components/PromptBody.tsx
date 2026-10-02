@@ -109,7 +109,12 @@ export function PromptBody({
   const canReport = !isOwn && viewerId != null;
 
   return (
-    <Group justify="space-between" align="flex-start">
+    /* 🔴 A COLUMN, NOT A `space-between` ROW — mirrored from `MatchupBody`, where the
+       measured reflow and the whole argument are written down. The prompt card shares
+       the defect by construction (same two-flex-item shape, same per-row variation in
+       the action cluster's intrinsic width), so it takes the same fix rather than
+       waiting for its own measurement. */
+    <Stack gap={10} style={{ minWidth: 0 }}>
       <Stack gap={4} style={{ minWidth: 0 }}>
         <strong>{prompt.name || `#${prompt.key}`}</strong>
         {prompt.description && <span style={mutedText}>{prompt.description}</span>}
@@ -133,7 +138,9 @@ export function PromptBody({
           </Stack>
         )}
       </Stack>
-      <Group gap={6} align="center">
+      {/* `row-actions` — the one spelling, shared with the other four card shapes. See
+          `MatchupBody` for why it is noun-neutral. */}
+      <Group gap={6} align="center" data-testid="row-actions">
         {extraActions}
         {(canEdit || canWithdraw || canReport) && (
           <Menu label="Prompt actions" data-testid="prompt-menu" panelTestId="prompt-menu-items">
@@ -171,6 +178,6 @@ export function PromptBody({
           data-testid="prompt-vote"
         />
       </Group>
-    </Group>
+    </Stack>
   );
 }
