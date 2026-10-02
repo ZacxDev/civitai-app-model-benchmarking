@@ -201,7 +201,14 @@ describe('included-summary copy (rendered)', () => {
     const { queryByTestId } = renderCombos([comboRow('a', 3)], 1);
     // POSITIVE CONTROL: the row really rendered, so the null below is about the
     // badge and not about a view that failed to mount.
-    expect(queryByTestId('matchup-vote')).not.toBeNull();
+    //
+    // ⚠️ IT USED TO BE `matchup-vote` AND THAT WAS SILENTLY OWNERSHIP-DEPENDENT.
+    // `comboRow` carries `authorUserId: 1` and `renderCombos` passes `viewerId={1}`,
+    // so every row this file renders is the VIEWER'S OWN — and the vote control is
+    // now hidden on an author's own matchups (`MatchupBody`'s `canVote`). A control
+    // that can vanish for a reason unrelated to the claim is not a control; the
+    // config summary renders for every viewer on every matchup, owned or not.
+    expect(queryByTestId('matchup-config-summary')).not.toBeNull();
     expect(queryByTestId('matchup-included')).toBeNull();
     expect(queryByTestId('matchup-config-count')).toBeNull();
 

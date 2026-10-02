@@ -16,11 +16,32 @@
 // them**, and the reason this repo could not adopt the upstream MENU does not carry
 // over to the upstream NAV.
 //
-// 🔵 THE SWAP IS GATED ONLY ON THE FIVE-PACKAGE BUMP, whose own prerequisite is
-// starters **PR #487** (`loading`/`decoding` passthrough on `CivitaiImage`) — still
-// OPEN at the time of writing. The installed versions here are
-// `@civitai/components@0.4.1` / `components-react@0.4.1`, which ship no nav element,
-// so nothing in this file could be verified against the real thing from this repo.
+// ── 🔵 THE GATE ON THE SWAP (the "five-package bump") ───────────────────────
+//
+// 🔴 THIS IS THE PARAGRAPH SIX POINTERS IN FOUR OTHER FILES AIM AT, by the name "the
+// five-package bump" — `compact.ts` (1), `mobile-responsive.test.tsx` (1),
+// `sideNav.test.tsx` (2, one of them a re-add instruction for a deleted case) and
+// `Menu.tsx` (2). ⚠️ Counted, because a draft of this line said "FIVE OTHER FILES",
+// then listed four, then said "six pointers" — three figures, one right. An undercount
+// is precisely how a pointer gets left behind, which is the hazard this paragraph
+// exists to close. The NAME is kept even though it is now inaccurate: retiring it here
+// while those six stand is the rot. Read it as an alias.
+//
+// ⚠️ WHAT IT ACTUALLY IS NOW — four of the five moved with `blocks-react@0.61.0`
+// (`app-sdk`, `blocks-react`, `sdk`, `theme`), so the gate is a ONE-package bump:
+// `@civitai/components-react`, which this repo holds at `^0.4.1` (installed `0.4.3`)
+// and which ships no nav element at that major. Its own stated prerequisite, starters
+// **PR #487** (`loading`/`decoding` passthrough on `CivitaiImage`), HAS LANDED —
+// `CivitaiImage` in `components@0.9.0` declares both — so that half of the old gate is
+// clear. What remains is the `Image`/`Tooltip`/`injectStyles` migration that rides with
+// the bump; its cost is measured in the PR that holds the bump back, not here.
+//
+// So nothing in this file can yet be verified against the real thing from this repo.
+// ⚠️ `@civitai/components@0.9.0` IS already in the install graph, transitively via
+// `blocks-react@0.61.0` — that does NOT make the nav elements usable, because this app
+// imports nothing from it. It is noted because the 0.4.x copy is also present, and the
+// two cannot collide on a `civitai-*` tag name only because 0.4.x defines zero custom
+// elements (measured at 0.4.3: 0 of its 2 JS files mention `customElements`).
 //
 // ⚠️ PROVENANCE, STATED PLAINLY: the upstream shape described below was MEASURED BY
 // THE OPERATOR against the real 0.8.1 / 0.9.0 elements, not by this repo. It is
@@ -83,6 +104,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import type { MyNoun } from '../types.js';
+import { navIndentVar } from '../compact.js';
 import { rovingTarget } from '../lib/roving.js';
 import { radius, token } from '../theme.js';
 
@@ -105,11 +127,25 @@ export type { MyNoun };
  */
 export type MainView = { kind: 'home' } | { kind: 'my'; noun: MyNoun };
 
-/** Per-noun copy for the three sub-items. Plural, because each names a LIST. */
+/**
+ * Per-noun copy for the three sub-items. Plural, because each names a LIST.
+ *
+ * 🔴 THE ORDER IS AN OPERATOR DECISION, NOT AN ARBITRARY LIST, AND IT HAS MOVED ONCE.
+ * It shipped as Grids / Matchups / Prompts — grid-first, because Grids is the default
+ * HOME board. The operator reversed it to Prompts / Matchups / Grids: that is the order
+ * in which a viewer BUILDS the things (a prompt and a matchup exist before a grid can
+ * be assembled out of them), so the rail now reads in the direction of the workflow
+ * rather than in the direction of the community board's subnav.
+ *
+ * 🔴 THIS ARRAY IS THE ONLY SITE. `SIDE_NAV_ITEMS` derives from it, the rendered rows
+ * map over it, and the roving arrow keys read DOM order — so all three follow a change
+ * here. `sideNav.test.tsx` holds a LITERAL table that is deliberately NOT derived from
+ * this one, which is what makes a reorder a decision someone takes rather than a drift.
+ */
 const MY_ITEMS = [
-  ['nav-my-grid', 'grid', 'Grids'],
-  ['nav-my-matchup', 'matchup', 'Matchups'],
   ['nav-my-prompt', 'prompt', 'Prompts'],
+  ['nav-my-matchup', 'matchup', 'Matchups'],
+  ['nav-my-grid', 'grid', 'Grids'],
 ] as const satisfies ReadonlyArray<readonly [string, MyNoun, string]>;
 
 /**
@@ -124,6 +160,71 @@ export const SIDE_NAV_ITEMS = [
 
 /** Upstream's indent step, in px per nesting level. Mirrored, not invented. */
 export const NAV_DEPTH_STEP_PX = 14;
+
+/** The row's own left inset at depth 0, in px, before any nesting indent. */
+export const NAV_BASE_INSET_PX = 10;
+
+/**
+ * The declared `padding-left` for a row at `depth` — as a CUSTOM PROPERTY REFERENCE
+ * whose fallback is today's literal.
+ *
+ * 🔴 THE INDIRECTION IS A CASCADE LEVER, NOT STYLE. An inline `style` declaration
+ * outranks every author rule that is not `!important`, so `compact.ts` — which owns
+ * the ≤720px layout — has NO way to change a value this component writes inline.
+ * That is the exact mechanic `LAYOUT_ATTR` exists for one file over. A custom
+ * property inverts it: the sheet sets `--mb-nav-indent-1` on the compact root, the
+ * inline declaration READS it, and the narrow layout wins with no `!important`
+ * anywhere.
+ *
+ * 🔴 AND IT HAS A JOB TO DO THERE. On the compact top bar the rows are laid out in a
+ * ROW, where `padding-left` is not an indent at all — it is just a gap before the
+ * label, conveying no nesting whatever while costing 14px of a strip that already
+ * overflows. `compact.ts` zeroes it back to the base inset and draws the nesting as
+ * a BRACKET instead.
+ *
+ * The fallback is what renders when nothing sets the property — i.e. the wide rail,
+ * unchanged. The property NAME comes from `compact.ts` (the sheet that sets it owns
+ * it, the same way it owns `MENU_ITEM_SELECTOR`); `sideNav.test.tsx` and
+ * `mobile-responsive.test.tsx` pin both ends as LITERALS, so a rename is red even
+ * though production spells it once.
+ */
+function navPaddingLeft(depth: number): string {
+  return `var(${navIndentVar(depth)}, ${NAV_BASE_INSET_PX + depth * NAV_DEPTH_STEP_PX}px)`;
+}
+
+/**
+ * The ACTIVE row treatment, copied from the pack's active SEGMENT.
+ *
+ * 🔴 IT IS A CONSISTENCY FIX, NOT A DESIGN DECISION, and the bug it closes is that
+ * there WAS no treatment. The active row read `background: active ? token.surface :
+ * 'transparent'` over `border: 1px solid transparent` — and `--civitai-color-surface`
+ * resolves to the SAME value as `--civitai-color-body` in the dark theme (measured
+ * live: rgb(26,27,30) on rgb(26,27,30)), so the one thing marking the current row was
+ * a 600 font-weight. Nothing at all distinguished it in either theme at a glance.
+ *
+ * 🔴 THE APP ALREADY HAD A WORKING ANSWER: `BoardNav`'s `SegmentedControl`, whose
+ * active segment is unmistakable. Its rule, in the pack's own sheet
+ * (`@civitai/blocks-react/ui`'s `BLOCKS_UI_STYLES`), is
+ *
+ *     [data-civitai-ui='segmented-control'] [data-civitai-ui-segment][data-active] {
+ *       background: var(--civitai-color-surface);
+ *       color: var(--civitai-color-primary);
+ *       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+ *     }
+ *
+ * — and the half that carries it is `color: primary` plus the shadow, NOT the fill.
+ * (The fill only reads there because the pack's segment sits on a `surface-2` TRACK
+ * with a border; a nav row sits on the page body, which is why the same fill alone
+ * does nothing here. That is the same surface-2/body collision `theme.ts` documents
+ * from the other side.) So the three declarations are mirrored, and the transparent
+ * border is given the border TOKEN when active, which is this nav's stand-in for the
+ * track the segments have.
+ *
+ * `sideNav.test.tsx` asserts these against the PACK'S OWN STYLESHEET rather than
+ * against this object, so a pack restyle that moves the active segment on and leaves
+ * the nav behind is a red test rather than a slow divergence.
+ */
+export const NAV_ACTIVE_SHADOW = '0 1px 2px rgba(0, 0, 0, 0.12)';
 
 /** Marks a nav item's clickable element — what `compact.ts` floors at 44px. */
 export const NAV_ITEM_ATTR = 'data-mb-nav-item';
@@ -157,6 +258,13 @@ function itemStyle(depth: number, active: boolean): React.CSSProperties {
     // here silently re-breaks the indent; `sideNav.test.tsx`'s depth case is what
     // catches that, and it asserts the DECLARED value (readable in jsdom) rather
     // than a computed layout (which jsdom cannot give).
+    //
+    // ⚠️ TWO CUSTOM PROPERTIES LIVE ON THIS ELEMENT AND THEY ARE NOT THE SAME THING.
+    // `--civitai-nav-depth` (below) is upstream's name, still WRITE-ONLY and still
+    // inert on this tree — it is set so the eventual `<civitai-nav-item>` swap
+    // inherits it. `--mb-nav-indent-<depth>` (see {@link navIndentVar}) is this
+    // app's own, and it IS consumed: `padding-left` reads it, which is what gives
+    // `compact.ts` a lever over a value written inline.
     ['--civitai-nav-depth' as string]: String(depth),
     appearance: 'none',
     display: 'flex',
@@ -170,12 +278,22 @@ function itemStyle(depth: number, active: boolean): React.CSSProperties {
     cursor: 'pointer',
     paddingTop: 6,
     paddingBottom: 6,
-    paddingRight: 10,
-    paddingLeft: `calc(10px + ${depth * NAV_DEPTH_STEP_PX}px)`,
+    paddingRight: NAV_BASE_INSET_PX,
+    paddingLeft: navPaddingLeft(depth),
     borderRadius: radius.sm,
-    border: '1px solid transparent',
+    // 🔴 THREE LONGHANDS, NOT THE `border` SHORTHAND — the same insertion-order
+    // hazard the padding block above is about. A later `borderColor` would work
+    // today, but a shorthand written after it silently resets the colour, and this
+    // component has already shipped that exact bug once on `padding`.
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: active ? token.border : 'transparent',
+    // The active treatment, mirrored from the pack's active segment. See
+    // {@link NAV_ACTIVE_SHADOW} for what each of these is doing and why the fill
+    // alone was not enough.
     background: active ? token.surface : 'transparent',
-    color: active ? token.text : token.dimmed,
+    color: active ? token.primary : token.dimmed,
+    boxShadow: active ? NAV_ACTIVE_SHADOW : 'none',
   };
 }
 
@@ -188,8 +306,23 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
    * needs the group open; collapsing it must NOT navigate away, because a
    * disclosure control that also changes what you are looking at is two actions on
    * one press. So the effect below only ever opens it.
+   *
+   * 🔴 AND IT STARTS OPEN, UNCONDITIONALLY. It was `useState(onMyView)` — open only
+   * if the viewer was already on a My view, i.e. SHUT on Home, which is where every
+   * session starts (`SideNav` persists nothing; a reload opens on Home). So the
+   * three destinations the sidebar exists to expose were behind a disclosure on
+   * first paint, every time, and the nav's whole second half read as one row.
+   *
+   * 🔴 THE `true` AND THE EFFECT'S ONE-WAY RULE ARE A PAIR — changing the initial
+   * value must not turn the effect into a re-opener. It does not: the effect fires
+   * only when `onMyView` is true, so a viewer who collapses the group ON HOME sees
+   * `onMyView` stay false and STAYS collapsed, for as long as they stay on Home.
+   * Navigating to a My view re-opens it, which is the same behaviour as before and
+   * is required — the active leaf has to be in the tree to be marked current. If
+   * you ever make the effect run on every view change, this becomes a group that
+   * springs back open under the viewer's hand; `sideNav.test.tsx` has the case.
    */
-  const [expanded, setExpanded] = useState(onMyView);
+  const [expanded, setExpanded] = useState(true);
   useEffect(() => {
     if (onMyView) setExpanded(true);
   }, [onMyView]);

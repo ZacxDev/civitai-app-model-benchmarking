@@ -13,16 +13,28 @@
 // here would be a second copy that stops tracking the first.
 
 import { useState } from 'react';
-import { Alert, Button, Group, Stack, TextInput, Textarea } from '@civitai/blocks-react/ui';
+import { Alert, Button, Card, Group, Stack, TextInput, Textarea } from '@civitai/blocks-react/ui';
 
 import { metaText, mutedText } from '../theme.js';
 import { validateGrid, type GridInput } from '../lib/grids.js';
 import { GridPicker, type GridPickerItem } from './GridPicker.js';
+import { ContentStep, MetaStep, StepNav, type FormStep } from './FormSteps.js';
 
 export interface GridFormProps {
-  /** Every matchup on the board, as pickable rows. */
+  /**
+   * Every matchup a grid may reference, as pickable rows: the board's published ones
+   * AND the viewer's own PRIVATE records.
+   *
+   * 🔴 A PRIVATE ROW'S `key` IS A PER-VIEWER LOCAL ID, not a shared key, and this
+   * form neither knows nor cares — it stores whatever `GridPicker` hands back. What
+   * stops a local id reaching the public board is the PUBLISH path
+   * (`lib/gridCascade.ts`), which publishes those records first and rewrites their
+   * ids. Do not add a filter here: dropping a private pick silently would discard an
+   * authored decision, which is the one thing §11.2 forbids this whole form from
+   * doing.
+   */
   matchupItems: readonly GridPickerItem[];
-  /** Every prompt on the board, as pickable rows. */
+  /** Every prompt a grid may reference — same two sources, same rule. */
   promptItems: readonly GridPickerItem[];
   /** Prefill (edit-in-place): the stored grid as a builder input. */
   initial?: GridInput;
@@ -30,10 +42,86 @@ export interface GridFormProps {
   submitLabel?: string;
   onSubmit: (input: GridInput) => Promise<void> | void;
   onCancel: () => void;
+  /**
+   * Two-step CREATE flow: the two axes first, then name + description. FALSE (the
+   * default) is the single-page EDIT shape. Set by `App.tsx` from the modal kind,
+   * never inferred from `initial` — see `FormSteps.tsx`.
+   */
+  multiStep?: boolean;
 }
 
 /** Which picker is open, if any. */
 type PickerState = 'none' | 'matchups' | 'prompts';
+
+/**
+ * The CHOSEN rows of one axis, as cards.
+ *
+ * 🔴 THIS REPLACED "`N` selected", AND THE COUNT IS STILL THE ONE THING IT CANNOT
+ * LOSE. A bare count told a viewer nothing they could act on — a grid points at
+ * rows OTHER PEOPLE own, so "4 selected" is four decisions you have to reopen the
+ * picker to see. The cards name them. The count is kept alongside, because it is
+ * what the cap is about (`MAX_GRID_MATCHUPS` / `MAX_GRID_PROMPTS`, both 20) and a
+ * list of 20 names is not something you count by eye.
+ *
+ * 🔴 A SELECTED KEY WITH NO ROW IN `items` IS NORMAL AND IS NAMED, NOT DROPPED.
+ * §11.2 calls dangling references normal (the row was withdrawn after the grid was
+ * built), and `GridPicker` carries such a key through Save rather than silently
+ * truncating. Rendering nothing for it here would contradict that at the one place
+ * a viewer could still fix it — so it gets a card that says what happened.
+ *
+ * ⚠️ THE CARD LIST IS BOUNDED BY THE SAME CAP as the picker, so this is at most 20
+ * cards; it needs no windowing (unlike the results matrix, see `lib/virtualRows.ts`).
+ */
+function MemberBody({ item }: { item?: GridPickerItem }): React.JSX.Element {
+  return (
+    <Stack gap={2} style={{ minWidth: 0 }}>
+      <strong style={{ fontSize: 13 }}>{item?.name ?? 'No longer on the board'}</strong>
+      {item?.meta ? <span style={metaText}>{item.meta}</span> : null}
+      {item?.description ? <span style={mutedText}>{item.description}</span> : null}
+    </Stack>
+  );
+}
+
+/**
+ * 🔴 THE TWO TESTIDS ARE SPELLED OUT AS INLINE LITERALS ON THE `Card`, AND THE
+ * BRANCH THAT COSTS IS DELIBERATE. The obvious shape — ONE `Card` taking its testid
+ * from a prop — was written first and `renameWireCompat.test.ts` rejected it,
+ * correctly. That file's INDIRECT-site ledger exists because a testid arriving
+ * through a variable is invisible to its raw-source scan, and the `testId`
+ * pass-throughs the ledger DOES allow are harmless only because each one's literal
+ * still sits at the CALL SITE under the real attribute name, where the scan finds
+ * it. This one's would have sat under a prop name of its own invention — a genuine
+ * new blind spot, of exactly the kind that ledger says must never be added. So the
+ * `Card` shell is written twice and the BODY is shared: the duplication is one
+ * attribute, and it buys two production ids the ledger can see.
+ */
+function AxisCards({
+  keys,
+  items,
+  axis,
+}: {
+  keys: readonly string[];
+  items: readonly GridPickerItem[];
+  axis: 'rows' | 'cols';
+}): React.JSX.Element | null {
+  if (keys.length === 0) return null;
+  const byKey = new Map(items.map((i) => [i.key, i]));
+  return (
+    <Stack gap={6}>
+      {keys.map((key) =>
+        axis === 'rows' ? (
+          <Card key={key} withBorder padding="sm" data-testid="grid-form-row-card">
+            <MemberBody item={byKey.get(key)} />
+          </Card>
+        ) : (
+          <Card key={key} withBorder padding="sm" data-testid="grid-form-col-card">
+            <MemberBody item={byKey.get(key)} />
+          </Card>
+        ),
+      )}
+    </Stack>
+  );
+}
 
 export function GridForm({
   matchupItems,
@@ -42,12 +130,14 @@ export function GridForm({
   submitLabel = 'Save privately',
   onSubmit,
   onCancel,
+  multiStep = false,
 }: GridFormProps): React.JSX.Element {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [matchupKeys, setMatchupKeys] = useState<string[]>(initial?.matchupKeys ?? []);
   const [promptKeys, setPromptKeys] = useState<string[]>(initial?.promptKeys ?? []);
   const [picker, setPicker] = useState<PickerState>('none');
+  const [step, setStep] = useState<FormStep>('content');
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -79,60 +169,79 @@ export function GridForm({
 
   return (
     <Stack gap={12} data-testid="grid-form">
-      <TextInput
-        label="Grid name"
-        value={name}
-        onChange={(e) => setName(e.currentTarget.value)}
-        data-testid="grid-form-name"
-      />
-      <Textarea
-        label="Description"
-        value={description}
-        onChange={(e) => setDescription(e.currentTarget.value)}
-        data-testid="grid-form-description"
-      />
+      {/* 🔴 `MetaStep` FIRST — see the same comment in `MatchupForm`. Invisible in
+          two-step mode (only one of the two renders); in SINGLE-PAGE (edit) mode it
+          is the field order, and the name belongs at the top where it has been
+          since this form shipped. */}
+      <MetaStep multiStep={multiStep} step={step}>
+        <Stack gap={12}>
+          <TextInput
+            label="Grid name"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+            data-testid="grid-form-name"
+          />
+          <Textarea
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            data-testid="grid-form-description"
+          />
+        </Stack>
+      </MetaStep>
 
-      {/* The two axes. Counts are rendered from the CHOSEN key arrays, so what
-          the summary says and what a publish would store are the same list. */}
-      <Group justify="space-between" align="center" gap={10}>
-        <Stack gap={2} style={{ minWidth: 0 }}>
-          <strong style={{ fontSize: 14 }}>Rows (matchups)</strong>
-          <span style={metaText} data-testid="grid-form-rows-count">
-            {matchupKeys.length} selected
+      <ContentStep multiStep={multiStep} step={step}>
+        <Stack gap={12}>
+          {/* The two axes. Counts are rendered from the CHOSEN key arrays, so what
+              the summary says and what a publish would store are the same list. */}
+          <Group justify="space-between" align="center" gap={10}>
+            <Stack gap={2} style={{ minWidth: 0 }}>
+              <strong style={{ fontSize: 14 }}>Matchups</strong>
+              <span style={metaText} data-testid="grid-form-rows-count">
+                {matchupKeys.length} selected
+              </span>
+            </Stack>
+            <Button
+              size="sm"
+              variant="light"
+              onClick={() => setPicker('matchups')}
+              data-testid="grid-form-pick-rows"
+            >
+              Choose rows
+            </Button>
+          </Group>
+          <AxisCards keys={matchupKeys} items={matchupItems} axis="rows" />
+
+          <Group justify="space-between" align="center" gap={10}>
+            <Stack gap={2} style={{ minWidth: 0 }}>
+              <strong style={{ fontSize: 14 }}>Prompts</strong>
+              <span style={metaText} data-testid="grid-form-cols-count">
+                {promptKeys.length} selected
+              </span>
+            </Stack>
+            <Button
+              size="sm"
+              variant="light"
+              onClick={() => setPicker('prompts')}
+              data-testid="grid-form-pick-cols"
+            >
+              Choose columns
+            </Button>
+          </Group>
+          <AxisCards keys={promptKeys} items={promptItems} axis="cols" />
+
+          {/* Trimmed: the first sentence restated what the two pickers above already
+              show. What survives is the claim a viewer cannot derive — what happens when
+              somebody else withdraws a member. */}
+          <span style={mutedText}>
+            If a member is removed from the board later, this grid renders what is left and says how
+            much is gone.
           </span>
         </Stack>
-        <Button
-          size="sm"
-          variant="light"
-          onClick={() => setPicker('matchups')}
-          data-testid="grid-form-pick-rows"
-        >
-          Choose rows
-        </Button>
-      </Group>
+      </ContentStep>
 
-      <Group justify="space-between" align="center" gap={10}>
-        <Stack gap={2} style={{ minWidth: 0 }}>
-          <strong style={{ fontSize: 14 }}>Columns (prompts)</strong>
-          <span style={metaText} data-testid="grid-form-cols-count">
-            {promptKeys.length} selected
-          </span>
-        </Stack>
-        <Button
-          size="sm"
-          variant="light"
-          onClick={() => setPicker('prompts')}
-          data-testid="grid-form-pick-cols"
-        >
-          Choose columns
-        </Button>
-      </Group>
-
-      <span style={mutedText}>
-        A grid points at rows other people own. If one of them is removed from the board later, this
-        grid keeps working — it renders what is left and says how much is gone.
-      </span>
-
+      {/* 🔴 OUTSIDE BOTH STEPS — `validateGrid` runs over the whole input, so an error
+          raised on step 2 can be about step 1's axes ("Pick at least one matchup"). */}
       {errors.length > 0 && (
         <Alert color="error" data-testid="grid-form-errors">
           <Stack gap={2}>
@@ -147,9 +256,14 @@ export function GridForm({
         <Button size="sm" variant="subtle" onClick={onCancel} data-testid="grid-form-cancel">
           Cancel
         </Button>
-        <Button size="sm" loading={busy} onClick={handleSubmit} data-testid="grid-form-submit">
-          {submitLabel}
-        </Button>
+        {multiStep && (
+          <StepNav step={step} onNext={() => setStep('meta')} onBack={() => setStep('content')} />
+        )}
+        {(!multiStep || step === 'meta') && (
+          <Button size="sm" loading={busy} onClick={handleSubmit} data-testid="grid-form-submit">
+            {submitLabel}
+          </Button>
+        )}
       </Group>
 
       <GridPicker

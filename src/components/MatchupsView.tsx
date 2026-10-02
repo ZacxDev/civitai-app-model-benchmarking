@@ -18,11 +18,11 @@
 // not a leak: there is no server-side filter to do it any other way (§2.3 C1), and
 // hiding your own row from the community ranking would misreport the board.
 //
-// 🔴 THE OWN/ARCHIVED SPLIT IS NOT IMPLEMENTED HERE ANY MORE — it is `MyPublished`,
+// 🔴 THE OWN/ARCHIVED SPLIT IS NOT IMPLEMENTED HERE ANY MORE — it is `MyList`,
 // one implementation shared with the prompt and grid surfaces. It used to be
 // open-coded in this file and near-identically in `PromptsView`, and a third copy in
 // `GridsView` disagreed with its own sibling predicate badly enough to leave an
-// archived row with no recovery path. See `MyPublished`'s header.
+// archived row with no recovery path. See `MyList`'s header.
 //
 // 🔴 "Matchup" is the USER-FACING name only. The wire value stays
 // `data.kind: 'combination'` (see docs/matchups.md §6.1) and the parsed row type
@@ -34,13 +34,12 @@ import { Alert, Button, Card, Group, Loader, Stack } from '@civitai/blocks-react
 import type { ReactNode } from 'react';
 
 import type { CombinationRow, DraftUnsubmitted } from '../types.js';
-import { includedSummary, isOwnRow } from '../lib/benchmark.js';
+import { includedSummary, isOwnRow, modelCountSummary } from '../lib/benchmark.js';
 import { mutedText, metaText } from '../theme.js';
 import { EmptyState } from './EmptyState.js';
 import { MatchupBody } from './MatchupBody.js';
-import { MyPublished } from './MyPublished.js';
+import { MyList } from './MyList.js';
 import { MyTabSignedOut } from './MySignedOut.js';
-import { UnpublishedList } from './UnpublishedList.js';
 
 /* 🔴 `INCLUDED_ROW_TOOLTIP` WAS RE-EXPORTED HERE AND IS NOW DELETED, along with the
    `matchup-included` badge it annotated (the third IA pass — see `MatchupBody`'s
@@ -165,6 +164,33 @@ export function MatchupsView({
     </Card>
   );
 
+  /**
+   * The MY-surface card: the same body, with its OWN menu deliberately suppressed.
+   *
+   * 🔴 `onEdit` AND `onWithdraw` ARE OMITTED ON PURPOSE, and that is the mechanism
+   * rather than an oversight. `MatchupBody` builds a `⋮` only when it has an
+   * author-scoped action of its own; on this surface the whole action group — Edit on
+   * the row, Remove and Archive behind one `⋮` — is supplied by `MyList`, so passing
+   * them here would put TWO menus on one row, each holding half the actions.
+   * `MatchupBodyProps.onEdit` already documents this ("Omitted by callers with no edit
+   * path"); this caller's edit path is `MyList`'s.
+   */
+  const myCard = (combo: CombinationRow, actions: ReactNode): React.JSX.Element => (
+    <Card key={combo.key} withBorder padding="md" data-testid="matchup-card" data-key={combo.key}>
+      <MatchupBody
+        combo={combo}
+        voted={votedKeys.has(combo.key)}
+        reported={reportedKeys.has(combo.key)}
+        viewerId={viewerId}
+        onVote={onVote}
+        onUnvote={onUnvote}
+        onRequireAuth={onRequireAuth}
+        onReport={onReport}
+        extraActions={actions}
+      />
+    </Card>
+  );
+
   const status = (
     <>
       {error && (
@@ -189,35 +215,35 @@ export function MatchupsView({
           <MyTabSignedOut noun="matchup" onRequireAuth={onRequireAuth} />
         ) : (
           <Stack gap={14} data-testid="my-panel">
-            <UnpublishedList
+            <MyList
               /* 🔴 KEYED ON THE VIEWER, so a viewer swap gets a FRESH instance rather
                  than inheriting the previous viewer's publish `error` — local state
                  cleared only by the next `publish()`. The host can swap the signed-in
                  viewer without remounting (`src/viewer-change.test.tsx`). */
               key={viewerId}
-              items={unpublished.map((rec) => ({
+              noun="matchup"
+              drafts={unpublished.map((rec) => ({
                 localId: rec.localId,
                 name: rec.name,
-                meta: `${rec.configs.length} config${rec.configs.length === 1 ? '' : 's'}`,
+                // 🔴 SHARED WITH `App`'s grid-builder picker through
+                // `modelCountSummary` — the two were open-coded copies of one ternary.
+                meta: modelCountSummary(rec.configs.length),
                 description: rec.description,
               }))}
-              noun="matchup"
-              quotaLine={quotaLine}
-              onNew={() => onNewUnpublished?.()}
-              onEdit={(localId) => onEditUnpublished?.(localId)}
-              onDiscard={(localId) => onDiscardUnpublished?.(localId)}
-              onPublish={(localId) => onPublishUnpublished?.(localId)}
-            />
-
-            <MyPublished
-              noun="matchup"
               rows={own}
               keyOf={(row) => row.key}
               archivedKeys={archivedKeys ?? new Set<string>()}
               loading={loading}
+              quotaLine={quotaLine}
+              onNew={() => onNewUnpublished?.()}
+              onEditDraft={(localId) => onEditUnpublished?.(localId)}
+              onDiscardDraft={(localId) => onDiscardUnpublished?.(localId)}
+              onPublishDraft={(localId) => onPublishUnpublished?.(localId)}
+              onEditPublished={onEdit}
+              onWithdraw={onWithdraw}
               onArchive={onArchive}
               onUnarchive={onUnarchive}
-              renderCard={card}
+              renderCard={myCard}
             />
           </Stack>
         )}

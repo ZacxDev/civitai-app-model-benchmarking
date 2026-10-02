@@ -109,19 +109,33 @@ async function openCommunity() {
   await openView('Matchups');
 }
 
-/** Drive the private matchup form: open it, name it, pick a checkpoint, save. */
+/**
+ * Drive the private matchup form: open it, pick a checkpoint, name it, save.
+ *
+ * 🔴 IT HANDLES BOTH SHAPES, AND THE ORDER IS WHY. A NEW private matchup is a
+ * TWO-STEP create (models on step 1, name + description on step 2); a RESUMED one
+ * is a single page. So the checkpoint is picked BEFORE the name is typed — on the
+ * two-step shape the name input does not exist until `form-next` is pressed — and
+ * `form-next`'s presence is the discriminant rather than a flag passed in, so this
+ * helper keeps working whichever opener it is handed.
+ */
 async function fillAndSavePrivately(name: string, opener: HTMLElement) {
   await userEvent.click(opener);
   const form = await screen.findByTestId('matchup-form');
+
+  if (within(form).queryByTestId('checkpoint-card') === null) {
+    await userEvent.click(within(form).getByTestId('pick-checkpoint'));
+    await waitFor(() =>
+      expect(within(form).getByTestId('checkpoint-card')).toHaveTextContent('JuggernautXL'),
+    );
+  }
+  if (within(form).queryByTestId('form-next') !== null) {
+    await userEvent.click(within(form).getByTestId('form-next'));
+  }
+
   const nameInput = within(form).getByTestId('matchup-name');
   await userEvent.clear(nameInput);
   await userEvent.type(nameInput, name);
-  if (within(form).queryByTestId('checkpoint-name') === null) {
-    await userEvent.click(within(form).getByTestId('pick-checkpoint'));
-    await waitFor(() =>
-      expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'),
-    );
-  }
   await userEvent.click(within(form).getByTestId('matchup-submit'));
   await waitFor(() => expect(screen.queryByTestId('matchup-form')).toBeNull());
 }
@@ -178,8 +192,12 @@ describe('🔴 criterion 7: no private path ever calls shared.append', () => {
       expect(screen.getByTestId('unpublished-name')).toHaveTextContent('Draft one renamed'),
     );
 
-    // DISCARD — still the private path.
-    await userEvent.click(screen.getByTestId('unpublished-discard'));
+    // DISCARD — still the private path, and now behind the row's own `⋮`: the
+    // control is UNMOUNTED until the menu opens, not merely restyled.
+    const privateCard = screen.getByTestId('unpublished-card');
+    await userEvent.click(
+      within(await openRowMenu('unpublished', privateCard)).getByTestId('unpublished-discard'),
+    );
     await waitFor(() => expect(screen.queryByTestId('unpublished-card')).toBeNull());
 
     // 🔴 THE GUARD. `append` is the moment a record becomes world-readable, and
@@ -373,7 +391,10 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     // pointer used to stand in for (§11.1), so the pointer is storage-only now.
     await openMy();
     const own = await screen.findByTestId('matchup-card');
-    await openRowMenu('matchup', own);
+    // 🔴 EDIT IS ON THE ROW ON THIS SURFACE, not in the ⋮. `MyList` supplies the whole
+    // action group for a My row — Edit inline, Remove and Archive behind the overflow —
+    // so no menu is opened here. The COMMUNITY board still keeps Edit in the menu
+    // (`e2e.test.tsx`), which is why `openRowMenu` is still needed there.
     await userEvent.click(within(own).getByTestId('matchup-edit'));
     const form = await screen.findByTestId('matchup-form');
     const nameInput = within(form).getByTestId('matchup-name');
@@ -389,11 +410,27 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
     expect(updates[0].value.title).toBe('Live matchup, edited');
     expect(appends, 'an edit minted a NEW row instead of updating the live one').toEqual([]);
 
-    // 🔴 AND THE VOTE TOTAL SURVIVES, on screen, after the post-edit re-fetch.
+    // 🔴 AND THE VOTE TOTAL SURVIVES, ON SCREEN, after the post-edit re-fetch — the
+    // original claim, at the most direct place to read it.
     const card = await screen.findByTestId('matchup-card');
     await waitFor(() => expect(card).toHaveTextContent('Live matchup, edited'));
     expect(card.getAttribute('data-key')).toBe(LIVE_KEY);
     expect(within(card).getByTestId('vote-count')).toHaveTextContent(String(VOTES));
+    //
+    // ⚠️ THE ROUND TRIP, IN ONE SENTENCE, BECAUSE IT WAS A REAL DEFECT AND NOT CHURN.
+    // This read moved to `shared.list()` for one revision: the vote control is hidden
+    // on the viewer's own matchups (`MatchupBody`'s `canVote`) and this row is the
+    // viewer's own by construction — the case is about editing a row you authored — and
+    // at the time the count was a CHILD of the button, so hiding one hid the other.
+    // `VoteCount`/`VoteTally` made the number independent of the affordance, so the
+    // rendered reading is back.
+    //
+    // 🔴 THE STORE READ IS KEPT ALONGSIDE IT, not replaced by it, because the two fail
+    // for DIFFERENT reasons: this one if the card stops showing the number, that one if
+    // `append` minted a fresh row whose tally starts at zero. Neither subsumes the
+    // other, and the second is the unrecoverable failure.
+    const listed = await shared.list({});
+    expect(listed.items.find((i) => i.key === LIVE_KEY)!.count).toBe(VOTES);
   });
 
   it('renders no ghost card for a pointer whose shared row is not in hand', async () => {
@@ -409,11 +446,11 @@ describe('criterion 4: editing a published matchup preserves the key AND the vot
 
     await openMy();
     // The panel really did load (so the absence below is not an unmounted view).
-    await screen.findByTestId('unpublished-panel');
+    await screen.findByTestId('my-list-panel');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     expect(screen.queryByTestId('matchup-card')).toBeNull();
-    expect(screen.getByTestId('my-published-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
   });
 });
 
@@ -479,7 +516,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
     await renderApp({ shared: fakeShared().shared, appStorage: refusing });
 
     await openMy();
-    await screen.findByTestId('unpublished-panel');
+    await screen.findByTestId('my-list-panel');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId('storage-quota')).toBeNull();
   });
@@ -506,6 +543,8 @@ describe('the My tab degrades rather than breaking the public board', () => {
     const card = await screen.findByTestId('matchup-card');
     expect(card).toHaveTextContent('A public matchup');
     await openMy();
-    expect(screen.getByTestId('unpublished-empty')).toBeInTheDocument();
+    // The public row IS the viewer's? No — it is `OTHER_ID`'s, so the My list holds
+    // neither a draft nor a published row of this viewer's and renders its empty line.
+    expect(screen.getByTestId('my-list-empty')).toBeInTheDocument();
   });
 });

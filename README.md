@@ -37,9 +37,10 @@ block never holds credentials either way — the host injects the viewer identit
 a scoped token at runtime. [Which is which](#two-transports-one-block).
 
 This particular block is a **crowdsourced benchmark**. Users **submit + vote on**
-three things: model **matchups** (up to eight configs, each a checkpoint + a
-family-scoped weighted LoRA stack), **prompts** (one default prompt + params that
-runs on every ecosystem, plus optional per-ecosystem overrides for SDXL / Pony /
+three things: model **matchups** (up to [`MAX_CONFIGS`](src/lib/benchmark.ts)
+**models**, each a checkpoint + a family-scoped weighted LoRA stack), **prompts**
+(one default prompt + params that runs on every ecosystem, plus optional
+per-ecosystem overrides for SDXL / Pony /
 Flux / …), and **grids** — a named, hand-picked set of matchups (rows) × prompts
 (columns). **Every published grid is its own matrix**, and any viewer can open
 anyone else's; a system-owned **Top Grid** (the top-voted matchups × the top-voted
@@ -54,6 +55,18 @@ so every model compares side-by-side on identical prompts — for **all** viewer
 > that is the persisted `data.kind` discriminator, frozen forever, and it is
 > never a name for the product concept. Where you see `combination` in code font
 > it is the wire value; the prose noun is always *matchup*.
+>
+> **The same split applies one level down.** What a matchup groups is a **model**
+> in the UI — one checkpoint plus its LoRA stack — and a `config` on the wire
+> (`ModelConfig`, `data.configs`, `MAX_CONFIGS`, `configId` on a `result`). That
+> word is frozen too, for the same reason, and `renameWireCompat.test.ts` pins it.
+> This README keeps using `config` when it is talking about the stored shape.
+>
+> ⚠ This paragraph said "up to **eight** configs" until the modal rework, and that
+> had been wrong since `MAX_CONFIGS` was raised to 100 (PR #70) — the prose quoted
+> a number nobody re-read. It names the symbol now, which cannot go stale.
+> Recorded rather than quietly corrected: a stale figure on a public mirror is
+> read as the contract.
 
 > **The platform has no concept of a "benchmark," "matchup," or "grid."** That
 > entire model is owned by this app. The platform only provides generic,
@@ -229,18 +242,23 @@ flows are modals.
   - **Matchups** ([`MatchupsView.tsx`](src/components/MatchupsView.tsx) +
     [`MatchupForm.tsx`](src/components/MatchupForm.tsx)) — submit + vote on a checkpoint
     (any base model) plus a family-scoped weighted LoRA stack, picked via the resource
-    picker.
+    picker. ⚠️ **Voting is offered on other viewers' matchups only** — an author gets no
+    vote control on their own row, because the total is what decides whether the row
+    becomes one of the grid's rows. That is a UI affordance and **not** enforcement:
+    `shared.vote` is a host call and the host does not refuse a self-vote.
   - **Prompts** ([`PromptsView.tsx`](src/components/PromptsView.tsx) +
     [`PromptForm.tsx`](src/components/PromptForm.tsx)) — submit + vote on a prompt: one
     **default** raw prompt string + generation params that runs on *every* ecosystem,
     plus optional per-ecosystem **overrides** (SDXL / Pony / Flux / …) that replace the
     prompt and/or patch the params for one base-model family.
-- **My Benchmarks** — the viewer's own grids / matchups / prompts: unpublished records
-  ([`UnpublishedList.tsx`](src/components/UnpublishedList.tsx)) with New / Edit /
-  Discard / **Publish**, their published rows with **Remove**, and **Archive** — an
-  author-side hide with a recovery path, described in words next to the control
-  ([`MyPublished.tsx`](src/components/MyPublished.tsx),
-  [`src/lib/archive.ts`](src/lib/archive.ts)). Building a grid lives here
+- **My Benchmarks** — the viewer's own **prompts / matchups / grids** (that order, which
+  is the order a viewer builds them) in **one list**
+  ([`MyList.tsx`](src/components/MyList.tsx)) spanning both storage layers: unpublished
+  records carry a **Private** badge and offer Edit / **Publish** plus a `⋮` holding
+  **Discard**, published rows offer **Edit** plus a `⋮` holding **Remove** and
+  **Archive** — an author-side hide with a recovery path, described in words next to
+  the control
+  ([`src/lib/archive.ts`](src/lib/archive.ts)). Building a grid lives here
   ([`GridForm.tsx`](src/components/GridForm.tsx) +
   [`GridPicker.tsx`](src/components/GridPicker.tsx)): a *grid* is a named, hand-picked
   set of matchups (rows) × prompts (cols), assembled from other people's rows and
@@ -276,6 +294,13 @@ resume-polled rather than re-submitted, so a reload never charges the viewer
 twice), [`grids.ts`](src/lib/grids.ts) (the `grid` record's wire shape,
 validation and dangling-member resolution), [`gridEntries.ts`](src/lib/gridEntries.ts)
 (ranking, the Top Grid, and the missing-member notice),
+[`gridCascade.ts`](src/lib/gridCascade.ts) (publishing a grid that names the viewer's
+own **private** matchups or prompts: it classifies each member key as a board key, an
+already-published local id, a dependency to publish, or a dangling reference; emits the
+dependencies in publish order; rewrites a local id to the shared key its publish minted;
+and owns the confirm/partial-failure copy — dependencies publish **first** and the grid
+**last**, because the reverse order can leave a permanent public grid pointing at
+private rows),
 [`unpublished.ts`](src/lib/unpublished.ts) (the shared private→public boundary) with
 its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
@@ -283,7 +308,12 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 directly, for the one publish path all three share — and
 [`archive.ts`](src/lib/archive.ts) (the author-side hide) and
 [`roving.ts`](src/lib/roving.ts) (the arrow-key index arithmetic the sidebar and the
-row menu share — it was open-coded in both and wrong in both the same way). The two
+row menu share — it was open-coded in both and wrong in both the same way) and
+[`virtualRows.ts`](src/lib/virtualRows.ts) (the results matrix's row-windowing
+decision: which config rows to mount at a given scroll position, plus the two
+spacer heights that keep the scroll extent constant — a pure function of four
+numbers because jsdom lays nothing out, so a rule reachable only through real
+layout would be untestable here). The two
 that are **not** pure logic are the transport seam described in
 [Two transports, one block](#two-transports-one-block):
 [`sdk-runtime.ts`](src/lib/sdk-runtime.ts) (the eight runtime bindings this app takes
@@ -293,7 +323,7 @@ ONE bridge transport serve both packages, so the block never stands up two). One
 module is neither pure logic nor transport: [`sourceScan.ts`](src/lib/sourceScan.ts)
 reads `node:fs` and exists only for the structural test guards (the `src/` walker and
 the production-import walk they share). Nothing in production may import it, and
-`navigationDormancy.test.ts`'s scaffolding ledger asserts that it does not.
+`sourceScanLedger.test.ts`'s scaffolding ledger asserts that it does not.
 
 <!-- lib-inventory:end -->
 

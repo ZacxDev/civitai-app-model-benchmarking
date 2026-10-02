@@ -13,7 +13,8 @@
 // (`inflightScanTruncatedRef`, which arms a money guard). This is the public
 // half, which used to return a silent prefix.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from './test-harness.js';
@@ -22,7 +23,7 @@ import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import { missingMembersNotice } from './lib/gridEntries.js';
-import { fakeAppStorage, immediateSleep, openView } from './test-helpers.js';
+import { fakeAppStorage, immediateSleep, openRowMenu, openView } from './test-helpers.js';
 import type { CombinationData, GridData } from './types.js';
 
 const comboData: CombinationData = {
@@ -47,6 +48,18 @@ function row(key: string): SharedItem {
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
+}
+
+/**
+ * A matchup row the VIEWER owns, so its card carries the `⋮` → Remove control.
+ *
+ * 🔴 IT EXISTS ONLY AS A HANDLE ON `reload()`. The truncated→thrown case needs the
+ * APP to re-read the board on its own, and a withdraw is the cheapest control that
+ * does. It is aimed at a MATCHUP rather than at the grid so the card carrying that
+ * case's second assertion survives its own optimistic delete.
+ */
+function ownMatchupRow(): SharedItem {
+  return { ...row('mk-mine'), authorUserId: 99 };
 }
 
 /**
@@ -198,14 +211,21 @@ describe('board scan truncation', () => {
     // ⚠️ IT WAS `grid-open-system-badge`, with the comment "the Top Grid is computed
     // from the scanned rows, so its presence means the scan settled". That is FALSE and
     // the sentence is retracted. `openKey` initialises to `null`, and
-    // `buildTopGrid([], [])` still yields a system entry — so the badge is in the DOM on
-    // FIRST PAINT, before the board scan has resolved anything. The `toBeNull()` below
-    // could therefore run before a notice could possibly have appeared, which makes a
-    // LATE notice indistinguishable from an ABSENT one: the exact failure this file
-    // already names at the sibling case a few lines up, which is why THAT one navigates
-    // to Matchups. Same hazard, same fix.
+    // `buildTopGrid([], [])` still yields a system entry — so the system marker is in
+    // the DOM on FIRST PAINT, before the board scan has resolved anything. The
+    // `toBeNull()` below could therefore run before a notice could possibly have
+    // appeared, which makes a LATE notice indistinguishable from an ABSENT one: the
+    // exact failure this file already names at the sibling case a few lines up, which
+    // is why THAT one navigates to Matchups.
     //
-    // 🔴 WHY MATCHUPS IS A REAL ANCHOR AND THE BADGE IS NOT: `matchup-card` renders only
+    // ⚠️ THE MARKER ITSELF MOVED. The "System grid" BADGE is gone (operator feedback);
+    // `grid-open-system-note` — the sentence explaining that the Top Grid cannot be
+    // voted on — is rendered under the SAME `entry.system` condition and is the system
+    // marker on this surface now. The retraction above is unaffected: what was vacuous
+    // about the old anchor was its TIMING, not which element carried it, and the note
+    // is on first paint for exactly the same reason. Same hazard, same fix.
+    //
+    // 🔴 WHY MATCHUPS IS A REAL ANCHOR AND THE SYSTEM MARKER IS NOT: `matchup-card` renders only
     // for a row the scan actually READ (`finiteShared` seeds exactly one), so its
     // presence is evidence about the scan rather than about the initial state.
     await openView('Matchups');
@@ -214,30 +234,30 @@ describe('board scan truncation', () => {
     // …then back to the GRIDS board, which is what this case is about. The scan is
     // settled by now, so the absence below is an absence.
     await openView('Grids');
-    expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 
   // 🔴 VALIDATE THE ANCHOR, because "this anchor is vacuous" is a claim about TIMING and
   // no settled fixture can make it. With `list()` permanently in flight, the open grid's
-  // system badge is ALREADY in the document while the grids board is still showing its
-  // loading spinner — so the badge and "the scan settled" are independent facts, and any
-  // `toBeNull()` sequenced behind the badge alone runs too early.
+  // system note is ALREADY in the document while the grids board is still showing its
+  // loading spinner — so the note and "the scan settled" are independent facts, and any
+  // `toBeNull()` sequenced behind the note alone runs too early.
   //
   // This is the control that turns the retraction above from an assertion into a
   // measurement. It is an INVARIANT GUARD on the app (nothing about this behaviour is
   // wrong or changed), whose subject is the TEST-WRITING hazard.
-  it('🔴 ANCHOR CONTROL: the system badge renders while the board scan is still in flight', async () => {
+  it('🔴 ANCHOR CONTROL: the system marker renders while the board scan is still in flight', async () => {
     renderApp({ shared: pendingShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The badge is there on first paint: `openKey` starts `null` and
+    // The note is there on first paint: `openKey` starts `null` and
     // `buildTopGrid([], [])` yields a system entry regardless of what the scan found.
-    await waitFor(() => expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument());
     // …and the board it sits above has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it
     // is a PRESENCE, so it cannot be satisfied by a stale selector or an empty render,
     // and it is what proves the two facts are simultaneous rather than sequential.
     expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
-    // …and the matrix is empty of scanned rows, so the badge cannot have come from one.
+    // …and the matrix is empty of scanned rows, so the note cannot have come from one.
     // ⚠ AN ABSENCE, NOT A CONTROL — a draft labelled it "POSITIVE CONTROL", which it
     // cannot be: a wrong testid would produce the same `[]`. It is corroboration, and the
     // presence assertion above is what carries the case. (`grid-group-matchup` is real —
@@ -373,5 +393,339 @@ describe("a grid's missing members, on a board the app could not finish reading"
     );
     // …and the two sentences really are different, so the pair discriminates.
     expect(NOTICE(true)).not.toBe(NOTICE(false));
+  });
+
+  /**
+   * 🔴 THE TRUNCATED → THROWN SEQUENCE, WHICH NOTHING COVERED.
+   *
+   * Every case above renders ONE read. This one renders two, and the second one
+   * FAILS — which is the routine shape, not an exotic one: the app re-reads the
+   * board after a publish, a withdraw, a submit, an update and a run, so any of
+   * those over a flaky connection produces exactly this.
+   *
+   * 🔴 WHAT WENT WRONG, AND WHY IT IS THIS FILE'S BUSINESS. For one range
+   * `App` derived the truncation flag as `boardRead === 'truncated'`, i.e. from the
+   * LATEST REQUEST. The catch arm writes `'error'` and never calls `setItems`, so
+   * the flag flipped to false while `items` still held the truncated PREFIX. Both
+   * of this file's subjects broke at once:
+   *   - the `board-truncated-notice` DISAPPEARED, so the vote ranking, the top-N
+   *     that becomes a grid's rows and columns, and every "Included" count present
+   *     a prefix as the whole board — the silent ordering lie this file's header
+   *     says the notice exists to prevent;
+   *   - `missingMembersNotice` flipped to "their authors removed them", about rows
+   *     the app simply never fetched.
+   *
+   * ⚠️ THE FIXTURE DOES NOT KNOW `MAX_PAGES`, deliberately, for the same reason
+   * `endlessShared` does not: the second phase is armed by the TEST once the first
+   * scan's own disclosure is on screen, never by counting to 40.
+   */
+  /**
+   * 🔴 THE CALL SITE, NOT THE PURE FUNCTION. `cascadeRefusal`'s own cases pin what it
+   * SAYS for a thrown read over a prefix; this one pins that `App` actually hands it
+   * that state. The distinction is not academic: `prefix` arrived as a second
+   * parameter first, and a mutant wiring it to a constant `false` at the one call site
+   * SURVIVED the whole suite — the function was pinned and the wire-up was not.
+   *
+   * The seam is also GONE (the whole snapshot is passed as one value now), but a
+   * removed seam is an argument and this is a measurement.
+   */
+  it('🔴 a refusal on a TRUNCATED board whose re-read threw names the page cap', async () => {
+    let failReads = false;
+    let attempts = 0;
+    let pages = 0;
+    const shared = {
+      ...endlessShared().shared,
+      async list() {
+        attempts += 1;
+        if (failReads) throw new Error('BOARD_UNAVAILABLE');
+        pages += 1;
+        return {
+          items: pages === 1 ? [ownMatchupRow()] : [row(`k${pages}`)],
+          nextCursor: `cursor-${pages}`,
+        };
+      },
+      async withdraw() {
+        return { ok: true as const, deleted: true };
+      },
+    } as unknown as SharedStore;
+    // A private grid naming one real board row and one key nothing can account for.
+    const kv = fakeAppStorage({
+      'unpub:grid:v1:ug-trunc': {
+        v: 1,
+        localId: 'ug-trunc',
+        name: 'Capped Grid',
+        description: '',
+        matchupKeys: ['mk-mine', 'dm-nowhere'],
+        promptKeys: ['qk-one'],
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      },
+    });
+    renderApp({ shared, appStorage: kv.appStorage, track: vi.fn() });
+
+    // PREMISE 1: the first scan truncated.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId('board-truncated-notice'),
+        'the first scan did not truncate — the premise failed',
+      ).not.toBeNull();
+    });
+    const attemptsBefore = attempts;
+
+    // PREMISE 2: make the app re-read, and have that read throw.
+    failReads = true;
+    const matchups = await openView('Matchups');
+    const mine = await waitFor(() => {
+      const el = within(matchups)
+        .getAllByTestId('matchup-card')
+        .find((c) => within(c).queryByTestId('matchup-menu') !== null);
+      expect(el, 'no own matchup row rendered — nothing here can reach reload()').toBeTruthy();
+      return el!;
+    });
+    await openRowMenu('matchup', mine);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+    await waitFor(() => {
+      expect(attempts, 'no further read was issued').toBeGreaterThan(attemptsBefore);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('matchups-error'), 'the re-read did not fail').toHaveTextContent(
+        'BOARD_UNAVAILABLE',
+      );
+    });
+
+    // Now publish the grid. The state is `(outcome: 'error', prefix: true)`.
+    const trigger = await screen.findByTestId('nav-my');
+    if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+    await userEvent.click(await screen.findByTestId('nav-my-grid'));
+    const gridCard = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('unpublished-card')
+        .find((c) => c.getAttribute('data-local-id') === 'ug-trunc');
+      expect(el, 'the private grid is not listed').toBeTruthy();
+      return el!;
+    });
+    await userEvent.click(within(gridCard).getByTestId('unpublished-publish'));
+
+    const text = await waitFor(() => {
+      const el = screen.queryByTestId('grid-publish-error');
+      expect(el, 'the publish was not refused').not.toBeNull();
+      return (el!.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    // 🔴 THE CLAIM: the refusal names the cap, because `App` passed the prefix bit.
+    expect(
+      text,
+      'the call site did not hand `cascadeRefusal` the prefix bit — the refusal promises a retry the app knows will keep failing',
+    ).toMatch(/page cap/);
+    expect(text).toContain('has not been able to read the board');
+  });
+
+  /**
+   * 🔴 THE OTHER DIRECTION OF THE SAME RELATIONSHIP, AND A SURVIVING MUTANT IS WHY IT
+   * IS HERE. The case below pins that a thrown read must not CLEAR the prefix bit over
+   * a truncated snapshot. Nothing pinned that it must not SET it over a COMPLETE one —
+   * so `setBoardSnapshot({ outcome: 'error', prefix: true })` in the catch arm passed
+   * all 983 tests, while producing, on a one-page board whose re-read throws:
+   *   - `board-truncated-notice` ("more entries than the app can rank at once") over a
+   *     snapshot that IS the whole board, and
+   *   - `missingMembersNotice` switched to the "may simply not have been read" wording
+   *     about members whose authors really did remove them.
+   *
+   * ⚠️ IT IS THE SAME SHAPE AS THE DOCBLOCK IT CORRECTS. `App` claimed the pair was
+   * safe because both fields live in ONE state value — co-location does not stop an
+   * arm writing one half, and this mutant was exactly that. What holds the pair is the
+   * two writers and their discipline, which is what that docblock now says.
+   *
+   * ⚠️ AND THIS IS AN **INVARIANT GUARD**, NOT REGRESSION COVERAGE — labelled, with the
+   * measurement. It is GREEN at `917f329`: the shipped code already behaved correctly
+   * in this direction, so there was no defect to go red on. What was missing was the
+   * TEST, and its verification is therefore the mutant rather than a base reading —
+   * `{ outcome: 'error', prefix: true }` in the catch arm SURVIVED the whole suite
+   * before this case existed and dies on this case's own message now.
+   */
+  it('🔴 a later THROWN read does not INVENT a prefix over a complete snapshot', async () => {
+    let failReads = false;
+    let attempts = 0;
+    let pages = 0;
+    const shared = {
+      ...endlessShared().shared,
+      async list() {
+        attempts += 1;
+        if (failReads) throw new Error('BOARD_UNAVAILABLE');
+        pages += 1;
+        // 🔴 ONE page and NO cursor: the board FITS. The mirror of the case below,
+        // whose board never ends.
+        return { items: [gridRow(), ownMatchupRow()] };
+      },
+      async withdraw() {
+        return { ok: true as const, deleted: true };
+      },
+    } as unknown as SharedStore;
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
+
+    // ---- PHASE 1: a COMPLETE read, with neither subject claiming truncation ----
+    const card = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid never rendered').toBeTruthy();
+      return el!;
+    });
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'phase 1 cried truncation on a board that FITS — the premise failed',
+    ).toBeNull();
+    expect(card.querySelector('[data-testid="grid-card-missing"]')).toHaveTextContent(
+      NOTICE(false),
+    );
+    expect(pages, 'the board did not come back in one page — wrong fixture').toBe(1);
+    const attemptsBefore = attempts;
+
+    // ---- PHASE 2: every later read throws, and the app re-reads on its own ----
+    failReads = true;
+    const matchups = await openView('Matchups');
+    const mine = await waitFor(() => {
+      const el = within(matchups)
+        .getAllByTestId('matchup-card')
+        .find((c) => within(c).queryByTestId('matchup-menu') !== null);
+      expect(el, 'no own matchup row rendered — nothing here can reach reload()').toBeTruthy();
+      return el!;
+    });
+    await openRowMenu('matchup', mine);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+
+    // PREMISE, BOTH DIRECTIONS: a further read was ATTEMPTED and it FAILED.
+    await waitFor(() => {
+      expect(attempts, 'no further read was issued — the sequence never happened').toBeGreaterThan(
+        attemptsBefore,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('matchups-error'), 'the re-read did not fail').toHaveTextContent(
+        'BOARD_UNAVAILABLE',
+      );
+    });
+
+    // ---- THE TWO CLAIMS, back on the grids board ----
+    await openView('Grids');
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'a FAILED read INVENTED truncation over a snapshot that is the whole board — the ranking is complete and the app now says it is not',
+    ).toBeNull();
+    const after = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid left the list').toBeTruthy();
+      return el!;
+    });
+    expect(
+      after.querySelector('[data-testid="grid-card-missing"]'),
+      'the dangling-member notice switched to the may-not-have-been-read wording after a failed read over a COMPLETE snapshot',
+    ).toHaveTextContent(NOTICE(false));
+  });
+
+  it('🔴 a later THROWN read does not un-truncate the prefix still in `items`', async () => {
+    let failReads = false;
+    /** `list()` CALLS, successful or not — the premise that a second read happened. */
+    let attempts = 0;
+    /** Successful pages only — what the snapshot in `items` was built from. */
+    let pages = 0;
+    const shared = {
+      ...endlessShared().shared,
+      async list() {
+        attempts += 1;
+        if (failReads) throw new Error('BOARD_UNAVAILABLE');
+        pages += 1;
+        return {
+          // Page 1 carries the dangling grid AND a row the VIEWER owns; the rest is
+          // filler with a never-ending cursor, so the scan stops at the cap.
+          items: pages === 1 ? [gridRow(), ownMatchupRow()] : [row(`k${pages}`)],
+          nextCursor: `cursor-${pages}`,
+        };
+      },
+      async withdraw() {
+        return { ok: true as const, deleted: true };
+      },
+    } as unknown as SharedStore;
+    renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
+
+    // ---- PHASE 1: the truncated read, with BOTH of this file's subjects on screen ----
+    const card = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid never rendered').toBeTruthy();
+      return el!;
+    });
+    // 🔴 PHASE 1'S PREMISE IS NAMED SEPARATELY FROM PHASE 2'S CLAIM. A mutant that
+    // breaks the SUCCESS arm's `prefix` and one that breaks the CATCH arm's both end
+    // with no notice on screen, and only the message says which arm moved.
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'phase 1 did not disclose truncation — the premise failed before the sequence began',
+    ).not.toBeNull();
+    expect(card.querySelector('[data-testid="grid-card-missing"]')).toHaveTextContent(
+      NOTICE(true),
+    );
+    expect(pages, 'the first scan did not page — nothing was truncated').toBeGreaterThan(1);
+    const attemptsBefore = attempts;
+    const pagesBefore = pages;
+
+    // ---- PHASE 2: arm the failure, then make the APP re-read on its own ----
+    //
+    // 🔴 THE APP'S OWN `reload()`, NOT A REMOUNT. A remount would re-run the whole
+    // effect from scratch and never produce the sequence under test. A WITHDRAW is the
+    // cheapest control that reaches `reload()`, and it is aimed at a MATCHUP rather
+    // than at the grid so the card carrying the second assertion survives its own
+    // optimistic delete.
+    failReads = true;
+    const matchups = await openView('Matchups');
+    const mine = await waitFor(() => {
+      const el = within(matchups)
+        .getAllByTestId('matchup-card')
+        .find((c) => within(c).queryByTestId('matchup-menu') !== null);
+      expect(el, 'no own matchup row rendered — nothing here can reach reload()').toBeTruthy();
+      return el!;
+    });
+    await openRowMenu('matchup', mine);
+    await userEvent.click(within(mine).getByTestId('matchup-withdraw'));
+    await userEvent.click(within(mine).getByTestId('withdraw-confirm'));
+
+    // PREMISE, BOTH DIRECTIONS: a further read was really ATTEMPTED and really FAILED.
+    // Without this pair the claims below pass on a tree that never re-read anything.
+    await waitFor(() => {
+      expect(attempts, 'no further read was issued — the sequence never happened').toBeGreaterThan(
+        attemptsBefore,
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('matchups-error'), 'the re-read did not fail').toHaveTextContent(
+        'BOARD_UNAVAILABLE',
+      );
+    });
+    // 🔴 AND NO PAGE CAME BACK: `pages` is unchanged from phase 1, so the snapshot in
+    // `items` is still the prefix the first scan built. Compared against the value
+    // CAPTURED before phase 2, not against itself — an `expect(pages).toBe(pages)`
+    // tautology sat here for one edit and asserted nothing.
+    expect(pages, 'a read succeeded during the failing phase').toBe(pagesBefore);
+
+    // ---- THE TWO CLAIMS, back on the grids board ----
+    await openView('Grids');
+    expect(
+      screen.queryByTestId('board-truncated-notice'),
+      'the truncation disclosure vanished on a FAILED read while `items` still holds the prefix — the ranking now presents part of the board as the whole of it',
+    ).not.toBeNull();
+    const after = await waitFor(() => {
+      const el = screen
+        .getAllByTestId('grid-card')
+        .find((c) => c.getAttribute('data-key') === GRID_KEY);
+      expect(el, 'the dangling grid left the list').toBeTruthy();
+      return el!;
+    });
+    expect(
+      after.querySelector('[data-testid="grid-card-missing"]'),
+      'the dangling-member notice flipped to "their authors removed them" after a failed read',
+    ).toHaveTextContent(NOTICE(true));
   });
 });

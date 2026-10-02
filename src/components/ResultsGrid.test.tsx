@@ -151,6 +151,82 @@ const confirmingRun = (estimatedCost: number | undefined): CellRun => ({
   estimatedCost,
 });
 
+// ===========================================================================
+// 🔴 OPERATOR FEEDBACK #3 — the prompt columns are RESPONSIVE, not a fixed 200px.
+//
+// THE DEFECT: `repeat(n, 200px)`. Every cell rendered at 200px whatever the viewport,
+// so on a wide screen the matrix was a narrow ribbon against empty page and the
+// output images — the thing this app exists to compare — were 200px wide on a 2560px
+// monitor. The operator chose a responsive matrix over a one-off bump, accepting the
+// cost named in the PR: the store-listing capture recipe assumes a fixed layout at a
+// fixed viewport and is invalidated by this.
+//
+// 🔴 A `minmax(FLOOR, 1fr)`, AND THE FLOOR IS THE HALF THAT PROTECTS THE PHONE. `1fr`
+// alone would let a board with many prompts crush each column to nothing; the floor
+// is the old fixed width, so a track can only ever end up WIDER than it used to be.
+// That is what keeps the narrow-viewport story — degrade by scrolling, never by
+// dropping a column — identical to what was measured for it.
+//
+// ⚠️ THIS PINS THE TEMPLATE STRING, NOT A PIXEL. jsdom resolves NO grid: it cannot
+// tell you a cell got wider, that nothing is clipped, or that the last column is
+// reachable. The template is the thing that changed and the thing a refactor can
+// silently revert; the visual result is owed a live reading at a wide viewport AND at
+// a narrow one. `mobile-responsive.test.tsx` holds the narrow half of this claim.
+// ===========================================================================
+
+describe('🔴 the prompt columns flex to the viewport, with a floor AND a ceiling', () => {
+  it('emits minmax(floor, ceiling) per prompt — neither a fixed track nor unbounded', () => {
+    renderGrid(); // two prompts
+
+    // POSITIVE CONTROL: the matrix really rendered, so the template read below is a
+    // property of a live grid rather than of an empty state (which returns an
+    // `EmptyState` carrying no template at all).
+    expect(screen.getAllByTestId('grid-cell')).toHaveLength(6);
+
+    // The grid element is the scroller's only child — the scroller carries the
+    // overflow, the child carries the tracks.
+    const scroller = screen.getByTestId('results-grid');
+    const grid = scroller.firstElementChild as HTMLElement;
+
+    // 🔴 THE THREE NAMED CLAIMS RUN FIRST, AND THAT ORDER IS THE POINT. They used to
+    // sit BELOW the whole-string literal, which meant they never executed: the literal
+    // aborts the test on any drift, so every mutation was scored by a bare
+    // `Object.is` failure and not one of these messages ever spoke. Measured —
+    // reverting the ceiling to `1fr` turned 3 red, all three of them whole-string
+    // `.toBe` failures. An assertion an earlier check always pre-empts is decoration.
+    expect(grid.style.gridTemplateColumns, 'the columns have no floor').toContain(
+      'minmax(200px,',
+    );
+    expect(grid.style.gridTemplateColumns, 'the columns cannot grow').toContain('420px');
+    // 🔴 THE UNBOUNDED CASE IS NOW A FAILURE, NOT THE GOAL — this is the inverse of the
+    // assertion it replaces. `1fr` was the original fix for the 200px ribbon and it
+    // overshot: `validateGrid` permits a ONE-prompt grid, whose single column then took
+    // a whole wide monitor. Found by a round-1 audit, invisible to every test here
+    // because jsdom resolves no grid.
+    expect(grid.style.gridTemplateColumns, 'the prompt track is unbounded again').not.toContain(
+      '1fr',
+    );
+
+    // …and the whole string as the BACKSTOP, catching any drift the three named claims
+    // do not name — the column count among them. A LITERAL, including that count:
+    // building it from `prompts.length` or an exported constant is what makes a guard
+    // agree with whatever the implementation happens to say. The fixture has exactly
+    // two prompts, so this string is knowable without reading the component.
+    expect(grid.style.gridTemplateColumns).toBe(
+      'minmax(180px, 220px) repeat(2, minmax(200px, 420px))',
+    );
+
+    // 🔴 AND THE SCROLL CONTAINMENT IS UNTOUCHED, which is what the floor relies on.
+    // A responsive track that also dropped `overflow-x` would widen the DOCUMENT
+    // instead of scrolling — the exact blowout `theme.ts`'s `contentStyle` docblock
+    // records being measured and fixed.
+    expect(scroller.style.overflowX).toBe('auto');
+    expect(scroller.style.minWidth).toBe('0');
+    expect(scroller.style.maxWidth).toBe('100%');
+    expect(grid.style.minWidth).toBe('min-content');
+  });
+});
+
 describe('ResultsGrid render (config rows)', () => {
   it('renders a 3-row × 2-col matrix (2 SDXL configs + 1 Flux config)', () => {
     renderGrid();

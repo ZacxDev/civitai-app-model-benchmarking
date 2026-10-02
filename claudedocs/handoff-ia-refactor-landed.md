@@ -123,16 +123,18 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
    **#496** (dialog family) and **#497** (lightbox) were NOT re-checked on 2026-10-01 and may
    have moved the same way. Check all three live first — see `## Upstream` for the #485 detail.
    forcing: gate — a maintainer decision on #496; #497 is explicitly blocked on it.
-5. **The five-package bump — parked, and its stated prerequisite is now MET.** Patch outside
-   this public repo at
-   `/home/zach/workspace/civit/.parked/mb-five-package-bump-perpath-b778de4.patch`.
-   Starters **PR #487 MERGED 2026-09-30**, so the gate this rank named is gone. ⚠️ It is NOT
-   unblocked: the measured peer chain still binds (`blocks-react@0.58.1+` peers
-   `app-sdk >=0.49.0` vs the pinned `^0.42.0`; all dom files fail at COLLECTION), and the
-   listed costs are still owed. 🔴 Its PRIZE has also changed — deleting `ContributeMenu.tsx`
-   was ruled impossible on #485's premise, and #485 is now fixed, so **re-derive what the bump
-   actually buys before pricing it.**
-   forcing: gate — none external any more; this is now a cost/benefit call, not a wait.
+5. ✅ **CLOSED — THE BUMP LANDED INSIDE PR #75 (2026-10-01), NOT AS ITS OWN TASK.** It was never
+   worked as rank 5: `scope: 'site'` lives in `blocks-react@0.61.0`, which peer-requires
+   `app-sdk >=0.49.0` against the pinned `^0.42.0` — so the resource-links feature **forced** the
+   bump as a set. Shipped: `app-sdk ^0.42→^0.54` · `blocks-react ^0.51→^0.61` · `sdk ^0.8→^0.10`
+   · `theme ^0.3.1→^0.4.0`. 🔴 **`components-react` deliberately HELD at `^0.4.1`** (0.9.1 is a
+   total API replacement; nothing peer-depends on it; exactly one `@civitai/components`
+   resolves). Three things broke and were fixed at cause: `src/manifest.ts` now validates the
+   committed bytes against the canonical schema via `@civitai/app-sdk/manifest`; `index.html`
+   boot literals moved with `theme@0.4.0`; and a **new `pnpm-workspace.yaml`** waives pnpm's
+   `minimumReleaseAge` for three exact versions — see `CLAUDE.md`, which documents its TWO
+   expiry clocks. The parked patch is now **superseded, not pending**.
+   forcing: none — closed.
 6. ✅ **CLOSED — #66/#67 shipped as 0.4.13, #70–#73 as 0.4.14, both now LIVE.** The
    release-before-judging ordering was overridden by the operator both times, deliberately,
    because production was generations behind `main`. **Do not re-open.** Detail in the ARCHIVE.
@@ -284,38 +286,34 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   version-scoped** — shipping a version leaves screenshots stale rather than broken.
   Recorded because the same shape will recur on any IA change: *a capture recipe can only
   be measured against a released artifact.*
-- 🔴 **THE APPROVAL QUEUE HOLDS MORE THAN ONE APP AND THE OTHER ONE IS USUALLY FIRST — SIX
-  ATTEMPTS, SIX TIMES.** ⚠️ CONSOLIDATED 2026-09-30 from three near-identical bullets that had
-  accumulated across sessions; every measurement below was in one of them. `yt-thumbnail` sat
-  above this app at 0.4.7; `prompt-lab` sat above it at 0.4.9, 0.4.10, 0.4.11, **and again at
-  0.4.12 and 0.4.13** (submitted 9/29, so oldest-first puts it first every time). A positional
-  selector would approve **someone else's submission to production**. The recipe: assert exactly
-  ONE row whose text matches the app slug, assert that row does NOT mention the other app, stamp
-  a temporary marker attribute on its single `Review` control, click the marker selector, remove
-  the attribute — refusing rather than guessing at every step, and re-asserting immediately
-  before the click. Same shape for `Approve + build`, whose immediate neighbour is `Reject…`.
-  Confirmation it worked, every time: `prompt-lab` stayed `pending` afterwards.
-- 🔴 **THE APPROVE BUTTON MAY OR MAY NOT BE COVERED BY THE SITE'S OWN STICKY FOOTER — SO
-  HIT-TEST EVERY TIME AND NEVER APPLY THE WORKAROUND BY HABIT.** ⚠️ CONSOLIDATED 2026-09-30 from
-  three bullets. `Approve + build` sits at y≈1082 h=36 in a pinned action bar against a 1134px
-  viewport, and `FOOTER.sticky` (45px, opaque, `z-50`) covers everything below y=1089 — so the
-  button's CENTRE, which the click op targets, can land on the bar; `elementFromPoint` then
-  returns a DIV. The window cannot scroll (`scrollHeight - clientHeight == 0`) and
-  `scrollIntoView` does not always clear it. **Measured covered on 0.4.9; NOT covered on 0.4.10,
-  0.4.11, 0.4.12 and 0.4.13** (`hitIsBtn: true` straight away). Remedy when it IS covered,
-  changing no layout: set `pointer-events: none` on the sticky footer, re-hit-test, click,
-  then RESTORE it.
-
+- 🔴 **THE APPROVAL QUEUE HOLDS MORE THAN ONE APP AND THE OTHER ONE IS USUALLY FIRST — six
+  attempts, six times (`yt-thumbnail`, then `prompt-lab` five times). A POSITIONAL selector would
+  approve SOMEONE ELSE'S submission to production.** Recipe: assert exactly ONE row matching the
+  app slug, assert it does NOT mention the other app, stamp a temporary marker attribute on its
+  single `Review` control, click the marker, remove it — refusing rather than guessing at every
+  step, re-asserting immediately before the click. Same shape for `Approve + build`, whose
+  neighbour is `Reject…`. Confirmation each time: the other app stayed `pending`. Full measured
+  account EVICTED 2026-10-01 to the ARCHIVE.
+- 🔴 **THE APPROVE BUTTON MAY OR MAY NOT BE COVERED BY THE SITE'S STICKY FOOTER — HIT-TEST
+  EVERY TIME, NEVER APPLY THE WORKAROUND BY HABIT.** Measured covered on 0.4.9; NOT covered on
+  0.4.10–0.4.13. Remedy when it IS: set `pointer-events: none` on the sticky footer, re-hit-test,
+  click, then RESTORE it. Geometry and the `elementFromPoint` evidence EVICTED 2026-10-01 to the
+  ARCHIVE.
 - ✅ **RESOURCE LINKS SHIP AGAIN — THIS BULLET'S "IMPOSSIBLE TODAY / DO NOT RE-DERIVE" IS
-  RETRACTED 2026-10-01.** It read as a standing prohibition and would have stopped the next
-  session attempting work that is now DONE. What changed: `civitai/civitai#5209` is **CLOSED**
-  (2026-09-30), fixed upstream by **#5250**, which added `scope: 'site'` to the App Blocks
-  `NAVIGATE` message — so the unlock really was a host-side change, as this bullet predicted.
-  **PR #75 is MERGED** (`5c6cdbc`, one commit past 0.4.14's source) and re-enables the links in
-  the matchup detail modal. `LoraRef.modelId` being KEPT is what made it retrofittable.
+  RETRACTED 2026-10-01. `src/components/ResourceName.tsx` IS THE AUTHORITY NOW, NOT THIS DOC.**
+  It read as a standing prohibition and would have stopped the next session attempting work that
+  is now DONE. `civitai/civitai#5209` is **CLOSED**; fixed upstream by **#5250** (`72436ad8c1`,
+  2026-09-30), which added a `scope` to the `NAVIGATE` message — `scope: 'site'` resolves the
+  path at the civitai.com root instead of rewriting it under `/apps/run/<slug>/`. **PR #75 is
+  MERGED** (`5c6cdbc`) and re-enables the links in the matchup detail modal; `LoraRef.modelId`
+  being KEPT is what made it retrofittable.
+  🔴 **"The unlock is a TRUST-TIER change" WAS WRONG, and an earlier draft of this retraction
+  repeated it.** `scope: 'site'` is granted **per SURFACE** by the host's
+  `BLOCK_HOST_SITE_NAVIGATION` record — which is exactly why #5250's unlock landed while this
+  block still runs at `trustTier: 'unverified'`. 🔴 **Route (c) — `<a target="_blank">` from the
+  block — IS STILL SHUT** (`allow-popups-to-escape-sandbox` is not grantable) and remains the
+  live hazard deciding the element. Only routes (a) and (b) opened.
   🔴 **Merged ≠ live** — see `State now` for the 0.4.15 release that carries it.
-  ⚠️ The measured account of why it was shut (host sandbox/trust-tier detail) is in the cairn
-  entry `model-benchmarking-block`; it is now HISTORY, not a constraint.
 - 🔴 **A squash merge BREAKS A STACK — children must be `git rebase --onto origin/main <old-parent-tip>`, retargeted to `main` BEFORE the force-push.** Worked recipe and the CI-event-drop it pairs with: EVICTED 2026-10-01 to the ARCHIVE.
 - 🔴 **A force-push during a parent's merge can drop the CI event entirely** (#61 got ZERO check-runs; proven real by a positive control against a known-green head). Remedy: `gh pr close` + `gh pr reopen`. Detail EVICTED 2026-10-01 to the ARCHIVE.
 - 🔴 **THE WHOLE SESSION'S PATTERN: every defect that mattered PASSED CI, and none would

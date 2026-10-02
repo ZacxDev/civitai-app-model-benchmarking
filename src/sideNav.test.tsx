@@ -17,7 +17,25 @@
 // was `aria-haspopup="menu"` and its items were `role="menuitem"`. These are plain
 // `<button>`s inside a `role="list"`; `getAllByRole('menuitem')` finds nothing.
 //
-// ── 🔴 COVERAGE LABEL: NONE OF THIS IS REGRESSION COVERAGE ───────────────────
+// ── 🔴 COVERAGE LABEL: READ THE SPLIT — IT IS NO LONGER "NONE OF THIS" ───────
+//
+// ⚠️ THIS HEADER USED TO SAY "NONE OF THIS IS REGRESSION COVERAGE", FULL STOP, AND
+// THAT IS NOW FALSE FOR TWO OF THE FOUR DESCRIBE BLOCKS. The paragraph below is still
+// exactly right about the ORIGINAL cases — they arrived with their subject — but two
+// blocks were added later against a tree where `SideNav.tsx` already existed, and they
+// were measured RED there. Corrected rather than reworded, because a coverage label
+// that overstates in the SAFE direction still stops the next reader looking:
+//
+//   - `the group is OPEN by default …`     — the default-expanded case is RED at
+//     `origin/main` (the group started shut on Home); the collapse-sticks case beside
+//     it is GREEN there and is labelled an INVARIANT GUARD in place, with the mutation
+//     that kills it recorded.
+//   - `the ACTIVE row is marked the way the pack marks an active tab`  — both
+//     behavioural cases RED at `origin/main` (the active row declared `token.text` and
+//     no shadow). The PREMISE case is a positive control on the pack's stylesheet and
+//     is green at any tree, by design.
+//
+// Everything in the two ORIGINAL describe blocks remains as the paragraph below says.
 //
 // THIS FILE AND ITS SUBJECT ARRIVE IN THE SAME COMMIT. `src/sideNav.test.tsx` and
 // `src/components/SideNav.tsx` were both added by `8a4b681`, and NEITHER exists on
@@ -43,22 +61,34 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { BLOCKS_UI_STYLES } from '@civitai/blocks-react/ui';
+
 import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
 
 /**
- * The five items, as `[testid, visible label, depth, the view selecting it produces]`.
+ * The five items, as `[testid, visible label, depth, the view selecting it produces]`,
+ * **in rendered order**.
  *
  * 🔴 LITERALS ON EVERY SIDE, and deliberately NOT derived from the component's own
  * tables — a mapping read out of the implementation agrees with a wrong implementation.
  * `SIDE_NAV_ITEMS` is cross-checked against this table below rather than used to build
  * it.
+ *
+ * 🔴 THE ORDER OF THE THREE SUB-ITEMS IS PART OF THE CONTRACT, AND IT CHANGED ONCE:
+ * Grids / Matchups / Prompts → **Prompts / Matchups / Grids** (an operator decision —
+ * the rail reads in the order a viewer BUILDS the objects; see `MY_ITEMS` in
+ * `components/SideNav.tsx`). Three separate assertions below read this table as a
+ * SEQUENCE — the `listitem` order, the FOCUSABLE order, and the component's exported
+ * `SIDE_NAV_ITEMS` ledger — so a reorder of the component without a reorder here is
+ * red three times over, and vice versa. MEASURED: with this table in the new order and
+ * `MY_ITEMS` at `7c20155`'s old order, this file is 3 failed / 16 passed.
  */
 const ITEMS = [
   ['nav-home', 'Home', 0, { kind: 'home' }],
   ['nav-my', 'My Benchmarks', 0, null],
-  ['nav-my-grid', 'Grids', 1, { kind: 'my', noun: 'grid' }],
-  ['nav-my-matchup', 'Matchups', 1, { kind: 'my', noun: 'matchup' }],
   ['nav-my-prompt', 'Prompts', 1, { kind: 'my', noun: 'prompt' }],
+  ['nav-my-matchup', 'Matchups', 1, { kind: 'my', noun: 'matchup' }],
+  ['nav-my-grid', 'Grids', 1, { kind: 'my', noun: 'grid' }],
 ] as const satisfies ReadonlyArray<readonly [string, string, number, MainView | null]>;
 
 function renderNav(view: MainView = { kind: 'home' }) {
@@ -73,6 +103,20 @@ async function expand(): Promise<void> {
   if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
 }
 
+/**
+ * Shut the group, from any starting state.
+ *
+ * 🔴 IT EXISTS BECAUSE THE DEFAULT FLIPPED. The group used to start SHUT on Home, so
+ * a case about the collapsed nav needed no setup and several here had none. It starts
+ * OPEN now (see `SideNav`'s `expanded` docblock), so every one of those cases was
+ * silently asserting about a state it was no longer in — which is why this helper is
+ * a helper and not three inline clicks: the next case to need it should find it.
+ */
+async function collapse(): Promise<void> {
+  const trigger = screen.getByTestId('nav-my');
+  if (trigger.getAttribute('aria-expanded') !== 'false') await userEvent.click(trigger);
+}
+
 describe('SideNav — the structure the upstream swap has to preserve', () => {
   it('is a landmark <nav> with an accessible name, wrapping a role="list"', () => {
     renderNav();
@@ -81,11 +125,29 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
     // A literal: a `<nav>` with no name is one of several unlabelled landmarks to a
     // screen reader user, which is the state this app was in before there was a nav.
     expect(nav).toHaveAccessibleName('Model Benchmarking sections');
-    expect(within(nav).getByRole('list')).toBe(screen.getByTestId('side-nav-list'));
+    // ⚠️ THERE ARE TWO LISTS NOW, and that is the default state rather than a
+    // regression: the group starts OPEN, and `nav-my-group` is itself a
+    // `role="list"` nested inside the outer one. A bare `getByRole('list')` throws on
+    // the pair, so the structure is asserted as the ORDERED set — which says more
+    // than the single lookup did (it pins the nesting, not just the presence).
+    expect(within(nav).getAllByRole('list').map((el) => el.getAttribute('data-testid'))).toEqual([
+      'side-nav-list',
+      'nav-my-group',
+    ]);
+    expect(
+      screen.getByTestId('side-nav-list').contains(screen.getByTestId('nav-my-group')),
+      'the sub-group escaped the nav list',
+    ).toBe(true);
   });
 
   it('🔴 LEDGER: the collapsed nav holds EXACTLY two items, and the expanded one five', async () => {
     renderNav();
+
+    // ⚠️ THE COLLAPSE IS NOW SETUP. This case used to read the collapsed state
+    // straight off a fresh render, which stopped being the initial state when the
+    // group was made default-open; without this line the first three assertions
+    // would be about a nav that is in fact showing all five rows.
+    await collapse();
 
     // Collapsed: Home and the group trigger. Fails when an item is ADDED as loudly as
     // when one is removed — the primary navigation is a decision, not a drift.
@@ -130,7 +192,7 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
   // It asserted that every item declares `--civitai-nav-depth` equal to its depth, and
   // that `NAV_DEPTH_STEP_PX` is 14. It CANNOT observe what its name claims. Its only
   // comparand for "the upstream step" was `NAV_DEPTH_STEP_PX`, imported from the
-  // component under test, and the pinned `@civitai/components@0.4.1` installed here
+  // component under test, and the pinned `components-react@^0.4.1` (installed `0.4.3`)
   // SHIPS NO NAV ELEMENT AT ALL — so drift from the real 0.8.1 / 0.9.0 shape (a
   // different property name, a different step, or depth expressed some other way) is
   // structurally invisible to it. It could only ever fail if someone edited this repo's
@@ -160,10 +222,20 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
    * MOVES THE ROW.
    *
    * 🔴 LITERALS, NOT `NAV_DEPTH_STEP_PX`. Deriving the expectation from the component's
-   * own constant is precisely what made the deleted case unable to fail. jsdom folds the
-   * sum, so `calc(10px + 14px)` reads back as `calc(24px)`; the shorthand mutant reads
-   * back as a bare `10px`, which differs from the depth-0 literal too — so even the
-   * depth-0 row discriminates.
+   * own constant is precisely what made the deleted case unable to fail. The shorthand
+   * mutant reads back as a bare `10px`, which differs from the depth-0 literal too — so
+   * even the depth-0 row discriminates.
+   *
+   * 🔴 THE VALUE IS A CUSTOM-PROPERTY REFERENCE NOW, AND THAT IS HALF A SEAM. It read
+   * `calc(10px + 14px)` (which jsdom folds to `calc(24px)`); it is
+   * `var(--mb-nav-indent-1, 24px)`, because `compact.ts` has to be able to zero the
+   * indent on the horizontal top bar and a stylesheet cannot beat an inline
+   * declaration — only read a property one names. The fallback carries the old
+   * literal, so the WIDE rail renders exactly as it did. The OTHER half of the seam —
+   * that `compact.ts` sets the same property name — is pinned in
+   * `mobile-responsive.test.tsx`; each side is spelled here as a LITERAL rather than
+   * imported, so a rename of `navIndentVar` is red on both sides even though
+   * production spells it once.
    *
    * This asserts a DECLARED value, which jsdom does give. It is NOT a layout claim:
    * jsdom computes no layout, so whether the indent is legible on screen is still owed
@@ -188,12 +260,14 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
     // reports a bare `10px`, this one reports `calc(...)`.
     //
     // Depth 0 — the two top-level rows.
-    expect(paddingLeftOf('nav-home')).toBe('calc(10px)');
-    expect(paddingLeftOf('nav-my')).toBe('calc(10px)');
+    expect(paddingLeftOf('nav-home')).toBe('var(--mb-nav-indent-0, 10px)');
+    expect(paddingLeftOf('nav-my')).toBe('var(--mb-nav-indent-0, 10px)');
 
     // Depth 1 — every sub-item, indented by exactly one step.
     for (const testid of ['nav-my-grid', 'nav-my-matchup', 'nav-my-prompt']) {
-      expect(paddingLeftOf(testid), `${testid} lost its depth indent`).toBe('calc(24px)');
+      expect(paddingLeftOf(testid), `${testid} lost its depth indent`).toBe(
+        'var(--mb-nav-indent-1, 24px)',
+      );
     }
 
     // 🔴 And the RELATIONSHIP, stated independently of the literals above: a sub-item is
@@ -209,18 +283,20 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
     const trigger = screen.getByTestId('nav-my');
     const chevron = () => screen.getByTestId('nav-my-chevron').textContent;
 
+    // Starts OPEN (see the default-expanded case below), so the walk starts there.
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const expandedGlyph = chevron();
+    await userEvent.click(trigger);
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     const collapsedGlyph = chevron();
-    await userEvent.click(trigger);
-    expect(trigger).toHaveAttribute('aria-expanded', 'true');
     // 🔴 BOTH DIRECTIONS, and the two glyphs asserted DIFFERENT rather than by literal:
     // the character is cosmetic, the state change is not, and a chevron that never moves
     // is the defect (a static glyph reads as decoration and tells a sighted reader
     // nothing about whether pressing did anything).
-    expect(chevron()).not.toBe(collapsedGlyph);
+    expect(collapsedGlyph).not.toBe(expandedGlyph);
     await userEvent.click(trigger);
-    expect(trigger).toHaveAttribute('aria-expanded', 'false');
-    expect(chevron()).toBe(collapsedGlyph);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(chevron()).toBe(expandedGlyph);
 
     // The chevron is hidden from the a11y tree — `aria-expanded` is what carries the
     // state there, and announcing the glyph as text would be noise.
@@ -230,8 +306,15 @@ describe('SideNav — the structure the upstream swap has to preserve', () => {
   it('points aria-controls at the group it opens, and only while it is open', async () => {
     renderNav();
     const trigger = screen.getByTestId('nav-my');
+    // Open on arrival: the attribute is already pointing at the live group.
+    expect(trigger.getAttribute('aria-controls')).toBe(
+      screen.getByTestId('nav-my-group').getAttribute('id'),
+    );
+    // …and it is dropped when there is nothing to point at, which is the half that
+    // would leave a dangling IDREF in the accessibility tree.
+    await collapse();
     expect(trigger).not.toHaveAttribute('aria-controls');
-    await userEvent.click(trigger);
+    await expand();
     expect(trigger.getAttribute('aria-controls')).toBe(
       screen.getByTestId('nav-my-group').getAttribute('id'),
     );
@@ -269,7 +352,7 @@ describe('SideNav — aria-current follows the view', () => {
     // nearest rendered ancestor to carry it.
     const { onSelect, rerender } = renderNav({ kind: 'home' });
     rerender({ kind: 'my', noun: 'prompt' });
-    await userEvent.click(screen.getByTestId('nav-my'));
+    await collapse();
 
     expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-current', 'page');
@@ -303,7 +386,13 @@ describe('SideNav — each item selects its own view, and only its own', () => {
   }
 
   it('the group trigger selects NO view — it is a disclosure, not a destination', async () => {
+    // BOTH presses, because the group now starts open and a one-press case would only
+    // ever exercise the CLOSING direction. `onSelect` must stay untouched either way.
     const { onSelect } = renderNav();
+    await userEvent.click(screen.getByTestId('nav-my'));
+    expect(screen.queryByTestId('nav-my-group')).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+
     await userEvent.click(screen.getByTestId('nav-my'));
     expect(screen.getByTestId('nav-my-group')).toBeInTheDocument();
     expect(onSelect).not.toHaveBeenCalled();
@@ -313,6 +402,7 @@ describe('SideNav — each item selects its own view, and only its own', () => {
 describe('SideNav — the keyboard', () => {
   it('moves with the arrow keys, over the items that are actually rendered', async () => {
     renderNav();
+    await collapse();
     // Collapsed: two items, and the cycle is over those two only — a roving index over
     // a stale list would step onto an unmounted node and focus would land on <body>.
     screen.getByTestId('nav-home').focus();
@@ -323,15 +413,20 @@ describe('SideNav — the keyboard', () => {
     await userEvent.keyboard('{ArrowUp}');
     expect(screen.getByTestId('nav-my')).toHaveFocus();
 
-    // Expanded: the three sub-items join the cycle, in DOM order.
+    // Expanded: the three sub-items join the cycle, in DOM order — which is
+    // Prompts → Matchups → Grids, the order `MY_ITEMS` declares. The names are
+    // spelled out rather than indexed off `ITEMS`, so this case is a SECOND,
+    // independent reading of the order the table above pins.
     await userEvent.keyboard('{Enter}');
     await screen.findByTestId('nav-my-group');
     screen.getByTestId('nav-my').focus();
     await userEvent.keyboard('{ArrowDown}');
-    expect(screen.getByTestId('nav-my-grid')).toHaveFocus();
+    expect(screen.getByTestId('nav-my-prompt')).toHaveFocus();
     await userEvent.keyboard('{ArrowDown}');
     expect(screen.getByTestId('nav-my-matchup')).toHaveFocus();
-    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByTestId('nav-my-grid')).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
     // Past the last item it wraps to the first.
     expect(screen.getByTestId('nav-home')).toHaveFocus();
   });
@@ -376,6 +471,7 @@ describe('SideNav — the keyboard', () => {
     // propagation would make the grid form's own Escape inert — a data-loss shape this
     // repo has already paid for once (`gridsView.test.tsx`'s picker case).
     const { onSelect } = renderNav();
+    await collapse();
     screen.getByTestId('nav-home').focus();
     await userEvent.keyboard('{Escape}');
     expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
@@ -396,7 +492,196 @@ describe('SideNav — the selection is NOT persisted', () => {
     const fresh = render(<SideNav view={{ kind: 'home' }} onSelect={vi.fn()} />);
     const nav = within(fresh.container).getByTestId('side-nav');
     expect(within(nav).getByTestId('nav-home')).toHaveAttribute('aria-current', 'page');
-    // …and the group is shut again, so nothing about the previous selection survived.
-    expect(within(nav).getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    // …and NO sub-item carries `aria-current`, so nothing about the previous
+    // selection survived. (The group itself is open — that is the DEFAULT, not a
+    // memory of the rerender above; the default-expanded case proves it is the
+    // default by opening on a nav that was never navigated at all.)
+    expect(within(nav).getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+    expect(within(nav).getByTestId('nav-my-grid')).not.toHaveAttribute('aria-current');
+    expect(within(nav).queryAllByRole('listitem')).toHaveLength(5);
+  });
+});
+
+// ===========================================================================
+// 🔴 OPERATOR FEEDBACK #1 — "My Benchmarks" opens by default.
+//
+// THE DEFECT: `useState(onMyView)`. The group was open only when the viewer was
+// already on a My view — and `SideNav` persists nothing, so every session and every
+// reload starts on Home, where `onMyView` is false. The three destinations the
+// sidebar exists to expose were therefore behind a disclosure on FIRST PAINT, every
+// time, and the second half of the page's only primary navigation rendered as one
+// collapsed row.
+//
+// 🔴 THE INTERESTING HALF IS THE SECOND CASE, NOT THE FIRST. Flipping an initial
+// value is trivial; the hazard is what it does to the effect beside it. That effect
+// is deliberately ONE-WAY ("only ever opens it") so that collapsing the group cannot
+// navigate away — and a default of `true` is exactly the change that invites someone
+// to make the effect two-way "for consistency", at which point a viewer who collapses
+// the group on Home watches it spring back open. The sticky case below is what makes
+// that a red test rather than a bug report.
+// ===========================================================================
+
+describe('SideNav — the group is OPEN by default, and a collapse STICKS', () => {
+  it('🔴 a fresh nav on HOME shows all five items with no interaction at all', () => {
+    renderNav({ kind: 'home' });
+
+    // No click, no keypress: the state under test is the one the viewer arrives in.
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('nav-my-group')).toBeInTheDocument();
+    // The SET, not a count — a group that rendered five copies of one row would pass
+    // a length check. Each destination is present and reachable.
+    expect(screen.getAllByRole('listitem').map((el) => el.firstElementChild?.getAttribute('data-testid'))).toEqual(
+      ITEMS.map(([t]) => t),
+    );
+  });
+
+  // ⚠️ INVARIANT GUARD — NOT REGRESSION COVERAGE, and measured: this case is GREEN at
+  // `origin/main`, because the effect was already one-way there and the group already
+  // started shut on Home, so "a collapse sticks" was trivially true. It guards the
+  // change's blast radius rather than the change, and it is VALIDATED BY MUTATION:
+  // widening the effect to `useEffect(() => { setExpanded(true); }, [onMyView, view])`
+  // turns this case — and only this case, out of 24 in this file — red, on its own
+  // `aria-expanded="false"` assertion at the rerender. The default-expanded case
+  // above it IS regression coverage (red at `origin/main`).
+  it('🔴 collapsing on HOME STAYS collapsed — the effect must not re-open it', async () => {
+    // 🔴 THE MUTANT THIS EXISTS FOR: widening `SideNav`'s effect from
+    // `if (onMyView) setExpanded(true)` to an unconditional `setExpanded(true)`, or
+    // dropping its `onMyView` guard. Either makes the group re-open the moment
+    // anything re-renders the nav, and a disclosure that reopens under the viewer's
+    // hand is worse than one that starts shut.
+    const { rerender } = renderNav({ kind: 'home' });
+    await collapse();
+    expect(screen.queryByTestId('nav-my-group')).toBeNull();
+
+    // A re-render on the SAME view — the ordinary case, and the one an unconditional
+    // effect breaks immediately.
+    rerender({ kind: 'home' });
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('nav-my-group')).toBeNull();
+
+    // 🔴 AND THE POSITIVE CONTROL FOR THE OTHER DIRECTION, which is what stops this
+    // case being satisfiable by a group that can never open again: navigating INTO a
+    // My view must still open it, because the active leaf has to exist to be marked
+    // current. Without this, "stays collapsed" and "is broken" look identical.
+    rerender({ kind: 'my', noun: 'matchup' });
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('nav-my-matchup')).toHaveAttribute('aria-current', 'page');
+  });
+});
+
+// ===========================================================================
+// 🔴 OPERATOR FEEDBACK #4 (F1) — the active row had no visible highlight.
+//
+// MEASURED LIVE: the active row rendered `rgb(26, 27, 30)` on `rgb(26, 27, 30)`. The
+// rule was `background: active ? token.surface : 'transparent'` over a transparent
+// 1px border — and `--civitai-color-surface` resolves to the same value as
+// `--civitai-color-body` in the dark theme, so the fill was literally invisible. The
+// only surviving signal was a 600 font-weight. In LIGHT theme the same fill is a
+// near-white on white. Neither theme marked the current row.
+//
+// 🔴 THIS IS A CONSISTENCY FIX, SO THE GUARD IS A RELATIONSHIP TO THE THING IT IS
+// CONSISTENT WITH. `BoardNav` already shows an active tab unmistakably, using the
+// pack's `SegmentedControl`. So rather than pin three colours this repo chose — which
+// would be a guard on OUR taste, green forever, and silent when the pack moves — the
+// case below reads the PACK'S OWN STYLESHEET (`BLOCKS_UI_STYLES`, the exact CSS the
+// pack injects at runtime), extracts its active-segment rule, and asserts the nav's
+// active row declares the same three things. A pack restyle that moves the segment
+// and leaves the nav behind is then a red test rather than a slow divergence.
+//
+// ⚠️ AND IT IS STILL NOT A LAYOUT CLAIM. jsdom resolves no colour and performs no
+// layout: this pins the DECLARED values on both sides. Whether the result is legible
+// at the app's real contrast, in both themes, is a live reading and is owed.
+// ===========================================================================
+
+describe('SideNav — the ACTIVE row is marked the way the pack marks an active tab', () => {
+  /** The pack's rule for an active `SegmentedControl` segment, as `prop -> value`. */
+  function packActiveSegmentDeclarations(): Record<string, string> {
+    const marker = "[data-civitai-ui-segment][data-active]";
+    const at = BLOCKS_UI_STYLES.indexOf(marker);
+    if (at < 0) return {};
+    const open = BLOCKS_UI_STYLES.indexOf('{', at);
+    const close = BLOCKS_UI_STYLES.indexOf('}', open);
+    if (open < 0 || close < 0) return {};
+    const out: Record<string, string> = {};
+    for (const decl of BLOCKS_UI_STYLES.slice(open + 1, close).split(';')) {
+      const colon = decl.indexOf(':');
+      if (colon < 0) continue;
+      out[decl.slice(0, colon).trim()] = decl.slice(colon + 1).trim().replace(/\s+/g, ' ');
+    }
+    return out;
+  }
+
+  const norm = (v: string) => v.trim().replace(/\s+/g, ' ');
+
+  it('🔴 PREMISE: the pack really does give its active segment a visible treatment', () => {
+    // 🔴 THE RATIONALE THIS COMMENT USED TO GIVE WAS FALSE, AND A ROUND-0 AUDIT
+    // MEASURED IT. It claimed that without this case a `{}` parse would leave the
+    // behavioural assertions comparing `undefined` to `undefined` and passing while
+    // checking nothing. Measured: rename the marker to an unmatchable string and
+    // **2 of 24 cases go red** — this one AND "the active row mirrors the pack". The
+    // left-hand side is always a real declared string read off the component, so
+    // `toBe(undefined)` fails loudly. There is no silent pass to protect against.
+    //
+    // 🔴 WHAT IT ACTUALLY DOES, which nothing else here does: the `Object.keys`
+    // ledger below fails if the pack ADDS A FOURTH declaration to its active
+    // segment. That divergence leaves every behavioural case GREEN — they assert the
+    // three we mirror — while the nav silently stops matching the pack. That is the
+    // reason to keep this case, and the reason not to prune it on the sentence that
+    // used to be here.
+    const pack = packActiveSegmentDeclarations();
+    expect(Object.keys(pack).sort()).toEqual(['background', 'box-shadow', 'color']);
+    // …and it is the PRIMARY colour plus a shadow that carries it, not the fill. The
+    // fill only reads in the pack's own context because a segment sits on a
+    // `surface-2` track; a nav row sits on the page body, which is the whole reason
+    // the same fill alone did nothing here.
+    expect(pack['color']).toBe('var(--civitai-color-primary)');
+    expect(pack['background']).toBe('var(--civitai-color-surface)');
+    expect(pack['box-shadow']).toBeTruthy();
+  });
+
+  it('🔴 the active row mirrors the pack: fill, PRIMARY text, and the same shadow', async () => {
+    const pack = packActiveSegmentDeclarations();
+    renderNav({ kind: 'my', noun: 'grid' });
+    await expand();
+
+    const active = screen.getByTestId('nav-my-grid');
+    expect(active, 'the row under test is not the current one').toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+
+    expect(norm(active.style.background)).toBe(pack['background']);
+    expect(norm(active.style.color)).toBe(pack['color']);
+    expect(norm(active.style.boxShadow)).toBe(pack['box-shadow']);
+    // …and the border is no longer transparent, which is this nav's stand-in for the
+    // bordered track the pack's segments sit in.
+    expect(active.style.borderColor).toBe('var(--civitai-color-border)');
+  });
+
+  it('🔴 an INACTIVE row differs on every one of them — not just on font-weight', async () => {
+    // 🔴 THE NEGATIVE CONTROL, AND THE ACTUAL BUG. The broken tree DID set a
+    // `background` on the active row; it was simply the same colour as the page. A
+    // case that only asserted "the active row has a background" would have been green
+    // throughout. What has to be true is that active and inactive DIFFER, on more
+    // than the one property (weight) that already differed.
+    renderNav({ kind: 'my', noun: 'grid' });
+    await expand();
+
+    const active = screen.getByTestId('nav-my-grid');
+    const inactive = screen.getByTestId('nav-my-prompt');
+    expect(inactive).not.toHaveAttribute('aria-current');
+
+    for (const prop of ['background', 'color', 'boxShadow', 'borderColor'] as const) {
+      expect(
+        norm(inactive.style[prop]),
+        `${prop} is identical on the active and inactive rows`,
+      ).not.toBe(norm(active.style[prop]));
+    }
+    // Spelled out, so the inactive side is pinned too rather than merely "different":
+    // a mutant that made BOTH rows primary-coloured would satisfy nothing here.
+    expect(inactive.style.background).toBe('transparent');
+    expect(inactive.style.borderColor).toBe('transparent');
+    expect(inactive.style.boxShadow).toBe('none');
+    expect(inactive.style.color).toBe('var(--civitai-color-text-dimmed)');
   });
 });

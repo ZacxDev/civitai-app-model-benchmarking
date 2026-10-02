@@ -216,12 +216,12 @@ describe('the matchup group band opens the matchup', () => {
     // for an underline for exactly that reason: without it nothing says the text is a
     // control.
     //
-    // ⚠️ RETRACTED: this used to add "and it is the same argument `ResourceLink` makes".
-    // `ResourceLink` does not exist, and its successor `ResourceName` makes the OPPOSITE
-    // argument — it renders resource titles with an explicit `textDecoration: 'none'`
-    // precisely because they are NOT controls. Citing it here inverted it. The band
-    // genuinely is a control (it opens the matchup detail), which is what earns the
-    // underline.
+    // 🔴 THE PREDICATE IS SHARED WITH `ResourceName`: a control gets the underline, a
+    // non-control does not. The band is a control (it opens the matchup detail);
+    // `ResourceName` underlines a title that has a `modelId` and leaves one without at
+    // `textDecoration: 'none'`. ⚠️ Said here only because this cross-reference has now
+    // been wrong in both directions — it once claimed `ResourceName` makes the OPPOSITE
+    // argument, which was true before `civitai/civitai` #5250 and is not now.
     //
     // ⚠ jsdom performs NO layout, so this reads the DECLARED inline style. It cannot
     // say the underline is VISIBLE, only that the app declares it.

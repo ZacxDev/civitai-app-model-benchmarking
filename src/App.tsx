@@ -24,7 +24,7 @@
 // `capture-landmarks.test.tsx` now pins the SET per destination rather than one list.
 //
 // 🔴 THE PER-BOARD My/Community SUB-TABS ARE GONE, AND THE MACHINERY BEHIND THEM IS NOT.
-// Drafts, archive and quota all moved to My Benchmarks (`MyPublished`, `MyGridsView`),
+// Drafts, archive and quota all moved to My Benchmarks (`MyList`, `MyGridsView`),
 // which is also where `ARCHIVE_NOTE`'s promise — "stays in Community for everyone
 // including you" — is true again. The community boards still carry the vote lists the
 // Top Grid's members come out of; folding THOSE away is what would starve it.
@@ -106,7 +106,9 @@ import type { SharedStorageValue } from '@civitai/app-sdk/blocks';
 import type { Scope, StorageClient, StorageQuota } from '@civitai/sdk';
 import {
   Alert,
+  Badge,
   Button,
+  Card,
   Group,
   Loader,
   Modal,
@@ -123,6 +125,7 @@ import type {
   CombinationRow,
   DraftRecord,
   DraftUnsubmitted,
+  GridRow,
   InflightRun,
   PromptRow,
   UnpublishedGrid,
@@ -141,6 +144,7 @@ import {
   DEFAULT_TOP_N,
   flattenConfigs,
   isOwnRow,
+  modelCountSummary,
   promptToInput,
   reconcileOptimistic,
   resolveCell,
@@ -173,7 +177,13 @@ import {
   unpubPromptKey,
   unpubPromptToInput,
 } from './lib/unpubPrompts.js';
-import { buildGridPayload, newGridLocalId, unpubGridKey, type GridInput } from './lib/grids.js';
+import {
+  buildGridPayload,
+  gridToInput,
+  newGridLocalId,
+  unpubGridKey,
+  type GridInput,
+} from './lib/grids.js';
 import {
   buildUnpubGrid,
   isPublishedGrid,
@@ -191,7 +201,20 @@ import {
   type GridEntry,
 } from './lib/gridEntries.js';
 import {
+  cascadeConfirmNotice,
+  cascadeLandedSentence,
+  cascadeRefusal,
+  cascadeStoppedNotice,
+  planGridCascade,
+  remapGridKeys,
+  type BoardRead,
+  type CascadeDep,
+  type GridCascadePlan,
+  type MemberSources,
+} from './lib/gridCascade.js';
+import {
   parsePointer,
+  PointerWriteFailure,
   publishedPointer,
   publishPointerFailedNotice,
   unpublishedKey,
@@ -294,11 +317,28 @@ type ModalState =
   | { kind: 'prompt-detail'; promptKey: string }
   | { kind: 'draft'; localId: string; initial?: CombinationInput; existing: boolean }
   | { kind: 'unpub-prompt'; localId: string; initial?: PromptInput; existing: boolean }
-  // 🔴 A grid has only the PRIVATE form. Matchups and prompts each have a public
-  // one too (submit straight to the board); a grid does not, because a grid is
-  // assembled from other people's rows and there is no reason to make that
-  // assembly public before the author has looked at it. One form, one store.
-  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean };
+  // 🔴 A grid has no public CREATE form. Matchups and prompts each have one (submit
+  // straight to the board); a grid does not, because a grid is assembled from other
+  // people's rows and there is no reason to make that assembly public before the
+  // author has looked at it. One create form, one store.
+  | { kind: 'unpub-grid'; localId: string; initial?: GridInput; existing: boolean }
+  // 🔴 …but a PUBLISHED grid IS editable, and this is the kind that does it. It is
+  // separate from `unpub-grid` for the same reason `combo` is separate from `draft`:
+  // the two save to DIFFERENT STORES (`shared.update` vs `appStorage.set`), and a
+  // single branch deciding which store a save lands in is exactly the branch that
+  // gets got wrong later.
+  | { kind: 'grid'; edit: GridRow }
+  // 🔴 THE GRID-PUBLISH CASCADE CONFIRM. It holds the local id AND a DISPLAY SNAPSHOT
+  // of the dependencies — and the split between the two is deliberate, because an
+  // earlier version recomputed the plan at render for both and got the display wrong:
+  // every dependency that landed left the private list, so the dialog body rewrote
+  // itself mid-cascade and at zero rendered a counts sentence built from nothing.
+  //
+  // 🔴 THE **DECISION** IS STILL NEVER SNAPSHOTTED. `runGridCascade` re-plans from the
+  // live stores and re-checks the refusal boundary, so a dependency that was published
+  // or discarded while this dialog sat open cannot be published again or published
+  // unaccountably. `deps` is what the viewer was SHOWN; the plan is what runs.
+  | { kind: 'grid-publish'; localId: string; deps: CascadeDep[] };
 
 /**
  * Viewer-facing copy for a `WorkflowEstimateError` (`@civitai/blocks-react`
@@ -358,6 +398,46 @@ const HOWTO_STORAGE_KEY = 'howto-dismissed:v1';
  * running cells so a reload never re-charges them (see {@link InflightRun}). */
 const INFLIGHT_PREFIX = 'inflight:v1:';
 const inflightKey = (ck: string): string => `${INFLIGHT_PREFIX}${ck}`;
+
+/**
+ * How a `GridPicker` row marks one of the viewer's OWN PRIVATE records.
+ *
+ * 🔴 ONE CONSTANT FOR BOTH AXES, so the matchup picker and the prompt picker cannot
+ * drift into two spellings of one state — and so a test can pin the word rather than
+ * a substring of a longer composed meta line.
+ *
+ * 🔴 IT IS "Private", NOT "Draft". §11.1 removed the old word from every rendered
+ * string (`myCommunity.test.tsx` scans `document.body.textContent` for it), the
+ * STORAGE prefixes keep it forever, and "Private" is the fact that actually holds:
+ * the record is in this viewer's per-viewer KV and has never reached
+ * `shared.append`. Same word as `MyList`'s state badge, on purpose.
+ */
+const PRIVATE_PICK_LABEL = 'Private';
+
+/**
+ * The cascade's stand-in for a host error when `publishRecord` returned NO KEY.
+ *
+ * 🔴 IT IS NOT A HOST STRING AND IT DOES NOT PRETEND TO BE ONE. `publishRecord`
+ * returns `undefined` only when one of its own anti-duplicate guards short-circuits
+ * — nothing was appended and no host call failed — so quoting a made-up host message
+ * there would be a lie about where the refusal came from. The cascade refuses rather
+ * than publishing a grid whose member key it cannot rewrite.
+ *
+ * 🔴 AND IT IS REACHABLE, MEASURED — an earlier round proposed deleting this constant
+ * and its throw as dead code, and that was wrong. The `submittingRef` early return is
+ * taken when the viewer publishes a private matchup and, while that append is still in
+ * flight, publishes a grid that names it: the cascade's dependency publish short-
+ * circuits, `key` is `undefined`, and this string reaches the viewer.
+ * `src/gridDraftsCascade.test.tsx` drives exactly that.
+ *
+ * ⚠️ THE OTHER EARLY RETURN IS A DIFFERENT ROUTE AND IS STILL UNREACHABLE. The
+ * `publishedThisSession` guard below has no known caller that can reach it (every
+ * caller resolves its id out of an already-filtered list) and no test. Declining to
+ * delete the two as a PAIR over-reached: this one is rescued by measurement, that one
+ * is not, and it is kept on its own much weaker argument — one line guarding an
+ * irreversible append.
+ */
+const CASCADE_NO_KEY = 'this app refused a second publish of the same record';
 
 const nonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
@@ -548,10 +628,73 @@ export function App({ deps: depsOverride }: AppProps = {}) {
 
   // ---- data ----
   const [items, setItems] = useState<RawSharedItem[]>([]);
-  /** The board scan hit its page cap, so every ranking below is over a PREFIX of
-   * the board rather than all of it. Surfaced in the UI — see the disclosure by
-   * the view switch. */
-  const [boardTruncated, setBoardTruncated] = useState(false);
+  /**
+   * The board read, as TWO FACTS THAT MOVE INDEPENDENTLY, in one state value.
+   *
+   * 🔴 THEY ARE NOT THE SAME FACT, AND CONFLATING THEM HAS NOW BROKEN TWICE — in
+   * opposite directions. The history is kept because the second break was caused by
+   * the fix for the first:
+   *
+   *   BREAK 1 — a bare `boardTruncated` boolean written only on the read's SUCCESS
+   *   arm. A read that THREW, and the window before the first read resolves, were
+   *   both indistinguishable from "read the whole board, found nothing", so the
+   *   grid-publish boundary refused ordinary publishes with copy telling the viewer
+   *   to DELETE good members.
+   *
+   *   BREAK 2 — the fix made `boardTruncated` a DERIVATION of a single
+   *   `BoardRead`: `boardRead === 'truncated'`. That removed the disagreement
+   *   between two state values and created a new one with `items`. A board over the
+   *   page cap loads (`'truncated'`), then ANY routine reload whose `list()` throws
+   *   takes the catch arm and writes `'error'` — while `items` is UNTOUCHED and still
+   *   holds the truncated PREFIX, because the catch never calls `setItems`. So
+   *   `boardTruncated` flipped to false over a prefix: the `board-truncated-notice`
+   *   DISAPPEARED (presenting a prefix as the whole board, which is the silent
+   *   ordering lie that notice exists to prevent) and `missingMembersNotice` flipped
+   *   to the false "their authors removed them".
+   *
+   * 🔴 SO THE RULE IS ABOUT WHAT EACH FIELD IS A PROPERTY **OF**:
+   *   - `outcome` is a property of the LATEST REQUEST. It answers "can I trust that
+   *     a key absent from the snapshot is genuinely absent?" — only `'complete'` can.
+   *   - `prefix` is a property of `items`. It answers "is the snapshot I am ranking
+   *     over the whole board?" and it may therefore change ONLY when `items` does.
+   *
+   * ⚠️ AND WHAT ENFORCES THAT IS THE TWO WRITERS AND THEIR DISCIPLINE, NOT THE SHAPE
+   * OF THE STATE. This paragraph used to read "they live in ONE state value so they
+   * are written together … rather than as two `useState`s a future arm could update
+   * by halves", which is false: a single object does not stop an arm updating by
+   * halves, and a mutant doing exactly that — `{ outcome: 'error', prefix: true }` in
+   * the catch arm — SURVIVED all 983 tests. What actually holds the pair is:
+   *   - `prefix` has exactly TWO writers, both in the board-read effect: the resolve
+   *     arm sets it from `all.truncated` alongside its `setItems`, and the reject arm
+   *     carries the previous value through. Nothing else may write it.
+   *   - the four other `setItems` call sites (`applyVote`, `optimisticInsert`,
+   *     `optimisticUpdate`, `optimisticDelete`) are ROW-LEVEL edits that cannot change
+   *     whether the snapshot is a prefix, which is why they correctly leave it alone.
+   * Both directions are now pinned by `boardTruncation.test.tsx`: a thrown read must
+   * not CLEAR the bit over a prefix, and must not SET it over a complete snapshot.
+   *
+   * ⚠️ NEITHER IS RESET WHEN A RE-READ STARTS, deliberately. `App` re-reads after
+   * every publish and `items` keeps the previous snapshot throughout, so resetting
+   * would refuse the next publish for the length of a round trip while a perfectly
+   * good snapshot was in hand. Written on RESOLVE and on REJECT only.
+   */
+  const [boardSnapshot, setBoardSnapshot] = useState<{ outcome: BoardRead; prefix: boolean }>({
+    outcome: 'unread',
+    prefix: false,
+  });
+  // ⚠️ NO `boardRead` ALIAS. There was one, and it existed only to be passed to
+  // `cascadeRefusal` beside a separately-derived `prefix` — the two-field call shape
+  // whose wire-up a surviving mutant walked. The whole `boardSnapshot` goes over now,
+  // so the alias had no reader left; `tsc`'s `noUnusedLocals` is what said so.
+  /**
+   * The snapshot in `items` is a PREFIX of the board, so every ranking over it — the
+   * vote order, the top-N that becomes a grid's rows and columns, the "Included"
+   * counts — covers part of the board while looking like the whole of it. Surfaced by
+   * the `board-truncated-notice` and by `missingMembersNotice`.
+   *
+   * 🔴 IT TRACKS `items`, NOT THE LATEST REQUEST — see BREAK 2 above.
+   */
+  const boardTruncated = boardSnapshot.prefix;
   // 🔴 DERIVED, never stored. The host reports `viewerVoted` on every row of
   // every `list()`, so the row IS the vote state — there is nothing to hold in
   // parallel and nothing to persist. This used to be `useState` hydrated from a
@@ -580,7 +723,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
    * has no such field, so the only possible source is the app's own record and holding
    * it is not a second copy of anything. VERIFIED on the installed pin rather than taken
-   * from upstream's wording: `@civitai/sdk@0.8.0`'s `SharedItem`
+   * from upstream's wording: `@civitai/sdk`'s `SharedItem` (re-measured at the
+   * installed 0.10.0, after the `scope: 'site'` bump moved it off 0.8.0 — the field
+   * set is unchanged and `viewerReported` appears nowhere in the package)
    * (`dist/shared-storage/index.d.ts:28`) declares exactly `key`, `authorUserId`,
    * `value`, `count`, `createdAt`, `updatedAt`, `viewerVoted` — no `viewerReported` and
    * nothing like it. (`ReportButtonProps.reported`'s JSDoc makes the same point about a
@@ -731,9 +876,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
         setItems(merged);
-        setBoardTruncated(all.truncated);
+        // Both fields, written together with the `items` they describe.
+        setBoardSnapshot({
+          outcome: all.truncated ? 'truncated' : 'complete',
+          prefix: all.truncated,
+        });
       } catch (e) {
-        if (!cancelled) setError(errMsg(e));
+        if (!cancelled) {
+          setError(errMsg(e));
+          // 🔴 THE OUTCOME MOVES AND `prefix` IS CARRIED THROUGH UNCHANGED. Two
+          // separate bugs meet on this line. Writing nothing here made a THROWN read
+          // look complete (BREAK 1); writing a whole new value made it look UNtruncated
+          // (BREAK 2) — this arm does not call `setItems`, so the snapshot it describes
+          // is the one the previous read left, prefix and all.
+          setBoardSnapshot((prev) => ({ outcome: 'error', prefix: prev.prefix }));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -886,8 +1043,63 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
 
+  /**
+   * 🔴 DID THE TWO PRIVATE-MEMBER SCANS SEE EVERYTHING? Read by the grid-publish
+   * boundary (`cascadeRefusal`) and by nothing else.
+   *
+   * 🔴 WHAT IT ACTUALLY DOES: it decides the refusal's **wording**, not the refusal.
+   * An earlier draft of this paragraph claimed it closed the decision; the correction
+   * is stated first, before the history, because that is the part a reader needs.
+   *
+   * ⚠️ A SELF-REFERENTIAL DRAFT COUNT USED TO SIT HERE AND IS DELETED RATHER THAN
+   * CORRECTED A FOURTH TIME. It regenerated a defect in three consecutive rounds (two
+   * wrong numbers and one wrong claim ABOUT the number), and nothing a reader does
+   * depends on it — the construct was the defect, not the arithmetic. Say WHAT a
+   * paragraph got wrong, which is done above; do not count the paragraphs. `cascadeRefusal` returns `null` on
+   * `unresolved.length === 0` BEFORE it reads this flag, and that function's own
+   * docblock says so in terms — two comments in one PR asserted opposite things.
+   * Per-key positive accounting is the guard; this flag only chooses between "this
+   * member is gone, remove it" and "this app could not read your private items,
+   * reload" — which matters a great deal, because following the wrong one destroys
+   * good members.
+   *
+   * What it DOES still buy, measured: `forEachStoredKey` RETURNS `{truncated, pages}`
+   * precisely so a caller can act on an incomplete view — `lib/kv.ts` carries a 🔴
+   * saying truncation "is not uniformly harmless… for one of them it is a MONEY
+   * decision" — and all three of these scans discarded that report. The honest-cause
+   * split is what reading it buys. (Two cases pin it: a scan that THROWS, and one
+   * that TRUNCATES at the 20-page cap.)
+   *
+   * ⚠️ AND THE RELATED HAZARD IS CLOSED BY SOMETHING ELSE ENTIRELY, so do not read
+   * this flag as closing it: the `draft:v1:` listing throwing, the `catch` below
+   * swallowing it on purpose (a KV failure must not take the public board down), and
+   * the grid's own prefix reading fine — that fail-open path is closed by the member
+   * key landing in `unresolved` and the boundary refusing on it. The flag's absence
+   * would change only the sentence the viewer reads.
+   *
+   * 🔴 FALSE IS THE SAFE DEFAULT. It flips true only when BOTH scans completed without
+   * throwing and without truncating, and it is NOT written on a cancelled run: a
+   * `shouldStop` exit reports `truncated: false` over a PARTIAL read, so trusting it
+   * there would assert completeness about a scan that stopped half-way — the
+   * superseding run is what sets it instead.
+   *
+   * ⚠️ A REF, NOT STATE, DELIBERATELY: every reader is a callback that runs at press
+   * time, and a ref cannot hand one a value from an earlier render. Nothing renders
+   * off it, so there is nothing for state to re-render.
+   */
+  const privateScanCompleteRef = useRef(false);
+
   useEffect(() => {
     if (!ready) return;
+    // ⚠️ RE-ARMED BEFORE EITHER SCAN RUNS — AND IT CLOSES NOTHING ABOUT THE PUBLISH
+    // DECISION. An earlier draft of this comment said "a publish landing in that
+    // window is refused, not permitted", which is FALSE: `cascadeRefusal` returns
+    // `null` on an empty `unresolved` before this flag is read, so a grid whose keys
+    // are all accountable publishes mid-scan, correctly. What the re-arm buys is that
+    // a publish in that window which IS refused says "could not read your private
+    // items" rather than inheriting the last run's "the member is gone, remove it".
+    // It is a wording guarantee. Nothing more, and it is written here as nothing more.
+    privateScanCompleteRef.current = false;
     if (!viewer) {
       // Anonymous: the host rejects every per-viewer write and reads back null,
       // so there is nothing to show and nothing to guess at.
@@ -901,9 +1113,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     let cancelled = false;
     (async () => {
       const store = depsRef.current.appStorage;
+      /** Per-scan completeness, folded into the ref at the end. */
+      let matchupsComplete = false;
+      let promptsComplete = false;
       try {
         const found: DraftRecord[] = [];
-        await forEachStoredKey(
+        const scan = await forEachStoredKey(
           store,
           DRAFT_PREFIX,
           async (key) => {
@@ -920,12 +1135,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // prevent it — same shape as the `setQuota` call below, and it is what
         // lets the scan's single `'stop'` channel carry the cancellation.
         if (!cancelled) setDrafts(sortDrafts(found));
+        // 🔴 THE REPORT, FINALLY READ. `!truncated` alone is not completeness: a
+        // cancelled run also reports `truncated: false` over a partial read, which
+        // is why `cancelled` is part of the test rather than only guarding the
+        // `setDrafts` above it.
+        matchupsComplete = !cancelled && !scan.truncated;
       } catch {
-        /* best-effort — a KV failure must not take the public board down with it */
+        /* best-effort — a KV failure must not take the public board down with it.
+           `matchupsComplete` stays FALSE, which is the whole point: the publish
+           boundary now refuses an unaccountable member instead of silently
+           publishing its local id. */
       }
       try {
         const foundPrompts: UnpublishedPromptRecord[] = [];
-        await forEachStoredKey(
+        const scan = await forEachStoredKey(
           store,
           UNPUB_PROMPT_PREFIX,
           async (key) => {
@@ -937,11 +1160,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           { shouldStop: () => cancelled },
         );
         if (!cancelled) setUnpubPrompts(sortUnpubPrompts(foundPrompts));
+        promptsComplete = !cancelled && !scan.truncated;
       } catch {
-        /* best-effort — same reasoning as the matchup scan above */
+        /* best-effort — same reasoning as the matchup scan above, and the same
+           consequence: `promptsComplete` stays FALSE and the boundary refuses. */
       }
+      // 🔴 BOTH, NOT EITHER. A grid can name private matchups AND private prompts,
+      // so a complete view means both prefixes were read in full. Written once,
+      // after both, and never on a cancelled run.
+      if (!cancelled) privateScanCompleteRef.current = matchupsComplete && promptsComplete;
       try {
         const foundGrids: UnpublishedGridRecord[] = [];
+        // ⚠️ THE GRID SCAN'S OWN `ScanResult` IS DELIBERATELY NOT FOLDED IN, and this
+        // says so rather than leaving the asymmetry to look like an oversight. An
+        // incomplete GRID scan hides grids, which is fail-SAFE: a grid the viewer
+        // cannot see is a grid they cannot publish. The two scans above are the ones
+        // whose incompleteness makes a VISIBLE grid publishable with an invisible
+        // member, which is the hazard.
         await forEachStoredKey(
           store,
           UNPUB_GRID_PREFIX,
@@ -1009,26 +1244,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // keeping it in step, so the views take the COUNT. Reintroduce a Set only if a
   // per-row membership test comes back — and then derive it here, once, for both.
 
-  /** Every matchup and prompt currently on the board, as `GridPicker` rows. */
-  const matchupPickerItems = useMemo<GridPickerItem[]>(
-    () =>
-      combinations.map((c) => ({
-        key: c.key,
-        name: c.name || `#${c.key}`,
-        description: c.description,
-        meta: `${c.data.configs.length} config${c.data.configs.length === 1 ? '' : 's'}`,
-      })),
-    [combinations],
-  );
-  const promptPickerItems = useMemo<GridPickerItem[]>(
-    () =>
-      prompts.map((p) => ({
-        key: p.key,
-        name: p.name || `#${p.key}`,
-        description: p.description,
-      })),
-    [prompts],
-  );
+  // 🔴 THE TWO `GridPicker` ITEM LISTS USED TO BE HERE AND HAVE MOVED DOWN, below
+  // `unpublishedMatchups` / `unpublishedPrompts` — they now include the viewer's own
+  // PRIVATE records as pickable rows, and those lists are derived from state declared
+  // further on (`publishedThisSession`). Search for `matchupPickerItems`.
 
   // ---- vote wiring ----
   // Apply the host's post-mutation answer to the row: the returned aggregate
@@ -1075,7 +1294,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * twenty-line 🔴 argument on that premise. Both halves are now false: this stack
    * deleted `ContributeMenu` (so there is no menu item), and `GridsView` no longer
    * renders the private panel at all — it moved to `MyGridsView`. The single caller
-   * is `MyGridsView.onNewUnpublished`, i.e. `UnpublishedList`'s `new-unpublished`.
+   * is `MyGridsView.onNewUnpublished`, i.e. `MyList`'s `new-unpublished`.
    * And that caller cannot press it anonymously: `MyGridsView` returns
    * `MyTabSignedOut` for `viewerId == null` and renders no private panel, which
    * `myBenchmarks.test.tsx` asserts as a positive fact ("an ANONYMOUS viewer gets the
@@ -1519,18 +1738,31 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *  4. On that failure the private record is DELETED, best-effort. Its only
    *     remaining purpose was to become the pointer, and the row is reachable
    *     without it (every "this is yours" surface filters on `isOwnRow`, i.e. on
-   *     `authorUserId`, never on pointer presence — "Published by you" for
-   *     matchups and prompts, the `grid-own-badge` on the flat grids list). This
+   *     `authorUserId`, never on pointer presence — the "Your <noun>s" list for
+   *     all three nouns, the `grid-own-badge` on the flat grids list). This
    *     is what makes the retirement survive a RELOAD instead of only a
    *     re-render: `publishedLocalIds` is React state, so without the delete the
    *     next load re-reads the store — the very store that could not be written
    *     — and offers Publish again.
    *     The delete can itself be refused, so its outcome is OBSERVED and handed
    *     to the copy rather than assumed.
-   *  5. The failure is RE-THROWN as viewer copy, never swallowed. `UnpublishedList`
+   *  5. The failure is RE-THROWN as viewer copy, never swallowed. `MyList`
    *     catches it and renders it; a quiet `finally` here is what made this
    *     invisible in the first place. The copy BRANCHES on step 4's outcome —
    *     see `publishPointerFailedNotice`, which is true either way.
+   *
+   * 🔴 IT RETURNS THE HOST-MINTED SHARED KEY, and that is new. A grid can now name a
+   * PRIVATE matchup or prompt by its per-viewer LOCAL id, so publishing the grid has
+   * to publish those records first and then REWRITE their local ids to the keys the
+   * host just minted — and the key is only observable here. Returning it is what let
+   * the cascade reuse this one path instead of opening a second one (see
+   * `runGridCascade` and `lib/gridCascade.ts`).
+   *
+   * ⚠️ `undefined` MEANS "NO APPEND HAPPENED ON THIS CALL", i.e. one of the two
+   * guards above returned early. It does NOT mean failure: a failure THROWS. The
+   * cascade treats `undefined` as an unresolvable dependency and refuses to publish
+   * the grid, because a grid whose member key it could not rewrite is exactly the
+   * permanent public dangling reference this whole path exists to prevent.
    */
   const publishRecord = useCallback(
     async (spec: {
@@ -1545,8 +1777,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       /** Analytics event name and props for this object kind. */
       event: string;
       props: Record<string, unknown>;
-    }) => {
-      if (submittingRef.current.has(spec.localId)) return;
+    }): Promise<string | undefined> => {
+      if (submittingRef.current.has(spec.localId)) return undefined;
       // ⚠ BELT-AND-BRACES, not a live gate: every caller resolves `spec.localId`
       // out of a list this session's retirement has already filtered, so this
       // line is unreachable in production and deleting it leaves the suite green
@@ -1556,7 +1788,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // window — and a future caller that hands a raw stored id straight in
       // would otherwise reach `append`.
       // Do not read it as coverage: the retirement at step 2 is what holds.
-      if (publishedThisSession.has(spec.localId)) return;
+      if (publishedThisSession.has(spec.localId)) return undefined;
       submittingRef.current.add(spec.localId);
       try {
         const { key } = await depsRef.current.shared.append(spec.payload);
@@ -1594,10 +1826,20 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         refreshDrafts();
         reload();
         if (pointerError !== null) {
-          throw new Error(
+          // 🔴 A TYPED THROW, AND THE MESSAGE IS UNCHANGED. `PointerWriteFailure` is
+          // an `Error` subclass carrying the same sentence, so `MyList` and
+          // `publishPointerFailure.test.tsx` see exactly what they saw before. What
+          // it adds is the two facts a CASCADE has to reason about rather than
+          // render: the row IS public (so it must be reported as published) and the
+          // host's raw refusal string (so a composed sentence need not parse one out
+          // of a paragraph).
+          throw new PointerWriteFailure(
             publishPointerFailedNotice(spec.noun, pointerError, privateCopyRemoved),
+            key,
+            pointerError,
           );
         }
+        return key;
       } finally {
         submittingRef.current.delete(spec.localId);
       }
@@ -1620,9 +1862,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * about WHEN that write happens and what a refusal means.
    */
   const submitDraft = useCallback(
-    async (draft: DraftUnsubmitted) => {
+    async (draft: DraftUnsubmitted): Promise<string | undefined> => {
       const input = draftToInput(draft);
-      await publishRecord({
+      return publishRecord({
         localId: draft.localId,
         noun: 'matchup',
         storageKey: draftKey(draft.localId),
@@ -1643,9 +1885,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * directly (including `data.kind: 'prompt'` and the moderation split).
    */
   const publishUnpubPrompt = useCallback(
-    async (rec: UnpublishedPrompt) => {
+    async (rec: UnpublishedPrompt): Promise<string | undefined> => {
       const input = unpubPromptToInput(rec);
-      await publishRecord({
+      return publishRecord({
         localId: rec.localId,
         noun: 'prompt',
         storageKey: unpubPromptKey(rec.localId),
@@ -1670,11 +1912,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * split is the whole reason the payload builder is not open-coded here — a grid
    * whose name rode in `data` would route author prose around the content belt,
    * and the wire shape is effectively permanent from the first published grid.
+   *
+   * 🔴 `resolved` IS THE LOCAL-ID → SHARED-KEY MAP AND IT IS NOT OPTIONAL SUGAR. A
+   * grid may name the viewer's own PRIVATE matchups and prompts, which carry only a
+   * per-viewer local id; `remapGridKeys` rewrites those to the shared keys their
+   * publish minted, BEFORE `buildGridPayload` runs. Skipping it would append a
+   * permanent public row naming ids nobody else can resolve. An empty map is the
+   * normal case (a grid of board members only) and remaps nothing.
    */
   const publishUnpubGrid = useCallback(
-    async (rec: UnpublishedGrid) => {
-      const input = unpubGridToInput(rec);
-      await publishRecord({
+    async (
+      rec: UnpublishedGrid,
+      resolved: ReadonlyMap<string, string>,
+    ): Promise<string | undefined> => {
+      const input = remapGridKeys(unpubGridToInput(rec), resolved);
+      return publishRecord({
         localId: rec.localId,
         noun: 'grid',
         storageKey: unpubGridKey(rec.localId),
@@ -1683,6 +1935,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         props: {
           matchupCount: input.matchupKeys.length,
           promptCount: input.promptKeys.length,
+          // How many member keys were REWRITTEN from a local id — published by this
+          // cascade or by an earlier one (a stored pointer resolves without a new
+          // append). 0 is the ordinary case: a grid of board members only.
+          remappedCount: resolved.size,
         },
       });
     },
@@ -1731,6 +1987,55 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const updatePrompt = useCallback(
     async (key: string, input: PromptInput) => {
       const payload = buildPromptPayload(input) as SharedStorageValue;
+      await depsRef.current.shared.update(key, payload);
+      optimisticUpdate(key, payload);
+      closeModal();
+      reload();
+    },
+    [reload, closeModal, optimisticUpdate],
+  );
+
+  /**
+   * Edit a PUBLISHED grid in place — name, description AND members.
+   *
+   * 🔴 IT DID NOT EXIST, AND ITS ABSENCE WAS THE FEATURE GAP. `updateCombination` and
+   * `updatePrompt` have shipped since their objects did; a published grid had no edit
+   * route at all, so `lib/unpublished.ts`'s half-published notice told grid authors, in
+   * words, that "a published grid cannot be edited". That sentence moved with this
+   * function.
+   *
+   * 🔴 WHY EDITING MEMBERS IS SAFE HERE AND IS NOT A GENERAL LICENCE. A grid stores
+   * `matchupKeys[]` / `promptKeys[]` — REFERENCES. A result cell is keyed
+   * `comboKey::configId::promptKey` (`lib/benchmark.ts`) and is shared by EVERY grid
+   * containing those members, so dropping a member stops DISPLAYING its cells and
+   * orphans nothing; re-adding it brings them back. Editing a MATCHUP is the opposite:
+   * it can drop a `configId`, and the result rows keyed on that id are then
+   * unreachable and unrecoverable.
+   *
+   * 🔴 AUTHOR SCOPE IS THE HOST'S, AND THE UI REACHES THE SAME **NON-OWNER** OUTCOME BY
+   * A DIFFERENT ROUTE THAN THE OTHER TWO. ⚠️ THE OWN-ROW OUTCOME DIFFERS, AND THAT IS
+   * THE THIRD DRAFT OF THIS SENTENCE — if you are writing a fourth, say what is
+   * MEASURED and qualify the noun rather than reaching for a cleaner phrasing. Draft 1
+   * said the narrowing was "the same one the other two use" (false: different
+   * mechanism). Draft 2 said "the same outcome" unqualified (false: only the non-owner
+   * half). What is true: nobody can edit a row they do not own, by either route — but a
+   * matchup or prompt AUTHOR gets Edit on the community board and a grid author does
+   * NOT, and must go to My Benchmarks ▸ Grids. Both directions are pinned
+   * (`myBenchmarks.test.tsx:892` no grid Edit on the community board;
+   * `e2e.test.tsx:145` a matchup author does get it there). Original note follows:
+   * would mislead anyone copying it: those two pass `onEdit` on the community card and
+   * gate it in the body, while grids pass none at all. See `onEditPublished`. `shared.update` is author-scoped server-side for every row kind alike;
+   * the control is only ever rendered from `MyList`, which is handed `ownGrids` —
+   * `isOwnRow`-narrowed. The community grids board passes no edit callback at all.
+   *
+   * `buildGridPayload` runs the same normalisation a publish does (order preserved,
+   * de-duplicated, capped), and `GridForm` runs `validateGrid` before calling this on
+   * the edit path exactly as on the create path — so an edit cannot store a grid shape
+   * a create could not.
+   */
+  const updateGrid = useCallback(
+    async (key: string, input: GridInput) => {
+      const payload = buildGridPayload(input) as SharedStorageValue;
       await depsRef.current.shared.update(key, payload);
       optimisticUpdate(key, payload);
       closeModal();
@@ -2296,6 +2601,82 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       ),
     [unpubGrids, publishedThisSession],
   );
+  /**
+   * Every matchup and prompt a grid may REFERENCE, as `GridPicker` rows: the board's
+   * published rows, then the viewer's OWN PRIVATE records.
+   *
+   * 🔴 A PRIVATE ROW IS KEYED BY ITS LOCAL ID, which is a different kind of string
+   * from every other key in these lists, and that is the whole hazard of the feature.
+   * A grid stores whatever key is picked, so a private pick puts a per-viewer id into
+   * the grid's member list — fine while the grid is private, and NEVER acceptable on
+   * the public board, where nobody else could resolve it and nothing could repair it.
+   * `lib/gridCascade.ts` is what closes that: publishing the grid publishes those
+   * records FIRST and rewrites their local ids to the shared keys the host mints.
+   *
+   * 🔴 AND A PRIVATE PICK CAN NEVER REACH A RESULT ROW, which is the invariant that
+   * actually protects the public board. A result row is keyed
+   * `comboKey · configId × promptKey` and is not grid-scoped; the matrix is built from
+   * `resolveGridRows`, which resolves member keys against the BOARD rows only, so a
+   * local id resolves to nothing, contributes no row and no column, and cannot be part
+   * of any cell. Pinned against the `shared.append` log in
+   * `src/gridDraftsCascade.test.tsx` — not inferred from this comment.
+   *
+   * ⚠️ PUBLISHED FIRST, PRIVATE AFTER. `GridPicker` lists `items` in the order given
+   * and keeps the AUTHOR'S selection order separately, so this only decides what the
+   * picker's list looks like, never what a grid stores.
+   */
+  const matchupBoardItems = useMemo<GridPickerItem[]>(
+    () =>
+      combinations.map((c) => ({
+        key: c.key,
+        name: c.name || `#${c.key}`,
+        description: c.description,
+        // 🔴 THE COPY LIVES IN `modelCountSummary`, NOT HERE. This ternary was
+        // open-coded identically in `MatchupsView` too; see that helper for why the
+        // viewer-facing noun is "models" while every internal name stays "config".
+        meta: modelCountSummary(c.data.configs.length),
+      })),
+    [combinations],
+  );
+  const promptBoardItems = useMemo<GridPickerItem[]>(
+    () =>
+      prompts.map((p) => ({
+        key: p.key,
+        name: p.name || `#${p.key}`,
+        description: p.description,
+      })),
+    [prompts],
+  );
+  const matchupPickerItems = useMemo<GridPickerItem[]>(
+    () => [
+      ...matchupBoardItems,
+      ...unpublishedMatchups.map((d) => ({
+        key: d.localId,
+        name: d.name || 'Untitled matchup',
+        description: d.description,
+        // 🔴 THE WORD IS "Private", NOT "Draft" — §11.1 took the old word out of the
+        // rendered vocabulary entirely (`myCommunity.test.tsx` holds it out of
+        // `document.body.textContent`), and "Private" is also the honest fact: the
+        // record lives in this viewer's own KV and no other viewer can see it. It is
+        // the same word `MyList`'s state badge uses.
+        meta: `${PRIVATE_PICK_LABEL} · ${modelCountSummary(d.configs.length)}`,
+      })),
+    ],
+    [matchupBoardItems, unpublishedMatchups],
+  );
+  const promptPickerItems = useMemo<GridPickerItem[]>(
+    () => [
+      ...promptBoardItems,
+      ...unpublishedPrompts.map((p) => ({
+        key: p.localId,
+        name: p.name || 'Untitled prompt',
+        description: p.description,
+        meta: PRIVATE_PICK_LABEL,
+      })),
+    ],
+    [promptBoardItems, unpublishedPrompts],
+  );
+
   const archivedKeys = useMemo(() => new Set(archived), [archived]);
   const quotaLine = formatQuota(quota);
   /** The viewer's OWN published grids — the same `isOwnRow` predicate the cards use. */
@@ -2349,12 +2730,337 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     },
     [unpublishedPrompts, publishUnpubPrompt],
   );
+  // ---- the GRID-PUBLISH CASCADE (a grid that names PRIVATE members) ----
+  //
+  /** Mid-cascade flag for the dialog's spinner, and the synchronous gate beside it. */
+  const [gridPublishBusy, setGridPublishBusy] = useState(false);
+  /**
+   * The grid-publish REFUSAL or CASCADE FAILURE notice.
+   *
+   * 🔴 ITS RENDER SITE IS `MyGridsView`, ABOVE THE LIST — NOT THE DIALOG. The state
+   * lived in `App` from the start and the previous docblock said so, but the only
+   * place it RENDERED was inside the dialog body, nested under
+   * `gridPublishRec && gridPublishPlan`. `gridPublishRec` resolves out of
+   * `unpublishedGrids`, which filters `publishedThisSession` — so at the exact moment
+   * the grid's own pointer write is refused, `publishRecord` retires the local id, the
+   * record leaves the list, and the notice that was just set became UNRENDERABLE.
+   * Measured: two rows public and permanent, nothing on screen. A STATE that survives
+   * and a RENDER SITE that does not are two different claims, and the docblock
+   * asserted the first while the viewer needed the second.
+   *
+   * ⚠️ WHAT IT COVERS, STATED NARROWLY, because the previous version over-claimed. It
+   * is the channel for the GRID-PUBLISH paths only: the refusal, the cascade's partial
+   * failure, and the grid's own pointer refusal. It DOES survive a nav away and back,
+   * because `App` holds it and `MyGridsView` re-renders it on return.
+   *
+   * ⚠️ IT IS NOT THE ONLY PUBLISH-FAILURE CHANNEL, and the other one is NOT hoisted.
+   * The direct, no-dependency publish still rejects into `MyList`, which renders
+   * `unpublished-error` from its OWN local state — unchanged from before this feature,
+   * and still destroyed by a nav away, exactly as `publishPointerFailure.test.tsx`'s
+   * characterisation case pins. Hoisting THAT is a change to the matchup and prompt
+   * surfaces as well as the grid one and is still not taken here.
+   */
+  const [gridPublishError, setGridPublishError] = useState<string | null>(null);
+  const cascadeRunningRef = useRef(false);
+  //
+  // 🔴 THE PROBLEM IT SOLVES, IN ONE LINE: a grid stores member KEYS, a private
+  // matchup/prompt has only a per-viewer LOCAL id, and a local id must never reach
+  // the public board. See `lib/gridCascade.ts` for the whole argument and for why
+  // the order (dependencies first, grid last) is the load-bearing part.
+  //
+  // 🔴 THE THREE SOURCES A MEMBER KEY IS CLASSIFIED AGAINST, per axis, and they are
+  // NOT interchangeable:
+  //   - `boardKeys`    — a published row. Resolves to itself; nothing to do.
+  //   - `pointers`     — a local id whose record ALREADY became a `PublishedPointer`.
+  //     Resolves to the stored shared key WITHOUT appending anything. This is the
+  //     DURABLE half, and it is what makes a retry after a half-finished cascade
+  //     publish the grid instead of re-publishing its members.
+  //   - `privateNames` — a local id with a live private record: a DEPENDENCY.
+  // 🔴 ANYTHING ELSE IS `unresolved`, AND A NON-EMPTY `unresolved` NOW REFUSES THE
+  // PUBLISH — see `cascadeRefusal`, which owns that decision and its copy. Before
+  // private members existed that bucket could only hold a withdrawn SHARED key and
+  // carrying it through was right; it is now also where an unaccountable LOCAL ID
+  // lands, by three measured paths with no error at all.
+  const matchupSources = useMemo<MemberSources>(
+    () => ({
+      boardKeys: new Set(combinations.map((c) => c.key)),
+      privateNames: new Map(
+        unpublishedMatchups.map((d) => [d.localId, d.name || 'Untitled matchup'] as const),
+      ),
+      pointers: new Map(drafts.filter(isSubmitted).map((p) => [p.localId, p.sharedKey] as const)),
+    }),
+    [combinations, unpublishedMatchups, drafts],
+  );
+  const promptSources = useMemo<MemberSources>(
+    () => ({
+      boardKeys: new Set(prompts.map((p) => p.key)),
+      privateNames: new Map(
+        unpublishedPrompts.map((p) => [p.localId, p.name || 'Untitled prompt'] as const),
+      ),
+      pointers: new Map(
+        unpubPrompts.filter(isPublishedPrompt).map((p) => [p.localId, p.sharedKey] as const),
+      ),
+    }),
+    [prompts, unpublishedPrompts, unpubPrompts],
+  );
+  const planFor = useCallback(
+    (rec: UnpublishedGrid): GridCascadePlan =>
+      planGridCascade(unpubGridToInput(rec), matchupSources, promptSources),
+    [matchupSources, promptSources],
+  );
+
+  /**
+   * 🔴 THE PUBLISH BOUNDARY, CALLED FROM BOTH ENTRY POINTS. One predicate, one place:
+   * `cascadeRefusal` decides, this closure only supplies the two facts it cannot see
+   * (whether the private scans were complete, and whether the board scan was).
+   *
+   * The scan flag is read from a REF at call time, not from a render-time value — the
+   * answer must be about the store as of this press, not as of the render that built
+   * the handler.
+   */
+  const refusalFor = useCallback(
+    (rec: UnpublishedGrid, plan: GridCascadePlan): string | null =>
+      cascadeRefusal({
+        gridName: rec.name || 'Untitled grid',
+        plan,
+        scanComplete: privateScanCompleteRef.current,
+        // 🔴 THE WHOLE SNAPSHOT, NOT ITS FIELDS. They answer different questions —
+        // `outcome` whether an absence can be trusted, `prefix` whether a retry is
+        // worth promising — and passing them separately is a seam a caller can wire by
+        // halves. A mutant doing exactly that survived the suite once; see
+        // `cascadeRefusal`'s docblock.
+        board: boardSnapshot,
+      }),
+    [boardSnapshot],
+  );
+
+  /**
+   * Publish a private grid — the route `MyList`'s Publish button takes.
+   *
+   * 🔴 THE REFUSAL COMES FIRST, BEFORE THE DIALOG DECISION, and the order is the
+   * point. All three measured paths that put a local id on the public board have
+   * `deps.length === 0`, so they never opened the dialog and published on the FIRST
+   * click with nothing shown. Checking `deps.length` first is what made the hazard
+   * invisible; checking accountability first is what closes it.
+   *
+   * 🔴 IT BRANCHES RATHER THAN ALWAYS CONFIRMING. A grid whose members are all on
+   * the board has nothing to disclose, and a dialog naming nothing is friction on
+   * the path this app already had. A grid with private members opens the confirm,
+   * which is the one place the viewer learns that pressing Publish makes MORE than
+   * one row public.
+   *
+   * ⚠️ IT DOES NOT THROW ON A REFUSAL. A refusal happens BEFORE any irreversible
+   * write, so there is nothing for `MyList`'s own notice to report; routing it to
+   * `gridPublishError` keeps the grid surface's refusal and cascade copy in ONE place
+   * rather than splitting it across two alerts by entry point.
+   */
   const publishGridById = useCallback(
     async (localId: string) => {
       const rec = unpublishedGrids.find((g) => g.localId === localId);
-      if (rec) await publishUnpubGrid(rec);
+      if (!rec) return;
+      const plan = planFor(rec);
+      const refusal = refusalFor(rec, plan);
+      if (refusal !== null) {
+        setGridPublishError(refusal);
+        return;
+      }
+      if (plan.deps.length > 0) {
+        setGridPublishError(null);
+        // 🔴 THE DEPS ARE SNAPSHOTTED FOR **DISPLAY** AND RECOMPUTED FOR THE
+        // **DECISION**. The dialog renders this list; `runGridCascade` re-plans from
+        // the live stores and acts on that. The split exists because a plan
+        // recomputed at render churns mid-cascade (each dependency that lands leaves
+        // the private list), which would rewrite the dialog under the viewer's hands
+        // and, at zero, leave a counts sentence built from nothing.
+        //
+        // ⚠️ AND THE SNAPSHOT CANNOT UNDER-STATE WHAT PUBLISHES. In this tab the
+        // dependency set can only SHRINK while the dialog is open: a record leaves it
+        // by being published or discarded, both of which need a surface this modal
+        // covers, and a record JOINS it only via the create form, which cannot be
+        // opened from here. So the fresh plan's dependencies are a subset of what the
+        // viewer was shown — never a superset.
+        setModal({ kind: 'grid-publish', localId, deps: plan.deps });
+        return;
+      }
+      // 🔴 CLEAR THE PREVIOUS NOTICE BEFORE THE ATTEMPT, not only on the dialog path.
+      // Measured: a viewer who followed a refusal's advice — edit the grid, remove the
+      // member, publish — SUCCEEDED and was left looking at the red alert saying the
+      // publish had been refused. The refusal's whole point is to be actionable, so an
+      // alert that outlives the action it asked for undoes that.
+      setGridPublishError(null);
+      await publishUnpubGrid(rec, plan.resolved);
     },
-    [unpublishedGrids, publishUnpubGrid],
+    [unpublishedGrids, planFor, refusalFor, publishUnpubGrid],
+  );
+
+  /**
+   * Run the cascade: every dependency first, the grid LAST.
+   *
+   * 🔴 IT THROWS VIEWER COPY AND NEVER SWALLOWS, the same contract `publishRecord`
+   * has, and the copy is built by `cascadeStoppedNotice` so it names exactly which
+   * items DID publish. There is no rollback to report: `shared.append` is
+   * irreversible, so the honest thing is a statement, not an apology.
+   *
+   * 🔴 `key === undefined` IS TREATED AS A FAILURE. It means `publishRecord`'s own
+   * guards returned early, so no append happened on this call and there is no key to
+   * rewrite the dependency's local id to. Publishing the grid anyway is precisely the
+   * permanent public dangling reference this path exists to prevent.
+   *
+   * 🔴 A DEPENDENCY WHOSE **POINTER** WRITE FAILED IS REPORTED AS PUBLISHED, because
+   * it is. `publishRecord` throws `PointerWriteFailure` only AFTER its `append`
+   * resolved, so that row is public and permanent; routing it through the ordinary
+   * failure arm produced "Nothing was published." in the same sentence as a host error
+   * about a row the append log proves is on the board. It also stops the cascade: the
+   * dependency's private record has been deleted, so its key can no longer be
+   * accounted for from this viewer's storage — the same boundary `cascadeRefusal`
+   * enforces from the outside.
+   *
+   * 🔴 AND THE GRID'S OWN POINTER REFUSAL IS A FOURTH OUTCOME, not the `null` arm. The
+   * grid IS public there, so every `cascadeStoppedNotice` branch ("still private")
+   * would be false. It composes the dependencies' sentence with
+   * `publishPointerFailedNotice`'s existing, already-pinned grid copy instead.
+   *
+   * ⚠️ THE PLAN IS RECOMPUTED HERE rather than taken from the dialog's snapshot —
+   * the snapshot is for DISPLAY. The refusal is re-checked here too, so a member that
+   * became unaccountable while the dialog was open cannot slip past the boundary.
+   */
+  const runGridCascade = useCallback(
+    async (localId: string) => {
+      const rec = unpublishedGrids.find((g) => g.localId === localId);
+      if (!rec) return;
+      const plan = planFor(rec);
+      const gridName = rec.name || 'Untitled grid';
+      // ⚠️ RE-CHECKED AT THE PRESS — DEFENSIVE, AND LABELLED AS SUCH RATHER THAN
+      // LEFT READING AS LOAD-BEARING. An independent trace found NO in-tab route that
+      // changes the plan between the dialog opening and this press (the modal covers
+      // every surface that could publish or discard a dependency, and the create form
+      // cannot be opened from under it), so no test drives this and a mutant deleting
+      // it would SURVIVE. It is kept because nothing irreversible has happened yet, so
+      // a refusal here is free — not because a reachable path needs it.
+      const refusal = refusalFor(rec, plan);
+      if (refusal !== null) throw new Error(refusal);
+      const resolved = new Map(plan.resolved);
+      /** Names of the dependencies whose ROW IS NOW PUBLIC, in publish order. */
+      const landed: string[] = [];
+      for (const dep of plan.deps) {
+        let key: string | undefined;
+        try {
+          if (dep.noun === 'matchup') {
+            const d = unpublishedMatchups.find((x) => x.localId === dep.localId);
+            key = d ? await submitDraft(d) : undefined;
+          } else {
+            const p = unpublishedPrompts.find((x) => x.localId === dep.localId);
+            key = p ? await publishUnpubPrompt(p) : undefined;
+          }
+        } catch (e) {
+          // The append LANDED iff this is a pointer failure. Name it as published.
+          const appended = e instanceof PointerWriteFailure;
+          if (appended) landed.push(dep.name);
+          throw new Error(
+            cascadeStoppedNotice({
+              gridName,
+              published: landed,
+              stoppedAt: { name: dep.name, appended },
+              // The host's RAW refusal, not the paragraph `message` wraps it in.
+              hostError: e instanceof PointerWriteFailure ? e.hostError : errMsg(e),
+            }),
+          );
+        }
+        if (key === undefined) {
+          throw new Error(
+            cascadeStoppedNotice({
+              gridName,
+              published: landed,
+              stoppedAt: { name: dep.name, appended: false },
+              hostError: CASCADE_NO_KEY,
+            }),
+          );
+        }
+        resolved.set(dep.localId, key);
+        landed.push(dep.name);
+      }
+      try {
+        await publishUnpubGrid(rec, resolved);
+      } catch (e) {
+        if (e instanceof PointerWriteFailure) {
+          // 🔴 THE GRID IS PUBLIC. Its own notice already says exactly that, branching
+          // on whether the private copy could be discarded — reused verbatim so this
+          // path has no second copy of that sentence to keep in step.
+          throw new Error(`${cascadeLandedSentence(landed)} ${e.message}`);
+        }
+        throw new Error(
+          cascadeStoppedNotice({
+            gridName,
+            published: landed,
+            stoppedAt: null,
+            hostError: errMsg(e),
+          }),
+        );
+      }
+    },
+    [
+      unpublishedGrids,
+      unpublishedMatchups,
+      unpublishedPrompts,
+      planFor,
+      refusalFor,
+      submitDraft,
+      publishUnpubPrompt,
+      publishUnpubGrid,
+    ],
+  );
+
+  /**
+   * The confirm dialog's Publish press.
+   *
+   * 🔴 THE GATE IS A REF, NOT THE `busy` STATE. A double-tap reads the state from the
+   * render that was current when the handler was created, so a state check can let
+   * the second press through — the same reason `submittingRef` exists one level down.
+   * The ref is synchronous and cannot. (`publishRecord`'s own `submittingRef` still
+   * covers each individual append; this one stops two whole cascades interleaving.)
+   *
+   * 🔴 THE DIALOG CLOSES ON **BOTH** OUTCOMES, and that is a render requirement rather
+   * than a preference: the notice renders on the grids SURFACE, which a modal overlay
+   * covers. Leaving the dialog open on failure would put the only explanation behind
+   * the thing the viewer has to dismiss to read it. The grid, if it is still private,
+   * is still listed with its Publish button — so retrying costs one press.
+   */
+  const confirmGridPublish = useCallback(
+    async (localId: string) => {
+      if (cascadeRunningRef.current) return;
+      cascadeRunningRef.current = true;
+      setGridPublishBusy(true);
+      setGridPublishError(null);
+      try {
+        await runGridCascade(localId);
+      } catch (e) {
+        setGridPublishError(errMsg(e));
+      } finally {
+        cascadeRunningRef.current = false;
+        setGridPublishBusy(false);
+        closeModal();
+      }
+    },
+    [runGridCascade, closeModal],
+  );
+
+  /**
+   * The record the open confirm is about, resolved at RENDER.
+   *
+   * ⚠️ THE **PLAN** IS NO LONGER RESOLVED HERE. It used to be, and the dialog rendered
+   * from it — which meant the body churned as each dependency landed and, at zero,
+   * rendered a counts sentence built from an empty list plus a literal
+   * ("Everything this grid lists is already published") that was FALSE whenever the
+   * grid also held an unaccountable member. The dialog renders `modal.deps`, the
+   * snapshot taken when it opened; `runGridCascade` re-plans for the decision. Both
+   * halves of that split are argued at the `setModal` call in `publishGridById`.
+   */
+  const gridPublishRec = useMemo(
+    () =>
+      modal.kind === 'grid-publish'
+        ? unpublishedGrids.find((g) => g.localId === modal.localId)
+        : undefined,
+    [modal, unpublishedGrids],
   );
   const editGridById = useCallback(
     (localId: string) => {
@@ -2765,10 +3471,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     loading={loading}
                     /* 🔴 THE SAME `error` EVERY OTHER SURFACE GETS. It used to be
                        omitted here alone, so a failed `listAll` rendered
-                       `my-published-empty` — "You have no published grids on the board
-                       right now" — an absence the app never observed, while My ▸
+                       the list's empty line — an absence the app never
+                       observed, while My ▸
                        Matchups showed `matchups-error` on the same failure. */
                     error={error}
+                    /* 🔴 THE GRID-PUBLISH NOTICE'S RENDER SITE. It is passed DOWN
+                       rather than rendered in the dialog precisely because the dialog
+                       unmounts when the grid's record is retired — which is the moment
+                       the notice matters most. See the prop's own docblock. */
+                    publishError={gridPublishError}
                     archivedKeys={archivedKeys}
                     unpublished={unpublishedGrids}
                     quotaLine={quotaLine}
@@ -2780,6 +3491,28 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                     onEditUnpublished={editGridById}
                     onDiscardUnpublished={deleteUnpubGrid}
                     onPublishUnpublished={publishGridById}
+                    /* 🔴 THE PUBLISHED-GRID EDIT ROUTE, and it is wired ONLY here.
+                       `GridsView` (the community board) is passed no edit callback,
+                       so the control cannot appear on a row the viewer does not own
+                       . 🔴 AND THIS IS NOT THE SHAPE THE OTHER TWO USE — an earlier
+                       comment here said it was, and a maintainer copying that would ship
+                       an UNGATED control. `MatchupsView`/`PromptsView` pass `onEdit` on
+                       the COMMUNITY card too (`PromptsView.tsx:117`) and narrow INSIDE
+                       the body (`MatchupBody.tsx:122`, `canEdit = isOwn && onEdit !==
+                       undefined`). `GridsView` wires no edit at all and has NO body-level
+                       edit gate, so mirroring their call site into it yields Edit on every
+                       foreign row. Opposite designs; only the NON-OWNER outcome
+                       matches — the own-row one does not, see below.
+                       ⚠️ AND THE ASYMMETRY IS REAL: a matchup or prompt author gets Edit
+                       on the community board, a grid author does not and must go to My
+                       Benchmarks. Recorded so it reads as a choice, not an oversight. */
+                    onEditPublished={(row) => setModal({ kind: 'grid', edit: row })}
+                    /* The preview strips' source, on the viewer's OWN grids now too —
+                       ONE batched gated read per card, private and published alike.
+                       See `MyGridsView.GatedCell` for why this does not move the
+                       open/listed partition `gridPreviewSeam.test.tsx` pins. */
+                    results={results}
+                    GatedCell={deps.GatedCell}
                   />
                 )}
 
@@ -2911,7 +3644,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'combo'}
           onClose={closeModal}
-          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'Submit a matchup'}
+          title={modal.kind === 'combo' && modal.edit ? 'Edit matchup' : 'New Matchup'}
           size="lg"
         >
           {modal.kind === 'combo' && (
@@ -2920,6 +3653,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               pickResource={deps.pickResource}
               initial={modal.edit ? combinationToInput(modal.edit) : undefined}
               submitLabel={modal.edit ? 'Save changes' : undefined}
+              /* 🔴 THE MODAL KIND DECIDES THE SHAPE, NOT `initial`. A create is two
+                 steps (models, then name + description); an edit is one page. Read off
+                 `modal.edit` here because that is the thing that actually distinguishes
+                 them — the private paths below use `modal.existing` for the same reason,
+                 and `initial` is undefined on a NEW private record too. */
+              multiStep={!modal.edit}
               onSubmit={
                 modal.edit
                   ? (input) => updateCombination(modal.edit!.key, input)
@@ -2937,10 +3676,18 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'draft'}
           onClose={closeModal}
+          /* 🔴 FLAT, AND THE SUFFIX IT LOST WAS REDUNDANT RATHER THAN WRONG. This
+             read "New matchup (not published yet)", which was true — nothing in this
+             form reaches `shared.append` — but the row the save lands on now carries
+             a **Private** badge (`MyList`'s `draft-badge`) and the submit button says
+             "Save privately", so the parenthetical was the third telling of one fact,
+             in the most prominent position on screen. Operator decision 2026-10-01:
+             all three create titles are `New <Noun>`. Pinned as whole strings by
+             `src/gridDraftsCascade.test.tsx`. */
           title={
             modal.kind === 'draft' && modal.existing
               ? 'Edit your unpublished matchup'
-              : 'New matchup (not published yet)'
+              : 'New Matchup'
           }
           size="lg"
         >
@@ -2950,6 +3697,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               pickResource={deps.pickResource}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveDraft(modal.localId, input)}
               onCancel={closeModal}
             />
@@ -2960,10 +3708,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'unpub-prompt'}
           onClose={closeModal}
+          /* 🔴 FLAT — the same operator decision, and the same reasoning as the
+             private matchup modal above. */
           title={
             modal.kind === 'unpub-prompt' && modal.existing
               ? 'Edit your unpublished prompt'
-              : 'New prompt (not published yet)'
+              : 'New Prompt'
           }
           size="lg"
         >
@@ -2972,21 +3722,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               key={modal.localId}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveUnpubPrompt(modal.localId, input)}
               onCancel={closeModal}
             />
           )}
         </Modal>
-        {/* The PRIVATE grid form. 🔴 There is no public sibling: a grid has ONE
+        {/* The PRIVATE grid form. 🔴 There is no public CREATE sibling: a grid has ONE
             create path and it lands in the per-viewer store. Publishing it is a
-            separate, explicit button on the record (see `publishUnpubGrid`). */}
+            separate, explicit button on the record (see `publishUnpubGrid`), and
+            editing it AFTER that is the `grid` modal below. */}
         <Modal
           opened={modal.kind === 'unpub-grid'}
           onClose={closeModal}
           title={
             modal.kind === 'unpub-grid' && modal.existing
               ? 'Edit your unpublished grid'
-              : 'New grid (not published yet)'
+              : 'New Grid'
           }
           size="lg"
         >
@@ -2997,7 +3749,129 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               promptItems={promptPickerItems}
               initial={modal.initial}
               submitLabel="Save privately"
+              multiStep={!modal.existing}
               onSubmit={(input) => saveUnpubGrid(modal.localId, input)}
+              onCancel={closeModal}
+            />
+          )}
+        </Modal>
+        {/* 🔴 THE GRID-PUBLISH CASCADE CONFIRM — the one place a viewer learns that
+            pressing Publish on a grid makes MORE THAN ONE row public.
+
+            🔴 IT ENUMERATES, IT DOES NOT COUNT. `shared.append` is irreversible and
+            there is no merge, so "3 items" is not enough for a decision the viewer
+            cannot take back: each item is named, by the record's own name, and the
+            counts ride along in the summary sentence because 20 names is not a thing
+            anybody counts by eye.
+
+            🔴 AND IT PROMISES NO ROLLBACK ANYWHERE. `cascadeStoppedNotice` states
+            what landed; nothing in this dialog says "abort", "undo" or "revert",
+            because nothing in this app can take an appended row back. */}
+        <Modal
+          opened={
+            modal.kind === 'grid-publish' && !!gridPublishRec && modal.deps.length > 0
+          }
+          /* 🔴 `onClose` IS GATED ON `busy`, AND IT IS THE WHOLE FIX. Measured in
+             `@civitai/blocks-react`'s `Modal.js`: Escape, the overlay click AND the ×
+             all route through this ONE callback — so a no-op here closes all three
+             while the cascade appends. That is wider than an earlier draft of this
+             comment claimed (it named only Escape and the overlay).
+             ⚠️ `closeOnEscape` IS THEREFORE REDUNDANT DEFENCE, not a second gate, and
+             is labelled as such: the no-op `onClose` already stops Escape whatever
+             this prop says. Kept to state the ownership at the seam, the same way
+             `GridPicker` keeps its own. No test drives Escape or the overlay. */
+          onClose={gridPublishBusy ? () => {} : closeModal}
+          closeOnEscape={!gridPublishBusy}
+          title="Publish this grid"
+          size="md"
+        >
+          {modal.kind === 'grid-publish' && gridPublishRec && modal.deps.length > 0 && (
+            <Stack gap={12} data-testid="grid-publish-confirm">
+              {/* 🔴 NO EMPTY-DEPS BRANCH, AND IT WAS DELETED RATHER THAN REWORDED. It
+                  rendered "Everything this grid lists is already published. Publishing
+                  now publishes only the grid." — an inline literal pinned by nothing,
+                  and FALSE whenever the grid also held a member nothing could account
+                  for. Its stated reason (a cascade whose grid was refused leaves the
+                  dialog open with nothing left to cascade) is also gone: the dialog
+                  now CLOSES on both outcomes. Rather than fit it with a fresh
+                  rationale, the branch is gone and the dialog's `opened` requires a
+                  non-empty snapshot, so the state cannot render.
+
+                  🔴 AND NO `grid-publish-unresolved` NODE. An unaccountable member now
+                  REFUSES the publish before this dialog can open (`cascadeRefusal`,
+                  re-checked at the press), so a disclosure here would be unreachable —
+                  the refusal carries that copy instead, on the surface where the
+                  viewer can act on it. Round 0 proposed deleting the disclosure
+                  outright; it is kept and rewired, which is the stronger reading. */}
+              <span style={mutedText} data-testid="grid-publish-summary">
+                {cascadeConfirmNotice(gridPublishRec.name || 'Untitled grid', modal.deps)}
+              </span>
+              <Stack gap={6} data-testid="grid-publish-list">
+                {modal.deps.map((dep: CascadeDep) => (
+                  <Card key={dep.localId} withBorder padding="sm" data-testid="grid-publish-item">
+                    <Group gap={8} align="center">
+                      <Badge variant="light">
+                        {dep.noun === 'matchup' ? 'Matchup' : 'Prompt'}
+                      </Badge>
+                      <strong style={{ fontSize: 13 }}>{dep.name}</strong>
+                    </Group>
+                  </Card>
+                ))}
+              </Stack>
+              <Group justify="flex-end" gap={8}>
+                {/* 🔴 DISABLED WHILE THE CASCADE RUNS. Cancel changes MODAL STATE and
+                    nothing else — the promise keeps appending — so a live Cancel
+                    beside copy that says "Publishing cannot be undone" offered exactly
+                    the undo that does not exist. The dialog's own `onClose` is gated
+                    the same way, so Escape and the overlay cannot do what the button
+                    is stopped from doing. */}
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  disabled={gridPublishBusy}
+                  onClick={closeModal}
+                  data-testid="grid-publish-cancel"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  loading={gridPublishBusy}
+                  onClick={() => confirmGridPublish(modal.localId)}
+                  data-testid="grid-publish-go"
+                >
+                  Publish
+                </Button>
+              </Group>
+            </Stack>
+          )}
+        </Modal>
+        {/* 🔴 THE PUBLISHED-GRID EDIT FORM — the SAME `GridForm`, so `validateGrid`
+            runs on this path exactly as on the create path and an edit cannot store a
+            shape a create could not. Only the store differs: `updateGrid` →
+            `shared.update`, author-scoped, key and vote total preserved.
+
+            🔴 BUT ITS PICKERS ARE BOARD-ONLY, AND THAT IS THE SECOND WRITE SITE THE
+            PRIVATE-MEMBER FEATURE HAD TO CLOSE. `updateGrid` goes straight to
+            `shared.update`: there is no cascade on this path, no "publish the members
+            first" step, no `publishRecord`. Handing this form `matchupPickerItems`
+            (board PLUS private) would therefore let a viewer add a private matchup to
+            an ALREADY-PUBLISHED grid and write its per-viewer LOCAL ID onto the public
+            board in one press — and `shared.update` is author-scoped with no history
+            and no merge, so that row would name an unresolvable id permanently, for
+            every other viewer.
+            The PRIVATE grid form above gets the wide lists; this one gets the board.
+            Pinned in `src/gridDraftsCascade.test.tsx`, with the private picker's
+            offer of the same row as the positive control. */}
+        <Modal opened={modal.kind === 'grid'} onClose={closeModal} title="Edit grid" size="lg">
+          {modal.kind === 'grid' && (
+            <GridForm
+              key={modal.edit.key}
+              matchupItems={matchupBoardItems}
+              promptItems={promptBoardItems}
+              initial={gridToInput(modal.edit)}
+              submitLabel="Save changes"
+              onSubmit={(input) => updateGrid(modal.edit.key, input)}
               onCancel={closeModal}
             />
           )}
@@ -3005,7 +3879,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         <Modal
           opened={modal.kind === 'prompt'}
           onClose={closeModal}
-          title={modal.kind === 'prompt' && modal.edit ? 'Edit prompt' : 'Submit a prompt'}
+          title={modal.kind === 'prompt' && modal.edit ? 'Edit prompt' : 'New Prompt'}
           size="lg"
         >
           {modal.kind === 'prompt' && (
@@ -3013,6 +3887,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
               key={modal.edit?.key ?? 'new'}
               initial={modal.edit ? promptToInput(modal.edit) : undefined}
               submitLabel={modal.edit ? 'Save changes' : undefined}
+              multiStep={!modal.edit}
               onSubmit={
                 modal.edit ? (input) => updatePrompt(modal.edit!.key, input) : submitPrompt
               }

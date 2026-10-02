@@ -366,3 +366,31 @@ adding one is a change to `plan.py` + `capture.sh` + the bridge op + the mutatio
 That is the one route to photographing the boards. Recorded as a real option, **not** as
 licence to build it unasked.
 
+
+### EVICTED 2026-10-01 — the approval-queue positional-selector account
+
+- 🔴 **THE APPROVAL QUEUE HOLDS MORE THAN ONE APP AND THE OTHER ONE IS USUALLY FIRST — SIX
+  ATTEMPTS, SIX TIMES.** ⚠️ CONSOLIDATED 2026-09-30 from three near-identical bullets that had
+  accumulated across sessions; every measurement below was in one of them. `yt-thumbnail` sat
+  above this app at 0.4.7; `prompt-lab` sat above it at 0.4.9, 0.4.10, 0.4.11, **and again at
+  0.4.12 and 0.4.13** (submitted 9/29, so oldest-first puts it first every time). A positional
+  selector would approve **someone else's submission to production**. The recipe: assert exactly
+  ONE row whose text matches the app slug, assert that row does NOT mention the other app, stamp
+  a temporary marker attribute on its single `Review` control, click the marker selector, remove
+  the attribute — refusing rather than guessing at every step, and re-asserting immediately
+  before the click. Same shape for `Approve + build`, whose immediate neighbour is `Reject…`.
+  Confirmation it worked, every time: `prompt-lab` stayed `pending` afterwards.
+
+### EVICTED 2026-10-01 — the sticky-footer hit-test geometry
+
+- 🔴 **THE APPROVE BUTTON MAY OR MAY NOT BE COVERED BY THE SITE'S OWN STICKY FOOTER — SO
+  HIT-TEST EVERY TIME AND NEVER APPLY THE WORKAROUND BY HABIT.** ⚠️ CONSOLIDATED 2026-09-30 from
+  three bullets. `Approve + build` sits at y≈1082 h=36 in a pinned action bar against a 1134px
+  viewport, and `FOOTER.sticky` (45px, opaque, `z-50`) covers everything below y=1089 — so the
+  button's CENTRE, which the click op targets, can land on the bar; `elementFromPoint` then
+  returns a DIV. The window cannot scroll (`scrollHeight - clientHeight == 0`) and
+  `scrollIntoView` does not always clear it. **Measured covered on 0.4.9; NOT covered on 0.4.10,
+  0.4.11, 0.4.12 and 0.4.13** (`hitIsBtn: true` straight away). Remedy when it IS covered,
+  changing no layout: set `pointer-events: none` on the sticky footer, re-hit-test, click,
+  then RESTORE it.
+

@@ -34,7 +34,24 @@ import { ecosystemForBaseModel } from './ecosystem.js';
 // declarations from inside function bodies, never at module-evaluation time.
 import { parseGrid } from './grids.js';
 
-/** Max LoRAs the server accepts in `additionalResources` (mirrors the Zod gate). */
+/**
+ * Max LoRAs the server accepts in `additionalResources`.
+ *
+ * 🔴 THIS IS A HOST CONTRACT, NOT A TASTE CALL — DO NOT RAISE IT. The number is
+ * `MAX_ADDITIONAL_RESOURCES = 5` in `civitai/civitai`, applied as a Zod `.max()`
+ * on `additionalResources` in
+ * `src/server/schema/blocks/workflow.schema.ts` (line 84 at the time of
+ * measurement). The gate is at the WIRE SCHEMA, i.e. it rejects at submit — so a
+ * larger app-side cap does not buy the viewer a bigger stack, it lets them build
+ * one and then fails after they have done the work and pressed Confirm.
+ *
+ * The previous comment here said only "mirrors the Zod gate", which is true but
+ * unverifiable from inside this repo and so kept getting re-litigated. The
+ * constant and the file are named above precisely so the next person can check it
+ * rather than reopen it. `MAX_CONFIGS` is the opposite kind of number — an app-side
+ * usability cap with no host counterpart — and they must not be reasoned about
+ * together. `benchmark.test.ts` carries an INVARIANT GUARD pinning this at 5.
+ */
 export const MAX_LORAS = 5;
 
 /** Default weight clamp when a picked LoRA carries no recommended range. */
@@ -45,8 +62,25 @@ export const DEFAULT_WEIGHT = 1;
 /** Default included-set size (top-N by votes) for combos AND prompts. */
 export const DEFAULT_TOP_N = 5;
 
-/** Max model configs a single combination can group. */
-export const MAX_CONFIGS = 8;
+/**
+ * Max model configs a single combination can group.
+ *
+ * 🔴 UNLIKE `MAX_LORAS`, THIS HAS NO HOST COUNTERPART. Nothing server-side counts
+ * a combination's configs — a config is this app's own grouping, and each config
+ * runs as its own single-checkpoint workflow. So this is purely an app-side cap,
+ * and raising it from 8 to 100 was an operator request, not a contract change.
+ *
+ * 🔴 WHAT IT COSTS, AND WHAT PAYS FOR IT. This number multiplies the matrix: the
+ * results grid renders one ROW per config, and `MAX_GRID_MATCHUPS` ×
+ * `MAX_GRID_PROMPTS` (both 20, in `grids.ts`) bound the other two axes. At 8 the
+ * worst case was 20×8 = 160 rows / 3,200 cells; at 100 it is 20×100 = 2,000 rows
+ * / 40,000 cells. Every cell is a potential Buzz spend and a filled cell issues a
+ * gated image read, so an unvirtualized 40,000-cell render is a cost surface as
+ * well as a performance one. `ResultsGrid` therefore WINDOWS its rows
+ * (`lib/virtualRows.ts`) — the two changes shipped together and the limit should
+ * not be raised again without re-reading that bound.
+ */
+export const MAX_CONFIGS = 100;
 
 /** The deterministic config id assigned to a migrated v1 combination's single
  * config. A v1 result row (no `configId`) also resolves to this id, so a
@@ -125,14 +159,23 @@ function filledConfigs(configs: ModelConfig[]): ModelConfig[] {
   return configs.filter((cfg) => cfg && cfg.checkpoint && isNum(cfg.checkpoint.versionId));
 }
 
-/** Human-readable validation errors that block a combination submit. */
+/**
+ * Human-readable validation errors that block a combination submit.
+ *
+ * 🔴 THESE STRINGS ARE VIEWER-FACING, SO THEY SAY "MODEL", NOT "CONFIG". They are
+ * rendered by `MatchupForm`'s error `Alert` — the same modal whose heading, add
+ * button, remove label and per-row name all say "model". They said "config" for one
+ * round AFTER that rename, which put the WIRE word on screen in the one modal the
+ * rename existed for, and two new assertions had pinned it there. `modelCountSummary`
+ * carries the same rule and has its own guard against the same leak.
+ */
 export function validateCombination(input: CombinationInput): string[] {
   const errs: string[] = [];
   if (!input.name.trim()) errs.push('Give the matchup a name.');
   const filled = filledConfigs(input.configs);
-  if (filled.length === 0) errs.push('Add at least one model config (pick a checkpoint).');
-  if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} configs.`);
-  if (filled.some((cfg) => cfg.loras.length > MAX_LORAS)) errs.push(`At most ${MAX_LORAS} LoRAs per config.`);
+  if (filled.length === 0) errs.push('Add at least one model (pick a checkpoint).');
+  if (filled.length > MAX_CONFIGS) errs.push(`At most ${MAX_CONFIGS} models.`);
+  if (filled.some((cfg) => cfg.loras.length > MAX_LORAS)) errs.push(`At most ${MAX_LORAS} LoRAs per model.`);
   return errs;
 }
 
@@ -778,6 +821,32 @@ export function includedSummary(count: number, noun: 'row' | 'column'): string {
   return `The top ${count} by votes are showing as the grid's ${noun}s in your view.`;
 }
 
+/**
+ * The STRUCTURAL summary of a matchup, for a list row or a picker option: how many
+ * model configurations it pits against each other.
+ *
+ * 🔴 IT SAYS "models", NOT "configs", AND THAT IS THE WHOLE POINT OF THE FUNCTION.
+ * "config" is this repo's INTERNAL word — `ModelConfig`, `data.configs`, `MAX_CONFIGS`,
+ * `cellKey`'s `configId` — and none of it is on the wire as copy. A viewer reading
+ * "2 configs" is being shown an implementation noun for a thing they picked from a
+ * MODEL picker: one checkpoint plus its LoRA stack is, to them, one model setup. The
+ * operator asked for "models" and the internal names stay exactly as they are.
+ *
+ * 🔴 ONE RULE, ONE PLACE. The string was open-coded TWICE with the identical ternary —
+ * `App.tsx`'s `matchupPickerItems` (the grid builder's row picker) and
+ * `MatchupsView`'s private-row `meta` (My Benchmarks ▸ Matchups) — which is exactly the
+ * shape that comes out wrong at N−1 sites. Both call this now, so the two surfaces
+ * cannot disagree about the word or about the pluralisation.
+ *
+ * `benchmark.test.ts` pins the output as LITERALS (not derived from this body), and
+ * `gridsView.test.tsx` / `myBenchmarks.test.tsx` each read the RENDERED string on one of
+ * the two surfaces — a unit test alone cannot tell "the helper is right" from "a call
+ * site still open-codes the old string".
+ */
+export function modelCountSummary(count: number): string {
+  return `${count} model${count === 1 ? '' : 's'}`;
+}
+
 // ---------------------------------------------------------------------------
 // Cell dedup — first-append-wins
 // ---------------------------------------------------------------------------
@@ -933,13 +1002,55 @@ export function flattenConfigs(combos: CombinationRow[]): BenchConfig[] {
   return rows;
 }
 
-/** A human label for a config row (author label → checkpoint name → "Config N"). */
+/**
+ * A human label for one model config: the AUTHOR'S label when there is one, an
+ * auto-generated "checkpoint + LoRA + LoRA" otherwise, and a positional
+ * "Model N" when there is not even a checkpoint name to build from.
+ *
+ * 🔴 THE AUTHOR'S LABEL WINS, AND THAT IS THE LOAD-BEARING HALF. `ModelConfig.label`
+ * is optional author text that is already stored on published rows — INCLUDING
+ * OTHER AUTHORS' ROWS, which this app can never rewrite (`shared.update` is
+ * author-scoped, so there is no migration that could normalise them). The matchup
+ * form stopped OFFERING the input — a viewer no longer types a label, it is derived
+ * from what they picked — but nothing anyone has already written may stop being
+ * displayed. A version of this that generated unconditionally would silently
+ * replace every pre-existing label on the board with a machine-made one.
+ *
+ * 🔴 ONE RULE, ONE PLACE. This is the ONLY definition of "what is this config
+ * called", and it is used by both the builder form (`MatchupForm`, which shows the
+ * label it is about to derive) and the results grid (`ResultsGrid`, via
+ * `configLabel` below). An open-coded second copy in the form would have drifted
+ * from the grid's the first time either moved, i.e. the form would promise a row
+ * name the grid then did not use.
+ *
+ * ⚠️ `checkpoint` IS TYPED REQUIRED AND IS NEVERTHELESS OPTIONAL AT RUNTIME.
+ * `newConfig()` mints `checkpoint: undefined as unknown as CheckpointRef` so the
+ * builder can hold a half-filled row, so this reads it defensively; a stored row
+ * always has one (`parseCheckpoint` rejects a config without it).
+ */
+export function modelConfigLabel(config: ModelConfig, index: number): string {
+  const authored = config.label?.trim();
+  if (authored) return authored;
+
+  const checkpoint = config.checkpoint?.modelName?.trim();
+  if (!checkpoint) return `Model ${index + 1}`;
+
+  // Whitespace-only LoRA names are dropped rather than joined as empty segments —
+  // a trailing " + " reads as a rendering bug, not as a nameless LoRA.
+  const loras = (config.loras ?? [])
+    .map((l) => l.modelName?.trim())
+    .filter((n): n is string => !!n);
+  return loras.length > 0 ? `${checkpoint} + ${loras.join(' + ')}` : checkpoint;
+}
+
+/**
+ * A human label for a config row in the RESULTS GRID.
+ *
+ * A thin adapter over `modelConfigLabel` — the rule itself lives there, so the
+ * grid's row label and the builder's per-model heading cannot disagree.
+ */
 export function configLabel(row: BenchConfig): string {
-  return (
-    row.config.label?.trim() ||
-    row.config.checkpoint.modelName ||
-    `Config ${row.configIndex + 1}`
-  );
+  return modelConfigLabel(row.config, row.configIndex);
 }
 
 function isNum(v: unknown): v is number {

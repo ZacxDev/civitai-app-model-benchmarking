@@ -7,6 +7,16 @@
 // sticky headers) — too bespoke for the /ui pack (per rule 112) — but every atom
 // (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
 // the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
+//
+// 🔴 THE ROWS ARE WINDOWED. `MAX_CONFIGS` is 100 and a grid holds up to 20
+// matchups × 20 prompts, so the worst-case matrix is 2,000 rows / 40,000 cells —
+// and every cell is a potential Buzz spend whose filled form issues a gated image
+// read. Only the rows near the viewport are mounted; two full-width spacers stand
+// in for the rest so the scroll extent does not change. The windowing DECISION is
+// the pure `rowWindow()` in `lib/virtualRows.ts` (unit-tested with literal values
+// in the `node` project); this file only measures and renders. See `useRowWindow`.
+
+import { useEffect, useState } from 'react';
 
 import { Button, Loader } from '@civitai/blocks-react/ui';
 import { Image } from '@civitai/components-react';
@@ -21,6 +31,13 @@ import {
   type BenchConfig,
 } from '../lib/benchmark.js';
 import { ecosystemForBaseModel, ecosystemMeta } from '../lib/ecosystem.js';
+import {
+  DEFAULT_OVERSCAN,
+  ROW_H_ESTIMATE,
+  rowWindow,
+  sameWindow,
+  type RowWindow,
+} from '../lib/virtualRows.js';
 import { EmptyState } from './EmptyState.js';
 import type { GatedCellComponent } from './GatedCell.js';
 
@@ -96,7 +113,58 @@ export interface ResultsGridProps {
   onOpenPrompt: (promptKey: string) => void;
 }
 
-const CELL_W = 200;
+/**
+ * The FLOOR on a prompt column, in px — a `minmax()` lower bound, not a width.
+ *
+ * 🔴 IT USED TO BE THE WIDTH (`CELL_W = 200`, fed to `repeat(n, 200px)`), and the
+ * change from a fixed track to `minmax(CELL_MIN_W, 1fr)` is the whole of operator
+ * feedback #3: on a wide screen a fixed 200px cell left the matrix as a narrow
+ * ribbon against acres of empty page, and the images inside it — the thing the app
+ * exists to compare — rendered at 200px whatever the viewport.
+ *
+ * 🔴 WHY 200 IS THE FLOOR, AND NOT A ROUNDER OR SMALLER NUMBER. It is the width the
+ * matrix has always shipped at, so at and below the point where the floor binds
+ * (i.e. every narrow viewport) the layout is UNCHANGED — the responsive change can
+ * only ever make a cell wider, never narrower, which is what keeps the ≤720px
+ * scroll story below exactly as it was measured. It is also the width every cell's
+ * contents were laid out against: the publish preview strip is
+ * `repeat(min(urls, 2), 1fr)`, so 200 is two ~98px thumbnails plus the gap, and the
+ * confirm gate's warning copy (`BALANCE_UNKNOWN_MESSAGE` and friends) wraps to a
+ * readable measure at that width and not much less. Lowering it would let a busy
+ * board squeeze cells below both of those; raising it would widen the narrow-
+ * viewport scroll distance for no gain, since `1fr` already takes the slack.
+ *
+ * ⚠️ NOTHING IN THIS REPO CAN SEE THE RESULT. jsdom resolves no grid, so the tests
+ * pin the emitted `grid-template-columns` STRING and nothing about how wide a cell
+ * comes out. A live reading is owed — and note that a responsive matrix is exactly
+ * what invalidates a fixed-viewport capture recipe: the store-listing crop for this
+ * app assumes a stable cell width and must be re-measured.
+ */
+const CELL_MIN_W = 200;
+
+/**
+ * The CEILING on a prompt column, in px. The other half of the `minmax()`.
+ *
+ * 🔴 IT EXISTS BECAUSE `1fr` HAS NO UPPER BOUND AND A SPARSE GRID IS PUBLISHABLE.
+ * `validateGrid` requires only ONE prompt, so a published 1-prompt grid is legal;
+ * with `1fr` its single column took the entire remaining width, and the
+ * publish-preview strip inside it blew two thumbnails to ~1150px each on a 2560px
+ * monitor. That is the opposite extreme from the 200px ribbon the responsive change
+ * was made to fix, and a round-1 audit found it — no test could, because jsdom
+ * resolves no grid.
+ *
+ * 🔴 A CEILING IS NOT A RETURN TO A FIXED TRACK. The cell still grows 200 -> 420,
+ * so the operator's ask ("make the grid images larger") is delivered at every
+ * viewport that has the room; what it stops is the UNBOUNDED case. Past the
+ * ceiling the matrix left-aligns and the page keeps its margin, rather than one
+ * column stretching to fill a monitor.
+ *
+ * ⚠️ 420 IS A JUDGEMENT, NOT A MEASUREMENT, and nothing here can measure it — jsdom
+ * performs no layout. It is ~2.1x the old fixed width, which is a visible increase
+ * without being a poster. The live reading owed for this change should look at the
+ * case that bites: FEW PROMPTS on a WIDE viewport, not a wide viewport generally.
+ */
+const CELL_MAX_W = 420;
 const ROW_H_HEADER = 56;
 
 /**
@@ -216,6 +284,97 @@ export function confirmGate(cost: number | undefined, buzzTotal: number | null):
   return cost <= buzzTotal ? 'ok' : 'insufficient';
 }
 
+/**
+ * ROW WINDOWING — which config rows are mounted, as a function of where the
+ * document is scrolled. Returns `[window, setHost]`, where `setHost` is a
+ * CALLBACK REF to put on the grid container whose top the offset is measured from.
+ *
+ * 🔴 ALL THE ARITHMETIC IS IN `lib/virtualRows.ts`, AND DELIBERATELY SO. This hook
+ * only MEASURES (`getBoundingClientRect().top`, `window.innerHeight`) and
+ * re-renders; the decision is a pure function with a `node`-project unit test
+ * carrying literal expected values. jsdom resolves no layout, so a decision that
+ * lived in here would be unobservable except through its effects — and this repo
+ * has already shipped a dead placeholder behind exactly that blind spot (see the
+ * header of `virtualRows.ts`, and `useNearViewport` in `GridPreview.tsx`).
+ *
+ * 🔴 THE HOST ELEMENT IS HELD IN STATE, NOT A `useRef` — the same fix as
+ * `useNearViewport`. A ref object never changes identity, so an effect keyed on it
+ * runs once and can never see the element ARRIVE on a later render. The grid
+ * container is behind the empty-state early return, so "arrives later" is the
+ * ordinary case here: an empty board that gains its first matchup mounts this
+ * container on a render where the hook has already run.
+ *
+ * ⚠️ THE OFFSET IS MEASURED FROM THE CONTAINER TOP, WHICH INCLUDES THE HEADER ROW,
+ * so `ROW_H_HEADER` is subtracted to get the offset into the row band. Both that
+ * and `ROW_H_ESTIMATE` are estimates; `DEFAULT_OVERSCAN` rows each side absorb the
+ * error. There is no vertical scroll container — the matrix scrolls with the
+ * DOCUMENT (the outer box scrolls only horizontally) — so the listener is on
+ * `window`, and `scroll` is bound with `passive: true` because the handler never
+ * calls `preventDefault`.
+ *
+ * ⚠️ NOTHING IN THIS REPO VERIFIES THE RESULTING SCROLL BEHAVIOUR. jsdom fires no
+ * scroll, lays nothing out, and returns 0 from every rect — so in tests this hook
+ * yields the fallback window and stays there. What the tests CAN see is that the
+ * window is BOUNDED (far fewer cells mount than the matrix has); whether it tracks
+ * a real scroll needs a human in a real browser.
+ */
+function useRowWindow(rowCount: number): [RowWindow, (el: HTMLElement | null) => void] {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [win, setWin] = useState<RowWindow>(() =>
+    rowWindow({
+      rowCount,
+      rowHeight: ROW_H_ESTIMATE,
+      viewportHeight: typeof window === 'undefined' ? 0 : window.innerHeight,
+      scrollTop: 0,
+      overscan: DEFAULT_OVERSCAN,
+    }),
+  );
+
+  useEffect(() => {
+    const measure = (): void => {
+      const top = host ? host.getBoundingClientRect().top : 0;
+      const next = rowWindow({
+        rowCount,
+        rowHeight: ROW_H_ESTIMATE,
+        viewportHeight: window.innerHeight,
+        // `-top` is how far the container's top edge is ABOVE the viewport's; the
+        // row band starts one header row further down. A negative result (the grid
+        // still below the fold) is clamped to 0 by `rowWindow`.
+        scrollTop: -top - ROW_H_HEADER,
+        overscan: DEFAULT_OVERSCAN,
+      });
+      // Only re-render when the window actually MOVED. A `scroll` listener that
+      // setState'd on every event would re-render the whole matrix at scroll
+      // frequency, which is the cost this change exists to remove.
+      setWin((prev) => (sameWindow(prev, next) ? prev : next));
+    };
+    measure();
+    window.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [host, rowCount]);
+
+  return [win, setHost];
+}
+
+/**
+ * Style for the two inert, full-width grid items that stand in for the rows
+ * outside the window.
+ *
+ * 🔴 THE STYLE IS SHARED, THE `data-testid` IS NOT — the two spacers are written
+ * out inline with LITERAL testids rather than through one `<RowSpacer testid={…}>`
+ * component. An indirect testid (a prop threaded into `data-testid`) is invisible
+ * to `sourceScan`'s testid walk, and `renameWireCompat.test.ts` keeps an explicit
+ * ledger of every such site for exactly that reason. Two literals cost two lines
+ * and keep the scan complete.
+ */
+function spacerStyle(height: number): React.CSSProperties {
+  return { gridColumn: '1 / -1', height };
+}
+
 export function ResultsGrid({
   configs,
   prompts,
@@ -236,6 +395,9 @@ export function ResultsGrid({
   onOpenPrompt,
 }: ResultsGridProps): React.JSX.Element {
   const byCell = indexResultsByCell(results);
+  // 🔴 CALLED BEFORE THE EMPTY-STATE EARLY RETURN BELOW, unconditionally — a hook
+  // after a conditional return is a hook-order violation on the very next render.
+  const [win, setGridHost] = useRowWindow(configs.length);
 
   // The grid is the app's PRIMARY state, so its empty case gets the same
   // treatment as every other list: the shared EmptyState template, which the
@@ -269,12 +431,23 @@ export function ResultsGrid({
     );
   }
 
-  const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, ${CELL_W}px)`;
+  // 🔴 `minmax(FLOOR, 1fr)`, NOT A FIXED TRACK. `1fr` is what makes a cell grow
+  // into a wide viewport; the floor is what stops it shrinking below the width
+  // every cell's contents were built for (see {@link CELL_MIN_W}). The two halves
+  // are a pair: `1fr` alone would let a busy board crush the columns to
+  // unreadable, and the floor alone is the fixed ribbon this replaces.
+  const gridTemplateColumns = `minmax(180px, 220px) repeat(${prompts.length}, minmax(${CELL_MIN_W}px, ${CELL_MAX_W}px))`;
 
-  // 🔴 The <div> below is the app's horizontal-scroll BOUNDARY: the matrix is
-  // wider than a phone by construction (a 200px cell per prompt plus a
-  // 180–220px row header), so on a narrow viewport it degrades by SCROLLING
-  // there — no column is dropped and no cell changes identity. `overflowX:
+  // 🔴 The <div> below is the app's horizontal-scroll BOUNDARY, and the responsive
+  // track above did NOT retire it. A grid track cannot shrink below its `minmax()`
+  // minimum, so the matrix is still wider than a phone by construction (a 200px
+  // FLOOR per prompt plus a 180–220px row header) and still degrades by SCROLLING
+  // there — no column is dropped and no cell changes identity. What changed is only
+  // the other end: where there IS slack, `1fr` takes it instead of leaving it as
+  // dead page. ⚠️ The sentence here used to reason from "a 200px cell", i.e. from a
+  // constant that no longer exists; the arithmetic survives because 200 is now the
+  // minimum rather than the width, which is the ONLY reason the narrow-viewport
+  // measurements below still describe this tree. `overflowX:
   // 'auto'` alone was NOT enough: the box still SIZED itself to its content,
   // because its ancestors' min-width defaulted to min-content (see
   // `contentStyle`), so the document widened anyway. `minWidth: 0` +
@@ -294,7 +467,14 @@ export function ResultsGrid({
         borderRadius: radius.md,
       }}
     >
-      <div style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}>
+      <div
+        ref={setGridHost}
+        data-testid="grid-body"
+        data-row-count={configs.length}
+        data-window-start={win.start}
+        data-window-end={win.end}
+        style={{ display: 'grid', gridTemplateColumns, minWidth: 'min-content' }}
+      >
         {/* Header row: corner + one column header per prompt */}
         <HeaderCorner c={c} />
         {prompts.map((p) => (
@@ -306,8 +486,32 @@ export function ResultsGrid({
           />
         ))}
 
-        {/* Body: one row per CONFIG (grouped under its combination) */}
-        {configs.map((row, i) => (
+        {/* 🔴 THE SPACERS ARE WHAT KEEP THE SCROLL EXTENT HONEST. Without them the
+            document would shrink to the mounted window and the scrollbar would
+            jump on every scroll; `rowWindow` guarantees
+            `padTop + mounted*rowHeight + padBottom === rowCount*rowHeight`. They
+            span every track (`1 / -1`) for the same reason `GroupBand` does — a
+            grid item occupies one cell otherwise. */}
+        {win.padTop > 0 && (
+          <div
+            data-testid="grid-pad-top"
+            data-height={win.padTop}
+            aria-hidden="true"
+            style={spacerStyle(win.padTop)}
+          />
+        )}
+
+        {/* Body: one row per CONFIG (grouped under its combination), WINDOWED.
+            🔴 `groupStart` IS COMPUTED FROM THE GLOBAL INDEX `i`, NEVER THE SLICE
+            INDEX `j`. Which rows get a matchup band is a property of the full
+            config list, so windowing must not change it: a window opening in the
+            MIDDLE of a group must not promote its first visible row to a band, and
+            a group whose first config is windowed out must not lose it when it
+            comes back. Reading `configs[i - 1]` (the full array, not the slice) is
+            what makes the band decision identical to the unwindowed render. */}
+        {configs.slice(win.start, win.end).map((row, j) => {
+          const i = win.start + j;
+          return (
           <RowFragment
             key={`${row.comboKey}:${row.config.id}`}
             row={row}
@@ -326,7 +530,17 @@ export function ResultsGrid({
             onCancelRun={onCancelRun}
             onOpenMatchup={onOpenMatchup}
           />
-        ))}
+          );
+        })}
+
+        {win.padBottom > 0 && (
+          <div
+            data-testid="grid-pad-bottom"
+            data-height={win.padBottom}
+            aria-hidden="true"
+            style={spacerStyle(win.padBottom)}
+          />
+        )}
       </div>
     </div>
   );

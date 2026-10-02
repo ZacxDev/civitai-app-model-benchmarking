@@ -6,22 +6,34 @@
 // (see App.tsx). The pack (Button/Card/Badge/…) is self-themed off the same
 // tokens, so the hand-rolled matrix reads as one system with it.
 //
-// Token source: `@civitai/theme@0.2.0` — imported once in main.tsx via
+// Token source: `@civitai/theme` (installed: 0.4.0) — imported once in main.tsx via
 // `@civitai/theme/styles.css` (and also injected at runtime by the pack's
 // injectBlocksStyles()). NOTE: the `--civitai-color-gray-*` ramp is theme-
 // INVARIANT (not redefined under [data-theme='dark']), so it is deliberately NOT
 // used for any theme-responsive surface here — only the theme-aware tokens
-// (text/body/surface/surface-2/border/primary/error/success) are.
+// (text/body/surface/border/primary/error/success) are — and surface-2 is NOT among
+// them any more; see the `token` docblock below.
 
 import type { CSSProperties } from 'react';
 
-/** The theme-aware `--civitai-*` tokens this app consumes (all flip with `[data-theme]`). */
+/**
+ * The theme-aware `--civitai-*` tokens this app consumes (all flip with `[data-theme]`).
+ *
+ * 🔴 `surface2` IS DELIBERATELY ABSENT, AND ITS ABSENCE IS THE FIX. See
+ * {@link recessedSurface}: `--civitai-color-surface-2` resolves to the SAME value as
+ * `--civitai-color-body` in light theme, so anything filled with it loses its fill
+ * there. The rule was WRITTEN DOWN three times — here, in `GatedCell.tsx`, and as a
+ * grep gate in `PLAYBOOK.md` §1e — and still got open-coded wrong at a fourth site
+ * (`PromptBody.tsx`'s `<pre>`), because a prose warning beside a token that is right
+ * there to be reached for does not stop anyone reaching for it. Not offering the
+ * token is what makes the wrong choice unspellable; `src/theme.test.ts` keeps it
+ * unspellable across the whole of `src/`.
+ */
 export const token = {
   text: 'var(--civitai-color-text)',
   dimmed: 'var(--civitai-color-text-dimmed)',
   body: 'var(--civitai-color-body)',
   surface: 'var(--civitai-color-surface)',
-  surface2: 'var(--civitai-color-surface-2)',
   border: 'var(--civitai-color-border)',
   primary: 'var(--civitai-color-primary)',
   primaryLight: 'var(--civitai-color-primary-light)',
@@ -47,6 +59,34 @@ export const radius = {
 export function elevate(pct: number): string {
   return `color-mix(in srgb, var(--civitai-color-text) ${pct}%, var(--civitai-color-surface))`;
 }
+
+/**
+ * THE app's recessed fill — a block that has to read as *inset* from the surface
+ * it sits on: a gated placeholder tile, a quoted prompt body, anything that would
+ * otherwise reach for `surface-2`.
+ *
+ * 🔴 THIS CONSTANT IS THE WHOLE POINT OF THE CHANGE THAT ADDED IT, and the reason
+ * it is a constant rather than a third comment. The predicate "surface-2 is not
+ * safe as a fill" was open-coded at three sites and WRONG AT ONE:
+ *
+ *   - `theme.ts` said it in a sentence beside the token itself;
+ *   - `GatedCell.tsx` said it in a comment above its own `elevate(5)`;
+ *   - `PLAYBOOK.md` §1e said it as a hand-run `grep` gate, which nobody ran;
+ *   - and `PromptBody.tsx` filled its `<pre>` with `token.surface2` anyway, so the
+ *     prompt text block had NO fill in light theme.
+ *
+ * Three statements of a rule and one violation is the signature of a rule with no
+ * single home. The rule now has one: `surface2` is gone from {@link token}, so the
+ * wrong value cannot be reached for, and the right one has a name. The percentage
+ * is `GatedCell`'s long-shipped 5 — light enough to stay under body text, heavy
+ * enough to read against `surface` in both themes.
+ *
+ * ⚠️ IT IS A FILL, NOT A BOUNDARY. `color-mix` gives a *contrast step*, and how big
+ * that step reads is a live-rendering question jsdom cannot answer — so every
+ * consumer pairs it with `1px solid ${token.border}`, exactly as `GatedCell` always
+ * has. Do not drop the border on the grounds that the fill is enough.
+ */
+export const recessedSurface = elevate(5);
 
 export interface Palette {
   bg: string;

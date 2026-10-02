@@ -40,7 +40,7 @@ import { ReportButton } from '@civitai/blocks-react/ui';
 import type { PromptRow } from '../types.js';
 import { isOwnRow } from '../lib/benchmark.js';
 import { ecosystemMeta } from '../lib/ecosystem.js';
-import { metaText, mutedText, radius, token } from '../theme.js';
+import { metaText, mutedText, radius, recessedSurface, token } from '../theme.js';
 import { Menu, MenuControl, MenuItem } from './Menu.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
@@ -65,13 +65,23 @@ export interface PromptBodyProps {
   extraActions?: ReactNode;
 }
 
+/**
+ * The quoted prompt TEXT block.
+ *
+ * 🔴 `recessedSurface`, NEVER `surface-2`. This `<pre>` shipped with
+ * `background: token.surface2`, which resolves to the same value as `body` in light
+ * theme — so the block had no fill there at all and the prompt text sat directly on
+ * the page. The token is gone from `theme.ts` now and `src/theme.test.ts` keeps it
+ * from coming back; see {@link recessedSurface} for the full account. The border
+ * below is part of the same treatment, not decoration.
+ */
 const preStyle: React.CSSProperties = {
   margin: 0,
   fontSize: 12,
   lineHeight: 1.45,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
-  background: token.surface2,
+  background: recessedSurface,
   border: `1px solid ${token.border}`,
   borderRadius: radius.sm,
   padding: '6px 8px',

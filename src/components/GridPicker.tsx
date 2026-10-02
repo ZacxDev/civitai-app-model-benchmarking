@@ -74,13 +74,23 @@ export type GridPickerAxis = 'matchups' | 'prompts';
 
 /** One selectable row. `key` is the SHARED key that ends up in `GridData`. */
 export interface GridPickerItem {
-  /** Shared key — the identity stored in the grid. Must be unique in `items`. */
+  /**
+   * The identity stored in the grid. Must be unique in `items`.
+   *
+   * 🔴 NOT NECESSARILY A SHARED KEY — this said "Shared key" and that is no longer
+   * true. `App` hands this picker the viewer's OWN PRIVATE matchups and prompts as
+   * well as the board's rows, and a private record carries only a per-viewer LOCAL
+   * id. This component neither knows nor cares which it is; what keeps a local id off
+   * the public board is the publish boundary (`lib/gridCascade.ts`), and what keeps
+   * one out of an already-PUBLISHED grid is that `App` hands THAT form board-only
+   * lists. `types.ts`'s `UnpublishedGrid.matchupKeys` carries the same correction.
+   */
   key: string;
   /** User-visible name. Searched, and part of the option's accessible name. */
   name: string;
   /** Optional secondary line. Also searched. */
   description?: string;
-  /** Optional short meta ("3 configs"). Shown, but NOT searched. */
+  /** Optional short meta ("3 models" — see `modelCountSummary`). Shown, but NOT searched. */
   meta?: string;
 }
 
@@ -428,7 +438,16 @@ export function GridPicker({
             <EmptyState
               data-testid={`${testId}-empty`}
               title={`No ${copy.many} to choose from`}
-              body={`Publish or vote up a ${copy.one} first — a grid can only reference ${copy.many} that are on the board.`}
+              /* 🔴 THE "on the board" CLAIM WAS MADE FALSE AND IS CORRECTED, NOT
+                 REWORDED FOR TASTE. It read "Publish or vote up a <one> first — a
+                 grid can only reference <many> that are on the board", which was
+                 true for exactly as long as `App` built `items` from the published
+                 rows alone. It now appends the viewer's OWN PRIVATE records, so a
+                 grid can reference something that is NOT on the board — and the old
+                 sentence told a viewer with one private matchup and an empty board
+                 that their only route was to publish it first. The whole string is
+                 pinned by `GridPicker.test.tsx`; it moves with this one. */
+              body={`Create a ${copy.one} first — a grid can reference any ${copy.many} on the board, plus your own private ones.`}
             />
           ) : (
             <EmptyState

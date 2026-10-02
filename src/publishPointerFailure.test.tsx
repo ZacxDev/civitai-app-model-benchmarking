@@ -66,6 +66,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { Harness } from './test-harness.js';
+import type { SharedItem } from '@civitai/sdk';
 
 import { App, type AppDeps } from './App.js';
 import { publishPointerFailedNotice } from './lib/unpublished.js';
@@ -125,7 +126,7 @@ const LOCAL_ID = 'l-halfpub';
  * deliberate — pay it and update the literal, having re-read whether the new
  * sentence still says the true thing about the store.
  *
- * 🔴 THE TAIL IS PER-NOUN, AND THIS FILE HAS NOW CERTIFIED A STALE GRID ARM TWICE.
+ * 🔴 THE TAIL IS PER-NOUN, AND THIS FILE HAS NOW CERTIFIED STALE COPY THREE TIMES.
  * That repetition is the finding, not the wording: a VERBATIM per-noun guard makes the
  * copy a test fixture, so whatever it holds is asserted to be right, and the suite
  * stays green over a sentence naming a heading nobody renders.
@@ -134,27 +135,26 @@ const LOCAL_ID = 'l-halfpub';
  *   The IA refactor deleted the grids My/Community sub-tabs, so for grids that heading
  *   had no renderer. The grid arm became "Find it in All grids, badged Yours…".
  *
- *   ROUND 2 (this one). "All grids" is GONE — replaced by `BoardNav`, whose grids
- *   segment is labelled "Grids"; `src/boardNav.test.tsx` asserts `queryByText('All
- *   grids')` is null. So the grid arm named a deleted heading AGAIN, and this table was
- *   again what certified it.
+ *   ROUND 2. "All grids" is GONE — replaced by `BoardNav`, whose grids segment is
+ *   labelled "Grids"; `src/boardNav.test.tsx` asserts `queryByText('All grids')` is
+ *   null. So the grid arm named a deleted heading AGAIN, and this table was again what
+ *   certified it. That round pointed all three back at "Published by you".
  *
- * ⚠️ AND THE ROUND-1 REASONING IS STALE TOO, which is why the grid arm goes BACK to
- * "Published by you" rather than to some third surface: `MyPublished` renders that
- * literal heading for ALL THREE nouns now, grids included (My Benchmarks ▸ Grids →
- * `MyGridsView` → `MyPublished noun="grid"`). The only surviving per-noun difference is
- * the EDIT clause, and that one is real: `App.tsx` has `updateCombination` and
- * `updatePrompt` and NO `updateGrid`, and NO grid card on EITHER surface ever renders an
- * Edit control. (The claim is deliberately the absence: what a grid card DOES render is
- * conditional — Remove only for the viewer's own row, Report only for someone else's,
- * Vote only for a non-system entry, Archive only on My Benchmarks — so two earlier
- * drafts of this note wrote a union of those as if it were one card's contents. See
- * `lib/unpublished.ts` for the full record.)
+ *   ROUND 3 (this one). "Published by you" has no renderer either: `MyPublished` and
+ *   `UnpublishedList` are merged into `MyList`, headed "Your <noun>s". THIRD TIME,
+ *   SAME MECHANISM — and this time it was all three arms, not one. And the grid arm's
+ *   EDIT CLAUSE went false in the same change: `App.updateGrid` exists now (name,
+ *   description and members), so the per-noun divergence that survived two rounds is
+ *   gone and the three sentences coincide.
+ *
+ * 🔴 SO THE STANDING LESSON IS THE ONE THIS TABLE KEEPS RE-LEARNING: a verbatim copy
+ * guard NAMES A SURFACE, and any IA change moves surfaces. When you touch a heading,
+ * grep it here.
  */
 const WHERE_TO_FIND: Record<'matchup' | 'prompt' | 'grid', string> = {
-  matchup: 'Find it under Published by you to edit or remove it.',
-  prompt: 'Find it under Published by you to edit or remove it.',
-  grid: 'Find it under Published by you to remove it — a published grid cannot be edited.',
+  matchup: 'Find it under Your matchups to edit or remove it.',
+  prompt: 'Find it under Your prompts to edit or remove it.',
+  grid: 'Find it under Your grids to edit or remove it.',
 };
 
 const NOTICE_PRIVATE_COPY_REMOVED = (noun: 'matchup' | 'prompt' | 'grid'): string =>
@@ -254,19 +254,85 @@ const OBJECTS = [
       matchupKeys: ['mk-alpha'],
       promptKeys: ['qk-tango'],
     }),
+    /**
+     * 🔴 THE GRID ARM NEEDS ITS MEMBERS ON THE BOARD NOW, AND THAT IS A BEHAVIOUR
+     * CHANGE RATHER THAN A FIXTURE TIDY-UP.
+     *
+     * A grid publish is REFUSED when any member key cannot be positively accounted
+     * for — not a board row, not a live private record, not a stored pointer (see
+     * `cascadeRefusal`). That boundary exists because the bucket such a key lands in
+     * is now ALSO where an unaccountable per-viewer LOCAL ID lands, and nothing in a
+     * key's text separates the two. The cost, paid deliberately: a grid one of whose
+     * members was withdrawn is no longer publishable until its author removes it.
+     *
+     * This fixture's grid named `mk-alpha` × `qk-tango` against an EMPTY board, so
+     * under the new boundary it would be refused and never reach `append` at all —
+     * which would make every case below assert nothing. Seeding the two rows restores
+     * the PREMISE this file is about (a publish that succeeds and whose POINTER write
+     * is then refused) instead of silently testing the refusal.
+     */
+    boardSeed: [
+      {
+        key: 'mk-alpha',
+        count: 1,
+        authorUserId: 5,
+        viewerVoted: false,
+        /* ⚠️ A REAL CONFIG, NOT `configs: []`. `parseCombination` drops a row with no
+           usable config, so an empty array would leave `mk-alpha` off the board and the
+           grid would be refused anyway — measured: six red cases with an empty
+           `appends`. The fixture has to satisfy the PARSER, not just the type. */
+        value: {
+          title: 'Member matchup',
+          body: '',
+          data: {
+            v: 2,
+            kind: 'combination',
+            configs: [
+              {
+                id: 'cfg-member',
+                checkpoint: {
+                  versionId: 1001,
+                  modelId: 500,
+                  baseModel: 'SDXL 1.0',
+                  modelName: 'JuggernautXL',
+                },
+                loras: [],
+              },
+            ],
+          },
+        },
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+      {
+        key: 'qk-tango',
+        count: 1,
+        authorUserId: 5,
+        viewerVoted: false,
+        value: {
+          title: 'Member prompt',
+          body: '',
+          data: { v: 3, kind: 'prompt', default: { prompt: 'x', params: {} } },
+        },
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      },
+    ] as SharedItem[],
   },
 ];
 
 describe.each(OBJECTS)(
   '🔴 a $noun whose pointer write is REFUSED after a successful append',
-  ({ noun, view, prefix, storageKey, record }) => {
+  ({ noun, view, prefix, storageKey, record, boardSeed }) => {
     /**
      * Mount with the record seeded and every `set` under its OWN prefix refused.
      * `alsoRefuseDelete` additionally refuses the fallback `delete` on the same
      * prefix — the second of the two outcomes the copy branches on.
      */
     async function arrange(alsoRefuseDelete = false) {
-      const s = fakeShared({ seed: [] });
+      // 🔴 `boardSeed` IS THE GRID ARM'S PREMISE, not decoration — see the field's
+      // docblock. The matchup and prompt arms pass none and are unchanged.
+      const s = fakeShared({ seed: boardSeed ?? [] });
       const kv = fakeAppStorage(
         { [storageKey]: record },
         {},
@@ -406,11 +472,12 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
     view,
     storageKey,
     record,
+    boardSeed,
   }) => {
     // 🔴 WITHOUT THIS the cases above are satisfiable by an app that shows the
     // failure notice on EVERY publish. Same fixture, same route, `failSetTimes`
     // omitted — the only difference is whether the host refuses.
-    const s = fakeShared({ seed: [] });
+    const s = fakeShared({ seed: boardSeed ?? [] });
     const kv = fakeAppStorage({ [storageKey]: record });
     mountApp({ shared: s.shared, appStorage: kv.appStorage });
     await openView(view);
@@ -444,7 +511,7 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
 // mid-report at all — strictly stronger than a latch". It cannot unmount because the
 // LIST EMPTIED, which is what the latch was for and is genuinely closed. But the
 // sidebar added a second unmount path the latch never covered: selecting Home takes
-// `MyGridsView` down, and `UnpublishedList` holds its publish `error` in LOCAL state,
+// `MyGridsView` down, and `MyList` holds its publish `error` in LOCAL state,
 // so the notice goes with it and is not re-derived on return.
 //
 // 🔴 THIS CASE ASSERTS THE GAP, NOT THE FIX. It is a characterisation test: it pins
@@ -457,7 +524,7 @@ describe('the NEGATIVE CONTROL: a publish whose pointer write succeeds', () => {
 // changes what the viewer KNOWS, never how many times `append` ran — and that is
 // asserted below, so this case cannot be read as a money finding.
 //
-// ⚠️ Grid arm only, deliberately. All three nouns share `UnpublishedList` and the same
+// ⚠️ Grid arm only, deliberately. All three nouns share `MyList` and the same
 // local `error`, so the mechanism is identical; a `describe.each` over three would be
 // three samples of one claim. The grid arm is the one whose header carried the false
 // guarantee.
@@ -465,7 +532,10 @@ describe('🔴 the half-published notice does NOT survive a nav away (UNGUARDED,
   const GRID = OBJECTS.find((o) => o.noun === 'grid')!;
 
   it('renders on My Benchmarks ▸ Grids, and a trip to Home destroys it', async () => {
-    const s = fakeShared({ seed: [] });
+    // 🔴 SEEDED, LIKE `arrange()` — and for the same reason. Without the two member
+    // rows this grid's publish is REFUSED before it appends anything, and the case
+    // would assert the absence of a notice about a publish that never happened.
+    const s = fakeShared({ seed: GRID.boardSeed ?? [] });
     const kv = fakeAppStorage(
       { [GRID.storageKey]: GRID.record },
       {},
@@ -498,11 +568,11 @@ describe('🔴 the half-published notice does NOT survive a nav away (UNGUARDED,
     // PREMISE, ASSERTED: the surface really is gone, so the null below is about the
     // notice and not about a nav that navigated nowhere.
     expect(screen.queryByTestId('my-grids-view')).toBeNull();
-    expect(screen.queryByTestId('unpublished-panel')).toBeNull();
+    expect(screen.queryByTestId('my-list-panel')).toBeNull();
 
-    // 🔴 THE GAP. Coming back re-mounts `UnpublishedList` with a fresh `error: null`.
+    // 🔴 THE GAP. Coming back re-mounts `MyList` with a fresh `error: null`.
     await openMyList('grid');
-    await screen.findByTestId('unpublished-panel');
+    await screen.findByTestId('my-list-panel');
     expect(
       screen.queryByTestId('unpublished-error'),
       'the notice SURVIVED the nav — if this is now true, hoisting has landed: flip this expectation and delete the retraction in MyGridsView.tsx',

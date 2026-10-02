@@ -673,11 +673,13 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     await openView('Prompts');
     await userEvent.click(await screen.findByTestId('submit-prompt'));
     const form = await screen.findByTestId('prompt-form');
-    fireEvent.change(within(form).getByTestId('prompt-name'), {
-      target: { value: 'A public prompt' },
-    });
     fireEvent.change(within(form).getByTestId('prompt-default-text'), {
       target: { value: 'a landscape at dusk' },
+    });
+    // 🔴 STEP 2 holds the name — a create pages the prompt first.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    fireEvent.change(within(form).getByTestId('prompt-name'), {
+      target: { value: 'A public prompt' },
     });
     await userEvent.click(within(form).getByTestId('prompt-submit'));
 
@@ -779,8 +781,15 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     // though the store holds a renderable unsubmitted record — i.e. the render
     // state really did miss the store. Without this the test could pass with a
     // fully-loaded list and prove nothing about the store lookup.
+    //
+    // ⚠️ THE OBSERVATION MOVED WITH THE CONSOLIDATION. It used to be
+    // `unpublished-empty`; the merged `MyList` has ONE empty line for both halves and
+    // this viewer HAS a published row, so the list is non-empty and that line would
+    // never render here whatever the KV did — i.e. the old assertion would now be
+    // unreachable, not merely renamed. What still discriminates is the absence of a
+    // DRAFT ROW beside the presence of the record in the store.
     await openMyList('matchup');
-    await screen.findByTestId('unpublished-empty');
+    await screen.findByTestId('my-list-matchup');
     expect(store.has(draftKey(BODY_LOCAL_ID))).toBe(true);
     expect(screen.queryByTestId('unpublished-card')).toBeNull();
     // …and the matchup listing really was the one that failed. Without this the

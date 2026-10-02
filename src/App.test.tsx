@@ -40,9 +40,12 @@ describe('item 1: list auto-refreshes after submit even when list() lags', () =>
     await openView('Matchups');
     await userEvent.click(await screen.findByTestId('submit-matchup'));
     const form = await screen.findByTestId('matchup-form');
-    await userEvent.type(within(form).getByTestId('matchup-name'), 'Lagging Combo');
+    // 🔴 A CREATE IS TWO STEPS NOW: models first, then the name. The name input does
+    // not exist until `form-next` is pressed, so the order here is not cosmetic.
     await userEvent.click(within(form).getByTestId('pick-checkpoint'));
-    await waitFor(() => expect(within(form).getByTestId('checkpoint-name')).toHaveTextContent('JuggernautXL'));
+    await waitFor(() => expect(within(form).getByTestId('checkpoint-card')).toHaveTextContent('JuggernautXL'));
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('matchup-name'), 'Lagging Combo');
     await userEvent.click(within(form).getByTestId('matchup-submit'));
 
     // The row appears without a manual reload…

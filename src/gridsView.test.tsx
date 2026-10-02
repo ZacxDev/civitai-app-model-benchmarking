@@ -292,7 +292,7 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     // `getAllByTestId('grid-card')[0]`, which is exactly the coupling the change
     // under test breaks: the open grid is no longer listed.
     expect(await screen.findByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    expect(screen.getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
 
     // The OPEN matrix renders exactly those rows — the top five by votes
     // (91, 68, 55, 47, 22), not the seven on the board and not the seed order.
@@ -472,7 +472,7 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-yank']));
     const [first, second] = screen.getAllByTestId('grid-card');
 
-    expect(within(first).getByTestId('grid-system-badge')).toBeInTheDocument();
+    expect(within(first).getByTestId('grid-system-note')).toBeInTheDocument();
     expect(within(first).getByTestId('grid-card-name')).toHaveTextContent(TOP_GRID_NAME);
     expect(second.getAttribute('data-key')).toBe('gk-yank');
 
@@ -487,6 +487,54 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     expect(within(first).getByTestId('grid-system-note')).toHaveTextContent(
       /cannot be voted on and it is not part of the vote order/i,
     );
+  });
+
+  // 🔴 OPERATOR FEEDBACK #2 — the "System grid" BADGE is gone from both surfaces.
+  //
+  // It restated the first two words of the note that sits directly beneath it, in a
+  // pill, and pushed the member summary along the row to do it. The NOTE stays: it is
+  // the sentence that explains why the entry has no vote control, which is the part a
+  // reader actually needs.
+  //
+  // 🔴 THE GUARD IS AN ENUMERATED SET OF BADGES, NOT A `queryByTestId(…)).toBeNull()`.
+  // An absence keyed on the old testid is walkable by re-adding the same pill under
+  // any other name, which — on a surface whose whole complaint was "too many pills" —
+  // is the likely shape of the regression. Enumerating what the pack actually rendered
+  // (`[data-civitai-ui='badge']`, the attribute `Badge` stamps on its own host) fails
+  // when a badge is ADDED as loudly as when one is removed.
+  it('🔴 LEDGER: the system entry renders ONE badge on the card and ONE in the panel', async () => {
+    renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, OTHER] }).shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    const badgeTexts = (root: HTMLElement): string[] =>
+      Array.from(root.querySelectorAll("[data-civitai-ui='badge']")).map((b) =>
+        (b.textContent ?? '').trim(),
+      );
+
+    // POSITIVE CONTROL for the selector itself: a PUBLISHED card, which has always
+    // carried a member badge, so a zero below is a measured zero rather than a
+    // mis-spelled attribute. (This also proves the reader can see badges at all.)
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
+    const published = screen.getAllByTestId('grid-card')[0]!;
+    expect(badgeTexts(published).length, 'the badge selector matched nothing').toBeGreaterThan(0);
+
+    // THE OPEN SYSTEM PANEL: exactly one badge, and it is the member summary — no
+    // "System grid" pill, and no second pill of any other spelling.
+    const panel = screen.getByTestId('grid-open-panel');
+    expect(badgeTexts(panel)).toEqual([
+      within(panel).getByTestId('grid-open-members').textContent?.trim(),
+    ]);
+    expect(within(panel).getByTestId('grid-open-system-note')).toBeInTheDocument();
+
+    // THE SYSTEM CARD: same ledger, on the other surface. Open a published grid so
+    // the Top Grid is pushed back into the list as a card.
+    await openListed('gk-yank');
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__']));
+    const card = screen.getAllByTestId('grid-card')[0]!;
+    expect(badgeTexts(card)).toEqual([
+      within(card).getByTestId('grid-card-members').textContent?.trim(),
+    ]);
+    expect(within(card).getByTestId('grid-system-note')).toBeInTheDocument();
   });
 
   it('offers no author affordances on the Top Grid — there is no author', async () => {
@@ -533,7 +581,7 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     // The two swap: gk-one is now the panel, the Top Grid is back in the list.
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent('One');
-    expect(screen.queryByTestId('grid-open-system-badge')).toBeNull();
+    expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
   });
 
   it('🔴 exactly ONE entry is missing from the list, whichever grid is open', async () => {
@@ -767,7 +815,12 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered, so
     // the FIVE nulls below are not five ways of saying "nothing is on screen". (A draft
     // said "three"; there are four controls plus the description.)
-    expect(within(panel).getByTestId('grid-open-system-badge')).toBeInTheDocument();
+    //
+    // ⚠️ IT USED TO BE THE "System grid" BADGE, which is gone — removed on operator
+    // feedback, the note beside it having always said the same thing in a sentence.
+    // The TITLE carries the control now, and deliberately not the note: the note is
+    // one of the things this case is testing, and a control has to be independent of
+    // the claim it licenses.
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
 
     expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
@@ -801,9 +854,8 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
 
     const panel = await screen.findByTestId('grid-open-panel');
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    // It is NOT the system entry, so: no badge, no note, and all the controls a
-    // published grid by another author gets.
-    expect(within(panel).queryByTestId('grid-open-system-badge')).toBeNull();
+    // It is NOT the system entry, so: no note, and all the controls a published grid
+    // by another author gets.
     expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
     expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
     expect(within(panel).getByTestId('grid-open-report')).toBeInTheDocument();
@@ -1053,6 +1105,73 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
 });
 
 // ===========================================================================
+// The grid builder's ROW PICKER summarises a matchup by MODELS, not "configs"
+// ===========================================================================
+
+describe("🔴 the row picker's structural summary says \"models\"", () => {
+  // 🔴 WHY HERE AND NOT ONLY IN A UNIT TEST. The string comes from
+  // `modelCountSummary` (`lib/benchmark.ts`), which `lib/benchmark.test.ts` pins as
+  // literals — but the helper has TWO call sites and a unit test is blind to a call
+  // site that still open-codes the old `${n} config${…}` ternary. Both of them did,
+  // identically, which is the shape that comes out wrong at N−1 sites. This case reads
+  // the RENDERED option on `App`'s side (`matchupPickerItems` → `GridForm` →
+  // `GridPicker`); `myBenchmarks.test.tsx` reads `MatchupsView`'s side.
+  it('reads "N models" on a picker option, at both the singular and the plural', async () => {
+    // RED AT `7c20155`: the options read "1 config" / "2 configs".
+    //
+    // 🔴 A TWO-CONFIG MATCHUP IS SEEDED ALONGSIDE THE SHARED FIXTURE RATHER THAN
+    // CHANGING IT. Every `MATCHUPS` row carries exactly ONE config, so the shared
+    // fixture can only ever exercise the SINGULAR branch — and a fixture pinned to the
+    // singular cannot tell `${n} model` from `${n} model${n === 1 ? '' : 's'}`, nor
+    // either from a hardcoded "1 model". Widening `MATCHUPS` in place would move the
+    // cell counts (configs × prompts) that a dozen cases in this file assert, so the
+    // extra row is additive: it is not in any `MATCHUPS`-derived expectation.
+    const twoConfig = row('mk-pair', 2, 'Pair', {
+      v: 2,
+      kind: 'combination',
+      configs: [
+        {
+          id: 'cfg-pair-a',
+          checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+          loras: [],
+        },
+        {
+          id: 'cfg-pair-b',
+          checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+          loras: [],
+        },
+      ],
+    });
+    const s = fakeShared({ seed: [...MATCHUPS, twoConfig, ...PROMPTS] });
+    renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage });
+    await screen.findByTestId('grid-view');
+
+    await contribute('grid');
+    const form = await screen.findByTestId('grid-form');
+    await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+    const picker = await screen.findByTestId('grid-pick-rows');
+    const optionFor = (key: string): HTMLElement =>
+      within(picker)
+        .getAllByTestId('grid-pick-rows-option')
+        .find((el) => el.getAttribute('data-key') === key)!;
+
+    // 🔴 LITERALS, typed out here rather than built from `modelCountSummary` — an
+    // expectation read out of the implementation agrees with a wrong implementation.
+    // `toContain` on the option, because the option also carries the matchup's name.
+    expect(optionFor('mk-echo').textContent ?? '').toContain('1 model');
+    expect(optionFor('mk-pair').textContent ?? '').toContain('2 models');
+    // …and the internal noun reaches neither. `/config/i` over the OPTION, not the
+    // whole page: `grid-form`'s own copy is not what this case is about.
+    for (const key of ['mk-echo', 'mk-pair']) {
+      expect(
+        optionFor(key).textContent ?? '',
+        `${key}'s option leaked the internal noun "config"`,
+      ).not.toMatch(/config/i);
+    }
+  });
+});
+
+// ===========================================================================
 // The private → publish boundary, for grids
 // ===========================================================================
 
@@ -1070,7 +1189,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     // button it happened to start from was never the claim.
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'My sweep');
 
     // Rows.
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
@@ -1089,6 +1207,11 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
       .find((el) => el.getAttribute('data-key') === 'qk-whisky')!;
     await userEvent.click(colOption);
     await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    // 🔴 STEP 2 HOLDS THE NAME. A grid create pages the two axes first, so the name
+    // input does not exist until `form-next` is pressed — and neither does Submit.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'My sweep');
 
     await userEvent.click(within(form).getByTestId('grid-form-submit'));
 
@@ -1122,8 +1245,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Escape survivor');
-    await userEvent.type(within(form).getByTestId('grid-form-description'), 'both axes chosen');
 
     // Both axes picked FIRST, so the state Escape could destroy is real state and
     // not an empty form that would look identical either way.
@@ -1148,6 +1269,16 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
     expect(within(form).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
     expect(within(form).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
 
+    // 🔴 THE NAME AND DESCRIPTION LIVE ON STEP 2 NOW, so they are typed there and the
+    // walk returns to step 1 — which is where the picker is. That is a WIDENING of
+    // this case, not a workaround: the state Escape could destroy now includes state
+    // entered on a page that is no longer mounted, which is strictly more than the
+    // original claim covered.
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Escape survivor');
+    await userEvent.type(within(form).getByTestId('grid-form-description'), 'both axes chosen');
+    await userEvent.click(within(form).getByTestId('form-back'));
+
     // Re-open the row picker and press Escape.
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
     await screen.findByTestId('grid-pick-rows');
@@ -1163,13 +1294,17 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     // The picker closed…
     await waitFor(() => expect(screen.queryByTestId('grid-pick-rows')).toBeNull());
-    // …and the form did NOT. Every piece of unsaved state is still there.
+    // …and the form did NOT. Every piece of unsaved state is still there — the two
+    // key selections HERE on step 1…
     const after = screen.getByTestId('grid-form');
-    expect(within(after).getByTestId('grid-form-name')).toHaveValue('Escape survivor');
-    expect(within(after).getByTestId('grid-form-description')).toHaveValue('both axes chosen');
     expect(within(after).getByTestId('grid-form-rows-count')).toHaveTextContent('1 selected');
     expect(within(after).getByTestId('grid-form-cols-count')).toHaveTextContent('1 selected');
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    // …and the name and description on step 2, which Escape never had on screen.
+    await userEvent.click(within(after).getByTestId('form-next'));
+    expect(within(after).getByTestId('grid-form-name')).toHaveValue('Escape survivor');
+    expect(within(after).getByTestId('grid-form-description')).toHaveValue('both axes chosen');
 
     // And the form still WORKS afterwards — Escape left no half-torn-down state.
     await userEvent.click(within(after).getByTestId('grid-form-submit'));
@@ -1199,7 +1334,6 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
 
     await contribute('grid');
     const form = await screen.findByTestId('grid-form');
-    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Refused');
     await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
     const rowPicker = await screen.findByTestId('grid-pick-rows');
     await userEvent.click(
@@ -1216,6 +1350,10 @@ describe('a grid is built PRIVATELY and published as one explicit step', () => {
         .find((el) => el.getAttribute('data-key') === 'qk-whisky')!,
     );
     await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+
+    // Step 2 holds the name and the Submit (a create pages the axes first).
+    await userEvent.click(within(form).getByTestId('form-next'));
+    await userEvent.type(within(form).getByTestId('grid-form-name'), 'Refused');
 
     await userEvent.click(within(form).getByTestId('grid-form-submit'));
 
@@ -1331,7 +1469,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     expect(screen.queryByTestId('subtab-my-grid')).toBeNull();
     expect(screen.queryByTestId('my-signed-out-grid')).toBeNull();
     // Also real, and also absent from the community board: the private panel.
-    expect(screen.queryByTestId('unpublished-panel')).toBeNull();
+    expect(screen.queryByTestId('my-list-panel')).toBeNull();
     expect(screen.queryByTestId('new-unpublished')).toBeNull();
 
     // 🔴 NOT ONE WRITE ATTEMPTED, per-viewer or shared, on anything it offered.
@@ -1531,7 +1669,7 @@ describe('the My / Community partition for grids (§11.1)', () => {
 //
 // ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH ADDED "which is strictly stronger than a
 // latch and cannot unmount mid-report at all". That is FALSE and the claim is retracted:
-// navigating to Home unmounts `MyGridsView` and takes `UnpublishedList`'s local publish
+// navigating to Home unmounts `MyGridsView` and takes `MyList`'s local publish
 // `error` with it. The unconditional panel closes the LIST-EMPTYING path only. See
 // `MyGridsView`'s own header for the full record, and
 // `src/publishPointerFailure.test.tsx` for the case that pins the real behaviour.
