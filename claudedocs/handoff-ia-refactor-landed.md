@@ -21,124 +21,65 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `7c20155`.** Two feature PRs landed earlier: **#66** (`36777e5`) and **#67**
-  (`53609a7`), both merged after a full audit ladder. Then two release PRs this session:
-  **#68** (`a9cd81e`, 0.4.12) and **#69** (`7c20155`, 0.4.13). Session branch
-  `docs/handoff-arc-audit-and-recipe-repair` carries this doc; **PR #65 is still OPEN**, so
-  `main`'s copy is the pre-#65 version — update here, not on `main`.
-- ✅ **0.4.13 went live 2026-09-30 carrying #66/#67** — evidence in the ARCHIVE, superseded
-  by 0.4.14 above.
-- ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`, met at 0.4.11, re-met at 0.4.13). Everything in `Next steps` is a NEW arc or a pre-existing deferral. 🔴 This line has now been dropped by THREE successive `State now` replaces and restored each time by the durable-drop warning — carry it forward.
-- 🔴 **0.4.9 is STILL `approved/building`** — unchanged after four more releases, still a
-  rollback hazard. Rank 3. Note the contrast that makes it the hazard: `building` is QUEUED,
-  while 0.4.12's `failed` is TERMINAL and harmless.
-- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR TWO VERSIONS AT ONCE** (measured: 0.4.11 and
-  0.4.13 both read `approved/live`) — a per-version record is not retired when a newer one
-  deploys, so rc 0 on an older version is neither a rollback signal nor proof about the live
-  bundle. Pair it with the served-bundle grep; see `How to verify`.
-- ✅ **THE SECOND OPERATOR FEEDBACK BATCH IS COMPLETE AND MERGED (2026-10-01). `main` =
-  `66f6122`.** **#70** (`MAX_CONFIGS` 8→100 + a hand-rolled row window in `lib/virtualRows.ts`,
-  **no new dependency**) · **#71** (sidebar → Prompts/Matchups/Grids · badge **Private** ·
-  "N models" · no self-vote, `VoteCount`/`VoteTally` split so an author keeps the score ·
-  Discard in the ⋮) · **#72** (three create modals reworked, two-step creates via a shared
-  `FormSteps`, **`ResourceCard` ADOPTED** not reimplemented) · **#73** (private members in a
-  grid, dependencies-first publish cascade, own-grid thumbnails). Gates on `main`: **67 files /
-  987 tests**, node 22/341 + dom 45/646, typecheck + build rc 0, verified independently.
-  🔴 **ONE ASK WAS NOT BUILT AND IS DELIBERATE** — "allow generating content while grid is
-  draft", held for its own PR because it spends Buzz. 🔴 **ONE WAS CLOSED AS NO:** `MAX_LORAS`
-  stays 5, host-enforced at the wire schema.
-- ✅ **0.4.14 IS LIVE AND BATCH 2 (#70–#73) IS IN PRODUCTION — verified by served content,
-  2026-10-01.** rc 0 `approved/live`; served bundle moved to `assets/index-Bax577u7.js`
-  (**464,448 B**, from 0.4.13's 448,095 B), and **13 testids net-new between `7c20155` and
-  `66f6122` each grep 1**, covering all four PRs — `grid-pad-top`/`grid-body` (#70) ·
-  `vote-tally` (#71) · `form-next`/`form-step-content` (#72) · `grid-publish-confirm` (#73).
-  Negative control `checkpoint-name` **0**; carried controls all firing. Command + the
-  mechanical way to derive those markers are in `How to verify`.
-  ⚠️ **The live submission reports NO source commit (`src=-`)**, so that content grep is the
-  ONLY evidence of what shipped; no provenance stamp corroborates it.
-- 🔴 **THE DEPLOY-BLOCKING CVE GATE WAS FIXED PLATFORM-SIDE BY ANOTHER SESSION, AND RE-CHECKING
-  BEFORE ACTING IS WHAT CAUGHT IT.** For ~90 min 0.4.14 was `approved/failed`: a 4-HIGH `pcre2`
-  scan refusal in the platform's own runtime base, fleet-wide (`yt-thumbnail` 0.1.8 failed on the
-  identical CVEs), 0.4.15 apparently owed. All true when measured, all SPENT ~90 min later: the
-  recipe gained `pcre2`, the base digest was bumped, both apps went live.
-  🔴 **The generalisable point: a release blocker in a SHARED platform is the fastest-rotting
-  premise in this doc — someone you are not talking to can close it. Re-measure before building
-  anything against one.** Detail in the **cairn entry `model-benchmarking-block`**.
-- ✅ **0.4.15 IS LIVE AND THE ARC'S LAST UNSHIPPED ASK IS SHIPPED — resource titles link out
-  again. Verified by served CONTENT 2026-10-02, not by the state string.** `app_state.py …
-  0.4.15` → `approved/live` **rc 0**; served bundle `assets/index-DQzwS3Wm.js` (**520,608 B**,
-  from 0.4.14's `index-Bax577u7.js` / 464,448 B — the jump is #75's four-package bump).
-  PR **#75** (`5c6cdbc`) re-enables them via `scope: 'site'`, the option `civitai/civitai` **#5250**
-  added to the `NAVIGATE` message; `#5209` is CLOSED. It merged ONE commit past 0.4.14's source,
-  so it was merged-but-dark until this release. 🔴 **The trap worth keeping: `main` sat at
-  `0.4.14` — the version already live — so a submit would have been REFUSED outright. A merged
-  PR after a release is invisible until BOTH version files move.**
-- 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is
-  a LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45
-  grid cells ever against a 20×20 board ("you have reached the maximum number of submissions
-  for this app"). Operator decision 2026-10-01: **build the batch, ignore the cap for now.**
-  🔴 Constants, security rationale and the ephemeral-output mechanism that side-steps them are
-  in the **cairn entry `model-benchmarking-block`** — deliberately NOT here: this doc **ships
-  inside the submitted bundle** and the repo is public.
-- **#66/#67, shipped in 0.4.13:** My Benchmarks open by default · a visible active nav row ·
-  responsive matrix `minmax(200px, 420px)` · System-grid badge dropped · `token.surface2`
-  consolidated to `recessedSurface` · one `MyList.tsx` per noun (`MyPublished`/
-  `UnpublishedList` deleted) · a primary New CTA · per-state row actions · **`updateGrid` —
-  published grids were not editable at all before it**.
-- **Claim `ia-refactor-landed-1` HELD** (rank 1). `ia-refactor-landed-2` released.
-- ⚠️ **`.claude/` is UNTRACKED and NOT gitignored** in this repo (`git status` shows `?? .claude/`).
-  Agent worktrees live under `.claude/worktrees/`. Harmless while `git add -A` stays banned,
-  but an earlier note claiming that path is gitignored was wrong.
+- **`main` = `e21da30`, both version files at 0.4.16, 0 open PRs, clean tree** (only `?? .claude/`).
+- ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`). 🔴 This
+  line has now been dropped by FOUR successive `State now` replaces and restored each time by the
+  durable-drop warning — carry it forward.
+- ✅ **0.4.16 IS LIVE, verified by served CONTENT 2026-10-02.** rc 0 `approved/live`; bundle
+  `assets/index-hgkhos1A.js` (**523,270 B**, from 0.4.15's `index-DQzwS3Wm.js` / 520,608). Four
+  testids net-new between `ff65595` and `e21da30` — `cell-private-grid-notice` ·
+  `grid-open-private-badge` · `row-actions` · `unpublished-open` — each **1 in 0.4.16 and 0 in the
+  saved 0.4.15 bundle**, with `side-nav` 4 in both as the carried control.
+- ✅ **ROUND 5 OF OPERATOR FEEDBACK IS SHIPPED — PR #78, released as 0.4.16.** Open an unpublished
+  grid and generate into it · action rows below the content on My Benchmarks **and** the community
+  boards · `Choose matchups`/`Choose prompts` · the `default only` prompt meta dropped.
+  🔴 **Settled by the operator, do not re-open:** draft-grid outputs are **public immediately** (no
+  ephemeral path) · the published-half Open was **cut** as unasked scope · `GridPicker`'s option row
+  was **in** scope and the ledger guard widened to the structural signature.
+- ✅ **Release history, consolidated:** 0.4.13 (#66/#67) · 0.4.14 (#70–#73) · 0.4.15 (#75, resource
+  links) · 0.4.16 (#78). All verified live by content at the time; the per-release evidence is in
+  the ARCHIVE. `main` also carries **#79** (`@civitai/blocks-react` → ^0.62.0) from another session.
+- 🔴 **0.4.9 is STILL `approved/building`** — unchanged across SEVEN releases now, still the rank-3
+  rollback hazard. `building` is QUEUED; a `failed` is TERMINAL and harmless.
+- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR MORE THAN ONE VERSION AT ONCE**, and one version can
+  hold several submissions which it collapses. Pair it with the served-bundle grep; read a
+  submission by `--id <pubreq>`.
+- 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is a
+  LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45 grid
+  cells ever. 🔴 **Round 5 made this worse by design**: the whole point of generating from a private
+  grid is exploratory runs, and each burns an irreversible slot. Constants and the ephemeral-output
+  mechanism are in the **cairn entry `model-benchmarking-block`** — deliberately not here; this doc
+  ships inside the submitted bundle and the repo is public.
+- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again (nothing
+  resolved). An unknown session id answers 200 with an empty array, so that zero cannot distinguish
+  "touched no task" from "wrong id". Not a clean bill of health.
+- ⚠️ **`.claude/` is UNTRACKED and NOT gitignored** (`git status` shows `?? .claude/`); agent
+  worktrees live under it. Harmless while `git add -A` stays banned.
 
 ## Next steps (ranked)
-🔴 **Ranks 1–5 keep their numbers — a live claim is keyed to rank 1. Do not re-rank.**
-1. **The operator judges the live app — NOW FULLY UNBLOCKED, NOTHING LEFT TO BUILD OR SHIP.**
-   🔴 **The 2026-10-01 kickoff's premise is SPENT TWICE OVER:** it said rank 1 waited on a
-   moderator approving 0.4.14. 0.4.14 was then approved, its deploy FAILED on the platform's CVE
-   gate, and ~90 min later another session fixed the platform and got it live — so neither the
-   approval nor the CVE gate is a blocker any more. **0.4.14 is live and carries #70–#73**
-   (verified by content, see `State now`), on top of 0.4.13's #66/#67.
-   **This rank is now purely a HUMAN judgement call with no prerequisite.** Covers the 16 taste findings in the
-   contact sheet, plus everything four PRs changed that nothing here can see — whether cells
-   render larger, whether the 420px ceiling and the 100-config window hold up, whether the
-   two-step modals read well, the ⋮ placement, the thumbnail strips. jsdom resolves no layout.
-   🔴 **The deadlock is worth naming because it recurs:** this rank said "judge the live app"
-   while the live app was generations behind `main`, and rank 6 said release only AFTER rank 1 —
-   neither could move. The operator broke it twice by choosing to release first, on the
-   reasoning that listing media is not version-scoped. The recorded alternative, still viable:
-   photograph a LOCAL build in a real browser, which reviews layout without shipping.
-   forcing: user — no automated check here can judge appearance.
-2. **Repair the store listing.** ✅ The recipe half is DONE and merged (`civitai/civitai`
-   **#5247**, squash `7bf4d1bde1`) — 5 states, then cut to 3 boards, crop `h=1224`. 🔴 **But it
-   is already stale again:** #66's responsive matrix and #67's list rework both changed the
-   layout the crop was measured against, and #66 made `nav-my` a TOGGLE, so any recipe step
-   pressing it to reveal sub-items must drop that press. **Re-measure and re-shoot before
-   attaching.** Still blocked on the two content problems in `## Defects (batched)`.
-   forcing: regression — the live listing depicts a UI three generations old, and the recipe's
-   crop no longer matches the app it photographs.
-3. **Watch 0.4.9, or get the platform to cancel it.** `app_state.py model-benchmarking 0.4.9`
-   read UNPIPED. 🔵 `building` vs `deploying` is the discriminator.
+🔴 **Ranks keep their numbers. Do not re-rank.** All arc claims are RELEASED — claim before working.
+1. **The operator judges the live app.** 0.4.16 carries every shipped ask through round 5. Nothing
+   blocks this and nothing here can do it: jsdom resolves no layout or colour, and the real Buzz
+   spend is Turnstile + auth gated. 🔴 **The first thing to check is the one claim this repo cannot
+   verify** — that running a cell from a *private* grid really does put its images on the shared
+   board, which the new confirm notice now asserts to users (see `## Open investigations`).
+   forcing: user — no automated check here can judge appearance or a real charge.
+2. **Repair the store listing.** The recipe half is merged (`civitai/civitai` #5247) but is now
+   **four releases stale**: #66's responsive matrix, #67's list rework, batch 2's modals and #78's
+   action-row move all changed the layout it was measured against. Re-measure and re-shoot before
+   attaching. Still blocked on the two content problems in `## Defects (batched)`.
+   forcing: regression — the live listing depicts a UI five generations old.
+3. **Watch 0.4.9, or get the platform to cancel it.** `app_state.py model-benchmarking 0.4.9` read
+   UNPIPED. 🔵 `building` vs `deploying` is the discriminator.
    forcing: regression — a queued build that would revert a live, verified deployment.
-4. **The upstream overlay decision — THE GATE HAS PARTLY OPENED, re-derive before working it.**
-   `civitai-app-starters` **#485** (menu) is **fixed upstream by PR #493, issue left open**;
-   **#496** (dialog family) and **#497** (lightbox) were NOT re-checked on 2026-10-01 and may
-   have moved the same way. Check all three live first — see `## Upstream` for the #485 detail.
+4. **The upstream overlay decision.** `civitai-app-starters` **#485** is fixed by merged PR #493 but
+   left OPEN; **#496** (dialog family) and **#497** (lightbox, blocked on #496) were re-checked
+   2026-10-02 and are both still OPEN. Check live state before quoting any of this.
    forcing: gate — a maintainer decision on #496; #497 is explicitly blocked on it.
-5. ✅ **CLOSED — THE BUMP LANDED INSIDE PR #75 (2026-10-01), NOT AS ITS OWN TASK.** It was never
-   worked as rank 5: `scope: 'site'` lives in `blocks-react@0.61.0`, which peer-requires
-   `app-sdk >=0.49.0` against the pinned `^0.42.0` — so the resource-links feature **forced** the
-   bump as a set. Shipped: `app-sdk ^0.42→^0.54` · `blocks-react ^0.51→^0.61` · `sdk ^0.8→^0.10`
-   · `theme ^0.3.1→^0.4.0`. 🔴 **`components-react` deliberately HELD at `^0.4.1`** (0.9.1 is a
-   total API replacement; nothing peer-depends on it; exactly one `@civitai/components`
-   resolves). Three things broke and were fixed at cause: `src/manifest.ts` now validates the
-   committed bytes against the canonical schema via `@civitai/app-sdk/manifest`; `index.html`
-   boot literals moved with `theme@0.4.0`; and a **new `pnpm-workspace.yaml`** waives pnpm's
-   `minimumReleaseAge` for three exact versions — see `CLAUDE.md`, which documents its TWO
-   expiry clocks. The parked patch is now **superseded, not pending**.
+5. ✅ **CLOSED — the five-package bump landed inside PR #75, not as its own task.** `components-react`
+   deliberately HELD at `^0.4.1`. The parked patch is superseded, not pending.
    forcing: none — closed.
-6. ✅ **CLOSED — #66/#67 shipped as 0.4.13, #70–#73 as 0.4.14, both now LIVE.** The
-   release-before-judging ordering was overridden by the operator both times, deliberately,
-   because production was generations behind `main`. **Do not re-open.** Detail in the ARCHIVE.
+6. ✅ **CLOSED — every release through 0.4.16 is live.** Do not re-open.
    forcing: none — closed.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
@@ -562,72 +503,82 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   a pattern AND its control both return zero, suspect the pattern.** Use `grep -A3` on the
   testid, `grep -cw` with a firing control, or what the SUITE asserts.
 
+- 🔴 **A RELEASE BLOCKER IN A SHARED PLATFORM IS THE FASTEST-ROTTING PREMISE IN THIS DOC — someone
+  you are not talking to can close it. Re-measure before building anything against one.** Carried
+  forward from `State now` 2026-10-02 because it sits under a REPLACE heading and was about to be
+  lost. Earned twice in two days: the deploy-blocking CVE gate was fixed platform-side by another
+  session ~90 min after being measured as fleet-wide and needing a new version; and the
+  resource-links prohibition ("impossible, DO NOT RE-DERIVE") was closed upstream while this doc
+  still forbade attempting it.
+- ✅ **The round-4 deferral is DISCHARGED:** "allow generating content while grid is draft" was
+  held for its own PR because it spends Buzz; round 5 asked for it directly and it shipped in #78.
+  🔴 `MAX_LORAS` stays **5**, host-enforced at the wire schema — still closed as NO, do not re-open.
+- 🔴 **THE APPROVE BUTTON WAS COVERED AGAIN ON 0.4.16 — FIRST TIME SINCE 0.4.9, AFTER SIX
+  CONSECUTIVE CLEAR RELEASES.** `hitIsBtn: false` / `hitTag: DIV`, covering element
+  `FOOTER.sticky inset-x-0 bottom-0 z-50`. This is exactly why the recipe says **hit-test every
+  time and never apply the workaround by habit** — a session that had internalised "it was clear on
+  0.4.10–0.4.15" would have clicked a DIV and read the `ok: true` as success. Remedy worked as
+  recorded: `pointer-events: none` on that footer, re-hit-test to `true`, click, then RESTORE
+  (verified back to `auto`).
+- 🔴 **ZSH'S LACK OF WORD-SPLITTING BROKE MY OWN VERIFICATION LOOP, AND THE CONTROL IS WHAT CAUGHT
+  IT.** `for t in $ADDED` over a space-separated string loops **once on the whole string**, so
+  `grep -c` ran against a five-word pattern and returned 0 — for the test AND for its control.
+  **When a pattern and its control both return zero, suspect the pattern.** Use a literal list or
+  `${=var}`. This is in `RULES.md` and was walked into anyway while verifying a release.
+- 🔴 **A GUARD CAN CLAIM "PINNED AS A WHOLE STRING" WHILE COMPARING AGAINST THE IMPORTED CONSTANT.**
+  PR #78's money-path notice did exactly that: the docblock asserted a reword could not pass, and
+  the test compared the rendered text to the constant, so a reword changed BOTH sides. Demonstrated
+  by reinstating a refuted clause and reverting a retracted sentence → **69 files / 1027 tests
+  green**, against a positive control on a literal-pinned sibling (4 failed). Fix: type the expected
+  string as a LITERAL in the test and compare it to both the render and the constant.
+- 🔴 **THE AUDIT LADDER CLOSED ON THE ATTRIBUTION GATE, NOT ON A CLEAN ROUND OR A VERDICT.** Round 0
+  plus three blind correctness rounds, no deploy-blocker at any. It ended because **two consecutive
+  fix rounds changed ZERO executable payload** — re-measured independently of the auditors, each
+  against a firing positive control. 🔴 **Measure that by stripping comments and blanks and
+  comparing, not by a diff-line prefix heuristic**: mine counted block-comment continuation lines
+  and reported 37 where the truth was 0.
+- 🔴 **`audit-dispatch.py` COULD NOT READ THE OPERATOR'S ASKS, BECAUSE SUBAGENT COMMITS CARRY NO
+  `Claude-Session-Id:` TRAILER.** Round 0's brief printed "NO OPERATOR ASK COULD BE READ", which is
+  its documented route to aiming a deletion candidate at something the operator asked for directly.
+  Remedy used: hand the asks to the round-0 agent in the dispatch prompt, with the no-publish rule
+  restated (this repo is PUBLIC). The real fix is upstream in whatever emits those trailers.
+- 🔴 **RE-RUN THE MERGED-TREE GATE WHEN THE BASE MOVES — IT MOVED TWICE HERE.** `main` gained #79
+  (`blocks-react` ^0.62.0) mid-ladder while PR #78 was built on an older base, and the PR head moved
+  too, so an earlier merged-tree result could not be inherited. Re-run: merge clean, install with
+  0.62.0 actually resolved, 69 files / 1027 tests, typecheck and build rc 0.
+- 🔴 **THE APPROVAL QUEUE HELD ANOTHER APP AGAIN — EIGHT FOR EIGHT.** `prompt-lab` was in the queue
+  at 0.4.16. The content-based recipe (assert exactly one row matching slug AND version, assert it
+  names no other app, stamp a marker on its single Review control, click the marker) is what keeps a
+  positional selector from approving someone else's submission to production.
+- **Decided (operator, 2026-10-02):** draft-grid outputs are PUBLIC immediately — no ephemeral
+  output path · the action-row move covers My Benchmarks AND the community boards · only the
+  zero-override `default only` meta is dropped, `default + N overrides` stays · the published-half
+  Open is CUT · the `GridPicker` option row is IN scope and its ledger guard widened.
+
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build` —
-  **67 files / 987 tests** on `main` @ `66f6122`, and 67 must equal
-  `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files,
-  never through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy
-  `.envrc`, `direnv allow`, `pnpm install --frozen-lockfile`.
-- Release state: `app_state.py model-benchmarking 0.4.15` — **`approved/live` rc 0**; the next
-  release is 0.4.16. ⚠️ **One version can hold SEVERAL submissions and this command collapses
-  them**: 0.4.14 has a `failed`, two `live` and two `withdrawn` records, and the command read
-  `approved/failed` before the live one existed and `approved/live` after — so an earlier failed
-  attempt at the same version is INVISIBLE here (it is not reporting the newest record either;
-  the newest is `withdrawn`). The exact rule was not measured — read `civitai app status --json`
-  for the per-submission history rather than inferring one. ⚠️ `Deploy detail` is truncated **server-side at the head** ("Build None
-  …(truncated)") in BOTH the table and `--json`, so the build log before the scan table is NOT
-  retrievable either way; `--json` is still the one that carries `deployDetail` per row for
-  every app at once, which is how the fleet-wide reading was taken.
-  `0.4.13` is rc 0 live, `0.4.9` is the rank-3 rollback watch. Read UNPIPED. 🔴 **rc 0 alone
-  proves NOTHING about what is serving** (two versions return it at once). Pair it with the
-  bundle grep below, and read a submission by `--id <pubreq>` — the bare `civitai app status`
-  shows the newest record, which after an approval is the paired `withdrawn` one.
-- Served bundle, positive control in the SAME command:
-  ```bash
-  B=$(curl -s https://model-benchmarking.civit.ai/ | grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' | head -1)
-  curl -s "https://model-benchmarking.civit.ai/$B" > /tmp/live.js
-  for t in my-list-panel my-list-empty draft-badge; do echo "$t $(grep -c $t /tmp/live.js)"; done # >0 since 0.4.13
-  for t in side-nav board-nav grid-open-members; do echo "$t $(grep -c $t /tmp/live.js)"; done   # >0
-  for t in section-grids grid-open-panel; do echo "CONTROL $t $(grep -c $t /tmp/live.js)"; done  # >0
-  for t in contribute-trigger view-switch checkpoint-name; do echo "RETIRED $t $(grep -c $t /tmp/live.js)"; done # 0
-  # 0.4.14 / batch 2 — one marker per PR, all >0 since 2026-10-01:
-  for t in grid-pad-top grid-body vote-tally form-next form-step-content grid-publish-confirm \
-           checkpoint-card unpublished-menu prompt-override-reveal; do echo "0414 $t $(grep -c $t /tmp/live.js)"; done
-  ```
-  At 0.4.14 the served bundle is `assets/index-Bax577u7.js` (**464,448 B**); 0.4.13 was
-  `index-DlkHPI8F.js` (448,095 B). 🔴 **A TESTID DELTA IS NOT ALWAYS AVAILABLE — AND WHEN IT IS
-  EMPTY THE RECIPE BELOW SILENTLY PROVES NOTHING.** 0.4.15 (#75) added **zero** new testids, so
-  the `comm -13` below returned an EMPTY set: every candidate marker was carried, and a check
-  built from carried markers passes against the OLD bundle. **The fallback that worked, and the
-  one to reach for whenever the delta is empty: KEEP THE PREVIOUS RELEASE'S BUNDLE and diff the
-  two served files directly.** For 0.4.15 the decisive string was the compiled navigate payload
-  `models/${e}?modelVersionId=${t}` — present in `index-DQzwS3Wm.js`, **absent from the saved
-  0.4.14 `index-Bax577u7.js`**, i.e. the negative control runs in the same comparison. Counts
-  moved too (`models/` 0→2, `scope:` 2→5, `NAVIGATE` 2→4). 🔴 **Save each release's bundle before
-  the next one ships; once it is gone this control is unavailable.**
-  🔴 **Derive the discriminating testids MECHANICALLY rather
-  than guessing — a check built only from carried testids passes against the OLD bundle:**
+  **69 files / 1027 tests** on `main` @ `e21da30`, and 69 must equal
+  `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files, never
+  through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy `.envrc`,
+  `direnv allow`, `pnpm install --frozen-lockfile`. 🔴 **LSP/editor diagnostics here have been wrong
+  FOURTEEN+ times; `tsc --noEmit` in an installed tree is the only arbiter.**
+- Release state: `app_state.py model-benchmarking 0.4.16` — **`approved/live` rc 0**; next release is
+  0.4.17. Read UNPIPED. 🔴 **rc 0 alone proves NOTHING about what is serving.**
+- 🔴 **Served-bundle check — KEEP THE PREVIOUS RELEASE'S BUNDLE, it is the control that works when
+  the testid delta is empty.** Derive markers mechanically, then grep BOTH bundles:
   ```bash
   for r in <old-release-sha> <new-release-sha>; do git grep -ho 'data-testid="[a-z0-9-]*"' $r -- 'src/*' \
-    | sed 's/.*"\(.*\)"/\1/' | sort -u > /tmp/tid-$r.txt; done
-  comm -13 /tmp/tid-<old>.txt /tmp/tid-<new>.txt   # ADDED — the only valid positive markers
-  comm -23 /tmp/tid-<old>.txt /tmp/tid-<new>.txt   # REMOVED — candidate negative controls
+    | sed 's/.*"\(.*\)"/\1/' | sort -u > /tmp/t-$r.txt; done
+  comm -13 /tmp/t-<old>.txt /tmp/t-<new>.txt   # ADDED — the only valid positive markers
   ```
-  🔴 **Then check each candidate control for a SUPERSTRING before trusting it.** `config-label`
-  was "removed" yet greps 1 forever, because `grid-config-label` still ships — a substring
-  collision makes a negative control silently useless. `checkpoint-name` has none and reads 0.
-  ⚠️ A **template-literal** testid (`board-nav-<board>`, `my-list-<noun>`) greps 0 whether or
-  not it exists — only static prefixes are answerable this way.
-  ⚠️ **Do NOT expect the served hash to equal a local `pnpm build` hash.** The platform builds on
-  its own image: locally `index-DkIWM9P2.js` / 447,826 B, served `index-DlkHPI8F.js` / 448,095 B
-  for the same commit. Byte identity is not available as evidence here — content greps are.
-- **The visual inventory:** https://claude.ai/code/artifact/8e396242-06f7-4323-809c-7e69fa00a73b
-  🔴 Photographs **0.4.11** — BEFORE #66/#67 AND before batch 2, so its plates are now two
-  releases stale. Still the reference for the 16 taste findings' full text, no longer a picture
-  of production. **Rank 1 needs a fresh pass.**
-- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend loop (Turnstile + auth gated),
-  and anything about LAYOUT or colour (jsdom resolves neither). Every layout claim in this arc
-  is about declared values, emitted stylesheet text or module structure.
+  Then each ADDED marker must be >0 in the new bundle and **0 in the saved old one**. At 0.4.16:
+  `index-hgkhos1A.js`, 523,270 B. ⚠️ Three traps, all met in practice: a release can add **no** new
+  testids (0.4.15 did), so the delta comes back EMPTY and a check built from carried markers passes
+  against the old bundle; a **template-literal** testid greps 0 either way; and the derivation sweeps
+  `src/*` including **test files**, so a fixture-only id like `shape-card` is correctly 0 in both.
+- 🔴 **What CANNOT be verified here, ever:** the real Buzz spend (Turnstile + auth gated), whether a
+  private-grid run's outputs reach the shared board in production, and anything about LAYOUT or
+  colour (jsdom resolves neither).
 ## Goal
 Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
 Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
@@ -713,67 +664,63 @@ DISCHARGED — read the archive before re-running any of them.
   competing matchup with live checkpoints, or ask the author.
   ⚠️ Full ruled-out evidence EVICTED 2026-10-02 to the ARCHIVE.
 
+### Do private-grid outputs actually reach the shared board in production?
+- as-of: 2026-10-02
+- **Symptom + exact repro:** open an unpublished grid under My Benchmarks > Grids, press Run on an
+  empty cell, confirm. The new notice tells the viewer the images go to the shared board for every
+  viewer. **Nobody has watched that happen on a real host.**
+- **Observed (with values):** the claim is DERIVED from two readings, both exercised only against
+  the SDK mock host — `src/lib/benchmark.ts` builds `result:${comboKey}·${configId}×${promptKey}`,
+  which names no grid; and `src/App.tsx`'s run flow calls `publish({ workflowId })` on the success
+  path. `via: code`
+- **Ruled out:** *"the press itself settles it"* — `publish()` is **host-consent-gated**: it opens
+  the host's "Publish to the shared grid?" dialog and rejects on refusal or consent timeout, landing
+  the cell in `failed`. Two further host paths (`!req` drop, `no block token`) reply without ever
+  opening a dialog. Read in a local checkout of `civitai/civitai` at `15cfe259df`, **never compared
+  against deployed host code**. `via: code`
+- **Leading hypothesis:** the notice is correct for the ordinary success-plus-consent path and
+  silent about three branches that end with nothing on the board. The shipped sentence now hedges
+  with "If the run succeeds you will be asked to confirm publishing them there."
+- **Next probe:** one real run in a mod-gated host — run a cell from a private grid, answer the
+  host consent dialog, then check the cell appears for a DIFFERENT viewer (or in a logged-out view
+  of the community board). That single observation settles the clause and the rank-1 question at
+  once. 🔴 It spends real Buzz and appends an irreversible shared row; budget one cell.
+
 ## Defects (batched)
 🔴 Re-verify before acting. Fix as batches, never one rank per finding.
-⚠️ **These are ONE-LINE POINTERS. The 16 taste findings' full text — measured values, `file:line`, severity reasoning — is in the Contact Sheet artifact linked under `How to verify`, and in this doc's revision at `5a83f89` (`git show 5a83f89:claudedocs/handoff-ia-refactor-landed.md`). `Defects` is a REPLACE section, so the detail cannot live here across updates; do not re-derive it from these lines.**
+⚠️ **ONE-LINE POINTERS.** The 16 taste findings' full text is in the Contact Sheet artifact linked
+in this doc's history and in the revision at `5a83f89`.
 
-**CLOSED by #66/#67** — F1 (invisible active nav row), F9 (`surface2` in light theme), F6
-(members count as a badge, superseded by the badge removal). F2's GROUPING half shipped.
+**CLOSED by #78** — F3 (card action row jumps with description length) and the two-corner variant of
+it measured live on 0.4.14; F13's grid-card instance (actions now sit below the content on all five
+card shapes plus `GridPicker`).
 
-**Still open from the taste pass** — F3 (card action row jumps with description length,
-`MatchupBody.tsx:127-128`) · F4 (⋮ affordance, `variant="subtle"` beside a bordered vote pill) ·
-F5 (Edit left-aligned, Remove centred; panel overhangs its card by 49px) · F7 (365px dead band
-beside a 3-column matrix) · F8 (`unpublished-empty` bare sentence — ⚠️ that component is DELETED;
-re-derive against `MyList.tsx`) · F10 (`▸` promises expand, opens a modal) · F11 (four forms
-disagree on required markers) · F12 (GridPicker focus ring reads as selection) · F13 (destructive
-Remove is the quietest control) · F14 (`docs/screenshots/` stale to 2026-07-27, its Playwright
-script never committed) · F16 (720px viewport reported `innerWidth: 721`, cause unestablished).
+**🔴 OPEN, and the sharpest one — filed 2026-10-02, NOT fixed:** `GatedCell.tsx:203` lays each cell
+out as `repeat(auto-fill, minmax(72px, 1fr))` and every cell holds exactly ONE image, so `auto-fill`
+turns the matrix's extra column width into EMPTY TRACKS. Measured live: a 3014px viewport gives a
+403px cell with **5 tracks × 77px → 19% fill**; 1440px gives 184px with 2 × 90px → **49%**. ✅ #66's
+`minmax(200px, 420px)` IS working — the gain is absorbed downstream, which is why "make cells
+larger" never visibly landed. 🔴 `auto-fit` alone is NOT the fix: one image with `object-fit: cover`
+in a 403px track makes the row ~403px tall, so it needs a max (`minmax(72px, ~200px)`) — a sizing
+decision, not a typo.
 
-**Carried forward, round-1 audit findings** — #59 focus dumped on `<body>` after `grid-open` ·
-#60 `nav-my-group` is a `role="list"` inside a `role="list"` · #61 `document.location.href`
-escapes the no-navigation guard · #59 three scaffolding simplifications.
+**🔴 OPEN — F2's clipping half, measured FAILING on 0.4.14 and unchanged:** at 390px on Home with no
+interaction, `side-nav-list.scrollWidth` **411** vs `clientWidth` **345** — 66px over, so "Grids"
+is off-screen on first paint with a visible horizontal scrollbar. `useState(true)` expanding My
+Benchmarks is what puts five items in a 345px strip.
 
-**NEW, from the 0.4.14 LIVE taste pass (2026-10-02, browser-driven, zero raises):**
-- 🔴 **THE CELLS GREW AND THE IMAGES DID NOT — `GatedCell.tsx:203` lays each cell out as
-  `repeat(auto-fill, minmax(72px, 1fr))`, and every cell holds exactly ONE image, so `auto-fill`
-  turns the extra column width into EMPTY TRACKS.** Measured live: at a 3014px viewport the cell
-  is 403px with **5 tracks x 77px** -> **19% fill**; at 1440px, 184px with 2 x 90px -> **49%**. ✅ #66's `minmax(200px, 420px)` IS working (`grid-body`
-  tracks read `220px 420px x5` at 3014, `180px 200px x5` at 1440) — the gain is absorbed
-  downstream, which is why "make cells larger" did not land visibly. 🔴 **`auto-fit` is NOT a
-  free one-word fix:** one image with `object-fit: cover` in a 403px track makes the ROW ~403px
-  tall (~5x today), so it needs a max (`minmax(72px, ~200px)`) — a sizing decision, not a typo.
-- 🔴 **F2's closing condition FAILS, measured live.** At 390px on Home with no interaction,
-  `side-nav-list.scrollWidth` **411** vs `clientWidth` **345** — overflowing by **66px** (the
-  doc's 90-24 estimate was right). "Grids" is OFF-SCREEN on first paint with a visible
-  scrollbar; `useState(true)` expanding My Benchmarks puts five items in a 345px strip. 🔵 Not a defect, checked and cleared: the 1180px matrix's horizontal scroll
-  IS properly contained (`results-grid` is `overflow-x: auto` and genuinely scrollable).
-- 🔴 **F3 IS WORSE THAN "the action row jumps with description length" — the SAME control pair
-  lands in two different CORNERS.** Two matchup cards in one list: a 1-line description puts
-  the ⋮ + vote at **top-right** (`y 17, x 1055`), a 2-line one at **bottom-left**
-  (`y 113, x 17`). Mechanism: the foreign card's vote is an interactive button inside the
-  cluster, the owned card's is a non-interactive count (#71's `VoteCount`/`VoteTally` split, which
-  is itself behaving correctly), so the cluster reflows.
-- **F13 confirmed live:** on the grid card `Open` is bordered, `Remove` is bare red text, the
-  vote a bordered pill — the destructive control is the quietest of the three.
-- ⚠️ **NOT covered by this pass, and not guessed at:** F10/F11/F12 need create/edit modals opened,
-  which is outside the capture recipe's vetted-clickable set (an in-frame click is a plain
-  authenticated write and nothing refuses one). F16 is unanswerable by emulation BY CONSTRUCTION —
-  its discriminator is a NON-emulated 720px width.
+**Still open from the taste pass** — F4 (⋮ affordance) · F5 (Edit left-aligned, Remove centred) ·
+F7 (365px dead band beside a 3-column matrix) · F8 (`unpublished-empty` bare sentence — re-derive
+against `MyList.tsx`) · F10 (`▸` promises expand, opens a modal) · F11 (four forms disagree on
+required markers) · F12 (GridPicker focus ring reads as selection) · F14 (`docs/screenshots/` stale
+to 2026-07-27) · F16 (720px reports `innerWidth: 721`; **unanswerable by emulation BY
+CONSTRUCTION** — its discriminator is a non-emulated width).
 
-**NEW, from #66/#67's audit ladders:**
-- 🔴 **F2's CLIPPING half is NOT closed and is now UNCONDITIONAL on mobile Home.** Net saving
-  ≈ −24px of a ~90px overflow (the indent removal takes 42px out, the new chrome adds ~18px
-  back). Before #66 the strip was two items on Home and fit; `useState(true)` makes the
-  five-item overflowing strip the default first paint. Closing condition is in `compact.ts`:
-  a live 390px reading on Home, no interaction, `side-nav-list.scrollWidth <= clientWidth`.
-- **`optimisticUpdate` is unguarded on ALL THREE mutations.** Dropping it from `updateGrid`
-  survives — and so does the identical mutation on `updateCombination`, its control. A
-  pre-existing gap inherited verbatim; fix across all three in one change, or not at all.
-- **`flexDirection: 'column-reverse'` on the merged list SURVIVES mutation**, reversing what a
-  viewer sees with the suite green. Named at its line. It escapes drafts-before-published,
-  which is the ONE requirement nobody asked for.
-- **Grid authors cannot edit from the community board; matchup and prompt authors can.**
-  Deliberate, now recorded in `App.tsx`'s `updateGrid` docblock and pinned in both directions
-  (`myBenchmarks.test.tsx:892`, `e2e.test.tsx:145`).
-- 🔴 **The Qwen-Image cell can never be filled and is NOT removable by this account** — see
-  the Open investigation below.
+**Carried forward** — #59 focus dumped on `<body>` after `grid-open` · #60 `nav-my-group` is a
+`role="list"` inside a `role="list"` · #61 `document.location.href` escapes the no-navigation guard ·
+`optimisticUpdate` unguarded on all three mutations · `flexDirection: 'column-reverse'` on the
+merged list survives mutation.
+
+**NEW, deliberately left by #78's ladder** — the `row-actions` structural ledger pins its scanner's
+dropped-start set (today ten, all TypeScript generics) and **will rot on any edit that adds or
+removes a nested generic**; a name that is not a type constructor is the signal.
