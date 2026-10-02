@@ -46,7 +46,6 @@ import {
   immediateSleep,
   openMyList,
   openRowMenu,
-  openView,
 } from './test-helpers.js';
 import { setViewport } from './test-setup.js';
 import { ACCENT_TEXT_PROP, CURSOR_PROP, SKIN_ATTR, skinCss } from './theme.js';
@@ -95,7 +94,14 @@ function seed() {
   return [
     {
       key: 'mk-1',
-      authorUserId: 7,
+      // 🔴 OWNED BY THE VIEWER, AND THAT IS NOT INCIDENTAL. The skin's focus-ring rule
+      // lists `[role='menuitem']`, and a menu offered to a NON-owner contains only a
+      // Report control — a pack Button inside `role="none"`, no menuitem anywhere (see
+      // `Menu.tsx`'s `MENU_CONTROL_ATTR`). With a foreign author that selector reached
+      // zero live nodes and the reachability case below was asserting about a shape the
+      // fixture could not produce. An owned row gives both: a `MenuItem` (Archive) and
+      // a `MenuControl` (Remove).
+      authorUserId: VIEWER_ID,
       count: 3,
       viewerVoted: false,
       value: { title: 'Anime Showdown', body: '', data: comboData },
@@ -185,19 +191,41 @@ describe('the skin sheet is mounted on the app root, and scoped to it', () => {
     // RELATIONSHIP ("as many rules parsed as were written"), not a number this change
     // chose, and a literal would have to be bumped on every rule added, which is how a
     // canary gets deleted.
+    //
+    // 🔴 THE COUNTER COUNTS `{`, AND THE FIRST VERSION OF IT COUNTED `}` AND WAS
+    // SELF-DEFEATING. Splitting on `}` makes the expected count fall by one whenever a
+    // closing brace is DELETED — the mutation this case exists for — so written and
+    // parsed dropped together and the mutant SURVIVED a green run. Measured: removing
+    // the `::selection` rule's closing brace left this file at 13/13. A control built
+    // out of the step under suspicion is a second sample of it, not a control. Opening
+    // braces are untouched by a missing `}`, which is what makes them a discriminator.
     const css = skinCss();
     const el = document.createElement('style');
     el.textContent = css;
     document.head.appendChild(el);
     try {
-      const written = css.split('}').filter((c) => c.includes('{')).length;
+      const written = css.split('{').length - 1;
       // POSITIVE CONTROL on the counter: a sheet with no rules would make the
       // comparison below `0 === 0` and prove nothing.
       expect(written, 'the rule counter found no rules to count').toBeGreaterThanOrEqual(8);
+      const parsed = [...((el.sheet as CSSStyleSheet | null)?.cssRules ?? [])];
       expect(
-        (el.sheet as CSSStyleSheet | null)?.cssRules.length,
-        'the parser dropped a rule — the sheet is not valid CSS',
+        parsed.length,
+        'the parser dropped or merged a rule — the sheet is not valid CSS',
       ).toBe(written);
+      // 🔴 AND THE SECOND FAILURE MODE A COUNT CANNOT SEE: an `undefined` or empty
+      // interpolation produces `prop: undefined;`, which CSS DROPS while the rule
+      // still parses and still counts. So every parsed rule must have kept at least
+      // one declaration, and the text must carry no stringified non-value.
+      for (const rule of parsed) {
+        expect(
+          (rule as CSSStyleRule).style?.length ?? 0,
+          `a rule parsed with no surviving declaration: ${rule.cssText.slice(0, 60)}`,
+        ).toBeGreaterThan(0);
+      }
+      expect(css, 'an interpolation stringified to a non-value').not.toMatch(
+        /:\s*(undefined|null|NaN)\s*;/,
+      );
     } finally {
       el.remove();
     }
@@ -241,7 +269,9 @@ describe('SELECTOR REACHABILITY: the skin rules match the nodes they were writte
     // sheet, matching nothing, and the trigger back to the pack's transparent
     // `subtle` variant. Reading the sheet cannot see that; querying the DOM can.
     renderApp();
-    const section = await openView('Matchups');
+    // The viewer's own published row, which is where the `⋮` with a full action set
+    // lives. See the `authorUserId` note on `seed()`.
+    const section = await openMyList('matchup');
 
     const trigger = await within(section).findByTestId('matchup-menu');
     const resting = document.querySelectorAll(
@@ -274,16 +304,22 @@ describe('SELECTOR REACHABILITY: the skin rules match the nodes they were writte
     ).toHaveLength(1);
 
     // …and the menu-panel alignment rule, on the same open panel. The pack Button
-    // inside a `MenuControl` is the node that was centred while `MenuItem` (Edit) was
-    // left-aligned — this seeded row belongs to another author, so the confirm-flow
-    // control in its panel is Report rather than Remove. Either is the same node
-    // SHAPE, which is the point of pinning the wrapper and not the button's testid.
+    // inside a `MenuControl` is the node that was CENTRED while `MenuItem` was
+    // left-aligned, which is the whole of F5.
     const aligned = document.querySelectorAll(
       `[${SKIN_ATTR}='true'] [role='menu'] [${MENU_CONTROL_ATTR}] button`,
     );
     expect(
       aligned.length,
       'the menu-control alignment rule reaches no live button',
+    ).toBeGreaterThan(0);
+    // 🔴 AND THE OTHER HALF OF F5 HAS TO BE IN THE SAME PANEL, or the inconsistency
+    // the rule fixes is not present to fix: a `role="menuitem"` and a `MenuControl`
+    // button, side by side. A panel holding only one kind would make the alignment
+    // rule correct and pointless.
+    expect(
+      document.querySelectorAll(`[${SKIN_ATTR}='true'] [role='menu'] [role='menuitem']`).length,
+      'the panel holds no menuitem, so nothing was ever out of step with it',
     ).toBeGreaterThan(0);
   });
 
@@ -300,26 +336,80 @@ describe('SELECTOR REACHABILITY: the skin rules match the nodes they were writte
     expect(MENU_CONTROL_ATTR.length).toBeGreaterThan(1);
   });
 
-  it('🔴 the scrollbar rule reaches the matrix scroller', async () => {
+  it('🔴 the scrollbar and focus-ring rules reach live nodes — SELECTORS READ FROM THE SHEET', async () => {
+    // 🔴 THE SELECTORS COME OUT OF `skinCss()`, NOT OUT OF THIS FILE, AND THE FIRST
+    // VERSION OF THIS CASE DID THE OPPOSITE AND PROVED NOTHING. It queried the literal
+    // `[data-mb-skin='true'] [data-testid='results-grid']` and asserted a node existed
+    // — so its TITLE said "the scrollbar rule reaches the scroller" while its body
+    // only said "a node with that testid is on screen". Measured: re-pointing the
+    // sheet's own rule at `results-grid-xx` left the whole file green. A guard whose
+    // description is wider than its implementation reads as coverage while providing
+    // none, which is worse than having none because it stops anyone looking.
     renderApp();
     await screen.findByTestId('results-grid');
-    expect(
-      document.querySelectorAll(`[${SKIN_ATTR}='true'] [data-testid='results-grid']`),
-      'the scrollbar rule reaches no live scroller',
-    ).toHaveLength(1);
-  });
-
-  it('🔴 the focus-ring rule reaches the live nav items', async () => {
-    renderApp();
     await screen.findByTestId('side-nav');
-    // The non-pseudo half of the selector — jsdom cannot be made to report
-    // `:focus-visible` for a query, so what is checked is that the nodes the ring is
-    // written for exist under the scope. A literal 5: the nav's item count is a
-    // ledgered decision (`SIDE_NAV_ITEMS`), and the rail renders all five.
-    expect(
-      document.querySelectorAll(`[${SKIN_ATTR}='true'] [data-mb-nav-item]`),
-      'the focus-ring rule reaches no nav item',
-    ).toHaveLength(5);
+    /** Every rule in the sheet, as `[selector, body]`. */
+    const rules = skinCss()
+      .split('}')
+      .map((chunk) => {
+        const at = chunk.indexOf('{');
+        return at < 0 ? null : ([chunk.slice(0, at).trim(), chunk.slice(at + 1)] as const);
+      })
+      .filter((r): r is readonly [string, string] => r !== null);
+
+    /**
+     * The selectors of the rule declaring `decl`, as queryable strings.
+     *
+     * `:focus-visible` is stripped: jsdom cannot be made to report it for a query, so
+     * what is checkable is that the ELEMENT half of the selector resolves. That is the
+     * half a rename breaks; the pseudo-class is not renameable.
+     */
+    const selectorsOf = (decl: string): string[] => {
+      const rule = rules.find(([, body]) => body.includes(decl));
+      expect(rule, `no rule in the sheet declares ${decl}`).toBeDefined();
+      return rule![0].split(',').map((s) => s.trim().replace(/:focus-visible/g, ''));
+    };
+    const hits = (sel: string): number => document.querySelectorAll(sel).length;
+
+    // POSITIVE CONTROL on the extractor: a declaration that IS in the sheet, on a
+    // selector that cannot fail to match. An extractor wired to nothing is caught here
+    // rather than reported as compliance.
+    const rootRule = selectorsOf('font-variant-numeric: tabular-nums');
+    expect(rootRule).toEqual([`[${SKIN_ATTR}='true']`]);
+    expect(hits(rootRule[0]!)).toBe(1);
+
+    // 🔴 EACH SELECTOR IS CHECKED ON THE SURFACE WHERE ITS NODE LIVES, AND THE
+    // SURFACES DIFFER — this app UNMOUNTS the unselected ones rather than hiding them.
+    // The matrix and the group band exist only on Home; a `role="menuitem"` exists
+    // only while a menu panel is open, which takes a trip to My Benchmarks. Two
+    // earlier drafts of this case checked a whole rule in one place and went red on
+    // whichever selector the current surface did not hold. A rule's reachability is a
+    // claim about a SURFACE, and naming the surface is part of making it.
+    for (const sel of selectorsOf('scrollbar-color')) {
+      expect(hits(sel), `scrollbar rule: no live node on Home for ${sel}`).toBeGreaterThan(0);
+    }
+
+    // 🔴 THE RING RULE'S SELECTOR SET, AS A LEDGER. Without it, a FOURTH selector
+    // added to that rule would never be reachability-checked by anything — the loops
+    // below walk the set they were written for, and a silently-dead new selector is
+    // exactly the failure `compact.ts`'s header records three rounds of.
+    const ring = selectorsOf('outline-offset');
+    expect(ring).toEqual([
+      `[${SKIN_ATTR}='true'] [data-mb-nav-item]`,
+      `[${SKIN_ATTR}='true'] [role='menuitem']`,
+      `[${SKIN_ATTR}='true'] [data-testid='grid-group-matchup']`,
+    ]);
+    // On Home: the nav items (a literal 5 — the nav's item count is a ledgered
+    // decision, `SIDE_NAV_ITEMS`) and the group band.
+    expect(hits(ring[0]!)).toBe(5);
+    expect(hits(ring[2]!), 'no group band, so the band half of the ring is dead').toBeGreaterThan(
+      0,
+    );
+    // The menuitem half needs a panel open, so it gets its own surface.
+    expect(hits(ring[1]!), 'a menuitem exists with no menu open').toBe(0);
+    const section = await openMyList('matchup');
+    await openRowMenu('matchup', section);
+    expect(hits(ring[1]!), 'the ring rule reaches no live menuitem').toBeGreaterThan(0);
   });
 });
 
