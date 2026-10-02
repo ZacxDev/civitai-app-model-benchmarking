@@ -205,6 +205,31 @@ export interface MyGridsViewProps {
    * is".
    */
   onEditPublished: (row: GridRow) => void;
+  /**
+   * OPEN one of the viewer's own PRIVATE grids — the Ask-D route.
+   *
+   * 🔴 IT IS THE ONLY WAY A PRIVATE GRID'S MATRIX CAN BE REACHED. A private grid has
+   * no shared row, so it is not on the community board and `GridsView`'s `grid-open`
+   * cannot name it; before this control a viewer had to PUBLISH a grid to generate
+   * into it, which is the wrong order — publishing is irreversible and the grid is
+   * what they were still assembling.
+   *
+   * 🔴 WHAT THE APP DOES WITH IT, AND WHY THIS COMPONENT STILL WRITES NOTHING: `App`
+   * holds the open-grid state (see its `openGridRef`), resolves the local id back to
+   * the KV record, and resolves that record's MEMBER KEYS against the live board with
+   * the same `resolveMemberRows` every other grid uses. A member that is one of the
+   * viewer's own private matchups/prompts therefore contributes no row and no column —
+   * so the matrix is built from board rows only and a local id cannot reach a result
+   * row. That property belongs to the resolver, not to this prop.
+   *
+   * ⚠️ AND THE OUTPUTS OF A RUN STARTED THERE ARE PUBLIC. A result row is keyed
+   * `comboKey · configId × promptKey` and is not grid-scoped, so the images go to the
+   * shared board whether or not the grid is ever published. The viewer is told so on
+   * the confirm path (`PRIVATE_GRID_RUN_NOTICE`), not here.
+   */
+  onOpenUnpublished: (localId: string) => void;
+  /** OPEN one of the viewer's own PUBLISHED grids, without a trip to the board. */
+  onOpenPublished: (row: GridRow) => void;
 }
 
 export function MyGridsView({
@@ -230,6 +255,8 @@ export function MyGridsView({
   onDiscardUnpublished,
   onPublishUnpublished,
   onEditPublished,
+  onOpenUnpublished,
+  onOpenPublished,
 }: MyGridsViewProps): React.JSX.Element {
   /** Cell → result index, built ONCE per render and shared by every card's strip. */
   const byCell = useMemo(() => indexResultsByCell(results), [results]);
@@ -395,6 +422,12 @@ export function MyGridsView({
           onWithdraw={onWithdraw}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
+          /* 🔴 BOTH HALVES OF THE LIST GET Open, because both have a matrix. The
+             private half is the asked-for change; the published half gets it too
+             because the alternative is "go to Home, switch to the Grids board, find
+             your card, press Open" for a grid the viewer is already looking at. */
+          onOpenDraft={onOpenUnpublished}
+          onOpenRow={onOpenPublished}
           renderCard={card}
         />
       </Stack>

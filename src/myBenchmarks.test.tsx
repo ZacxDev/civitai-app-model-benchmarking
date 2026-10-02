@@ -528,6 +528,11 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
         onDiscardUnpublished={vi.fn()}
         onPublishUnpublished={opts.onPublishUnpublished ?? vi.fn()}
         onEditPublished={opts.onEditPublished ?? vi.fn()}
+        /* ⚠️ THE OPEN ROUTES ARE NOT THIS FILE'S SUBJECT — they are measured against
+           the real `App` in `src/gridOpenPrivate.test.tsx`, which is the only place
+           the open panel exists to land on. Stubbed here so the component compiles. */
+        onOpenUnpublished={vi.fn()}
+        onOpenPublished={vi.fn()}
       />
     );
   }

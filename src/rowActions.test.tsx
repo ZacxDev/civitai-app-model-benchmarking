@@ -68,6 +68,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
+import { SYSTEM_GRID_DOM_KEY } from './lib/gridEntries.js';
 import { scannedSources } from './lib/sourceScan.js';
 
 import { GridsView } from './components/GridsView.js';
@@ -246,6 +247,8 @@ const SHAPES: ReadonlyArray<
           onDiscardUnpublished={vi.fn()}
           onPublishUnpublished={vi.fn()}
           onEditPublished={vi.fn()}
+          onOpenUnpublished={vi.fn()}
+          onOpenPublished={vi.fn()}
         />,
       ),
     'grid-card',
@@ -279,6 +282,8 @@ const SHAPES: ReadonlyArray<
           onDiscardUnpublished={vi.fn()}
           onPublishUnpublished={vi.fn()}
           onEditPublished={vi.fn()}
+          onOpenUnpublished={vi.fn()}
+          onOpenPublished={vi.fn()}
         />,
       ),
     'unpublished-card',
@@ -299,7 +304,11 @@ const SHAPES: ReadonlyArray<
           viewerId={VIEWER_ID}
           loading={false}
           error={null}
-          openKey={null}
+          /* The Top Grid is the open one, so the list holds exactly ONE card and the
+             shape lookup below cannot pick the wrong one. `openKey` is an
+             `entryDomKey`; `null` would mean "nothing in this list is open" and would
+             list the Top Grid as a second card. */
+          openKey={SYSTEM_GRID_DOM_KEY}
           onOpen={vi.fn()}
           onVote={vi.fn()}
           onUnvote={vi.fn()}

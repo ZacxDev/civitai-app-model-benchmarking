@@ -144,6 +144,26 @@ export interface MyListProps<Row> {
   onWithdraw: (key: string) => Promise<void> | void;
   onArchive?: (key: string) => Promise<void> | void;
   onUnarchive?: (key: string) => Promise<void> | void;
+  /**
+   * OPEN this viewer's own PRIVATE record, if the noun has somewhere to open it.
+   *
+   * 🔴 ONLY THE GRID SURFACE PASSES IT, and the optionality is what keeps the other
+   * two honest: a matchup or a prompt has no "open" destination — the thing a viewer
+   * opens is a GRID, whose matrix is the app's primary object. With the callback
+   * omitted the control is UNMOUNTED, not disabled, for the same reason the Top Grid
+   * gets no greyed vote button: a dead control advertises an action that does not
+   * exist.
+   *
+   * 🔴 OPENING A PRIVATE GRID IS WHAT MAKES IT RUNNABLE BEFORE IT IS PUBLISHED, which
+   * is the whole point of the control — and the outputs of a run started there are
+   * PUBLIC (a result row is keyed on the matchup and the prompt, never on the grid).
+   * `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` is where the viewer is told so, on the
+   * confirm path. Nothing on THIS row claims otherwise, and nothing here writes
+   * anything: the callback raises intent, exactly like every other one in this file.
+   */
+  onOpenDraft?: (localId: string) => void;
+  /** OPEN an already-PUBLISHED row. Same shape, same single caller (grids). */
+  onOpenRow?: (row: Row) => void;
   /** Render one published row's card, with the action group this list supplies. */
   renderCard: (row: Row, actions: ReactNode) => ReactNode;
 }
@@ -169,6 +189,8 @@ export function MyList<Row>({
   onWithdraw,
   onArchive,
   onUnarchive,
+  onOpenDraft,
+  onOpenRow,
   renderCard,
 }: MyListProps<Row>): React.JSX.Element {
   // Which record is mid-publish — the button that could mint a public row is disabled
@@ -218,6 +240,22 @@ export function MyList<Row>({
    */
   const publishedActions = (row: Row, archiveAction: ReactNode): React.JSX.Element => (
     <>
+      {/* 🔴 OPEN COMES FIRST, AND ONLY WHEN THE CALLER HAS A DESTINATION. It is the
+          same affordance the community board's card carries (`grid-open` in
+          `GridsView`), under a DISTINCT testid because both surfaces address a
+          `grid-card` and a shared id would make `getByTestId` ambiguous the moment a
+          test scopes to the wrong one. */}
+      {onOpenRow && (
+        <Button
+          size="sm"
+          variant="light"
+          onClick={() => onOpenRow(row)}
+          data-testid="my-open"
+          aria-label={`Open your ${noun}`}
+        >
+          Open
+        </Button>
+      )}
       <Button
         size="sm"
         variant="subtle"
@@ -370,6 +408,21 @@ export function MyList<Row>({
                   breaking apart from each other, which is still true on a full-width
                   row; it was never what positioned the cluster. */}
               <Group gap={6} align="center" wrap={false} data-testid="row-actions">
+                  {/* 🔴 OPEN A RECORD THAT IS NOT ON THE BOARD, which is what lets a
+                      viewer generate into their grid BEFORE publishing it. Unmounted
+                      unless the caller has a destination — see `onOpenDraft`. Its own
+                      `unpublished-*` id, like every other control on this row. */}
+                  {onOpenDraft && (
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onClick={() => onOpenDraft(item.localId)}
+                      data-testid="unpublished-open"
+                      aria-label={`Open your private ${noun}`}
+                    >
+                      Open
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="subtle"

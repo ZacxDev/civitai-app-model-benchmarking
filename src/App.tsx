@@ -196,9 +196,13 @@ import {
   buildTopGrid,
   gridMemberSummary,
   missingMembersNotice,
-  resolveGridRows,
-  TOP_GRID_NAME,
-  type GridEntry,
+  openGridName,
+  openSystemGrid,
+  privateGridShortfall,
+  resolveOpenGrid,
+  SYSTEM_GRID_DOM_KEY,
+  type OpenGrid,
+  type OpenGridRef,
 } from './lib/gridEntries.js';
 import {
   cascadeConfirmNotice,
@@ -592,7 +596,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const [board, setBoard] = useState<Board>('grids');
 
   /**
-   * Which grid is OPEN, by shared key. `null` means the Top Grid.
+   * Which grid is OPEN, as a three-way REFERENCE rather than a key.
+   *
+   * 🔴 IT WAS `string | null` — a shared key, with `null` meaning the Top Grid — AND
+   * THAT SHAPE CANNOT NAME A PRIVATE GRID. A viewer can now open one of their OWN
+   * unpublished grids so they can generate into it before publishing it, and such a
+   * record has only a per-viewer LOCAL id. A local id put into the old `string` slot
+   * would have been looked up in `grids` (the published board rows), found nothing,
+   * and SILENTLY fallen back to the Top Grid — a dead control with no error. A tagged
+   * reference makes the two id spaces impossible to confuse, and `OpenGridRef`'s
+   * `kind` makes a fourth state a compile error rather than an else-branch.
+   *
+   * 🔴 IT HOLDS A REFERENCE, NOT THE RECORD. Both arms are resolved against live
+   * state on every render (`openTarget` below), because both can go away underneath
+   * the panel: a published row can be withdrawn by its author in another tab, and a
+   * private record is retired the moment it publishes. Holding the object would pin a
+   * stale copy of whichever one moved.
    *
    * 🔴 IT LIVES HERE, ABOVE THE VIEW SWITCH, AND THAT IS A MONEY-PATH DECISION. It
    * was a `useState` inside `GridsView`. Navigating to My Benchmarks unmounts the
@@ -612,7 +631,30 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * is a separate decision; the rehydrate scan already makes such a cell safe from a
    * second charge, so what is owed is discoverability, not money safety.
    */
-  const [openGridKey, setOpenGridKey] = useState<string | null>(null);
+  const [openGridRef, setOpenGridRef] = useState<OpenGridRef>({ kind: 'system' });
+  /**
+   * Open the grid named by a COMMUNITY-BOARD callback, whose contract is still
+   * `string | null` (`null` = the Top Grid — see `entryOpenKey`).
+   *
+   * 🔴 THE ADAPTER IS HERE RATHER THAN IN `GridsView`, so that component keeps
+   * knowing only about the two kinds it can LIST. Widening its callback to the
+   * three-way reference would hand it a shape with an arm it can never produce.
+   */
+  const openPublishedKey = useCallback((key: string | null) => {
+    setOpenGridRef(key === null ? { kind: 'system' } : { kind: 'published', key });
+  }, []);
+  /**
+   * Open one of the viewer's own grids FROM MY BENCHMARKS, which also means going to
+   * Home — the open panel only exists on `view.kind === 'home'`.
+   *
+   * 🔴 THE NAVIGATION IS PART OF THE ACTION, not a separate step the viewer takes.
+   * Setting the reference without switching the view would leave the press looking
+   * inert: the panel that renders it is unmounted, so nothing on screen would change.
+   */
+  const openOwnGrid = useCallback((ref: OpenGridRef) => {
+    setOpenGridRef(ref);
+    setView({ kind: 'home' });
+  }, []);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
   // is the `topN` state behind it. It was the only consumer of matchup and prompt
   // votes, and it let two viewers of ONE shared board be told different absolute
@@ -2686,23 +2728,67 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   //
   // 🔴 IT IS RESOLVED HERE AND NOWHERE ELSE, and the reason is a bug shape rather
   // than tidiness. Two consumers need to agree about which grid is open: the panel
-  // that RENDERS it and the list that EXCLUDES it. `openGridKey` can name a grid that
+  // that RENDERS it and the list that EXCLUDES it. `openGridRef` can name a grid that
   // has since been withdrawn — by its author in another tab, or by this viewer from
   // the list — and the panel falls back to the Top Grid in that case. A list that
   // applied its own `key !== openGridKey` test would then find no match, keep the Top
   // Grid in the list, and show the same grid twice: once in the panel, once as a card.
   // So the fallback happens once and `GridsView` is handed the RESOLVED key.
+  //
+  // 🔴 THERE ARE THREE ARMS NOW, AND THE THIRD RESOLVES AGAINST A DIFFERENT STORE.
+  // A `private` reference is a per-viewer LOCAL id and is looked up in
+  // `unpublishedGrids` (the KV half), never in `grids` (the shared board). The two id
+  // spaces are disjoint and the tag is what keeps them apart; see `OpenGridRef`.
+  //
+  // ⚠️ THE PRIVATE ARM FALLS BACK THE SAME WAY, AND IT IS NOT A HYPOTHETICAL: the
+  // record is RETIRED from `unpublishedGrids` the moment it publishes
+  // (`publishedThisSession`), so a viewer who opens a private grid and then publishes
+  // it lands on the Top Grid rather than on a blank panel. The published row's own key
+  // is minted by that publish and nothing here re-points the reference at it — doing
+  // so would be a second place that decides which grid is open.
   const topGrid = useMemo(() => buildTopGrid(combinations, prompts), [combinations, prompts]);
-  const openEntry: GridEntry = useMemo(() => {
-    if (openGridKey === null) return topGrid;
-    const row = grids.find((g) => g.key === openGridKey);
-    return row ? { system: false, row } : topGrid;
-  }, [openGridKey, grids, topGrid]);
+  const openTarget: OpenGrid = useMemo(() => {
+    const system = openSystemGrid(topGrid);
+    if (openGridRef.kind === 'published') {
+      const row = grids.find((g) => g.key === openGridRef.key);
+      return row ? { kind: 'published', row } : system;
+    }
+    if (openGridRef.kind === 'private') {
+      const rec = unpublishedGrids.find((g) => g.localId === openGridRef.localId);
+      return rec ? { kind: 'private', rec } : system;
+    }
+    return system;
+  }, [openGridRef, grids, unpublishedGrids, topGrid]);
+  /**
+   * The open grid's members, resolved against the LIVE BOARD.
+   *
+   * 🔴 ONE RESOLVER FOR ALL THREE KINDS, AND THAT IS WHAT KEEPS A LOCAL ID OFF THE
+   * WIRE. `resolveOpenGrid` delegates to `resolveMemberRows`, which resolves each
+   * authored key against the board's rows — so a member that is one of the viewer's
+   * own PRIVATE matchups/prompts has no row, contributes no row and no column, and
+   * cannot be part of any cell. A cell's identity is what every result row is written
+   * under (`buildResultPayload`), so opening a private grid adds NO path by which a
+   * local id can reach `shared.append`. The property belongs to the resolver, not to
+   * a check here — see `lib/gridCascade.ts`'s header for the boundary, and
+   * `src/gridOpenPrivate.test.tsx` for the assertion against the append log.
+   */
   const openResolved = useMemo(
-    () => resolveGridRows(openEntry, combinations, prompts),
-    [openEntry, combinations, prompts],
+    () => resolveOpenGrid(openTarget, combinations, prompts),
+    [openTarget, combinations, prompts],
   );
-  const openMissing = missingMembersNotice(openResolved, boardTruncated);
+  /**
+   * The shortfall sentence, built by whichever helper can state an honest cause.
+   *
+   * 🔴 THE PRIVATE ARM MUST NOT USE `missingMembersNotice`. Its complete-scan wording
+   * attributes the absence to "their authors removed them", and the commonest cause on
+   * a private grid is the viewer's OWN still-private member sitting in their own
+   * storage. `privateGridShortfall` states the arithmetic and the rule and attributes
+   * nothing — the same reason `MyGridsView`'s private CARD renders no missing notice.
+   */
+  const openMissing =
+    openTarget.kind === 'private'
+      ? privateGridShortfall(openResolved)
+      : missingMembersNotice(openResolved, boardTruncated);
   /**
    * The open grid's "N matchups × N prompts" line.
    *
@@ -2712,9 +2798,23 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * members the matrix has. One helper, two surfaces, so the two can never disagree.
    */
   const openMembers = gridMemberSummary(openResolved);
-  const openName = openEntry.system ? TOP_GRID_NAME : openEntry.row.name || 'Untitled grid';
-  /** The resolved key `GridsView` filters against — `null` iff the panel shows the Top Grid. */
-  const openKeyResolved = openEntry.system ? null : openEntry.row.key;
+  const openName = openGridName(openTarget);
+  /**
+   * The identity `GridsView` filters its own list against, as an `entryDomKey`.
+   *
+   * 🔴 THREE STATES, AND THE THIRD IS WHY THIS IS A DOM KEY RATHER THAN AN OPEN KEY.
+   * `'__system__'` when the Top Grid is open, the shared key when a published row is,
+   * and `null` when NOTHING IN THAT LIST IS OPEN — which is the case while one of the
+   * viewer's own private grids is. The prop used to be an `entryOpenKey`, whose `null`
+   * already meant "the Top Grid", so the private arm's `null` silently hid the Top Grid
+   * from the board. `GridsView.openKey`'s docblock carries the whole account.
+   */
+  const openKeyResolved =
+    openTarget.kind === 'published'
+      ? openTarget.row.key
+      : openTarget.kind === 'system'
+        ? SYSTEM_GRID_DOM_KEY
+        : null;
 
   const publishMatchupById = useCallback(
     async (localId: string) => {
@@ -3288,10 +3388,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                 >
                   <Stack gap={14} data-testid="grid-view" style={{ minWidth: 0 }}>
                     <GridOpenPanel
-                      /* 🔴 THE WHOLE ENTRY, not a `system` boolean — the panel's three
-                         row controls each need the row's KEY as well, and one object
-                         is what stops them naming two different grids. */
-                      entry={openEntry}
+                      /* 🔴 THE WHOLE RESOLVED OBJECT, not a `system` boolean — the
+                         panel's three row controls each need the row's KEY as well, and
+                         one object is what stops them naming two different grids. It is
+                         an `OpenGrid` (three kinds) rather than a `GridEntry` (two),
+                         because the panel can show a PRIVATE grid the board cannot
+                         list. */
+                      open={openTarget}
                       viewerId={viewer?.id ?? null}
                       name={openName}
                       members={openMembers}
@@ -3333,6 +3436,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                            failed mount read was permanent until a page reload. */
                         buzzBalanceLoading={buzz.loading}
                         onRetryBalance={buzz.refetch}
+                        /* 🔴 THE ONE THING THE MATRIX IS TOLD ABOUT THE GRID'S OWN
+                           STATE, and it buys exactly one extra sentence on the confirm
+                           path: a private grid's OUTPUTS are public anyway, because a
+                           result row is keyed on the matchup and the prompt and is not
+                           grid-scoped. It gates no behaviour — see
+                           `ResultsGridProps.privateGrid`. */
+                        privateGrid={openTarget.kind === 'private'}
                         GatedCell={deps.GatedCell}
                         onRunCell={beginRun}
                         onConfirmRun={confirmRun}
@@ -3385,7 +3495,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       /* 🔴 RESOLVED, not raw — see the prop's own docblock for the
                          same-grid-twice bug a second resolution would create. */
                       openKey={openKeyResolved}
-                      onOpen={setOpenGridKey}
+                      onOpen={openPublishedKey}
                       onVote={onVote}
                       onUnvote={onUnvote}
                       onRequireAuth={requireAuth}
@@ -3507,6 +3617,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                        on the community board, a grid author does not and must go to My
                        Benchmarks. Recorded so it reads as a choice, not an oversight. */
                     onEditPublished={(row) => setModal({ kind: 'grid', edit: row })}
+                    /* 🔴 THE TWO OPEN ROUTES FROM THIS SURFACE, and the private one is
+                       the only way a private grid's matrix can be reached at all — a
+                       private grid has no shared row, so the community board cannot
+                       list it and `grid-open` there cannot name it. Both go through
+                       `openOwnGrid`, which ALSO returns to Home: the open panel only
+                       exists on `view.kind === 'home'`, so setting the reference
+                       without the view switch would leave the press looking inert. */
+                    onOpenUnpublished={(localId) =>
+                      openOwnGrid({ kind: 'private', localId })
+                    }
+                    onOpenPublished={(row) => openOwnGrid({ kind: 'published', key: row.key })}
                     /* The preview strips' source, on the viewer's OWN grids now too —
                        ONE batched gated read per card, private and published alike.
                        See `MyGridsView.GatedCell` for why this does not move the

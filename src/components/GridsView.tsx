@@ -134,15 +134,30 @@ export interface GridsViewProps {
    */
   boardTruncated?: boolean;
   /**
-   * Which grid is OPEN, ALREADY RESOLVED: `null` means the system Top Grid, any
-   * string names a published row that is still on the board.
+   * Which LISTED entry is OPEN, ALREADY RESOLVED, as its `entryDomKey` — the
+   * `'__system__'` sentinel for the Top Grid, a shared key for a published row, and
+   * `null` for "nothing in this list is open".
    *
    * 🔴 "ALREADY RESOLVED" IS THE CONTRACT AND IT MATTERS. A grid the viewer had open
-   * can be withdrawn while they look at it, and `App` falls the open entry back to
+   * can be withdrawn while they look at it, and `App` falls the open grid back to
    * the Top Grid in that case. If this prop carried the RAW key instead, the panel
    * above would render the Top Grid while this list — finding no entry whose key
    * matches a row that no longer exists — would ALSO list it, showing the same grid
    * twice. One spelling of "which grid is open", decided once, in `App`.
+   *
+   * 🔴 IT WAS `null` = "THE TOP GRID IS OPEN", AND THAT COLLAPSED TWO STATES THE
+   * MOMENT A THIRD KIND OF GRID COULD BE OPEN. `entryOpenKey` returns `null` for the
+   * system entry, so `entryOpenKey(entry) !== openKey` excluded the Top Grid from the
+   * list whenever `openKey` was `null` — which is exactly what `App` passes while one
+   * of the viewer's own PRIVATE grids is open. The Top Grid then vanished from the
+   * board for a reason no one could see: it is not open, and it is not listed either.
+   * Measured by `src/gridOpenPrivate.test.tsx`'s list-completeness case, which failed
+   * on the first implementation of the private open path.
+   *
+   * `entryDomKey` is the fix because it is TOTAL on the listable entries — every one
+   * of them maps to a non-null string — which leaves `null` free to mean "none of
+   * them". It is also the same helper the card's React key and `data-key` use, so the
+   * filter cannot drift from the thing it filters.
    */
   openKey: string | null;
   /** Open a listed grid (`null` for the system Top Grid). `App` holds the state. */
@@ -411,18 +426,25 @@ export function GridsView({
             `openKey` — see that prop for why the resolution happens in `App` and not
             twice.
 
-            🔴 AND IT COMPARES THROUGH `entryOpenKey`, THE SAME HELPER THE CARD'S
-            `data-key` AND THE Open BUTTON USE. All three used to open-code the
-            system/published ternary in three different shapes; this filter is the one
-            where getting it wrong shows the SAME GRID TWICE, once in the panel and once
-            as a card. One rule, one place.
+            🔴 AND IT COMPARES THROUGH `entryDomKey`, THE SAME HELPER THE CARD'S REACT
+            KEY AND `data-key` USE. All three used to open-code the system/published
+            ternary in three different shapes; this filter is the one where getting it
+            wrong shows the SAME GRID TWICE, once in the panel and once as a card. One
+            rule, one place.
+
+            🔴 `entryDomKey` RATHER THAN `entryOpenKey`, AND THAT IS A FIX, NOT A
+            STYLE CHOICE. `entryOpenKey` returns `null` for the system entry, so this
+            comparison silently excluded the Top Grid whenever `openKey` was `null` —
+            including when `null` means "a PRIVATE grid is open and nothing in this
+            list is". `entryDomKey` is total on listable entries, which is what leaves
+            `null` free to mean "none of them". See the prop's own docblock.
 
             🔴 The Top Grid is entry 0 of `communityGridEntries` by construction, not
             by a sort that happens to put it there — so when it IS listed it is still
             first. ---- */}
         <Stack gap={10} data-testid="grids-list">
           {communityEntries
-            .filter((entry) => entryOpenKey(entry) !== openKey)
+            .filter((entry) => entryDomKey(entry) !== openKey)
             .map((entry) => entryCard(entry))}
         </Stack>
       </Stack>

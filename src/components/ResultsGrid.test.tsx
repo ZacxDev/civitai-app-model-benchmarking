@@ -88,6 +88,7 @@ function renderGrid() {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      privateGrid={false}
       onOpenMatchup={vi.fn()}
       onOpenPrompt={vi.fn()}
     />,
@@ -113,7 +114,13 @@ const comboOne: CombinationRow = {
 /** Render the grid with a single run in a given state on the c1/cfgA × p1 cell. */
 function renderGridWithRun(
   run: CellRun,
-  opts: { buzzTotal?: number | null; buzzBalanceLoading?: boolean; onRetryBalance?: () => void } = {},
+  opts: {
+    buzzTotal?: number | null;
+    buzzBalanceLoading?: boolean;
+    onRetryBalance?: () => void;
+    /** The grid these cells belong to is one of the viewer's own PRIVATE grids. */
+    privateGrid?: boolean;
+  } = {},
 ) {
   const onConfirmRun = vi.fn();
   const onResumeRun = vi.fn();
@@ -135,6 +142,7 @@ function renderGridWithRun(
       onConfirmRun={onConfirmRun}
       onResumeRun={onResumeRun}
       onCancelRun={onCancelRun}
+      privateGrid={opts.privateGrid ?? false}
       onOpenMatchup={vi.fn()}
       onOpenPrompt={vi.fn()}
     />,
@@ -358,6 +366,7 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        privateGrid={false}
         onOpenMatchup={vi.fn()}
         onOpenPrompt={vi.fn()}
       />,
@@ -528,6 +537,7 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        privateGrid={false}
         onOpenMatchup={vi.fn()}
         onOpenPrompt={vi.fn()}
       />,
@@ -555,6 +565,10 @@ describe('ResultsGrid render (config rows)', () => {
       // it fails to compile.
       onOpenMatchup: vi.fn(),
       onOpenPrompt: vi.fn(),
+      // 🔴 REQUIRED for the same reason: it decides whether the confirm path carries
+      // `PRIVATE_GRID_RUN_NOTICE`, and a forgetful fixture would silently exercise
+      // the case where the viewer is NOT told the outputs go public.
+      privateGrid: false,
     };
 
     it('no ROWS: says so and offers the Combinations tab', () => {

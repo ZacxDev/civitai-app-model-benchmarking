@@ -638,10 +638,18 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
   // drive — another tab's withdraw, and a `listAll` page cap dropping a row between
   // polls — so this case is the cheap one of three, not the only one.
   //
-  // 🔴 MUTATION-ISOLATED: replacing `openKey={openKeyResolved}` with
-  // `openKey={openGridKey}` in `App.tsx` — the raw key, i.e. the defect both comments
-  // describe — takes THIS case red on the card ledger and leaves the rest of the file
-  // green. Measured.
+  // 🔴 MUTATION-ISOLATED: replacing `openKey={openKeyResolved}` with the RAW
+  // reference's key in `App.tsx` — i.e. the defect both comments describe — takes THIS
+  // case red on the card ledger and leaves the rest of the file green. Measured.
+  //
+  // ⚠️ THE MUTATION'S SPELLING HAS MOVED and the measurement has not been re-run at the
+  // new spelling. `App` held `openGridKey: string | null` when that was measured; it now
+  // holds `openGridRef`, a tagged three-way reference, and `openKeyResolved` is an
+  // `entryDomKey` rather than an `entryOpenKey` (see `GridsView.openKey` for why). The
+  // equivalent mutant today is `openKey={openGridRef.kind === 'published' ?
+  // openGridRef.key : SYSTEM_GRID_DOM_KEY}` — the raw reference, unresolved against
+  // `grids`. The CLAIM below is unchanged and still passes; only the mutant's text is
+  // stale, and saying so is better than quietly rewriting a measurement nobody re-took.
   it('🔴 WITHDRAWING the open grid falls back to the Top Grid WITHOUT also listing it', async () => {
     const MINE = row('gk-mine', 6, 'My grid', gridData(['mk-alpha'], ['qk-tango']), {
       authorUserId: VIEWER_ID,

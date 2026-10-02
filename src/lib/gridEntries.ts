@@ -18,7 +18,13 @@
 // that tried to include it would not type-check rather than silently inventing 0
 // and burying it under every one-vote grid.
 
-import type { CombinationRow, GridRow, PromptRow, ResultRow } from '../types.js';
+import type {
+  CombinationRow,
+  GridRow,
+  PromptRow,
+  ResultRow,
+  UnpublishedGrid,
+} from '../types.js';
 import { cellKey, DEFAULT_TOP_N, flattenConfigs, topByVotes } from './benchmark.js';
 import { resolveMembers } from './grids.js';
 
@@ -114,14 +120,30 @@ export function entryOpenKey(entry: GridEntry): string | null {
 }
 
 /**
+ * The system entry's identity as a non-null string.
+ *
+ * 🔴 EXPORTED SO THE SENTINEL IS WRITTEN DOWN EXACTLY ONCE. It was a literal inside
+ * {@link entryDomKey}, which was enough while that function was the only thing that
+ * needed it; `App` now has to name the same value when it tells `GridsView` which
+ * LISTED entry is open (see `GridsView.openKey`), and a second spelling of it is a
+ * silently-unfindable card. Read by tests and by the card-lookup helpers too.
+ */
+export const SYSTEM_GRID_DOM_KEY = '__system__';
+
+/**
  * The same identity as a NON-NULL string, for a React key / `data-key`.
  *
- * 🔴 A SEPARATE FUNCTION RATHER THAN A `?? '__system__'` AT THE CALL SITE, so the
- * sentinel is written down exactly once. `'__system__'` is read by tests and by the
- * card-lookup helpers; a second spelling of it is a silently-unfindable card.
+ * 🔴 A SEPARATE FUNCTION RATHER THAN A `?? SYSTEM_GRID_DOM_KEY` AT THE CALL SITE, so
+ * the fallback is applied in one place.
+ *
+ * 🔴 AND IT IS TOTAL ON EVERY LISTABLE ENTRY, WHICH IS LOAD-BEARING RATHER THAN
+ * incidental: because no entry maps to `null`, `null` is free to mean "no listed entry
+ * at all", which is what `GridsView`'s open-filter needs now that a grid OUTSIDE the
+ * list (a private one) can be the open one. {@link entryOpenKey} cannot serve there —
+ * its `null` already means the system entry.
  */
 export function entryDomKey(entry: GridEntry): string {
-  return entryOpenKey(entry) ?? '__system__';
+  return entryOpenKey(entry) ?? SYSTEM_GRID_DOM_KEY;
 }
 
 /** The authored member keys of either kind of entry, in authored order. */
@@ -352,6 +374,152 @@ export function gridPreviewIds(
     }
   }
   return { ids: all.slice(0, GRID_PREVIEW_MAX), total: all.length };
+}
+
+// ===========================================================================
+// THE OPEN GRID — a SUPERSET of `GridEntry`, because the open panel can show a
+// grid that is not listed anywhere.
+// ===========================================================================
+
+/**
+ * What the open panel is showing.
+ *
+ * 🔴 THREE KINDS, AND `GridEntry` CAN ONLY SPELL TWO. The Grids LIST holds the
+ * system Top Grid and published rows, which is exactly {@link GridEntry}. The open
+ * PANEL can additionally show a grid that has no shared row at all because it is
+ * still in the viewer's own per-viewer KV — an {@link UnpublishedGrid} with a LOCAL
+ * id and no key, no `count` and no author. A viewer asked to be able to generate
+ * into such a grid before publishing it, and the panel is where that happens.
+ *
+ * 🔴 IT IS A SEPARATE TYPE RATHER THAN A THIRD ARM OF `GridEntry`, DELIBERATELY.
+ * `GridEntry`'s discriminant is `system: true | false`, and every consumer of it
+ * narrows with `entry.system ? … : entry.row` — including `lib/gridCascade.ts`'s
+ * neighbours, `GridsView`, `MyGridsView` and `communityGridEntries`. A third arm
+ * spelled `system: false` would make `entry.row` a lie that still TYPE-CHECKS at
+ * each of those sites. Widening only the panel's own type leaves the list's type
+ * exactly as narrow as the list actually is.
+ *
+ * 🔴 `kind` RATHER THAN A BOOLEAN, so adding a fourth state is a compile error at
+ * every `switch` below rather than a silently-taken `else` branch.
+ */
+export type OpenGrid =
+  /** The system Top Grid: computed members, no shared row. */
+  | { kind: 'system'; matchupKeys: readonly string[]; promptKeys: readonly string[] }
+  /** A published grid row — votable, withdrawable, reportable. */
+  | { kind: 'published'; row: GridRow }
+  /** This viewer's PRIVATE grid, straight out of per-viewer KV. No shared row. */
+  | { kind: 'private'; rec: UnpublishedGrid };
+
+/**
+ * A REFERENCE to whatever is open — what `App` holds in state, as distinct from the
+ * resolved {@link OpenGrid} it renders.
+ *
+ * 🔴 A REFERENCE RATHER THAN THE OBJECT, because both referents can disappear under
+ * the panel: a published row can be withdrawn by its author in another tab, and a
+ * private record is retired the instant it publishes. Re-resolving every render is
+ * what lets the panel fall back instead of pinning a stale copy.
+ *
+ * 🔴 AND TAGGED RATHER THAN A BARE `string | null`, which is what it replaced. A
+ * per-viewer LOCAL id and a host-minted SHARED key are both strings and nothing in
+ * either one's TEXT distinguishes them (a shared key's real shape is not verified
+ * anywhere in this repo — see `cascadeRefusal`). An untagged slot therefore looked a
+ * local id up among the published rows, found nothing, and silently showed the Top
+ * Grid: a dead Open button with no error anywhere.
+ */
+export type OpenGridRef =
+  | { kind: 'system' }
+  | { kind: 'published'; key: string }
+  | { kind: 'private'; localId: string };
+
+/** {@link buildTopGrid}'s result as an {@link OpenGrid}. */
+export function openSystemGrid(top: SystemGridEntry): OpenGrid {
+  return { kind: 'system', matchupKeys: top.matchupKeys, promptKeys: top.promptKeys };
+}
+
+/** The authored member keys of whatever is open, in authored order. */
+export function openGridKeys(open: OpenGrid): {
+  matchupKeys: readonly string[];
+  promptKeys: readonly string[];
+} {
+  switch (open.kind) {
+    case 'system':
+      return { matchupKeys: open.matchupKeys, promptKeys: open.promptKeys };
+    case 'published':
+      return open.row.data;
+    case 'private':
+      return open.rec;
+  }
+}
+
+/**
+ * The open grid's members resolved against the live board.
+ *
+ * 🔴 IT DELEGATES TO {@link resolveMemberRows}, THE SAME BODY `resolveGridRows`
+ * USES, AND THAT IS THE LOAD-BEARING PART OF THE WHOLE PRIVATE-GRID FEATURE. A
+ * private grid may name the viewer's own private matchups and prompts, which carry
+ * only a per-viewer LOCAL id. `resolveMemberRows` resolves against the BOARD, so such
+ * a member has no row, contributes NO row and NO column, and therefore cannot be part
+ * of any cell — and a cell's identity (`comboKey · configId × promptKey`,
+ * `buildResultPayload`) is what every result row is written under. Opening a private
+ * grid therefore creates NO new path by which a local id can reach `shared.append`:
+ * the matrix it renders is built from board rows only, by construction rather than by
+ * a check. See `lib/gridCascade.ts`'s header for the boundary this preserves.
+ *
+ * ⚠️ SO THE CALLER MUST NOT RENDER {@link missingMembersNotice} FOR A PRIVATE GRID —
+ * see {@link privateGridShortfall}, which exists for exactly that reason.
+ */
+export function resolveOpenGrid(
+  open: OpenGrid,
+  combinations: CombinationRow[],
+  prompts: PromptRow[],
+): ResolvedGridRows {
+  const { matchupKeys, promptKeys } = openGridKeys(open);
+  return resolveMemberRows(matchupKeys, promptKeys, combinations, prompts);
+}
+
+/** The display name for whatever is open. One spelling, read by the panel. */
+export function openGridName(open: OpenGrid): string {
+  switch (open.kind) {
+    case 'system':
+      return TOP_GRID_NAME;
+    case 'published':
+      return open.row.name || 'Untitled grid';
+    case 'private':
+      return open.rec.name || 'Untitled grid';
+  }
+}
+
+/**
+ * The shortfall sentence for an open PRIVATE grid, or `null` when nothing is short.
+ *
+ * 🔴 IT NAMES NO CAUSE, AND THAT IS THE ENTIRE DIFFERENCE FROM
+ * {@link missingMembersNotice}. That sentence's complete-scan arm says the missing
+ * members' "authors removed them" — which about the viewer's OWN private matchup is
+ * simply false: it is sitting in their own storage waiting to be published. A private
+ * grid's shortfall has (at least) three causes and this function can tell NONE of them
+ * apart: a member is the viewer's own private record, or its row was withdrawn by its
+ * author, or the board scan never read it. So it states the arithmetic and the RULE,
+ * and attributes nothing.
+ *
+ * 🔴 IT IS ALSO WHY OPEN DOES NOT REFUSE. A grid row that reports missing members
+ * (`grid-card-missing`) still OPENS and still renders what resolves — the same
+ * decision `resolveGridRows` makes for every published grid, and the same one
+ * `MyGridsView`'s private CARD already makes when it shows a preview strip built from
+ * board members only. Refusing would hide a working matrix because one member of it is
+ * private, which is the normal state of a grid the viewer is still assembling.
+ *
+ * ⚠️ IT TAKES NO `boardTruncated`, deliberately: with the cause unattributed there is
+ * nothing for the flag to switch between. The truncation disclosure a viewer needs in
+ * that state is the page-level `board-truncated-notice`, which is unchanged.
+ */
+export function privateGridShortfall(resolved: ResolvedGridRows): string | null {
+  if (resolved.missingTotal <= 0) return null;
+  return (
+    `${resolved.missingTotal} of this grid's ${resolved.authoredTotal} members are not in the ` +
+    'matrix below. Only members with a row on the shared board can be: your own private ' +
+    'matchups and prompts are not in it until you publish them, and a member another author ' +
+    'withdrew is not either. Everything else below still renders; nothing was quietly dropped.'
+  );
 }
 
 /** The one-line structural summary of a grid, as listed. */

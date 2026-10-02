@@ -66,6 +66,22 @@ export interface ResultsGridProps {
    * affordance simply does not appear.
    */
   onRetryBalance?: () => void;
+  /**
+   * `true` when the grid these cells belong to is one of the viewer's OWN PRIVATE
+   * grids (per-viewer KV, no shared row) rather than a published or the system one.
+   *
+   * 🔴 IT ONLY EVER ADDS A SENTENCE — {@link PRIVATE_GRID_RUN_NOTICE} on the confirm
+   * path. It gates NO behaviour: the run, the claim, the spend, the publish and the
+   * result row's key are byte-identical either way, because a result row is not
+   * grid-scoped. Anything here that branched on it would be a second money path, and
+   * there is deliberately only one.
+   *
+   * 🔴 REQUIRED, NOT OPTIONAL-DEFAULTING-TO-FALSE, for the reason `GridsView.results`
+   * records about its own prop: the forgetful case degrades SILENTLY and in the unsafe
+   * direction — a viewer on a private grid who is never told the outputs go public.
+   * A fixture that omits it fails to compile instead.
+   */
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -261,6 +277,36 @@ export const BALANCE_UNKNOWN_MESSAGE = 'Your Buzz balance could not be read, so 
 export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
 
 /**
+ * Viewer-facing copy on the confirm path for a cell reached from a grid that is still
+ * PRIVATE — i.e. one of the viewer's own unpublished grids, opened so it can be
+ * generated into before it is published.
+ *
+ * 🔴 IT EXISTS BECAUSE THE GRID'S "Private" BADGE IS TRUE AND WOULD OTHERWISE BE READ
+ * AS COVERING THE OUTPUTS. It does not. Written from what the code does, not from
+ * intent, and each clause is traceable:
+ *
+ *   - a result row's key is `result:${comboKey}·${configId}×${promptKey}`
+ *     (`buildResultPayload` in `lib/benchmark.ts`) — it names no grid, so the row is
+ *     shared by EVERY grid that contains that cell, public or private;
+ *   - the run's publish step is an unconditional `publish({ workflowId })` in
+ *     `App.tsx` — there is no private-output path to take instead;
+ *   - and the row reaches the board through `shared.append`, which is irreversible:
+ *     `update`/`withdraw` are author-scoped and there is no merge.
+ *
+ * So the honest sentence is that the IMAGES go public even though the GRID does not,
+ * and that it cannot be undone from here. It deliberately does not say "and you can
+ * delete them later", because this app cannot.
+ *
+ * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`. A keyword guard on
+ * "public" is walkable by a reword that quietly drops the irreversibility.
+ */
+export const PRIVATE_GRID_RUN_NOTICE =
+  'This grid is private, but these images will not be. A cell’s outputs are stored ' +
+  'against the matchup and the prompt — not against this grid — so running this cell ' +
+  'publishes them to the shared board for every viewer, right away and permanently, ' +
+  'whether or not you ever publish the grid.';
+
+/**
  * The confirm gate, as ONE three-valued decision instead of a boolean plus a
  * ternary that disagreed with it.
  *
@@ -384,6 +430,7 @@ export function ResultsGrid({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -523,6 +570,7 @@ export function ResultsGrid({
             buzzTotal={buzzTotal}
             buzzBalanceLoading={buzzBalanceLoading}
             onRetryBalance={onRetryBalance}
+            privateGrid={privateGrid}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
             onConfirmRun={onConfirmRun}
@@ -748,6 +796,7 @@ interface RowProps {
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -766,6 +815,7 @@ function RowFragment({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -822,6 +872,7 @@ function RowFragment({
           buzzTotal={buzzTotal}
           buzzBalanceLoading={buzzBalanceLoading}
           onRetryBalance={onRetryBalance}
+          privateGrid={privateGrid}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
           onConfirmRun={onConfirmRun}
@@ -843,6 +894,7 @@ interface CellProps {
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -860,6 +912,7 @@ function Cell({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -895,6 +948,7 @@ function Cell({
           buzzTotal={buzzTotal}
           buzzBalanceLoading={buzzBalanceLoading}
           onRetryBalance={onRetryBalance}
+          privateGrid={privateGrid}
           onConfirm={() => onConfirmRun(row, prompt)}
           onResume={() => onResumeRun(row, prompt)}
           onCancel={() => onCancelRun(row, prompt)}
@@ -936,6 +990,7 @@ function CellRunState({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   onConfirm,
   onResume,
   onCancel,
@@ -944,6 +999,7 @@ function CellRunState({
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   onConfirm: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -974,6 +1030,21 @@ function CellRunState({
           This generates images that will be added to the <strong>public</strong> benchmark grid, visible to
           all viewers.
         </span>
+        {/* 🔴 THE EXTRA SENTENCE A PRIVATE GRID NEEDS, AND IT IS ADDITIVE RATHER THAN
+            A REPLACEMENT. `cell-public-notice` above is true on every grid and stays;
+            what the private case needs on top of it is that the grid's OWN privacy —
+            which the panel badges a few hundred pixels up — does not extend to these
+            outputs. Rendered right next to Confirm, because that is the press that
+            makes it irreversible. See {@link PRIVATE_GRID_RUN_NOTICE} for the three
+            code facts the sentence is built from. */}
+        {privateGrid && (
+          <span
+            style={{ color: token.error, fontSize: 11 }}
+            data-testid="cell-private-grid-notice"
+          >
+            {PRIVATE_GRID_RUN_NOTICE}
+          </span>
+        )}
         {(gate === 'insufficient' || gate === 'cost-unknown') && (
           <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
             {gate === 'insufficient' ? 'Insufficient Buzz balance' : 'Cost unavailable'}
