@@ -25,7 +25,9 @@
 // was never established — `withdraw` is documented as "Delete a row the viewer
 // authored", which is what would PERMIT removal. `ResultsGrid`'s
 // `PRIVATE_GRID_RUN_NOTICE` docblock carries the full account of both refutations; it is
-// the THIRD rationale for that sentence and this file pins the sentence WHOLE.
+// the THIRD rationale for that sentence and this file pins the sentence WHOLE, as a
+// TYPED LITERAL (see the literals' header below for why the earlier
+// compare-against-the-constant form pinned nothing).
 //
 // ── 🔴 THE INVARIANT THIS FEATURE MUST NOT BREAK ────────────────────────────
 //
@@ -57,10 +59,10 @@
 //
 // ⚠️ THE CENSUS THIS REPLACES WAS WRONG ON BOTH NUMBERS — it said "8 of these 11 cases
 // RED" with "THREE that stayed GREEN", over seven production sources. There were TWELVE
-// cases, ELEVEN production sources, and FOUR green. Recorded because a census is a
+// cases, FOURTEEN production sources, and FOUR green. Recorded because a census is a
 // claim like any other, and a hand-counted one rots on the next case anyone adds.
 //
-// RE-MEASURED, mechanically: all ELEVEN production sources `git diff bb63087..HEAD`
+// RE-MEASURED, mechanically: all FOURTEEN production sources `git diff bb63087..HEAD`
 // names were rolled back in place to `bb63087` and this file run with
 // `vitest --project dom --reporter=verbose`. Of its THIRTEEN cases, TEN were RED and
 // THREE GREEN. The three, with why each is green:
@@ -111,6 +113,52 @@ import type {
   UnpublishedGrid,
   UnpublishedPrompt,
 } from './types.js';
+
+// ---------------------------------------------------------------------------
+// 🔴 THE THREE VIEWER-FACING SENTENCES, TYPED OUT AS LITERALS.
+//
+// 🔴 WHY A LITERAL AND NOT THE IMPORTED CONSTANT — THIS FILE GOT THAT WRONG ONCE AND
+// SAID OTHERWISE IN A COMMENT. The cases below used to normalise the rendered text and
+// compare it to `PRIVATE_GRID_RUN_NOTICE` / `PRIVATE_GRID_EMPTY_*` themselves, under a
+// comment claiming that pinned the sentence against "a keyword check a reword can walk
+// past". It did not pin it at all: a reword of the constant changes BOTH sides of that
+// equality at once, so the guard stays green through any rewrite — including one that
+// puts a REFUTED clause back. MEASURED: rewording `PRIVATE_GRID_RUN_NOTICE` to
+// reinstate the refuted "right away and permanently", and reverting
+// `PRIVATE_GRID_EMPTY_BODY` to the sentence its own docblock retracts as false, left
+// the whole suite GREEN (69 files / 1027 tests) — while the same mutation on
+// `privateGridShortfall`'s sentence, which `lib/gridEntries.test.ts` pins as a literal,
+// went red. The literal is the only form that costs a second edit.
+//
+// So: the text lives HERE as well as in the source, and a reword must be made in both
+// places. That is the price, and it is the point — a cosmetic reword fails this file,
+// which is what makes the sentence a machine-readable claim.
+//
+// ⚠️ WHAT THEY PIN IS THE STRING, NOT ITS TRUTH. Each constant's docblock in
+// `components/ResultsGrid.tsx` carries the code facts its clauses rest on and the
+// refutations of two earlier rationales; nothing here re-establishes any of that.
+// ---------------------------------------------------------------------------
+
+/** @see PRIVATE_GRID_RUN_NOTICE — pinned verbatim, normalised to single spaces. */
+const EXPECTED_RUN_NOTICE =
+  'This grid is private, but that does not cover its cells’ images. A cell’s outputs ' +
+  'are stored against the matchup and the prompt — not against this grid — so once they ' +
+  'reach the shared board, every grid that contains the cell shows them to every ' +
+  'viewer, whether or not you ever publish this one. If the run succeeds you will be ' +
+  'asked to confirm publishing them there.';
+
+/** @see PRIVATE_GRID_EMPTY_TITLE — pinned verbatim. */
+const EXPECTED_EMPTY_TITLE = 'This grid has no cells yet';
+
+/** @see PRIVATE_GRID_EMPTY_BODY — pinned verbatim, normalised to single spaces. */
+const EXPECTED_EMPTY_BODY =
+  'A matchup or a prompt becomes a row or a column here only once the app has read its ' +
+  'row off the shared board. Publishing the grid is what publishes its private members ' +
+  'and repoints it at them — or edit the grid to name matchups and prompts that are ' +
+  'already on the board.';
+
+/** One spelling of the normalisation both sides of every comparison below go through. */
+const norm = (s: string | null | undefined): string => (s ?? '').replace(/\s+/g, ' ').trim();
 
 const VIEWER_ID = 99;
 /** The board rows' author — distinct, so ownership is never vacuous. */
@@ -410,14 +458,19 @@ describe('🔴 an ALL-PRIVATE grid opens to an honest empty state, not the syste
     );
     const empty = await screen.findByTestId('grid-empty');
 
-    // 🔴 THE WHOLE NORMALISED STRINGS, against the EXPORTED constants. The artifact under
-    // test IS prose, so a keyword guard is walkable by a reword.
-    expect((empty.textContent ?? '').replace(/\s+/g, ' ')).toContain(
-      PRIVATE_GRID_EMPTY_TITLE,
-    );
-    expect((empty.textContent ?? '').replace(/\s+/g, ' ')).toContain(
-      PRIVATE_GRID_EMPTY_BODY.replace(/\s+/g, ' '),
-    );
+    // 🔴 THE WHOLE NORMALISED STRINGS, AGAINST THE TYPED LITERALS ABOVE — never against
+    // the imported constants, which would move with any reword. The artifact under test
+    // IS prose, so a keyword guard is walkable by a reword; so is an equality whose
+    // expected side is the thing being reworded. See the literals' own header.
+    expect(norm(empty.textContent)).toContain(EXPECTED_EMPTY_TITLE);
+    expect(norm(empty.textContent)).toContain(EXPECTED_EMPTY_BODY);
+
+    // 🔴 AND THE EXPORTED CONSTANTS ARE THE SAME TEXT. Two separate claims: the screen
+    // shows this, and the module-level string every other consumer reads IS this. The
+    // second is what a surface that renders the constant without a test of its own
+    // inherits.
+    expect(norm(PRIVATE_GRID_EMPTY_TITLE)).toBe(EXPECTED_EMPTY_TITLE);
+    expect(norm(PRIVATE_GRID_EMPTY_BODY)).toBe(EXPECTED_EMPTY_BODY);
 
     // 🔴 THE SYSTEM-GRID COPY IS GONE, not merely supplemented. "Submit and vote to fill
     // the top slots" is about the TOP GRID, whose members are the board's top-voted rows;
@@ -635,17 +688,22 @@ describe('🔴 the confirm path for a PRIVATE grid says the images go public any
 
     const confirm = await confirmCell();
     const notice = within(confirm).getByTestId('cell-private-grid-notice');
-    // 🔴 THE WHOLE NORMALISED STRING against the EXPORTED constant. Pinning the
-    // constant is what makes this a machine-readable claim about the sentence a viewer
-    // reads, rather than a keyword check a reword can walk past — and the constant's
-    // own docblock carries the three code facts each clause is built from.
-    expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
-      PRIVATE_GRID_RUN_NOTICE.replace(/\s+/g, ' ').trim(),
-    );
+    // 🔴 THE WHOLE NORMALISED STRING AGAINST THE TYPED LITERAL ABOVE. Comparing the
+    // rendered text to the imported constant — which is what this did — pins nothing: a
+    // reword moves both sides together. See the literals' own header for the
+    // measurement that showed it.
+    expect(norm(notice.textContent)).toBe(EXPECTED_RUN_NOTICE);
+    // 🔴 AND THE EXPORTED CONSTANT IS THAT SAME TEXT — the claim about the module, next
+    // to the claim about the screen. `MyList` and `MyGridsView` both point a viewer at
+    // this constant from their own docblocks without rendering it.
+    expect(norm(PRIVATE_GRID_RUN_NOTICE)).toBe(EXPECTED_RUN_NOTICE);
     // 🔴 ADDITIVE, NOT A REPLACEMENT: the sentence every grid carries is still there.
     expect(within(confirm).getByTestId('cell-public-notice')).toBeInTheDocument();
-    // And it is on the confirm panel, with Confirm — the press that makes it
-    // irreversible. (DOM containment only; jsdom resolves no layout.)
+    // And it is on the confirm panel, with Confirm — the press that SPENDS the Buzz.
+    // Not the press that makes the images public: `PRIVATE_GRID_RUN_NOTICE`'s docblock
+    // records why (a second, host-side confirm after generation, plus three branches
+    // that end with nothing on the board). (DOM containment only; jsdom resolves no
+    // layout, so this says nothing about what sits beside what on screen.)
     expect(within(confirm).getByTestId('cell-confirm-run')).toBeInTheDocument();
   });
 

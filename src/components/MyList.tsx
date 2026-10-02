@@ -155,11 +155,20 @@ export interface MyListProps<Row> {
    * exist.
    *
    * 🔴 OPENING A PRIVATE GRID IS WHAT MAKES IT RUNNABLE BEFORE IT IS PUBLISHED, which
-   * is the whole point of the control — and the outputs of a run started there are
-   * PUBLIC (a result row is keyed on the matchup and the prompt, never on the grid).
-   * `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` is where the viewer is told so, on the
-   * confirm path. Nothing on THIS row claims otherwise, and nothing here writes
-   * anything: the callback raises intent, exactly like every other one in this file.
+   * is the whole point of the control — and the grid's privacy does NOT cover a run's
+   * outputs: a result row is keyed on the matchup and the prompt, never on the grid, so
+   * once a cell's images reach the shared board every grid containing that cell shows
+   * them to every viewer.
+   *
+   * ⚠️ "THE OUTPUTS ARE PUBLIC" IS WHAT THIS SAID, AND IT SKIPS THE STEP THAT PUTS THEM
+   * THERE. Reaching the board takes a SECOND human confirm — `publish()` opens the
+   * host's own dialog and rejects on refusal — and `App.tsx`'s `driveToResult` has two
+   * further arms that end with nothing published. The twin docblock on
+   * `MyGridsView.onOpenPrivate` was corrected for exactly this and this one was left;
+   * see `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` for the whole account. That notice is
+   * where the viewer is told, on the confirm path. Nothing on THIS row claims
+   * otherwise, and nothing here writes anything: the callback raises intent, exactly
+   * like every other one in this file.
    *
    * ⚠️ THERE IS NO `onOpenRow` BESIDE IT, AND THERE WAS FOR ONE ROUND. The PUBLISHED
    * half of this list carried an Open too, under a `my-open` testid; it was cut because

@@ -340,8 +340,27 @@ export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
  * published. The sentence errs toward warning in that window, which is the safe direction
  * for a privacy notice, and it is a race a confirm panel on an EMPTY cell reaches rarely.
  *
- * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`. A keyword guard on
- * "public" is walkable by a reword that quietly puts a refuted clause back.
+ * ⚠️ AND TWO MORE WINDOWS WHERE THAT CLAUSE'S PROMISE DOES NOT FIRE — named rather than
+ * left out, because the sentence says "you will be asked". Read in a LOCAL checkout of
+ * `civitai/civitai` at `15cfe259df`, which is NOT deployed host code and was not
+ * compared against any: `PageBlockHost`'s `PUBLISH_GENERATION_OUTPUTS` handler drops the
+ * message outright when the request does not resolve (`if (!req) return`), and replies
+ * `error: 'no block token'` with no dialog when the page holds no block token. In
+ * neither does a dialog open, so the viewer is not asked — and in neither is anything
+ * published: the first leaves the SDK call to reject on its consent timeout and the
+ * second rejects immediately, and both land in `driveToResult`'s `catch` with the cell
+ * `failed`. So the sentence over-promises the ASK in those windows while erring toward
+ * warning on the PRIVACY, which is the safe direction. 🔴 WHAT IS NOT ESTABLISHED: that
+ * the deployed host behaves like that checkout, at this or any commit. Nothing here was
+ * measured against a live host.
+ *
+ * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`, which types the text
+ * out as its OWN literal (`EXPECTED_RUN_NOTICE`) and compares BOTH the rendered notice
+ * and this constant against it. ⚠️ IT DID NOT USED TO, AND THIS LINE CLAIMED IT DID:
+ * the guard compared the rendered text to THIS CONSTANT, so a reword moved both sides
+ * at once and the guard stayed green through any rewrite — including one putting a
+ * refuted clause back. Measured: that mutation left 69 files / 1027 tests green. The
+ * literal is what makes a reword cost a second edit; see that file's literals header.
  */
 export const PRIVATE_GRID_RUN_NOTICE =
   'This grid is private, but that does not cover its cells’ images. A cell’s outputs ' +
@@ -392,7 +411,7 @@ export const PRIVATE_GRID_RUN_NOTICE =
  *
  * 🔴 SO THE TWO REMEDIES NAMED ARE THE TWO THAT WORK, and both are traceable: publishing
  * the GRID cascades through `planGridCascade` (publish the private members first, then
- * `rewriteGridMembers` through the `resolved` map), and editing the grid to name board
+ * `remapGridKeys` through the `resolved` map), and editing the grid to name board
  * members needs no rewrite at all. "Publish the member" is deliberately NOT offered.
  */
 export const PRIVATE_GRID_EMPTY_TITLE = 'This grid has no cells yet';
@@ -1145,9 +1164,18 @@ function CellRunState({
             A REPLACEMENT. `cell-public-notice` above is true on every grid and stays;
             what the private case needs on top of it is that the grid's OWN privacy —
             which the panel badges a few hundred pixels up — does not extend to these
-            outputs. Rendered right next to Confirm, because that is the press that
-            makes it irreversible. See {@link PRIVATE_GRID_RUN_NOTICE} for the three
-            code facts the sentence is built from. */}
+            outputs. On the confirm panel because that is the press that SPENDS, and the
+            last point at which a viewer who has misread the badge can still stop.
+
+            ⚠️ IT IS NOT THE PRESS THAT MAKES ANYTHING PUBLIC, WHICH IS WHAT THIS SAID.
+            REFUTED #2 in {@link PRIVATE_GRID_RUN_NOTICE}'s docblock: there is a SECOND,
+            host-side confirm after generation, and three branches that end with nothing
+            on the board.
+
+            🔴 READ THAT DOCBLOCK BEFORE TOUCHING THE STRING — it is the third rationale
+            for the sentence, and it carries four surviving clauses, two refutations and
+            two bounds, not "the three code facts" this comment used to promise. The
+            text is pinned as a typed literal in `src/gridOpenPrivate.test.tsx`. */}
         {privateGrid && (
           <span
             style={{ color: token.error, fontSize: 11 }}

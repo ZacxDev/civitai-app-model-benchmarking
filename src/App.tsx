@@ -3987,9 +3987,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
             first" step, no `publishRecord`. Handing this form `matchupPickerItems`
             (board PLUS private) would therefore let a viewer add a private matchup to
             an ALREADY-PUBLISHED grid and write its per-viewer LOCAL ID onto the public
-            board in one press — and `shared.update` is author-scoped with no history
-            and no merge, so that row would name an unresolvable id permanently, for
-            every other viewer.
+            board in one press — and that row would then name an id no other viewer can
+            resolve and no other viewer can repair, since `shared.update` is
+            author-scoped. ⚠️ NOT "permanently … with no history and no merge", which is
+            what this said: author-scoping is what PERMITS the author to act, and a grid
+            row has a withdraw control here. What the author CANNOT do is fix the
+            published row in place. See `lib/gridCascade.ts`'s header for the full
+            retraction and the sweep that found this site.
             The PRIVATE grid form above gets the wide lists; this one gets the board.
             Pinned in `src/gridDraftsCascade.test.tsx`, with the private picker's
             offer of the same row as the positive control. */}

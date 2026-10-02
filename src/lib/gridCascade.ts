@@ -40,13 +40,31 @@
 // which is the property the ordering defends. That is the whole reason the planner
 // below emits an ORDERED list and the caller walks it.
 //
-// ⚠️ BOUND ON THIS CORRECTION: "permanent public row" is used across this app's whole
-// publish path (`unpublished.ts`, `App`'s cascade comments, the notice builders below)
-// to mean "this app offers no control that takes it back". For a DUPLICATE row that is
-// unmergeable but withdrawable by its author, so the vocabulary is loose there too.
-// Those sites have NOT been re-audited one by one and are not claimed correct by this
-// paragraph; what was corrected here is the one site that used author-scoping as the
-// REASON for permanence, which is the refuted inference.
+// 🔴 BOUND ON THIS CORRECTION, AND THE PREVIOUS WORDING OF THIS BOUND WAS ITSELF WRONG.
+// It said "what was corrected here is THE ONE SITE that used author-scoping as the
+// REASON for permanence". There were more, including one 260 lines below this paragraph
+// in THIS file (`cascadeRefusal`'s hazard note), which went on repeating the refuted
+// inference verbatim while this bound asserted it had been dealt with. A retraction is a
+// tree-wide sweep, not an edit where you happened to be reading.
+//
+// RE-SWEPT, over text NORMALISED per file (comment leaders stripped, whitespace
+// collapsed) so a claim that wraps across comment lines is still one string, with two
+// differently-shaped patterns — a proximity match between `permanen*` and
+// `author-scoped` in either order, and the `no merge` + `no history` parenthetical
+// fingerprint — each watched to HIT a site known to carry it before any zero was read.
+// Three sites used author-scoping (or no-merge/no-history) as the REASON for permanence
+// and are corrected: this file's hazard note, `App.tsx`'s published-grid-edit comment,
+// and `gridDraftsCascade.test.tsx`'s second-write-site case.
+//
+// ⚠️ THE SITES THE SWEEP LEFT STANDING ARE A DIFFERENT CLAIM, NOT AN OVERSIGHT:
+// `types.ts`, `lib/grids.ts`, `renameWireCompat.test.ts` and `docs/matchups.md` scope
+// the impossibility to THIS APP or to the APP OWNER touching ANOTHER viewer's row,
+// which author-scoping does establish; `lib/unpublished.ts`,
+// `publishPointerFailure.test.tsx` and this file's `partialCascadeNotice` rest on
+// `withdraw` being KEY-ADDRESSED with the key unavailable, which is also not the refuted
+// inference. "Permanent public row" is still used loosely elsewhere on the publish path
+// to mean "this app offers no control that takes it back"; that looseness was not
+// audited site by site and is not claimed correct here.
 //
 // 🔴 AND NOTHING HERE PROMISES A ROLLBACK, because none exists. The copy builders
 // at the bottom say which items DID publish and what state the grid is in. An
@@ -282,10 +300,19 @@ export interface BoardSnapshot {
  * ── WHY IT REFUSES RATHER THAN DISCLOSES, AND WHAT IT COSTS ────────────────
  *
  * 🔴 THE HAZARD. A grid's member list is written to a shared row that is
- * world-readable and effectively permanent (`shared.update`/`withdraw` are
- * author-scoped, no merge, no history). A per-viewer LOCAL ID on that row is
- * unresolvable by every other viewer — and, once the private record behind it is
- * gone, by its own author too. THREE measured paths put one there with no error:
+ * world-readable and UNREPAIRABLE: a per-viewer LOCAL ID on that row is unresolvable
+ * by every other viewer, none of whom can fix it (`shared.update` is author-scoped),
+ * and — once the private record behind it is gone — by its own author either, whose
+ * only remedy is to `withdraw` the whole row and lose its key and its votes.
+ *
+ * ⚠️ THIS SAID "effectively permanent (`shared.update`/`withdraw` are author-scoped, no
+ * merge, no history)" — THE REFUTED INFERENCE THIS FILE'S OWN HEADER RETRACTS, 260 lines
+ * up, under a bound that claimed the one site here had been corrected. It had not; the
+ * bound was wrong about its own file. Author-scoping is what PERMITS the author to
+ * remove a row, and a grid row has a withdraw control in this very app. Permanence was
+ * never the premise and nothing below needs it.
+ *
+ * THREE measured paths put a local id there with no error:
  *
  *   A. the viewer DISCARDS a private matchup the grid names (nothing prunes it from
  *      any grid), then presses Publish;

@@ -620,12 +620,16 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     const privResolved = resolveOpenGrid(priv, MANY_MATCHUPS, MANY_PROMPTS);
     expect(privResolved.matchups.map((r) => r.key)).toEqual(['mk-bravo']);
     expect(privResolved.prompts.map((r) => r.key)).toEqual(['qk-romeo']);
-    // 🔴 THE DISCRIMINATOR BETWEEN THE THREE ARMS, stated as an inequality: the private
-    // arm read `rec`, not `row` or the system key lists, so its members are NOT the
-    // other two's. Without this, a resolver that ignored `kind` and always read the
-    // system keys would satisfy the published and private expectations by accident of
-    // the fixture only if they happened to coincide — they do not, and this says so.
-    expect(privResolved.matchups.map((r) => r.key)).not.toEqual(pub.matchups.map((r) => r.key));
+    // ⚠️ THERE WAS A CROSS-ARM INEQUALITY HERE — `privResolved.matchups` ≠
+    // `pub.matchups`, labelled "THE DISCRIMINATOR BETWEEN THE THREE ARMS" — AND IT IS
+    // DELETED, not demoted. The three `toEqual`s above pin each arm to a LITERAL key
+    // list, and those three literals are pairwise distinct, so the inequality is implied
+    // by assertions that have already run: it cannot fail while they pass, and it can
+    // never be the assertion that catches anything. That is the same vacuity for which
+    // `rowActions.test.tsx` deleted its own CLAIM 5 in this PR. The discrimination
+    // between arms is carried by the literals themselves — a resolver that ignored
+    // `kind` and always read the system key list fails the `published` and `private`
+    // expectations outright, because neither literal is the system one.
   });
 
   it('openGridName: the system name, else the record name, else "Untitled grid"', () => {
@@ -671,9 +675,16 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     expect(resolved.missingPrompts).toBe(2);
     expect(resolved.missingTotal).toBe(3);
     expect(resolved.authoredTotal).toBe(6);
-    // 🔴 THE CLAIM STATED THE OTHER WAY ROUND, over the whole resolved shape: no local
-    // id survives into anything the matrix is built from. A row that resolved would
-    // put its key into a cell identity and therefore onto a result row.
+    // A WHOLE-SHAPE LEDGER, AND ⚠️ IT IS NOT "THE CLAIM STATED THE OTHER WAY ROUND",
+    // WHICH IS WHAT THIS SAID. Measured: a mutant that let an unresolved key survive
+    // resolution killed 7 cases, and killed THIS one on the `toEqual` above rather than
+    // here — so while its siblings pass these three absences cannot fail, and they are
+    // not independent regression coverage for the invariant in the banner above.
+    //
+    // WHAT THEY DO BUY IS FORWARD AND STRUCTURAL: `toEqual` reads two NAMED fields, and
+    // this reads the whole serialised shape, so a field added to `ResolvedGridRows` that
+    // carried an authored key through would fail here and nowhere else. Label it as the
+    // ledger it is, not as the invariant restated.
     //
     // 🔴 THE EXACT IDS, which is what these used to miss — they scanned for the
     // `draft:v1:` / `unpub:prompt:v1:` STORAGE prefixes that a grid's member keys never

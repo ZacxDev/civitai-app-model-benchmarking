@@ -536,8 +536,14 @@ export function openGridName(open: OpenGrid): string {
  * row on the shared board can be [in the matrix]" — and on a scan that hit `listAll`'s
  * page cap a member DOES have a row and is still excluded, which is exactly why
  * {@link missingMembersNotice} carries a dedicated truncated arm. The rule is now stated
- * over the rows the app HAS READ, which is true on a complete scan, on a truncated one,
- * and for a row whose `data` does not parse. 🔴 AND THE TWO NAMED CAUSES ARE EXAMPLES
+ * over the rows the app HAS READ, which is true on a complete scan and on a truncated
+ * one. ⚠️ AND THAT IS THE WHOLE OF THE CLAIM — IT USED TO ADD "and for a row whose
+ * `data` does not parse", WHICH IS FALSE. `splitRows` (./benchmark.ts) SKIPS a row it
+ * cannot parse, so that row WAS read and the matrix is still not built from it: both
+ * halves of the sentence fail for that member, and neither named cause applies to it
+ * either. Covering it would need "read AND UNDERSTOOD", and the user-facing string is
+ * deliberately NOT being widened for a case no viewer can act on — so the gap is
+ * recorded here instead. 🔴 AND THE TWO NAMED CAUSES ARE EXAMPLES
  * RATHER THAN A CLOSED LIST — the dash is what makes that readable, and it is the half
  * that matters: a two-item list introduced by "Only … can be:" reads as exhaustive while
  * this function's own docblock names a third cause. Enumerating all three would put a

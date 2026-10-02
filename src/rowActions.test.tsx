@@ -435,6 +435,54 @@ const ROW_ACTION_FILES = [
 ] as const;
 
 /**
+ * Every JSX OPENING TAG in `src`, as the raw text from its `<` through the `>` that
+ * closes it — quote- and brace-aware, so an attribute whose VALUE contains `>` or `<`
+ * does not end the tag early.
+ *
+ * 🔴 WHY A SCANNER AND NOT A REGEX, AND THIS LEDGER WAS MEASURED BLIND BECAUSE OF ONE.
+ * The signature used to be `/<[A-Za-z][^>]*justify="…"[^>]*align="…"/` (plus the mirror
+ * order). `[^>]*` cannot cross an attribute containing `>`, which is ORDINARY JSX —
+ * `onClick={(e) => …}`, `disabled={n >= 2}` — so the two attributes were only ever
+ * detectable when nothing like that sat between them. MEASURED: `GridPicker`'s row
+ * reverted to the defect shape WITH an arrow-function attribute between the two scanned
+ * CLEAN (8 passed of 8); the same revert WITHOUT it was caught (1 failed of 7). The
+ * ledger's own positive controls used ADJACENT attributes, so they were structurally
+ * incapable of seeing that — which is the half worth copying forward: a control that
+ * only exercises the easy shape certifies the easy shape.
+ *
+ * ⚠️ TWO ACKNOWLEDGED BOUNDS, STATED RATHER THAN HIDDEN. A tag containing an UNBALANCED
+ * quote (an escaped `\"` inside an attribute string) can run the scan past the real tag
+ * end; a tag containing a bare `<` outside braces and outside a quote ends the scan
+ * early and that tag is dropped. Neither occurs in this tree today. The first direction
+ * can only over-report — the ledger goes RED and someone reads it — which is the safe
+ * way round for a guard whose expected result is a zero.
+ */
+function openTags(src: string): string[] {
+  const tags: string[] = [];
+  for (let i = 0; i < src.length; i += 1) {
+    if (src[i] !== '<' || !/[A-Za-z]/.test(src[i + 1] ?? '')) continue;
+    let depth = 0; // `{}` nesting — a `>` inside an attribute expression is not the end
+    let quote: string | null = null;
+    let j = i + 1;
+    for (; j < src.length; j += 1) {
+      const c = src[j];
+      if (quote !== null) {
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') quote = c;
+      else if (c === '{') depth += 1;
+      else if (c === '}') depth -= 1;
+      else if (depth === 0 && (c === '>' || c === '<')) break;
+    }
+    // Note: `i` is NOT advanced past the tag, so a tag nested inside an ATTRIBUTE value
+    // (`panel={<Row … />}`) is scanned on its own `<` too.
+    if (src[j] === '>') tags.push(src.slice(i, j + 1));
+  }
+  return tags;
+}
+
+/**
  * The defect's structural signature: `justify="space-between"` and
  * `align="flex-start"` on ONE element.
  *
@@ -447,9 +495,15 @@ const ROW_ACTION_FILES = [
  * TALL content column, i.e. a column with a variable-height, variable-width sibling
  * beside it. The conjunction is the discriminating predicate; either half alone is
  * either noisy or blind.
+ *
+ * 🔴 AND "ON ONE ELEMENT" IS NOW LITERAL: both halves must be in the SAME opening tag's
+ * text, which is what {@link openTags} delimits. Attribute ORDER is irrelevant and no
+ * longer needs a second alternation to say so.
  */
-const SIGNATURE =
-  /<[A-Za-z][^>]*justify="space-between"[^>]*align="flex-start"|<[A-Za-z][^>]*align="flex-start"[^>]*justify="space-between"/;
+const hasSignature = (src: string): boolean =>
+  openTags(src).some(
+    (t) => t.includes('justify="space-between"') && t.includes('align="flex-start"'),
+  );
 
 /**
  * Production files ALLOWED to carry the signature. 🔴 EMPTY, AND THAT IS THE POINT: an
@@ -478,18 +532,45 @@ describe('🔴 the row-actions ledger', () => {
 
 describe('🔴 the STRUCTURAL ledger — no production source carries the defect shape', () => {
   it('🔴 no `justify="space-between"` + `align="flex-start"` element outside the allowlist', () => {
-    // 🔴 POSITIVE CONTROL ON THE PATTERN, FIRST, BECAUSE THE EXPECTED RESULT IS A ZERO.
-    // An empty `found` is indistinguishable from a regex that can never match, so the
-    // signature is fed a case it MUST hit — in BOTH attribute orders, which is the half
-    // of the pattern a single control would leave unproven.
-    expect(SIGNATURE.test('<Group justify="space-between" align="flex-start" gap={8}>')).toBe(
-      true,
+    // 🔴 POSITIVE CONTROLS ON THE PREDICATE, FIRST, BECAUSE THE EXPECTED RESULT IS A
+    // ZERO. An empty `found` is indistinguishable from a predicate that can never
+    // match, so it is fed cases it MUST hit — in BOTH attribute orders.
+    expect(hasSignature('<Group justify="space-between" align="flex-start" gap={8}>')).toBe(true);
+    expect(hasSignature('<Group align="flex-start" justify="space-between">')).toBe(true);
+
+    // 🔴 THE CONTROL THE OLD ONES WERE MISSING, AND IT IS WHY THIS LEDGER READ CLEAN
+    // THROUGH A REAL REVERT: an attribute whose VALUE CONTAINS `>` sitting BETWEEN the
+    // two halves. The previous `[^>]*` pattern returned false for both of these while
+    // the defect was present in full. Adjacent-attribute controls cannot see that, so
+    // they certified a predicate that could not do its job.
+    expect(
+      hasSignature('<Group justify="space-between" onClick={(e) => stop(e)} align="flex-start">'),
+    ).toBe(true);
+    expect(
+      hasSignature('<Group align="flex-start" disabled={n >= 2} justify="space-between">'),
+    ).toBe(true);
+    // …and across a line break with the arrow attribute between, which is the shape the
+    // formatter actually produces in this tree.
+    expect(
+      hasSignature(
+        '<Group\n  justify="space-between"\n  onClick={() => {\n    act();\n  }}\n  align="flex-start"\n>',
+      ),
+    ).toBe(true);
+
+    // 🔴 AND NEGATIVE CONTROLS: the safe header shape, and either half alone. A
+    // predicate that matched these would make the ledger permanently red and therefore
+    // worthless.
+    expect(hasSignature('<Group justify="space-between" align="center" gap={12}>')).toBe(false);
+    expect(hasSignature('<Stack align="flex-start">')).toBe(false);
+    // 🔴 THE NEGATIVE CONTROL THE SCANNER NEEDS THAT THE REGEX DID NOT: the two halves
+    // on DIFFERENT elements. "On ONE element" is the whole discriminating claim, and a
+    // scanner that ran past a tag end would collapse these two into one match.
+    expect(hasSignature('<Group justify="space-between">\n  <Stack align="flex-start" />')).toBe(
+      false,
     );
-    expect(SIGNATURE.test('<Group align="flex-start" justify="space-between">')).toBe(true);
-    // 🔴 AND NEGATIVE CONTROLS: the safe header shape, and either half alone. A pattern
-    // that matched these would make the ledger permanently red and therefore worthless.
-    expect(SIGNATURE.test('<Group justify="space-between" align="center" gap={12}>')).toBe(false);
-    expect(SIGNATURE.test('<Stack align="flex-start">')).toBe(false);
+    expect(
+      hasSignature('<Group justify="space-between" onClick={() => go()}>\n  <Stack align="flex-start" />'),
+    ).toBe(false);
 
     const files = scannedSources(SRC);
     expect(files.length, 'the source walker found no files').toBeGreaterThan(20);
@@ -500,7 +581,7 @@ describe('🔴 the STRUCTURAL ledger — no production source carries the defect
     // scan reports those explanations as instances of the defect. `stripComments` is
     // `lib/sourceScan.ts`', validated by `sourceScanLedger.test.ts`'s own controls.
     const found = files
-      .filter((f) => SIGNATURE.test(stripComments(readFileSync(f, 'utf8'))))
+      .filter((f) => hasSignature(stripComments(readFileSync(f, 'utf8'))))
       .map(rel)
       .sort();
 
@@ -510,7 +591,7 @@ describe('🔴 the STRUCTURAL ledger — no production source carries the defect
     // the zero above is the stripper working rather than a scan that read nothing. This
     // is what tells a reader the empty `found` is a measurement.
     const inProse = files
-      .filter((f) => SIGNATURE.test(readFileSync(f, 'utf8')))
+      .filter((f) => hasSignature(readFileSync(f, 'utf8')))
       .map(rel)
       .sort();
     expect(inProse, 'no production file quotes the old shape — the stripper is untested here')

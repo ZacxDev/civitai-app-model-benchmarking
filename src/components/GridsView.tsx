@@ -458,12 +458,14 @@ export function GridsView({
             wrong shows the SAME GRID TWICE, once in the panel and once as a card. One
             rule, one place.
 
-            🔴 `entryDomKey` RATHER THAN `entryOpenKey`, AND THAT IS A FIX, NOT A
-            STYLE CHOICE. `entryOpenKey` returns `null` for the system entry, so this
-            comparison silently excluded the Top Grid whenever `openKey` was `null` —
-            including when `null` means "a PRIVATE grid is open and nothing in this
-            list is". `entryDomKey` is total on listable entries, which is what leaves
-            `null` free to mean "none of them". See the prop's own docblock.
+            🔴 `entryDomKey` RATHER THAN THE `entryOpenKey` THIS USED TO READ, AND THAT
+            IS A FIX, NOT A STYLE CHOICE. That helper no longer exists — it was replaced
+            by `entryDomKey`, not kept alongside it. It returned `null` for the system
+            entry, so this comparison silently excluded the Top Grid whenever `openKey`
+            was `null` — including when `null` means "a PRIVATE grid is open and nothing
+            in this list is". `entryDomKey` is total on listable entries, which is what
+            leaves `null` free to mean "none of them". See the prop's own docblock, and
+            `lib/gridEntries.ts`'s `entryDomKey` for the replacement itself.
 
             🔴 The Top Grid is entry 0 of `communityGridEntries` by construction, not
             by a sort that happens to put it there — so when it IS listed it is still
