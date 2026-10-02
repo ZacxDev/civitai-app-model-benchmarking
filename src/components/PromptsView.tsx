@@ -176,9 +176,18 @@ export function PromptsView({
                 return {
                   localId: rec.localId,
                   name: rec.name,
+                  /**
+                   * 🔴 NO BADGE ON THE ZERO-OVERRIDE CASE, which is the common one.
+                   * This read `'default only'` for every prompt without overrides —
+                   * a pill asserting the default state, on nearly every row, next to
+                   * the "Private" badge that IS informative. What survives is the
+                   * minority state a viewer cannot assume: `default + N override(s)`.
+                   * `MyDraftItem.meta` is optional for exactly this, and `undefined`
+                   * UNMOUNTS the badge rather than rendering it empty.
+                   */
                   meta:
                     overrides === 0
-                      ? 'default only'
+                      ? undefined
                       : `default + ${overrides} override${overrides === 1 ? '' : 's'}`,
                   description: rec.description,
                 };

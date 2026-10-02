@@ -1135,6 +1135,81 @@ describe('🔴 change 5: one list per noun, with the state on the row', () => {
       /config/i,
     );
   });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE PROMPT ROW'S META BADGE IS GONE ON THE ZERO-OVERRIDE CASE, AND ONLY THERE.
+  //
+  // It read "default only" for every private prompt without per-ecosystem overrides —
+  // i.e. for the overwhelming majority of them — so the pill asserted the default
+  // state next to a "Private" badge that is genuinely informative. What survives is
+  // the minority state a viewer cannot assume: "default + N override(s)".
+  //
+  // 🔴 ASSERTED AS A PAIR IN BOTH DIRECTIONS, because each half alone is walkable. A
+  // lone "no badge" passes against a change that deleted the badge outright; a lone
+  // "the badge says default + 1 override" passes against the shipped code. The two
+  // fixtures differ ONLY in whether `overrides` is present.
+  //
+  // 🔴 AND THE TWO HALVES HAVE DIFFERENT COVERAGE STATUS — measured, not assumed.
+  // Rolling `PromptsView.tsx` + `MyList.tsx` back to `bb63087` and running this file
+  // gave 1 failed / 993 passed: the ZERO-OVERRIDE case is the regression guard, and
+  // the override case is an INVARIANT GUARD that was already green there (the shipped
+  // code produced the same string). It is not regression coverage and must not be
+  // counted as such; what it buys is that the fix cannot become "delete the badge".
+  //
+  // 🔴 AND THE ABSENCE IS ASSERTED AS AN UNMOUNTED TESTID, not as missing text: an
+  // `unpublished-meta` rendered EMPTY would satisfy a text check and keep every
+  // `getByTestId` resolving, which is exactly the shape that makes a deletion
+  // unobservable.
+  // -------------------------------------------------------------------------
+  const promptRow = async (): Promise<HTMLElement> => {
+    await screen.findByTestId('grid-view');
+    await openMyList('prompt');
+    return within(await screen.findByTestId('my-list-prompt')).getByTestId('unpublished-card');
+  };
+
+  it('🔴 a private PROMPT with NO overrides carries no meta badge at all', async () => {
+    // RED AT `bb63087`: the badge rendered, reading "default only".
+    mountBoth(); // `draftPrompt` has no `overrides` key.
+    const draft = await promptRow();
+
+    expect(
+      within(draft).queryByTestId('unpublished-meta'),
+      'the zero-override prompt row still carries a meta badge',
+    ).toBeNull();
+    // The retired words are absent from the WHOLE row, not merely off the badge.
+    expect(draft.textContent ?? '').not.toContain('default only');
+    // POSITIVE CONTROL on the selector: this row DOES render the other two markers,
+    // so the null above is a missing badge and not a missing card.
+    expect(within(draft).getByTestId('draft-badge').textContent).toBe('Private');
+    expect(within(draft).getByTestId('unpublished-name').textContent).toBe(
+      'An unpublished prompt',
+    );
+  });
+
+  it('🔴 …and a private PROMPT WITH overrides still states the count', async () => {
+    const fake = fakeShared({ seed: [...MEMBERS, MINE_M, MINE_P, MINE_G] });
+    const storage = fakeAppStorage({
+      [unpubPromptKey('dp-2')]: {
+        ...draftPrompt,
+        localId: 'dp-2',
+        name: 'An overridden prompt',
+        // ONE override, so the SINGULAR branch is what renders — the branch a dropped
+        // `s` cannot be seen on, and the one a hardcoded plural fails.
+        overrides: { SDXL: { prompt: 'an sdxl street' } },
+      },
+    });
+    mountApp({ shared: fake.shared, appStorage: storage.appStorage }, {
+      id: VIEWER_ID,
+      username: 'me',
+    });
+    const draft = await promptRow();
+
+    // 🔴 THE WHOLE STRING, typed out as a literal rather than rebuilt from the
+    // implementation's own template.
+    expect(within(draft).getByTestId('unpublished-meta').textContent).toBe(
+      'default + 1 override',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

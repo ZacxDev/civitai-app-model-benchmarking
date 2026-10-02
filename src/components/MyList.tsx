@@ -71,14 +71,26 @@ export interface MyDraftItem {
   localId: string;
   name: string;
   /**
-   * A short STRUCTURAL summary (e.g. "2 models", "3 ecosystems").
+   * A short STRUCTURAL summary (e.g. "2 models", "2 × 1"), or `undefined` for NO
+   * badge at all.
    *
    * ⚠️ IT USED TO READ "2 configs" AND THE EXAMPLE WAS THE LIVE STRING, not a
    * placeholder: the matchup caller built it from `configs.length` with the repo's
    * internal noun. The viewer-facing word is "models" now — see `modelCountSummary`
    * in `lib/benchmark.ts`, which owns it for both callers.
+   *
+   * 🔴 OPTIONAL, AND THE OPTIONALITY IS THE FEATURE. A badge earns its place by
+   * telling a viewer something they could not assume, so the caller omits it on the
+   * state that IS the assumption: the prompt surface rendered "default only" on every
+   * prompt with no overrides — the overwhelming majority — which spent a pill saying
+   * "nothing unusual here". `PromptsView` now passes a value only for the informative
+   * minority (`default + N override(s)`), and the badge is unmounted otherwise. Same
+   * reasoning that settled the Private badge: badge the minority state.
+   *
+   * ⚠️ An EMPTY STRING is not the way to ask for no badge — it renders an empty pill.
+   * Pass `undefined` (or omit the key).
    */
-  meta: string;
+  meta?: string;
   description?: string;
   /**
    * An OPTIONAL extra body node, rendered BELOW the name/meta/description row and
@@ -328,9 +340,15 @@ export function MyList<Row>({
                     <Badge variant="filled" data-testid="draft-badge">
                       Private
                     </Badge>
-                    <Badge variant="light" data-testid="unpublished-meta">
-                      {item.meta}
-                    </Badge>
+                    {/* 🔴 UNMOUNTED WHEN THE CALLER HAS NOTHING WORTH SAYING — not
+                        rendered empty. A present-but-empty `unpublished-meta` would
+                        keep every `getByTestId('unpublished-meta')` resolving and make
+                        "the badge is gone" unassertable; see the prop's docblock. */}
+                    {item.meta !== undefined && (
+                      <Badge variant="light" data-testid="unpublished-meta">
+                        {item.meta}
+                      </Badge>
+                    )}
                   </Group>
                   {item.description && <span style={mutedText}>{item.description}</span>}
                 </Stack>
