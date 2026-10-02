@@ -326,3 +326,43 @@ only **by case** — a future title-case "Matchups" heading would silently make 
   genesis session's messages are unreadable by it — a measured limitation, not an absence of
   asks. It also counts task-notifications as `typed`, inflating the count: 28 records here were
   9 typed asks, 6 answers, 13 notification payloads. Separate them by size first.
+
+### EVICTED 2026-10-01 — the squash-breaks-a-stack rebase recipe
+
+- 🔴 **A SQUASH MERGE BREAKS A STACK, AND THE CHILDREN MUST BE REBASED `--onto`.** After
+  merging #59, retargeting #60 to `main` immediately went `CONFLICTING/DIRTY` — the
+  squash is a new commit with different parents, so the children genuinely do not descend
+  from it. The recipe that worked, twice:
+  `git rebase --onto origin/main <old-parent-tip>` (replays ONLY the child's own
+  commits), verify the gates on the result, then `git push --force-with-lease=<branch>:<old-sha>`.
+  🔴 And **retarget to `main` BEFORE force-pushing**, not after — see the CI gotcha below.
+
+### EVICTED 2026-10-01 — the force-push CI-event drop
+
+- 🔴 **A FORCE-PUSH DURING THE PARENT'S MERGE CAN DROP THE CI EVENT ENTIRELY.** #61's
+  rebased head got **zero** check-runs for 5+ minutes while every other head got one.
+  The zero was proven real by running the same query against #60's known-green head as a
+  **positive control** (`build=success`), which separated "no CI ran" from "my query is
+  wrong". Remedy: `gh pr close` + `gh pr reopen` fires `pull_request: reopened` and CI
+  runs. Do not merge on a `CLEAN` mergeStateStatus alone — that is a CONFLICT signal and
+  says nothing about CI having finished.
+
+### EVICTED 2026-10-01 — the one-page-IA listing cost, full measurements
+
+## 🔴 What the one-page IA cost the listing, and the one way back
+
+**Two of the three sections cannot be photographed at all.** The host sizes the iframe with
+`flex: 1 1 0%` inside an `overflow: hidden` parent — to the **viewport**, not to content —
+and the app renders **2166 CSS px**, so it is clipped. Measured at three viewport heights
+(900/1100/1400 → iframe 752/952/1253): `section-matchups` (y 1175..1482) and
+`section-prompts` (y 1500..2142) are below the iframe edge at **every** one. The community
+boards are unphotographable by this pipeline, which is a real loss against the tabbed IA.
+
+🔴 **BUT THE APP DOES SCROLL INSIDE ITS OWN IFRAME** — `scrollTo(0,800)` moves `scrollY`
+and the host page never moves. An earlier version of this doc claimed scrolling was
+"refused twice over"; the second refusal (host-page scroll → `frame.py` `crop_rect_outside`)
+is **RETIRED**. Only the first stands: **there is no `scroll` verb** in `KNOWN_ACTIONS`, and
+adding one is a change to `plan.py` + `capture.sh` + the bridge op + the mutation battery.
+That is the one route to photographing the boards. Recorded as a real option, **not** as
+licence to build it unasked.
+

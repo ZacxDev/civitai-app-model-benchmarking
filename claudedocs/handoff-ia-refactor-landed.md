@@ -64,6 +64,14 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   🔴 **The generalisable point: a release blocker in a SHARED platform is the fastest-rotting
   premise in this doc — someone you are not talking to can close it. Re-measure before building
   anything against one.** Detail in the **cairn entry `model-benchmarking-block`**.
+- 🔵 **THE ARC'S LAST UNSHIPPED ASK IS MERGED AND BEING RELEASED AS 0.4.15 — resource titles
+  link out again.** (Status at the time of writing: release IN FLIGHT this session, NOT yet
+  verified live. Re-read `How to verify` before believing it shipped.)
+  PR **#75** (`5c6cdbc`) re-enables them via `scope: 'site'`, the option `civitai/civitai` **#5250**
+  added to the `NAVIGATE` message; `#5209` is CLOSED. It merged ONE commit past 0.4.14's source,
+  so it was merged-but-dark until this release. 🔴 **The trap worth keeping: `main` sat at
+  `0.4.14` — the version already live — so a submit would have been REFUSED outright. A merged
+  PR after a release is invisible until BOTH version files move.**
 - 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is
   a LIFETIME per-user row cap of 50 that COUNTS RESULT ROWS**, so a viewer can fill only ~45
   grid cells ever against a 20×20 board ("you have reached the maximum number of submissions
@@ -132,20 +140,7 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
 
-**Two of the three sections cannot be photographed at all.** The host sizes the iframe with
-`flex: 1 1 0%` inside an `overflow: hidden` parent — to the **viewport**, not to content —
-and the app renders **2166 CSS px**, so it is clipped. Measured at three viewport heights
-(900/1100/1400 → iframe 752/952/1253): `section-matchups` (y 1175..1482) and
-`section-prompts` (y 1500..2142) are below the iframe edge at **every** one. The community
-boards are unphotographable by this pipeline, which is a real loss against the tabbed IA.
-
-🔴 **BUT THE APP DOES SCROLL INSIDE ITS OWN IFRAME** — `scrollTo(0,800)` moves `scrollY`
-and the host page never moves. An earlier version of this doc claimed scrolling was
-"refused twice over"; the second refusal (host-page scroll → `frame.py` `crop_rect_outside`)
-is **RETIRED**. Only the first stands: **there is no `scroll` verb** in `KNOWN_ACTIONS`, and
-adding one is a change to `plan.py` + `capture.sh` + the bridge op + the mutation battery.
-That is the one route to photographing the boards. Recorded as a real option, **not** as
-licence to build it unasked.
+Two of the three sections (`section-matchups`, `section-prompts`) are **unphotographable** by the capture pipeline: the host sizes the iframe to the VIEWPORT inside an `overflow: hidden` parent, and both sit below the edge at every height measured (900/1100/1400). 🔴 **The app DOES scroll inside its own iframe** — the single route back is adding a `scroll` verb to `KNOWN_ACTIONS` (`plan.py` + `capture.sh` + the bridge op + the mutation battery). Recorded as a real option, **not** licence to build it unasked. Measurements EVICTED 2026-10-01 to the ARCHIVE.
 
 ## What the capture states are now
 
@@ -311,29 +306,18 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   changing no layout: set `pointer-events: none` on the sticky footer, re-hit-test, click,
   then RESTORE it.
 
-- 🔴 **RESOURCE LINKS ARE IMPOSSIBLE FROM AN APP BLOCK TODAY — all three routes measured shut;
-  DO NOT RE-DERIVE.** 🔵 The unlock is a **TRUST-TIER change, not a code change**; filed
-  `civitai/civitai#5209` (re-checked 2026-09-30: still OPEN). `LoraRef.modelId` was KEPT so data
-  accrues from today; `lib/resourceLink.ts` was DELETED. ⚠️ **The full measured detail —
-  `PageBlockHost.tsx:1883` and its `:175` security posture, the `'new_tab'` gap, the live
-  `sandbox="allow-scripts allow-forms"` / `trustTier='unverified'` reading, and
-  `ALLOWED_SANDBOX_TOKENS` / `intersectSandbox` — lives in the cairn entry
-  `model-benchmarking-block` (2026-09-29), evicted from here 2026-09-30 for the byte ceiling.**
-  Recall it with the command at the top of this doc rather than re-measuring.
-- 🔴 **A SQUASH MERGE BREAKS A STACK, AND THE CHILDREN MUST BE REBASED `--onto`.** After
-  merging #59, retargeting #60 to `main` immediately went `CONFLICTING/DIRTY` — the
-  squash is a new commit with different parents, so the children genuinely do not descend
-  from it. The recipe that worked, twice:
-  `git rebase --onto origin/main <old-parent-tip>` (replays ONLY the child's own
-  commits), verify the gates on the result, then `git push --force-with-lease=<branch>:<old-sha>`.
-  🔴 And **retarget to `main` BEFORE force-pushing**, not after — see the CI gotcha below.
-- 🔴 **A FORCE-PUSH DURING THE PARENT'S MERGE CAN DROP THE CI EVENT ENTIRELY.** #61's
-  rebased head got **zero** check-runs for 5+ minutes while every other head got one.
-  The zero was proven real by running the same query against #60's known-green head as a
-  **positive control** (`build=success`), which separated "no CI ran" from "my query is
-  wrong". Remedy: `gh pr close` + `gh pr reopen` fires `pull_request: reopened` and CI
-  runs. Do not merge on a `CLEAN` mergeStateStatus alone — that is a CONFLICT signal and
-  says nothing about CI having finished.
+- ✅ **RESOURCE LINKS SHIP AGAIN — THIS BULLET'S "IMPOSSIBLE TODAY / DO NOT RE-DERIVE" IS
+  RETRACTED 2026-10-01.** It read as a standing prohibition and would have stopped the next
+  session attempting work that is now DONE. What changed: `civitai/civitai#5209` is **CLOSED**
+  (2026-09-30), fixed upstream by **#5250**, which added `scope: 'site'` to the App Blocks
+  `NAVIGATE` message — so the unlock really was a host-side change, as this bullet predicted.
+  **PR #75 is MERGED** (`5c6cdbc`, one commit past 0.4.14's source) and re-enables the links in
+  the matchup detail modal. `LoraRef.modelId` being KEPT is what made it retrofittable.
+  🔴 **Merged ≠ live** — see `State now` for the 0.4.15 release that carries it.
+  ⚠️ The measured account of why it was shut (host sandbox/trust-tier detail) is in the cairn
+  entry `model-benchmarking-block`; it is now HISTORY, not a constraint.
+- 🔴 **A squash merge BREAKS A STACK — children must be `git rebase --onto origin/main <old-parent-tip>`, retargeted to `main` BEFORE the force-push.** Worked recipe and the CI-event-drop it pairs with: EVICTED 2026-10-01 to the ARCHIVE.
+- 🔴 **A force-push during a parent's merge can drop the CI event entirely** (#61 got ZERO check-runs; proven real by a positive control against a known-green head). Remedy: `gh pr close` + `gh pr reopen`. Detail EVICTED 2026-10-01 to the ARCHIVE.
 - 🔴 **THE WHOLE SESSION'S PATTERN: every defect that mattered PASSED CI, and none would
   have been caught by reading the code.** Five guards proved less than they claimed:
   (1) the sidebar depth indent was DEAD — `padding: '6px 10px'` after `paddingLeft` in
@@ -461,17 +445,18 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   site.
 
 - 🔴 **The arc's own session chain (4 sessions, 2 docs) was EVICTED 2026-10-01 to the ARCHIVE** — and its lesson: a count written into a doc about that doc's own history is stale the moment the doc is next written.
-- 🔴 **EVERY OPERATOR ASK IN THIS ARC WAS AUDITED LINE BY LINE ON 2026-09-30, AND THE RESULT
-  IS: ONE functional ask never shipped.** 34 genuinely-typed messages (of 64 extracted
-  records — the rest were task-notifications and answer payloads, the documented inflation).
-  Round 1 (09-27 05:34) 6 of 7 · round 2 (09-28 20:53) **8 of 8** · round 3 (09-28 21:14)
-  7 of 8. **The miss is round 3's "make the checkpoint and lora and resource titles
-  clickable links to the resource page"** — impossible today, all three routes measured
-  shut, filed `civitai/civitai#5209` (re-checked 2026-09-30: still OPEN). Verified by
-  measurement, not assumed: the vote tooltip DID ship (`VoteButton.tsx:117`, asserted at
-  `VoteButton.test.tsx:77`), archive IS off the community board (moved to `MyPublished`;
-  `GridsView` carries none), and `civitai/civitai#5176` ("merge 5176 and release") merged
-  2026-09-28. **Do not re-run this audit** — re-read this bullet instead.
+- ✅ **EVERY OPERATOR ASK IN THIS ARC IS NOW ACCOUNTED FOR — ROUNDS 1–4. Do not re-run either
+  audit; re-read this bullet.** Rounds 1–3 were audited line by line 2026-09-30 (34 typed
+  messages of 64 extracted records — the rest task-notifications and answer payloads, the
+  documented inflation): round 1 **6 of 7** · round 2 **8 of 8** · round 3 **7 of 8**, verified by
+  measurement (the vote tooltip DID ship, `VoteButton.tsx:117`; archive IS off the community
+  board; `civitai/civitai#5176` merged 09-28). 🔴 **That audit's single miss — round 3's
+  "clickable resource titles" — IS NO LONGER A MISS:** `#5209` closed, PR **#75** merged. The arc
+  therefore has **ZERO never-shipped functional asks**.
+  **Round 4 (2026-10-01 03:23, session `66c3b9ac`) audited 2026-10-01: 22 functional asks →
+  20 SHIPPED, 1 deliberately deferred, 1 closed as NO.** Deferred = "allow generating content
+  while grid is draft" (spends Buzz, owed its own PR; verified absent against a firing control).
+  NO = `MAX_LORAS` stays 5, host-enforced at the wire schema (verified `MAX_LORAS = 5`).
 - 🔵 **Both "use the upstream component" escalation clauses WERE honoured — not dropped instructions.** Detail EVICTED 2026-10-01 to the ARCHIVE. **Check the CONDITION on an escalation clause before reporting it unmet.**
 - 🔴 **A TEMPLATE-LITERAL `data-testid` READS AS ABSENT IN A BUNDLE GREP, AND IT BIT AGAIN
   ON 0.4.11.** `board-nav-grids` / `board-nav-matchups` / `board-nav-prompts` each grep
