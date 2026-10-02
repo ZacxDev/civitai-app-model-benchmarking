@@ -659,11 +659,21 @@ describe('420 — the 44px figure itself', () => {
     await screen.findByTestId('side-nav');
 
     // The three My Benchmarks sub-items only exist while the group is expanded.
-    // ⚠️ IT USED TO TAKE A CLICK HERE, AND THAT CLICK IS NOW THE BUG. The group opens
-    // by DEFAULT (operator feedback #1), so the press that used to expand it would
-    // now COLLAPSE it and the five nodes the ledger below counts would be two. The
-    // expanded state is still part of the reachability claim; it is simply the state
-    // the nav arrives in, and it is asserted rather than assumed.
+    //
+    // ⚠️ THIS SETUP HAS NOW CHANGED TWICE, AND BOTH HISTORIES MATTER. It took a click
+    // originally; operator feedback #1 made the group open by DEFAULT and the click
+    // became the bug (it would COLLAPSE the group, leaving two nodes where the ledger
+    // below counts five), so the press was replaced by an assertion. The press is BACK
+    // — on this viewport only — because the default is viewport-dependent now: the
+    // ≤720px STRIP starts shut, since five rows in a 345px horizontal scroller measured
+    // `scrollWidth` 411 (see `SideNav`'s `expanded` docblock). `setViewport('mobile')`
+    // above is what decides which of the two shapes this case gets.
+    //
+    // 🔴 THE EXPANDED STATE IS STILL ASSERTED, NOT ASSUMED — before AND after the
+    // press. Without the "before" the press could be a no-op on an already-open group
+    // and this setup would be silently back to the version that collapsed it.
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(screen.getByTestId('nav-my'));
     expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
     await screen.findByTestId('nav-my-group');
 
@@ -1456,8 +1466,16 @@ describe('the compact nav strip: grouping, chrome, and one scroll boundary', () 
     setViewport('mobile');
     renderApp();
     await screen.findByTestId('side-nav');
-    // The group is open by default, so the sub-items are on screen with no
-    // interaction — and this is also the reachability control for the rule above.
+    // 🔴 THE GROUP IS SHUT BY DEFAULT ON *THIS* VIEWPORT, so it takes a press to put
+    // the sub-items on screen. That is not setup noise: the sheet's `--mb-nav-indent-1`
+    // rule above is scoped to `nav-my-group`, and on the strip that node does not exist
+    // until the group is opened — the state the rule has to be reachable in is
+    // therefore the OPENED one, and that is what the control below measures. See
+    // `SideNav`'s `expanded` docblock for the 411-vs-345 overflow that shut it.
+    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(screen.getByTestId('nav-my'));
+    // …and this is also the reachability control for the rule above: at 0 the two
+    // `paddingLeft` assertions below would be about nodes the sheet never reaches.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-testid='nav-my-group']`),
       'the sub-group selector reached no live node',

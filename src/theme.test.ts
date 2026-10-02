@@ -100,8 +100,20 @@ describe('the recessed-fill rule has exactly ONE home', () => {
     // of the palette; this fails when the set grows as loudly as when it shrinks,
     // which is the only way "the wrong value is unreachable" stays true.
     expect(Object.keys(theme.token).sort()).toEqual([
+      // 🔴 `accent` AND `cursor` ARE THE SKIN'S, AND THEY ARE NOT `--civitai-*`. Both
+      // resolve to properties this app declares itself ({@link theme.ACCENT_TEXT_PROP},
+      // {@link theme.CURSOR_PROP}) rather than to anything `@civitai/theme` ships, and
+      // each exists because ONE stock token was carrying two jobs that pull apart:
+      // `primary` was both the fill under near-white `primary-fg` text and a text
+      // colour on the page body (arithmetically unsatisfiable at AA — see that
+      // docblock), and it was ALSO the colour of both "selected" and "the roving
+      // cursor is here" in `GridPicker`. Splitting them is what makes each state
+      // spellable exactly once. This ledger is the thing that makes a THIRD such
+      // token a decision someone takes.
+      'accent',
       'body',
       'border',
+      'cursor',
       'dimmed',
       'error',
       'font',

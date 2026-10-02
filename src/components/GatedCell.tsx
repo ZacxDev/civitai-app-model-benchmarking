@@ -52,6 +52,82 @@ export const GATED_AUTO_RETRY_DELAY_MS = 2_000;
 /** The per-sequence auto-retry budget. */
 const AUTO_RETRIES = 1;
 
+/**
+ * The narrowest an output tile may be laid out, in px.
+ *
+ * Long-shipped as the `minmax()` floor; kept as a named constant because the CAP
+ * below is the new half and the two only make sense as a pair.
+ */
+export const TILE_MIN_PX = 72;
+
+/**
+ * The WIDEST an output tile may be laid out, in px — and the fix for the defect
+ * described on {@link tileGridStyle}.
+ *
+ * 🔴 IT IS A SIZING JUDGEMENT, NOT A TYPO FIX, so here is the reasoning rather than
+ * just the number. Three constraints, and they do not all pull the same way:
+ *
+ *   1. A cell in the results matrix holds ONE image in every shipped shape, in a
+ *      track whose width is set by the matrix, not by this component. Measured live:
+ *      a 3014px viewport gives a 403px cell; a 1440px viewport gives 184px.
+ *   2. The tile is `object-fit: cover` on a reserved `aspect-ratio`, so WIDTH SETS
+ *      HEIGHT. An uncapped tile in a 403px cell is a ~403px-tall ROW — and the row
+ *      height is shared by every cell in it, so one wide column makes the whole
+ *      matrix scroll vertically for no extra information.
+ *   3. The matrix's whole job is side-by-side comparison, which means several cells
+ *      visible at once. A tile large enough to fill a 403px cell is a tile large
+ *      enough to push its neighbours out of frame.
+ *
+ * 200 is chosen against (2) and (3): at the measured 403px cell it is about half the
+ * track — a legible thumbnail, a row under ~210px — and at the measured 184px cell it
+ * is not binding at all, so narrow and mid viewports are unchanged by it. It is NOT
+ * chosen to make the cell look full; see {@link tileGridStyle} for why the leftover
+ * width is a matrix-level question that this constant deliberately does not answer.
+ *
+ * ⚠️ UNVERIFIABLE HERE. jsdom performs no layout, so nothing in this repo can observe
+ * a rendered tile at any width. `GatedCell.test.tsx` pins the DECLARED track list; a
+ * live reading at ≥1440px is owed.
+ */
+export const TILE_MAX_PX = 200;
+
+/**
+ * The tile grid inside one gated cell.
+ *
+ * 🔴 THE DEFECT THIS REPLACES, AND WHY "MAKE THE CELLS BIGGER" NEVER LANDED. It read
+ * `repeat(auto-fill, minmax(72px, 1fr))` while every cell holds exactly ONE image, and
+ * those two facts together turn every px of extra cell width into EMPTY TRACKS:
+ * `auto-fill` creates as many tracks as fit whether or not there is content for them,
+ * and `1fr` then divides the cell between all of them. Measured live — a 3014px
+ * viewport gave a 403px cell laid out as 5 tracks x 77px, i.e. the one image occupied
+ * **19%** of the cell; 1440px gave 184px as 2 x 90px, **49%**. Every attempt to widen
+ * the matrix was absorbed downstream by a track nothing rendered into.
+ *
+ * 🔴 `auto-fit` ALONE IS NOT THE FIX, and reaching for it is the trap. `auto-fit`
+ * collapses the empty tracks, which is necessary — but with a `1fr` maximum the one
+ * surviving track then takes the WHOLE 403px, and constraint (2) on
+ * {@link TILE_MAX_PX} says that is a 403px-tall row. The max has to be a LENGTH.
+ *
+ * 🔴 AND `justify-content: center` IS PART OF THE DECISION, NOT DECORATION. Once the
+ * track is capped, a wide cell has leftover width by construction. Centring says the
+ * tile is the cell's content; `start` would read as a tile shoved against the row
+ * header with a hole beside it. Closing that hole properly is a MATRIX-level question
+ * — whether the matrix caps its own column width or lets the columns absorb the
+ * slack — and it needs a live width reading to answer, so it is deliberately NOT
+ * answered here. Do not read the cap as a claim that the cell is now full.
+ *
+ * ⚠️ `gap` IS WRITTEN HERE AND MUST STAY HERE. This object is applied as an INLINE
+ * `style`, which outranks every non-`!important` author rule — a `gap` declaration
+ * added to `compact.ts`'s sheet for this element would be INERT, and a test reading
+ * that sheet's text could not see it. `compact.ts`'s own header records two rounds
+ * lost to exactly that.
+ */
+export const tileGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
+  justifyContent: 'center',
+  gap: 4,
+};
+
 interface GatedState {
   loading: boolean;
   /** True while an automatic retry is pending (the spinner says so). */
@@ -198,10 +274,7 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
   }
 
   return (
-    <div
-      data-testid="gated-cell"
-      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(72px, 1fr))', gap: 4 }}
-    >
+    <div data-testid="gated-cell" style={tileGridStyle}>
       {state.images.map((img) =>
         img.status === 'visible' && img.ratingPending ? (
           // The viewer's OWN image, which nothing has rated yet. The host gives us

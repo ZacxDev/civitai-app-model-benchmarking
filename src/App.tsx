@@ -118,7 +118,17 @@ import {
 import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
 import { COMPACT_ATTR, LAYOUT_ATTR, compactTapTargetCss, layoutCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
-import { palette, pageStyle, contentStyle, token, radius, mutedText, metaText } from './theme.js';
+import {
+  palette,
+  pageStyle,
+  contentStyle,
+  token,
+  radius,
+  mutedText,
+  metaText,
+  skinCss,
+  SKIN_ATTR,
+} from './theme.js';
 import { paintTheme } from './bootTheme.js';
 import type {
   CellRun,
@@ -3222,7 +3232,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // dark boot skeleton light and then dark again at BLOCK_INIT. See src/bootTheme.ts.
   if (!ready) {
     return (
-      <div ref={rootRef} data-theme={paintTheme(ready, theme)} style={pageStyle(c)}>
+      <div
+        ref={rootRef}
+        data-theme={paintTheme(ready, theme)}
+        {...{ [SKIN_ATTR]: 'true' }}
+        style={pageStyle(c)}
+      >
+        {/* 🔴 THE SKIN IS MOUNTED ON THE `!ready` BRANCH TOO, and that is the whole
+            point of putting it here rather than only on the main return. This branch
+            is what paints over index.html's boot skeleton; without the sheet the
+            loading frame would render in the HOST's stock palette and then jump to
+            the app's at BLOCK_INIT — the same flash `bootTheme.ts` exists to prevent,
+            re-introduced one layer up. */}
+        <style data-testid="theme-styles">{skinCss()}</style>
         <Stack align="center" gap={12} style={{ margin: 'auto' }} data-testid="app-loading">
           <Loader />
           <span style={metaText}>Loading Model Benchmarking…</span>
@@ -3235,9 +3257,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     <div
       ref={rootRef}
       data-theme={paintTheme(ready, theme)}
+      {...{ [SKIN_ATTR]: 'true' }}
       {...{ [COMPACT_ATTR]: isMobile ? 'true' : undefined }}
       style={pageStyle(c)}
     >
+      {/* 🔴 THE SKIN SHEET — this app's own token layer, redeclaring the `--civitai-*`
+          properties the pack and `theme.ts` both read. UNCONDITIONAL, like the layout
+          sheet and for a related reason: it carries BOTH themes, keyed on the
+          `data-theme` this element already stamps, so there is nothing for a
+          viewport or a media query to decide. Scoped to this root by the
+          `SKIN_ATTR` selector, so it can never reach the host page. */}
+      <style data-testid="theme-styles">{skinCss()}</style>
       {/* Compact-layout stylesheet — mounted only on a narrow viewport, so the
           desktop rendering is byte-for-byte what it was. Scoped to this root by
           the COMPACT_ATTR selector, so it can never leak into the host page. */}
@@ -4123,7 +4153,11 @@ function brandMarkStyle(c: Pick<ReturnType<typeof palette>, 'border'>): React.CS
     height: 38,
     flexShrink: 0,
     borderRadius: radius.md,
-    color: token.primary,
+    // 🔴 `accent`, NOT `primary` — this is the accent as TEXT (a glyph), over a
+    // translucent `primary-light` wash that lets the page body through. See
+    // `ACCENT_TEXT_PROP` in theme.ts for why the fill and the text accent are two
+    // properties and not one.
+    color: token.accent,
     background: token.primaryLight,
     border: `1px solid ${c.border}`,
   };
