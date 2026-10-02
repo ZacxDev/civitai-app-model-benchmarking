@@ -58,9 +58,16 @@
 // ── 🔴 COVERAGE STATUS, MEASURED PER CASE ───────────────────────────────────
 //
 // ⚠️ THE CENSUS THIS REPLACES WAS WRONG ON BOTH NUMBERS — it said "8 of these 11 cases
-// RED" with "THREE that stayed GREEN", over seven production sources. There were TWELVE
-// cases, FOURTEEN production sources, and FOUR green. Recorded because a census is a
-// claim like any other, and a hand-counted one rots on the next case anyone adds.
+// RED" with "THREE that stayed GREEN", over seven production sources. 🔴 THE CORRECTED
+// FIGURES IN THIS SENTENCE ARE RETROSPECTIVE: they describe `d549e50`, THE TREE THAT
+// CENSUS WAS WRITTEN OVER, and NOT this HEAD — TWELVE cases, ELEVEN production sources,
+// FOUR green. Re-counted: `git show d549e50:src/gridOpenPrivate.test.tsx` has twelve
+// `it(` cases and `git diff --name-only bb63087..d549e50 -- src` names eleven non-test
+// sources; the green figure is that round's measurement, carried forward un-re-run.
+// ⚠️ A SWEEP ONCE RENUMBERED THIS SENTENCE TO "FOURTEEN" TOGETHER WITH THE HEAD FIGURE IN
+// THE NEXT PARAGRAPH, which made it describe a tree it was never measured on. The two
+// counts are about DIFFERENT trees and must move independently. Recorded because a census
+// is a claim like any other, and a hand-counted one rots on the next case anyone adds.
 //
 // RE-MEASURED, mechanically: all FOURTEEN production sources `git diff bb63087..HEAD`
 // names were rolled back in place to `bb63087` and this file run with

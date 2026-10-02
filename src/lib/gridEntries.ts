@@ -536,8 +536,13 @@ export function openGridName(open: OpenGrid): string {
  * row on the shared board can be [in the matrix]" — and on a scan that hit `listAll`'s
  * page cap a member DOES have a row and is still excluded, which is exactly why
  * {@link missingMembersNotice} carries a dedicated truncated arm. The rule is now stated
- * over the rows the app HAS READ, which is true on a complete scan and on a truncated
- * one. ⚠️ AND THAT IS THE WHOLE OF THE CLAIM — IT USED TO ADD "and for a row whose
+ * over the rows the app HAS READ, which is what makes it survive the TRUNCATED case that
+ * falsified the old wording. ⚠️ IT DOES NOT MAKE THE RULE UNIVERSALLY TRUE, AND A DRAFT
+ * OF THIS PARAGRAPH SAID IT DID — "true on a complete scan and on a truncated one" is
+ * refuted by the very next sentence, so A COMPLETE SCAN IS NOT A SAFE CASE EITHER:
+ * SCAN-COMPLETENESS AND PARSEABILITY ARE ORTHOGONAL, and the rule is false for an
+ * unparseable row on EVERY scan, complete or not.
+ * ⚠️ AND THAT IS THE WHOLE OF THE CLAIM — IT USED TO ADD "and for a row whose
  * `data` does not parse", WHICH IS FALSE. `splitRows` (./benchmark.ts) SKIPS a row it
  * cannot parse, so that row WAS read and the matrix is still not built from it: both
  * halves of the sentence fail for that member, and neither named cause applies to it

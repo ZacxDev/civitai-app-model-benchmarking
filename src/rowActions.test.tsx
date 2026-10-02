@@ -480,20 +480,53 @@ const ROW_ACTION_FILES = [
  * opening tags are dropped on that pass.
  *
  * ⚠️ ON THE RAW PASS — the second positive control below, which does NOT strip comments
- * — 11 real tags ARE dropped, every one of them a tag carrying an inline `/* … *\/`
- * comment between its attributes whose prose holds an apostrophe, which opens a quote
- * the scanner never sees closed. That control's only job is to show the prose instances
- * exist, and it still returns exactly the two files it asserts, so the blindness does
- * not reach a claim. It would matter if anything ever scanned RAW source for an
- * ABSENCE — don't.
+ * — 11 real tags ARE dropped. WHAT IS UNIFORMLY TRUE OF ALL 11 IS NARROWER THAN A DRAFT
+ * OF THIS PARAGRAPH CLAIMED ("every one of them a tag carrying an inline `/* … *\/`
+ * comment BETWEEN ITS ATTRIBUTES"): each is a tag whose text contains an inline comment
+ * whose prose holds an ODD number of apostrophes, which opens a quote the scanner never
+ * sees closed. The comment's FORM and POSITION both vary and neither is part of the
+ * mechanism — most are `/* … *\/` blocks between attributes, but `GatedCell.tsx`,
+ * `ResultsGrid.tsx` and `MatchupsView.tsx` carry `//` LINE comments, and in
+ * `GatedCell.tsx`, `MatchupForm.tsx` and `MyGridsView.tsx` the odd comment sits inside
+ * an attribute's `{…}` expression rather than between attributes. `stripComments` removes
+ * both forms, which is why the stripped pass drops none of the 11. That control's only
+ * job is to show the prose instances exist, and it still returns exactly the two files it
+ * asserts, so the blindness does not reach a claim. It would matter if anything ever
+ * scanned RAW source for an ABSENCE — don't.
  *
- * ⚠️ AND A THIRD SHAPE IS NOT MEASURED EITHER WAY: a tag whose attribute string
- * contains an ESCAPED quote (`\"`) would run the scan past the real tag end. That
- * direction can only over-report — the ledger goes RED and someone reads it — which is
- * the safe way round for a guard whose expected result is a zero.
+ * 🔴 AND A THIRD SHAPE HAS NO SAFE DIRECTION — A DRAFT OF THIS PARAGRAPH CLAIMED IT HAD
+ * ONE, AND THE OPPOSITE IS WHAT MEASURES. A tag whose attribute string contains an
+ * ESCAPED quote (`aria-label={'a\'b'}`) flips the scan's quote parity, so the real `>` is
+ * swallowed, no `>` is found at depth 0, and THE START IS DROPPED — the same drop
+ * mechanism the paragraph above measures 11 times, i.e. a FALSE GREEN, and not the "can
+ * only over-report — the ledger goes RED and someone reads it" the draft asserted.
+ * ISOLATED CONTROL: appending
+ * `<Group justify="space-between" align="flex-start" aria-label={'a\'b'}>` to
+ * `components/PromptBody.tsx` leaves this file 8 passed of 8 while a production source
+ * carries the defect signature in full; the identical probe with `aria-label={'ab'}` —
+ * the escape removed, nothing else changed — is caught, with
+ * `expected [ 'components/PromptBody.tsx' ] to deeply equal []`.
+ *
+ * ⚠️ AND THE OVER-REPORT OUTCOME IS NOT MERELY RARER HERE — IT DID NOT HAPPEN ONCE. That
+ * same probe injected at each of 4829 positions across all 59 scanned sources (every line
+ * boundary following a letter, `}`, `)`, `]` or `;`) was DROPPED at 4829 of them
+ * and closed at a wrong `>` at ZERO. The reason is parity: apostrophes in code come in
+ * matched pairs, so a parity flipped by an escape stays flipped to end-of-file. Which
+ * outcome a given escape takes is decided by the rest of the FILE, not by the tag — so
+ * there is no direction to call safe, and in this tree the one it takes is the quiet one.
+ *
+ * 🔴 SO IT IS PINNED RATHER THAN DOCUMENTED. This function returns its DROPPED starts
+ * alongside its closed tags, and {@link EXPECTED_DROPPED_STARTS} asserts them, so a NEW
+ * drop goes red on its own assertion instead of silently shrinking the population the
+ * zero below was computed over. ⚠️ THAT IS DETECTION, NOT REPAIR — `hasSignature` still
+ * cannot see the signature on such a tag, and REACHABILITY TODAY IS ZERO: no production
+ * source carries an escaped quote in an attribute, which is exactly what the 10-generic
+ * drop set above records. The defect was in the CLAIM, not in the current result.
  */
-function openTags(src: string): string[] {
+function openTags(src: string): { tags: string[]; dropped: string[] } {
   const tags: string[] = [];
+  /** Starts the scan could not close — see the docblock; a dropped start is never READ. */
+  const dropped: string[] = [];
   for (let i = 0; i < src.length; i += 1) {
     if (src[i] !== '<' || !/[A-Za-z]/.test(src[i + 1] ?? '')) continue;
     let depth = 0; // `{}` nesting — a `>` inside an attribute expression is not the end
@@ -513,8 +546,13 @@ function openTags(src: string): string[] {
     // Note: `i` is NOT advanced past the tag, so a tag nested inside an ATTRIBUTE value
     // (`panel={<Row … />}`) is scanned on its own `<` too.
     if (src[j] === '>') tags.push(src.slice(i, j + 1));
+    // A start with no `>` at depth 0 is DROPPED. Reported by the IDENTIFIER after the
+    // `<` rather than by text or offset: that is what distinguishes a TypeScript generic
+    // (`<Record`, benign) from a JSX tag (`<Group`, a hole in the ledger), and it is
+    // stable under formatting the way a byte offset is not.
+    else dropped.push(src.slice(i + 1).match(/^[A-Za-z][A-Za-z0-9_$.-]*/)?.[0] ?? '');
   }
-  return tags;
+  return { tags, dropped };
 }
 
 /**
@@ -536,9 +574,38 @@ function openTags(src: string): string[] {
  * longer needs a second alternation to say so.
  */
 const hasSignature = (src: string): boolean =>
-  openTags(src).some(
+  openTags(src).tags.some(
     (t) => t.includes('justify="space-between"') && t.includes('align="flex-start"'),
   );
+
+/**
+ * Every `<`-plus-letter START {@link openTags} cannot close, per `src`-relative file,
+ * sorted — on the STRIPPED-COMMENT pass, which is the pass the ledger's zero is computed
+ * over.
+ *
+ * 🔴 WHY THIS IS A LEDGER AND NOT A SENTENCE. A dropped start is a start the scan never
+ * EXAMINED, so it cannot carry a signature match — it is the one way this guard's
+ * expected zero can be a false green rather than a measurement, and it was documented
+ * for two rounds while being wrong about its own direction (see {@link openTags}).
+ * Asserting the SET makes a new drop go red here, with this file's own message, instead
+ * of quietly shrinking the population the zero was taken over.
+ *
+ * 🔴 EVERY MEMBER IS A TYPESCRIPT GENERIC IN TYPE POSITION, AND THAT IS WHAT MAKES THE
+ * SET SAFE TO ALLOW: `useState<Record<…>>` drops because the NESTED `<` ends the scan,
+ * which is correct — those are not JSX tags. A JSX component name appearing here is the
+ * failure this pins, and `components/PromptBody.tsx: ['Group']` is literally what the
+ * escaped-quote probe in {@link openTags}'s docblock adds.
+ *
+ * ⚠️ IT ROTS ON A ROUTINE EDIT, DELIBERATELY: adding or removing a nested generic moves
+ * a line here, and the fix is to read WHICH name moved. A name that is not a type
+ * constructor is the signal.
+ */
+const EXPECTED_DROPPED_STARTS: Readonly<Record<string, readonly string[]>> = {
+  'App.tsx': ['Map', 'Record', 'ReturnType', 'Set', 'Set'],
+  'components/PromptForm.tsx': ['Array'],
+  'lib/benchmark.ts': ['Partial', 'Partial', 'Record'],
+  'lib/sdk-transport.ts': ['Record'],
+};
 
 /**
  * Production files ALLOWED to carry the signature. 🔴 EMPTY, AND THAT IS THE POINT: an
@@ -607,8 +674,38 @@ describe('🔴 the STRUCTURAL ledger — no production source carries the defect
       hasSignature('<Group justify="space-between" onClick={() => go()}>\n  <Stack align="flex-start" />'),
     ).toBe(false);
 
+    // 🔴 THE ESCAPED-QUOTE SHAPE, AS A TEST RATHER THAN AS A PARAGRAPH. An escaped quote
+    // flips the scan's quote parity, the real `>` is swallowed, and the start is DROPPED —
+    // so `hasSignature` reports FALSE on a tag carrying both halves in full. A previous
+    // round's docblock called that direction "can only over-report", i.e. safe; it is the
+    // opposite. Pinned here so the next reader gets the direction from a passing
+    // assertion and not from prose.
+    const ESCAPED = `<Group justify="space-between" aria-label={'a\\'b'} align="flex-start">`;
+    expect(openTags(ESCAPED).dropped, 'the escaped-quote start is not dropped').toEqual(['Group']);
+    expect(hasSignature(ESCAPED), 'the escaped-quote tag is no longer a FALSE GREEN').toBe(false);
+    // …and the ONE-CHARACTER-DIFFERENT control: the same tag with the escape removed is
+    // closed and seen. Without this pair the line above would also pass for a predicate
+    // that can never match anything.
+    const PLAIN = `<Group justify="space-between" aria-label={'ab'} align="flex-start">`;
+    expect(openTags(PLAIN).dropped, 'an ordinary tag was dropped').toEqual([]);
+    expect(hasSignature(PLAIN)).toBe(true);
+
     const files = scannedSources(SRC);
     expect(files.length, 'the source walker found no files').toBeGreaterThan(20);
+
+    // 🔴 THE DROP SET, ASSERTED BEFORE THE ZERO IT QUALIFIES. A start the scan could not
+    // close was never EXAMINED, so it cannot contribute to `found` — read this assertion
+    // first, or the zero below is a claim about an unknown population. See
+    // {@link EXPECTED_DROPPED_STARTS} for why today's ten are benign.
+    const droppedStarts = Object.fromEntries(
+      files
+        .map((f) => [rel(f), [...openTags(stripComments(readFileSync(f, 'utf8'))).dropped].sort()])
+        .filter(([, d]) => d.length > 0),
+    );
+    expect(
+      droppedStarts,
+      'a `<` start the scanner could not close is a start it never EXAMINED — the zero below cannot see a signature on it',
+    ).toEqual(EXPECTED_DROPPED_STARTS);
 
     // 🔴 COMMENTS ARE STRIPPED, AND WITHOUT THAT THIS LEDGER IS PERMANENTLY RED. Two
     // production files — `MatchupBody.tsx` and `GridPicker.tsx` — QUOTE the old markup
