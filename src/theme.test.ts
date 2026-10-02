@@ -43,6 +43,13 @@ import { dirname, join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import * as theme from './theme.js';
+// 🔴 NAMED IMPORTS HERE, UNLIKE `theme` ABOVE, AND THE ASYMMETRY IS DELIBERATE. The
+// namespace import above exists so each case fails on its own merits against a tree
+// where an export is missing. These three are the OTHER end of a seam the skin sheet
+// spells as literals — if one of them stops existing, "the lockstep broke" is exactly
+// the right failure, and a link-time error naming the constant says so more clearly
+// than an `undefined` passed to `toContain`.
+import { ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR, NAV_ITEM_SELECTOR } from './compact.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcRoot = here;
@@ -174,5 +181,228 @@ describe('the recessed-fill rule has exactly ONE home', () => {
     // elevation scale and the start of the next divergence.
     const mixers = modulesContaining('color-mix(');
     expect(mixers, 'color-mix() escaped theme.ts').toEqual(['theme.ts']);
+  });
+});
+
+// ===========================================================================
+// 🔴 THE SKIN — what a test CAN hold about a thing jsdom cannot see.
+//
+// `skinCss()` redeclares the `--civitai-*` custom properties on the app root, per
+// theme. That is a CASCADE and a COLOUR change, and this is the `node` project with
+// no DOM at all — so these cases make no claim whatever about appearance. There are
+// three kinds of claim here, and each is a RELATIONSHIP rather than a value this repo
+// chose:
+//
+//   1. THE TWO THEMES DECLARE THE SAME SET. A property declared in one theme and not
+//      the other silently renders the STOCK value in the other, which reads as "the
+//      theme half-applied" and is invisible to a test that only reads one theme.
+//   2. WHAT THE APP READS, SOME THEME DECLARES. `token.accent` and `token.cursor`
+//      point at properties NOTHING in `@civitai/theme` ships, so if the skin stopped
+//      declaring them the `var()` would resolve to nothing at all — an unset colour,
+//      i.e. inherited text, on a focus ring and an active nav row.
+//   3. THE COLLISIONS THE SKIN EXISTS TO FIX STAY FIXED, stated as inequalities over
+//      the declared values rather than as the literals themselves.
+//
+// ⚠️ WHAT NONE OF THEM CAN SETTLE: whether any pair of these colours is legible, or
+// reads as the step it is meant to be, in either theme. Every contrast figure in
+// `theme.ts` is arithmetic over the hex. A LIVE READING IN BOTH THEMES IS OWED and
+// has not been taken.
+// ===========================================================================
+
+/** The tokens whose whole job is to be a VISIBLY different ground from each other. */
+const GROUND_PROPS = [
+  '--civitai-color-body',
+  '--civitai-color-surface',
+  '--civitai-color-surface-2',
+] as const;
+
+describe('the skin declares a complete, self-consistent token layer', () => {
+  it('🔴 light and dark declare the SAME property set — and the enumerated ledger', () => {
+    // The RELATIONSHIP first: this is the assertion that cannot rot, because it names
+    // no property at all. It fails when either side grows OR shrinks relative to the
+    // other, which is the actual defect shape (a token added to one theme only).
+    expect(Object.keys(theme.SKIN_LIGHT.vars).sort()).toEqual(
+      Object.keys(theme.SKIN_DARK.vars).sort(),
+    );
+
+    // …and the LEDGER, as literals, because the relationship above is equally happy
+    // with both sides empty. A deletion from BOTH themes is a decision someone takes.
+    expect(Object.keys(theme.SKIN_LIGHT.vars).sort()).toEqual([
+      '--civitai-card-border-width',
+      '--civitai-color-body',
+      '--civitai-color-border',
+      '--civitai-color-error',
+      '--civitai-color-info',
+      '--civitai-color-media-placeholder',
+      '--civitai-color-primary',
+      '--civitai-color-primary-fg',
+      '--civitai-color-primary-hover',
+      '--civitai-color-primary-light',
+      '--civitai-color-segmented-bg',
+      '--civitai-color-success',
+      '--civitai-color-surface',
+      '--civitai-color-surface-2',
+      '--civitai-color-text',
+      '--civitai-color-text-dimmed',
+      '--civitai-color-track',
+      '--civitai-color-warning',
+      '--civitai-radius',
+      '--mb-accent-text',
+      '--mb-cursor',
+    ]);
+
+    // The two schemes are not the same scheme, which is the cheapest way to catch a
+    // copy-paste of one Skin object over the other.
+    expect(theme.SKIN_LIGHT.scheme).toBe('light');
+    expect(theme.SKIN_DARK.scheme).toBe('dark');
+  });
+
+  it('🔴 SEAM: every property the `token` table reads is declared by BOTH themes', () => {
+    // 🔴 THIS IS THE ONE THAT CATCHES AN UNSET COLOUR. `token.accent` and
+    // `token.cursor` resolve to properties NO package declares — they are this app's
+    // own — so a skin that stopped declaring one would leave a `var()` resolving to
+    // nothing: an inherited colour on a focus ring and on the active nav row, with
+    // every structural test still green because the DECLARED style is unchanged.
+    //
+    // It is derived from `token` rather than from a second list, so a THIRD app-own
+    // token added to `token` is covered the day it is added.
+    const appOwn = Object.values(theme.token)
+      .map((v) => /^var\((--mb-[a-z-]+)\)$/.exec(v)?.[1])
+      .filter((p): p is string => p !== undefined)
+      .sort();
+
+    // POSITIVE CONTROL: the extractor found something. Without it, a regex that
+    // matched nothing would report full compliance over an empty set.
+    expect(appOwn, 'the app-own token extractor matched nothing').toEqual([
+      theme.ACCENT_TEXT_PROP,
+      theme.CURSOR_PROP,
+    ]);
+
+    for (const prop of appOwn) {
+      expect(theme.SKIN_LIGHT.vars[prop], `light theme never declares ${prop}`).toBeTruthy();
+      expect(theme.SKIN_DARK.vars[prop], `dark theme never declares ${prop}`).toBeTruthy();
+    }
+  });
+
+  it('🔴 the ground tokens are three DIFFERENT values in each theme', () => {
+    // The light-theme collision this skin exists to fix, as an inequality rather than
+    // as the hex literals: stock light ships `#fefefe` for `body`, `surface` AND
+    // `surface-2`, so a panel in light theme was a border around an identical ground.
+    // Asserted in BOTH themes — dark had the same shape between `surface` and
+    // `surface-2`.
+    for (const [name, skin] of [
+      ['light', theme.SKIN_LIGHT],
+      ['dark', theme.SKIN_DARK],
+    ] as const) {
+      const values = GROUND_PROPS.map((p) => skin.vars[p]);
+      expect(values.every((v) => typeof v === 'string' && v.length > 0)).toBe(true);
+      expect(new Set(values).size, `${name}: the three ground tokens are not distinct`).toBe(
+        GROUND_PROPS.length,
+      );
+    }
+
+    // …and the two themes are not each other: a dark theme whose body matched the
+    // light one would satisfy every assertion above.
+    expect(theme.SKIN_DARK.vars['--civitai-color-body']).not.toBe(
+      theme.SKIN_LIGHT.vars['--civitai-color-body'],
+    );
+    expect(theme.SKIN_DARK.vars['--civitai-color-text']).not.toBe(
+      theme.SKIN_LIGHT.vars['--civitai-color-text'],
+    );
+  });
+
+  it('🔴 the ACCENT is split: the text accent is never the fill accent', () => {
+    // The whole argument on `ACCENT_TEXT_PROP` is that one value cannot do both jobs.
+    // If these two are ever made equal the split has been quietly undone, and nothing
+    // else in this repo would notice — `token.accent` would still be a distinct
+    // `var()` and every structural assertion would still pass.
+    for (const [name, skin] of [
+      ['light', theme.SKIN_LIGHT],
+      ['dark', theme.SKIN_DARK],
+    ] as const) {
+      expect(
+        skin.vars[theme.ACCENT_TEXT_PROP],
+        `${name}: the text accent collapsed onto the fill accent`,
+      ).not.toBe(skin.vars['--civitai-color-primary']);
+    }
+  });
+});
+
+describe('the emitted skin sheet carries both themes, and wins the cascade by shape', () => {
+  const sheet = (): string => theme.skinCss();
+
+  it('🔴 every theme selector carries TWO attributes — the specificity argument', () => {
+    // 🔴 NOT COSMETIC. `@civitai/theme`'s own `[data-theme='dark']` / `[data-theme=
+    // 'light']` rules are (0,1,0) and land on the VERY element this app stamps
+    // `data-theme` on, so a single-attribute selector here would TIE with them and the
+    // winner would be decided by whether `injectBlocksStyles()` ran before React
+    // committed this `<style>`. These three literals are what keep the skin's win
+    // independent of injection order.
+    expect(sheet()).toContain(`[${theme.SKIN_ATTR}='true'][data-theme='dark'] {`);
+    expect(sheet()).toContain(`[${theme.SKIN_ATTR}='true'][data-theme='light'] {`);
+    // …and the unknown-theme fallback, which is DARK — the same answer `bootTheme.ts`
+    // and `index.html` give, so the three cannot disagree about an unrecognised host
+    // theme string.
+    expect(sheet()).toContain(`[${theme.SKIN_ATTR}='true'] {`);
+  });
+
+  it('🔴 the sheet emits every declaration both palettes hold, with a control', () => {
+    // A serialiser that dropped entries — or a palette whose values never reached the
+    // sheet at all — is the failure this covers, and it is invisible to the palette
+    // cases above (they read the objects, not the text).
+    const css = sheet();
+    for (const [prop, value] of Object.entries(theme.SKIN_LIGHT.vars)) {
+      expect(css, `the sheet never declares light ${prop}`).toContain(`${prop}: ${value};`);
+    }
+    for (const [prop, value] of Object.entries(theme.SKIN_DARK.vars)) {
+      expect(css, `the sheet never declares dark ${prop}`).toContain(`${prop}: ${value};`);
+    }
+    // NEGATIVE CONTROL — the `toContain` above can also NOT match. Without it, a
+    // `toContain` fed an empty needle (or a sheet that happened to contain every
+    // string asked of it) would pass over nothing.
+    expect(css).not.toContain('--mb-this-property-does-not-exist:');
+  });
+
+  it('🔴 LOCKSTEP: the sheet reaches the selectors `compact.ts` owns, by their constants', () => {
+    // 🔴 THE SEAM `theme.ts` CANNOT CLOSE BY IMPORTING. `compact.ts` already imports
+    // `theme.ts`, so the dependency cannot run the other way and the two attribute
+    // selectors below are spelled as LITERALS in the sheet. That makes a rename in
+    // `compact.ts` a silently dead rule — the `⋮` trigger back to no resting box, the
+    // app's own controls back to no focus ring — with the whole suite green. This is
+    // the same two-ends-pinned discipline `navIndentVar` uses.
+    const css = sheet();
+    expect(css, 'the icon-button rules no longer reach ICON_BUTTON_SELECTOR').toContain(
+      ICON_BUTTON_SELECTOR,
+    );
+    expect(css, 'the focus ring no longer reaches NAV_ITEM_SELECTOR').toContain(
+      NAV_ITEM_SELECTOR,
+    );
+    expect(css, 'the focus ring no longer reaches MENU_ITEM_SELECTOR').toContain(
+      MENU_ITEM_SELECTOR,
+    );
+    // POSITIVE CONTROL for the three above: these constants are not empty strings, and
+    // `toContain('')` is true of every sheet ever written.
+    for (const sel of [ICON_BUTTON_SELECTOR, NAV_ITEM_SELECTOR, MENU_ITEM_SELECTOR]) {
+      expect(sel.length).toBeGreaterThan(1);
+    }
+  });
+
+  it('🔴 the sheet is SCOPED — no rule can reach the host page', () => {
+    // Every rule in this sheet must be under the app root, because a published block
+    // renders inside somebody else's document. Walked over the selector of every rule
+    // rather than asserted as a count, so a rule added later is covered.
+    const selectors = sheet()
+      .split('}')
+      .map((chunk) => chunk.slice(0, chunk.indexOf('{')).trim())
+      .filter((s) => s.length > 0);
+
+    // POSITIVE CONTROL: the splitter found the rules. A parser returning [] would
+    // report full compliance.
+    expect(selectors.length, 'the rule splitter found no selectors').toBeGreaterThanOrEqual(8);
+    for (const sel of selectors) {
+      expect(sel, `an unscoped rule can reach the host page: ${sel}`).toContain(
+        `[${theme.SKIN_ATTR}='true']`,
+      );
+    }
   });
 });

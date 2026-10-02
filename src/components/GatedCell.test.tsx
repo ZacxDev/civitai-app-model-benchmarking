@@ -39,7 +39,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
   };
 });
 
-import { GATED_READ_TIMEOUT_MS, GatedCell } from './GatedCell.js';
+import { GATED_READ_TIMEOUT_MS, GatedCell, TILE_MAX_PX, TILE_MIN_PX } from './GatedCell.js';
 
 const visible = (imageId: number, url: string): BlockGatedImage => ({
   imageId,
@@ -58,6 +58,76 @@ afterEach(() => {
   vi.useRealTimers();
   mockGetImages.mockReset();
   mockTrack.mockReset();
+});
+
+// ===========================================================================
+// 🔴 THE TILE GRID — the defect that made "widen the cells" land nowhere.
+//
+// THE DEFECT, MEASURED LIVE. The cell was `repeat(auto-fill, minmax(72px, 1fr))`
+// while every cell in every shipped shape holds exactly ONE image. Those two facts
+// together turn each px of extra cell width into an EMPTY TRACK: `auto-fill` creates
+// as many tracks as fit whether or not there is content for them, and `1fr` then
+// divides the cell between all of them. At a 3014px viewport a 403px cell came out as
+// 5 tracks x 77px — the one image occupying **19%** of it; at 1440px, 184px as
+// 2 x 90px, **49%**. Every attempt to widen the matrix was absorbed downstream.
+//
+// ⚠️ AND NOTHING BELOW MEASURES ANY OF THAT. jsdom performs no layout — there are no
+// tracks, no widths and no 19% here — so these cases pin the DECLARED template and the
+// two properties the fix turns on. The 19%/49% readings are external and live, and
+// re-taking them at ≥1440px is owed.
+// ===========================================================================
+
+describe('GatedCell — the tile grid caps the tile instead of minting empty tracks', () => {
+  it('🔴 `auto-fit` with a LENGTH maximum, and the old template is gone', async () => {
+    mockGetImages.mockResolvedValue([visible(9101, 'https://image.civitai.com/t.jpeg')]);
+    render(<GatedCell imageIds={[9101]} />);
+    const cell = await screen.findByTestId('gated-cell');
+
+    // 🔴 THE WHOLE TEMPLATE, AS A LITERAL, and interpolated from the two exported
+    // constants so the declaration and the constants cannot drift. jsdom reports
+    // `gridTemplateColumns` verbatim (it is not a shorthand it synthesises).
+    expect(cell.style.gridTemplateColumns).toBe(
+      `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
+    );
+
+    // 🔴 EACH HALF SPELLED OUT SEPARATELY, because the template above would be
+    // satisfied by either half alone and the two defend different things:
+    //
+    //   - `auto-fill` is what minted the empty tracks. `auto-fit` collapses them.
+    expect(cell.style.gridTemplateColumns, 'auto-fill is back — the empty tracks with it')
+      .not.toContain('auto-fill');
+    //   - a `1fr` MAXIMUM is the trap in the fix. `auto-fit` alone leaves the one
+    //     surviving track taking the whole 403px, and `object-fit: cover` on a
+    //     reserved aspect-ratio makes that a 403px-TALL row — shared by every cell in
+    //     it. The maximum has to be a length.
+    expect(cell.style.gridTemplateColumns, 'the track maximum is a fraction again')
+      .not.toContain('1fr');
+  });
+
+  it('🔴 the leftover width is CENTRED, and the gap stays INLINE', async () => {
+    mockGetImages.mockResolvedValue([visible(9102, 'https://image.civitai.com/t.jpeg')]);
+    render(<GatedCell imageIds={[9102]} />);
+    const cell = await screen.findByTestId('gated-cell');
+
+    // Capping the track means a wide cell has leftover width BY CONSTRUCTION, so where
+    // it goes is part of the decision rather than a default: centred reads as the
+    // cell's content, `start` reads as a tile shoved against the row header.
+    expect(cell.style.justifyContent).toBe('center');
+
+    // 🔴 THE GAP IS ASSERTED *HERE*, ON THE INLINE STYLE, AND THAT IS THE POINT. An
+    // inline declaration outranks every non-`!important` author rule, so a `gap` moved
+    // into `compact.ts`'s sheet for this element would be INERT — and a test that read
+    // that sheet's TEXT could not tell. `compact.ts`'s own header records two rounds
+    // lost to exactly this. A literal `4px`, never `tileGridStyle.gap`.
+    expect(cell.style.gap).toBe('4px');
+  });
+
+  it('🔴 the cap is above the floor — the two constants bound a real range', () => {
+    // A degenerate `minmax()` (max below min) is valid CSS whose maximum is IGNORED,
+    // so a cap accidentally set under the floor would leave the fix silently inert
+    // with the template assertion above still green.
+    expect(TILE_MAX_PX).toBeGreaterThan(TILE_MIN_PX);
+  });
 });
 
 describe('GatedCell', () => {
