@@ -6,10 +6,16 @@
 //
 // A grid stores member KEYS. Until this change every one of them was a host-minted
 // SHARED key; a viewer can now pick their own PRIVATE matchups and prompts, which
-// carry only a per-viewer LOCAL id. A published grid row is world-readable and
-// effectively permanent — `shared.update`/`withdraw` are author-scoped, there is no
-// merge and no edit history — so a row naming a local id is a permanent public
-// reference nobody else can resolve. Worse, a RESULT row is keyed
+// carry only a per-viewer LOCAL id. A published grid row is world-readable, so a row
+// naming a local id is a public reference NO OTHER VIEWER can resolve.
+//
+// ⚠️ THIS USED TO READ "effectively permanent — `shared.update`/`withdraw` are
+// author-scoped, there is no merge and no edit history". REFUTED: author-scoping is what
+// PERMITS the author to remove the row, and a grid row has a withdraw control in this
+// app. See `lib/gridCascade.ts`'s header for the correction and its bound. What is at
+// stake is unresolvability by everyone else, which is unaffected.
+//
+// Worse, a RESULT row is keyed
 // `comboKey · configId × promptKey` and is NOT grid-scoped (`buildResultPayload`),
 // so a local id reaching a result row would put an unresolvable key on a row that
 // every grid containing that cell reads.
@@ -373,7 +379,11 @@ describe('🔴 private matchups and prompts are pickable into a grid', () => {
   it('🔴 the PUBLISHED-grid edit form offers board rows ONLY — with the private form as control', async () => {
     // 🔴 THE SECOND WRITE SITE. `updateGrid` goes straight to `shared.update` with no
     // cascade, so a private pick there would put a LOCAL ID on the public board in one
-    // press, permanently (author-scoped, no merge, no history). The absence below is
+    // press — unresolvable by every other viewer and unrepairable by any of them, the
+    // author's only remedy being to withdraw the whole row. ⚠️ NOT "permanently
+    // (author-scoped, no merge, no history)", which is what this said: that is the
+    // inference this file's own header retracts, and it survived the sweep that wrote
+    // that retraction. The absence below is
     // the claim; the private picker finding the SAME row two interactions later is the
     // positive control that makes the absence meaningful rather than "the record was
     // never loaded".

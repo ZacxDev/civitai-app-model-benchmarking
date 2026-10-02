@@ -88,6 +88,7 @@ function renderGrid() {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      privateGrid={false}
       onOpenMatchup={vi.fn()}
       onOpenPrompt={vi.fn()}
     />,
@@ -113,7 +114,18 @@ const comboOne: CombinationRow = {
 /** Render the grid with a single run in a given state on the c1/cfgA × p1 cell. */
 function renderGridWithRun(
   run: CellRun,
-  opts: { buzzTotal?: number | null; buzzBalanceLoading?: boolean; onRetryBalance?: () => void } = {},
+  opts: {
+    buzzTotal?: number | null;
+    buzzBalanceLoading?: boolean;
+    onRetryBalance?: () => void;
+    // ⚠️ NO `privateGrid?: boolean` HERE, AND THERE WAS. It reintroduced locally the
+    // EXACT optional-defaulting-to-false shape `ResultsGridProps.privateGrid` is
+    // required to prevent — a fixture that forgets it silently exercises the case where
+    // the viewer is NOT told the outputs go public — and no caller of this helper ever
+    // passed it, so the option only bought a fixture the right to be wrong. The private
+    // arm's copy is driven through the real `App` in `src/gridOpenPrivate.test.tsx`,
+    // which is where the prop's two effects are actually asserted.
+  } = {},
 ) {
   const onConfirmRun = vi.fn();
   const onResumeRun = vi.fn();
@@ -135,6 +147,9 @@ function renderGridWithRun(
       onConfirmRun={onConfirmRun}
       onResumeRun={onResumeRun}
       onCancelRun={onCancelRun}
+      /* Every case in this helper is about a RUN's cell states, none of which this
+         prop touches — it selects the confirm notice and the empty state's copy. */
+      privateGrid={false}
       onOpenMatchup={vi.fn()}
       onOpenPrompt={vi.fn()}
     />,
@@ -358,6 +373,7 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        privateGrid={false}
         onOpenMatchup={vi.fn()}
         onOpenPrompt={vi.fn()}
       />,
@@ -528,6 +544,7 @@ describe('ResultsGrid render (config rows)', () => {
         onConfirmRun={vi.fn()}
         onResumeRun={vi.fn()}
         onCancelRun={vi.fn()}
+        privateGrid={false}
         onOpenMatchup={vi.fn()}
         onOpenPrompt={vi.fn()}
       />,
@@ -555,6 +572,15 @@ describe('ResultsGrid render (config rows)', () => {
       // it fails to compile.
       onOpenMatchup: vi.fn(),
       onOpenPrompt: vi.fn(),
+      // 🔴 REQUIRED for the same reason, and it now decides TWO things: whether the
+      // confirm path carries `PRIVATE_GRID_RUN_NOTICE`, and which EMPTY STATE renders.
+      // A forgetful fixture would silently exercise the case where the viewer is not
+      // told the outputs go public — and, in this very block, would pin the public
+      // empty-state copy for a private grid. `false` is the right value here: the cases
+      // below assert the PUBLIC copy and its submit buttons, which is the system and
+      // published arm. The private arm's copy is pinned in `src/gridOpenPrivate.test.tsx`
+      // against the real `App`.
+      privateGrid: false,
     };
 
     it('no ROWS: says so and offers the Combinations tab', () => {

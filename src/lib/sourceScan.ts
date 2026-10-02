@@ -55,6 +55,28 @@ export function scannedSources(dir: string): string[] {
   return out;
 }
 
+/**
+ * `src` with its comments removed, so a scan reads CODE and not the prose explaining it.
+ *
+ * 🔴 IT LIVES HERE BECAUSE A SECOND LEDGER NEEDED IT AND COPYING IT WOULD HAVE BEEN THE
+ * EXACT SHAPE THIS MODULE'S OWN HEADER RECORDS. `sourceScanLedger.test.ts` owned the
+ * only copy; `rowActions.test.tsx`'s structural ledger has to strip comments too (two
+ * production files explain the `space-between` defect in prose, and a raw scan would
+ * report those explanations as instances of it). The walker above was written twice and
+ * the two copies drifted within one round — one docstring corrected, the other not. One
+ * copy, and `sourceScanLedger.test.ts` keeps the positive and negative controls that
+ * validate it, including the real-tree one.
+ *
+ * ⚠️ THE `//` RULE IS A HEURISTIC AND ITS FAILURE DIRECTION MATTERS. A `//` inside a
+ * string (`'https://…'`) would truncate real code, and for an ABSENCE check
+ * over-stripping is a FALSE NEGATIVE — the quiet kind. So `//` is only treated as a
+ * comment when it is not preceded by `:`, which covers every URL in this tree, and the
+ * stripper is validated by those controls rather than trusted.
+ */
+export function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+}
+
 /** Resolve an extensionless / `.js`-suffixed relative specifier to a real file. */
 function resolveSpecifier(fromFile: string, spec: string): string | null {
   const base = resolve(dirname(fromFile), spec.replace(/\.js$/, ''));

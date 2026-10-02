@@ -119,6 +119,7 @@ function renderGrid(configs: typeof BIG_CONFIGS, prompts: PromptRow[]) {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      privateGrid={false}
       onOpenMatchup={vi.fn()}
       onOpenPrompt={vi.fn()}
     />,

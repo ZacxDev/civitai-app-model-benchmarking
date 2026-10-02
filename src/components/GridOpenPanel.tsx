@@ -19,11 +19,25 @@
 // (`lib/gridEntries.ts`) keeps them deliberately separate.
 //
 // 🔴 WHAT THE SYSTEM ENTRY OFFERS: NOTHING OF THE THREE, AND IT IS DERIVED FROM THE
-// ENTRY. The Top Grid has no shared row, so there is no key to pass to `shared.vote`,
-// `shared.withdraw` or `shared.report` — and it is never the viewer's. Every one of
-// those decisions branches on `entry.system` / `isOwnRow(entry.row, viewerId)`, never
-// on the rendered NAME: a spelling test would pass for a published grid an author
+// OPEN GRID. The Top Grid has no shared row, so there is no key to pass to
+// `shared.vote`, `shared.withdraw` or `shared.report` — and it is never the viewer's.
+// Every one of those decisions branches on `open.kind` / `isOwnRow(open.row, viewerId)`,
+// never on the rendered NAME: a spelling test would pass for a published grid an author
 // happened to call "Top Grid".
+//
+// 🔴 AND THERE IS NOW A THIRD KIND, WHICH OFFERS NONE OF THE THREE FOR THE SAME
+// REASON. A viewer can open one of their OWN PRIVATE grids — a record in per-viewer KV
+// with a local id and no shared row — so they can generate into it before publishing
+// it. No shared row means no key, so vote/withdraw/report are absent by the same
+// derivation rather than by a second rule. What it DOES get is the "Private" badge and,
+// where it matters, the sentence on the confirm path saying the OUTPUTS are not private
+// even though the grid is (`cell-private-grid-notice` in `ResultsGrid`).
+//
+// ⚠️ THE PANEL STILL HOLDS NO STATE AND RESOLVES NOTHING. Which grid is open and what
+// its members resolve to is `App`'s, and for a private grid the resolution goes through
+// the SAME `resolveMemberRows` every other grid uses — which is what keeps a private
+// member (and therefore a local id) out of every cell identity. See
+// `lib/gridEntries.ts`'s `resolveOpenGrid`.
 //
 // 🔴 WHY IT IS ITS OWN COMPONENT NOW. It used to be the top third of `GridsView`,
 // which was fine while the grids list sat directly underneath it. The board subnav
@@ -33,7 +47,7 @@
 // value.
 //
 // 🔴 IT HOLDS NO STATE AND RESOLVES NOTHING. Which grid is open, and what its members
-// resolve to against the live board, are `App`'s (see `openGridKey` there). That is
+// resolve to against the live board, are `App`'s (see `openGridRef` there). That is
 // not a style choice: hoisting the open key above the board switch is what makes an
 // in-flight run survive a trip to My Benchmarks and back, on the grid the viewer
 // actually started it on — a `useState` in here would reset to the Top Grid on
@@ -71,23 +85,32 @@ import { Alert, Badge, Group, Stack } from '@civitai/blocks-react/ui';
 import { ReportButton } from '@civitai/blocks-react/ui';
 
 import { isOwnRow } from '../lib/benchmark.js';
-import { TOP_GRID_NOTE, type GridEntry } from '../lib/gridEntries.js';
+import { TOP_GRID_NOTE, type OpenGrid } from '../lib/gridEntries.js';
 import { mutedText } from '../theme.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
 export interface GridOpenPanelProps {
   /**
-   * The open entry itself — the ONE source of "is this the system grid", "which row
-   * key do the mutations name" and "is it the viewer's".
+   * The open grid itself — the ONE source of "which of the three kinds is this",
+   * "which row key do the mutations name" and "is it the viewer's".
    *
-   * 🔴 IT REPLACED A `system: boolean` PROP, and that is not tidiness. The panel now
+   * 🔴 IT REPLACED A `system: boolean` PROP, and that is not tidiness. The panel
    * renders three row-scoped controls, and every one of them needs the row's KEY as
-   * well as the system flag. Two props derived from one object, threaded separately,
-   * is how a panel comes to show a Remove button for one grid and pass another
-   * grid's key to `withdraw`. `system` is still readable as `entry.system`.
+   * well as the kind. Two props derived from one object, threaded separately, is how a
+   * panel comes to show a Remove button for one grid and pass another grid's key to
+   * `withdraw`.
+   *
+   * 🔴 AND IT IS NOW `OpenGrid`, NOT `GridEntry`, BECAUSE THIS PANEL HAS A THIRD STATE
+   * THE GRIDS LIST DOES NOT. A viewer can open one of their OWN PRIVATE grids — a
+   * record in per-viewer KV, with a local id and no shared row — so that it can be
+   * generated into before it is published. `GridEntry`'s `system: true | false`
+   * discriminant cannot spell that without making `entry.row` a lie at every consumer
+   * that narrows on it; `lib/gridEntries.ts`'s `OpenGrid` docblock carries the whole
+   * argument. The prop is named `open` rather than `entry` so the rename is a compile
+   * error at the call site instead of a silent type widening.
    */
-  entry: GridEntry;
+  open: OpenGrid;
   /**
    * The signed-in viewer, or `null`.
    *
@@ -131,6 +154,13 @@ export interface GridOpenPanelProps {
    * never blaming an author on a TRUNCATED board scan, which is why the sentence is
    * built by `missingMembersNotice` from the scan's own truncation flag rather than
    * from a set difference alone.
+   *
+   * 🔴 ONE SLOT, TWO BUILDERS, AND THE CALLER PICKS. For a system or published grid
+   * the sentence is `missingMembersNotice`'s. For a PRIVATE grid it is
+   * `privateGridShortfall`'s, because the other one attributes the absence to "their
+   * authors removed them" and the commonest cause here is the viewer's own
+   * still-private member. Both are in `lib/gridEntries.ts`; this panel renders
+   * whichever string it is handed and attributes nothing itself.
    */
   missing: string | null;
   /** Shared keys this viewer has voted on — the same set the cards read. */
@@ -172,7 +202,7 @@ export interface GridOpenPanelProps {
 }
 
 export function GridOpenPanel({
-  entry,
+  open,
   viewerId,
   name,
   members,
@@ -188,15 +218,20 @@ export function GridOpenPanel({
 }: GridOpenPanelProps): React.JSX.Element {
   const signedIn = viewerId != null;
   /**
-   * The shared row behind the open grid, or `null` for the system entry.
+   * The shared row behind the open grid, or `null` when there is none — which is now
+   * TWO states, the system Top Grid and this viewer's own PRIVATE grid.
    *
    * 🔴 ONE NARROWING, READ BY ALL THREE CONTROLS. Each of them needs both "is there a
    * row" and "what is its key", and deriving that per control is how two of them come
-   * to disagree — the shape `App`'s `openEntry` docblock already records one level up.
+   * to disagree — the shape `App`'s open-grid docblock already records one level up.
    * It also keeps the gates type-safe without a cast.
+   *
+   * 🔴 THE PRIVATE GRID GETS NONE OF THE THREE, FOR THE SAME REASON THE TOP GRID DOES
+   * NOT: there is no shared key to pass to `shared.vote` / `withdraw` / `report`. It
+   * is not a permission decision and must not be re-spelled as one.
    */
-  const row = entry.system ? null : entry.row;
-  // 🔴 DERIVED FROM THE ENTRY, never from `name`. See this file's header.
+  const row = open.kind === 'published' ? open.row : null;
+  // 🔴 DERIVED FROM THE OPEN GRID, never from `name`. See this file's header.
   const isOwn = row !== null && isOwnRow(row, viewerId);
 
   return (
@@ -218,6 +253,23 @@ export function GridOpenPanel({
           {isOwn && (
             <Badge color="success" variant="light" data-testid="grid-open-own-badge">
               Yours
+            </Badge>
+          )}
+          {/* 🔴 THE PRIVATE STATE MARKER, AND IT READS THE SAME WORD `MyList`'s row
+              badge does — "Private", not "Draft". It names the one thing the state
+              actually means: the record lives in this viewer's own per-viewer KV and
+              has never reached `shared.append`, so no other viewer can see THE GRID.
+              ⚠️ IT SAYS NOTHING ABOUT THE OUTPUTS, and must not be read as covering
+              them — a cell's images are keyed on the matchup and the prompt, not on the
+              grid, and are published to the shared board. That is stated where the
+              viewer commits to it (`cell-private-grid-notice` in `ResultsGrid`), which
+              is the only place a badge beside a title cannot be mistaken for.
+              🔴 ITS TESTID IS `grid-open-private-badge`, distinct from `draft-badge` on
+              the list row, for the reason every other `grid-open-*` id exists: the panel
+              and a card can be on screen at once. */}
+          {open.kind === 'private' && (
+            <Badge variant="filled" data-testid="grid-open-private-badge">
+              Private
             </Badge>
           )}
           {/* 🔴 A DISTINCT TESTID FROM THE CARD'S `grid-card-members`, on purpose. The
@@ -278,14 +330,26 @@ export function GridOpenPanel({
       {/* ---- THE ROW'S OWN WORDS, which also only ever rendered on a card. The
            system entry's note is the one that earns its place twice over: it is
            where a viewer learns WHY there is no vote control beside the title. ---- */}
-      {row === null ? (
+      {/* 🔴 BRANCHED ON `open.kind`, NOT ON `row === null`. It used to be the latter,
+           which was equivalent while `null` meant "the system entry" and ONLY that;
+           the private grid makes `row === null` ambiguous, and the system note
+           ("Nobody owns it, so it cannot be voted on") is flatly wrong about a grid the
+           viewer owns. A `switch`-shaped read is also what makes a fourth kind a
+           compile error here rather than a silently-taken else. */}
+      {open.kind === 'system' ? (
         <span style={mutedText} data-testid="grid-open-system-note">
           {TOP_GRID_NOTE}
         </span>
-      ) : (
-        row.description && (
+      ) : open.kind === 'private' ? (
+        open.rec.description && (
           <span style={mutedText} data-testid="grid-open-description">
-            {row.description}
+            {open.rec.description}
+          </span>
+        )
+      ) : (
+        open.row.description && (
+          <span style={mutedText} data-testid="grid-open-description">
+            {open.row.description}
           </span>
         )
       )}

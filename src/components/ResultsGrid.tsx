@@ -66,6 +66,29 @@ export interface ResultsGridProps {
    * affordance simply does not appear.
    */
   onRetryBalance?: () => void;
+  /**
+   * `true` when the grid these cells belong to is one of the viewer's OWN PRIVATE
+   * grids (per-viewer KV, no shared row) rather than a published or the system one.
+   *
+   * 🔴 IT GATES NO MONEY BEHAVIOUR: the run, the claim, the spend, the publish and the
+   * result row's key are byte-identical either way, because a result row is not
+   * grid-scoped. Anything here that branched on it in the run path would be a second
+   * money path, and there is deliberately only one.
+   *
+   * 🔴 WHAT IT DOES GATE IS TWO PIECES OF COPY, AND THE DOCBLOCK USED TO SAY "only ever
+   * adds a sentence", which was one short. It selects {@link PRIVATE_GRID_RUN_NOTICE} on
+   * the confirm path, and it selects the EMPTY STATE: a grid assembled out of the
+   * viewer's own drafts resolves to no rows and no columns, and the system-grid empty
+   * state ("Submit and vote to fill the top slots", plus a button opening the public
+   * matchup form) told that viewer to go and make a NEW matchup when what they owe is a
+   * publish. See {@link PRIVATE_GRID_EMPTY_BODY}.
+   *
+   * 🔴 REQUIRED, NOT OPTIONAL-DEFAULTING-TO-FALSE, for the reason `GridsView.results`
+   * records about its own prop: the forgetful case degrades SILENTLY and in the unsafe
+   * direction — a viewer on a private grid who is never told the outputs go public.
+   * A fixture that omits it fails to compile instead.
+   */
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -261,6 +284,145 @@ export const BALANCE_UNKNOWN_MESSAGE = 'Your Buzz balance could not be read, so 
 export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
 
 /**
+ * Viewer-facing copy on the confirm path for a cell reached from a grid that is still
+ * PRIVATE — i.e. one of the viewer's own unpublished grids, opened so it can be
+ * generated into before it is published.
+ *
+ * 🔴 IT EXISTS BECAUSE THE GRID'S "Private" BADGE IS TRUE AND WOULD OTHERWISE BE READ
+ * AS COVERING THE OUTPUTS. It does not.
+ *
+ * ━━━ 🔴 THIS IS THE THIRD RATIONALE FOR THIS SENTENCE. TWO WERE REFUTED. ━━━
+ *
+ * Read both before editing either the string or this docblock. A fourth writer reaching
+ * for a better-sounding reason is exactly how the first two were produced.
+ *
+ *   ⚠️ REFUTED #1 — "irreversible, because `update`/`withdraw` are author-scoped and
+ *   there is no merge". BACKWARDS. `lib/sdk-runtime.ts` documents `withdraw` as "Delete
+ *   a row the viewer authored", and the viewer authors their own result rows — so
+ *   author-scoping is precisely what would PERMIT removal, not forbid it. (No control in
+ *   this app withdraws a result row today, which is a fact about the UI and NOT the
+ *   data-model claim the sentence was making.)
+ *
+ *   ⚠️ REFUTED #2 — "right away and permanently, because the run's publish step is an
+ *   unconditional `publish({ workflowId })`". The CALL SITE is unconditional; the PUBLISH
+ *   is not. Three reachable branches in `App.tsx`'s `driveToResult` end with no images on
+ *   the board: a workflow that goes terminal non-`succeeded` (the Buzz is spent and
+ *   nothing is published), the `publish()` call itself — which is HOST-CONSENT-GATED, so
+ *   a refusal or a consent timeout rejects into the `catch` and the cell lands `failed` —
+ *   and the `imageIds.length > 0` guard before the `shared.append`. So "right away" is
+ *   false even on the happy path: there is a SECOND human confirm after generation.
+ *
+ * 🔴 SO BOTH CLAUSES ARE DELETED RATHER THAN RE-ARGUED. "Permanently" could not be
+ * established and is gone; "right away" was false and is replaced by the confirm it
+ * concealed. No replacement reason was sought for either — "I could not establish this"
+ * is the finding, and a reason found under pressure to supply one is a hypothesis.
+ *
+ * 🔴 WHAT EACH SURVIVING CLAUSE RESTS ON, and nothing is in the string that is not here:
+ *
+ *   - "that does not cover its cells’ images" — the grid record lives in per-viewer KV
+ *     and says nothing about any result row;
+ *   - "stored against the matchup and the prompt — not against this grid" — a result
+ *     row's key is `result:${comboKey}·${configId}×${promptKey}` (`buildResultPayload`
+ *     in `lib/benchmark.ts`), which names no grid;
+ *   - "every grid that contains the cell shows them to every viewer" — the row is on the
+ *     shared board, so every viewer's scan reads it, and every grid whose members make
+ *     that cell renders it;
+ *   - "If the run succeeds you will be asked to confirm publishing them there" — the
+ *     `publish()` host dialog above, reached only from the `terminal.status ===
+ *     'succeeded'` branch. Independently confirmed against
+ *     `@civitai/blocks-react/dist/hooks/usePublishGenerationOutputs.d.ts`, which calls
+ *     it "CONSENT-GATED, SO IT WAITS ON A PERSON" and documents a rejection on the
+ *     consent timeout.
+ *
+ * ⚠️ ONE BOUND ON THAT LAST CLAUSE, STATED RATHER THAN HIDDEN: `driveToResult` returns
+ * BEFORE the dialog when `cellHasResult` finds the cell already published — a racer or a
+ * prior session got there first. The viewer is then not asked, and nothing of theirs is
+ * published. The sentence errs toward warning in that window, which is the safe direction
+ * for a privacy notice, and it is a race a confirm panel on an EMPTY cell reaches rarely.
+ *
+ * ⚠️ AND TWO MORE WINDOWS WHERE THAT CLAUSE'S PROMISE DOES NOT FIRE — named rather than
+ * left out, because the sentence says "you will be asked". Read in a LOCAL checkout of
+ * `civitai/civitai` at `15cfe259df`, which is NOT deployed host code and was not
+ * compared against any: `PageBlockHost`'s `PUBLISH_GENERATION_OUTPUTS` handler drops the
+ * message outright when the request does not resolve (`if (!req) return`), and replies
+ * `error: 'no block token'` with no dialog when the page holds no block token. In
+ * neither does a dialog open, so the viewer is not asked — and in neither is anything
+ * published: the first leaves the SDK call to reject on the consent-length timeout
+ * `usePublishGenerationOutputs` documents, the second rejects immediately, and both land
+ * in the `catch` of `runCell`/`resumeRun` — `driveToResult` itself has none, it lets the
+ * rejection out — with the cell set `failed`. So the sentence over-promises the ASK in
+ * those windows while erring toward warning on the PRIVACY, which is the safe
+ * direction. 🔴 WHAT IS NOT ESTABLISHED: that the deployed host behaves like that
+ * checkout, at this or any commit. Nothing here was measured against a live host.
+ *
+ * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`, which types the text
+ * out as its OWN literal (`EXPECTED_RUN_NOTICE`) and compares BOTH the rendered notice
+ * and this constant against it. ⚠️ THAT IS NEW, AND THIS LINE CLAIMED IT ALREADY: the
+ * guard compared the rendered text to THIS CONSTANT, so a reword moved both sides at
+ * once and stayed green through any rewrite — including one putting a refuted clause
+ * back. Measured: that mutation left 69 files / 1027 tests green. The literal is what
+ * makes a reword cost a second edit; see that file's literals header.
+ */
+export const PRIVATE_GRID_RUN_NOTICE =
+  'This grid is private, but that does not cover its cells’ images. A cell’s outputs ' +
+  'are stored against the matchup and the prompt — not against this grid — so once they ' +
+  'reach the shared board, every grid that contains the cell shows them to every ' +
+  'viewer, whether or not you ever publish this one. If the run succeeds you will be ' +
+  'asked to confirm publishing them there.';
+
+/**
+ * The empty-state copy for an open grid that is still PRIVATE and resolves to no cells.
+ *
+ * 🔴 IT EXISTS BECAUSE THE SYSTEM-GRID EMPTY STATE WAS A DEAD END WITH THE WRONG WORDS,
+ * in the state this feature is MOST LIKELY TO BE FIRST SEEN IN. A viewer assembles a grid
+ * from the matchups and prompts they are still drafting; none of those has a row on the
+ * board, so `resolveOpenGrid` yields 0 × 0 and the matrix is empty. What rendered there
+ * was "No benchmark grid yet / …Submit and vote to fill the top slots" plus a **Submit a
+ * matchup** button opening the PUBLIC submit form — i.e. the viewer who had just built a
+ * grid was told it was empty and sent to author a new matchup, when the next step is to
+ * publish the members they already have.
+ *
+ * 🔴 AND IT CARRIES NO BUTTON, DELIBERATELY. The next step is on another surface (My
+ * Benchmarks ▸ Matchups / Prompts) and `ResultsGrid` has no callback that reaches it —
+ * the two it has open the public submit modals, which is the wrong action. A wrong button
+ * is worse than none; the step is named in words instead. Wiring a real one means a new
+ * prop threaded from `App`, which is a separate change.
+ *
+ * ⚠️ IT NAMES NO AXIS, WHICH THE PUBLIC COPY DOES. The public branch distinguishes "no
+ * rows" from "no columns" because the two have different submit forms; here the remedy is
+ * the same for both, and `grid-open-members` above already states the resolved shape
+ * ("0 matchups × 0 prompts"). That is the trade, not an omission.
+ *
+ * ⚠️ AND THE RULE CLAUSE IS ABOUT ROWS THE APP HAS *READ*, not about rows that exist. On a
+ * board over `listAll`'s page cap a member's row may be unread rather than absent — the
+ * same correction `privateGridShortfall` carries, for the same reason. The sentence stays
+ * true on a truncated scan.
+ *
+ * 🔴 ⚠️ THE FIRST DRAFT OF THIS BODY WAS FALSE AND IS RETRACTED HERE RATHER THAN QUIETLY
+ * REPLACED — written in the same round that corrected two other people's rationales, which
+ * is the point of recording it. It ended "Publish your own private matchups and prompts
+ * from My Benchmarks, and they will appear in this grid." They do NOT. A private grid
+ * stores its members as BARE LOCAL IDS (`App`'s `matchupPickerItems` uses
+ * `key: d.localId`), `resolveMemberRows` matches those against board rows BY KEY, and
+ * publishing a member on its own mints a NEW host-minted key while the grid still names
+ * the old local id. Nothing on the open-grid path rewrites it: the local-id → shared-key
+ * rewrite lives in `lib/gridCascade.ts` and runs only on the GRID publish. Measured by
+ * `lib/gridEntries.test.ts`'s "a member-only publish does not rescue the reference" case,
+ * which is the guard this retraction left behind.
+ *
+ * 🔴 SO THE TWO REMEDIES NAMED ARE THE TWO THAT WORK, and both are traceable: publishing
+ * the GRID cascades through `planGridCascade` (publish the private members first, then
+ * `remapGridKeys` through the `resolved` map), and editing the grid to name board
+ * members needs no rewrite at all. "Publish the member" is deliberately NOT offered.
+ */
+export const PRIVATE_GRID_EMPTY_TITLE = 'This grid has no cells yet';
+export const PRIVATE_GRID_EMPTY_BODY =
+  'A matchup or a prompt becomes a row or a column here only once the app has read its ' +
+  'row off the shared board. Publishing the grid is what publishes its private members ' +
+  'and repoints it at them — or edit the grid to name matchups and prompts that are ' +
+  'already on the board.';
+
+/**
  * The confirm gate, as ONE three-valued decision instead of a boolean plus a
  * ternary that disagreed with it.
  *
@@ -384,6 +546,7 @@ export function ResultsGrid({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -406,6 +569,21 @@ export function ResultsGrid({
   // columns are two different objects with two different submit forms, and the
   // old single sentence made the reader work out which one to go and fix.
   if (configs.length === 0 || prompts.length === 0) {
+    // 🔴 THE PRIVATE ARM COMES FIRST AND TAKES NO ACTION. The copy below is about the
+    // TOP GRID — "Submit and vote to fill the top slots" is how the system grid's members
+    // are chosen — and it is flatly wrong about a grid the viewer authored out of their
+    // own drafts, where the matrix is empty because the members are not published yet.
+    // See {@link PRIVATE_GRID_EMPTY_BODY} for the dead end this closes and for why there
+    // is no button.
+    if (privateGrid) {
+      return (
+        <EmptyState
+          data-testid="grid-empty"
+          title={PRIVATE_GRID_EMPTY_TITLE}
+          body={PRIVATE_GRID_EMPTY_BODY}
+        />
+      );
+    }
     const needsCombination = configs.length === 0;
     const needsPrompt = prompts.length === 0;
     const body = needsCombination && needsPrompt
@@ -523,6 +701,7 @@ export function ResultsGrid({
             buzzTotal={buzzTotal}
             buzzBalanceLoading={buzzBalanceLoading}
             onRetryBalance={onRetryBalance}
+            privateGrid={privateGrid}
             GatedCell={GatedCell}
             onRunCell={onRunCell}
             onConfirmRun={onConfirmRun}
@@ -748,6 +927,7 @@ interface RowProps {
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -766,6 +946,7 @@ function RowFragment({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -822,6 +1003,7 @@ function RowFragment({
           buzzTotal={buzzTotal}
           buzzBalanceLoading={buzzBalanceLoading}
           onRetryBalance={onRetryBalance}
+          privateGrid={privateGrid}
           GatedCell={GatedCell}
           onRunCell={onRunCell}
           onConfirmRun={onConfirmRun}
@@ -843,6 +1025,7 @@ interface CellProps {
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   GatedCell: GatedCellComponent;
   onRunCell: (config: BenchConfig, prompt: PromptRow) => void;
   onConfirmRun: (config: BenchConfig, prompt: PromptRow) => void;
@@ -860,6 +1043,7 @@ function Cell({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   GatedCell,
   onRunCell,
   onConfirmRun,
@@ -895,6 +1079,7 @@ function Cell({
           buzzTotal={buzzTotal}
           buzzBalanceLoading={buzzBalanceLoading}
           onRetryBalance={onRetryBalance}
+          privateGrid={privateGrid}
           onConfirm={() => onConfirmRun(row, prompt)}
           onResume={() => onResumeRun(row, prompt)}
           onCancel={() => onCancelRun(row, prompt)}
@@ -936,6 +1121,7 @@ function CellRunState({
   buzzTotal,
   buzzBalanceLoading,
   onRetryBalance,
+  privateGrid,
   onConfirm,
   onResume,
   onCancel,
@@ -944,6 +1130,7 @@ function CellRunState({
   buzzTotal: number | null;
   buzzBalanceLoading?: boolean;
   onRetryBalance?: () => void;
+  privateGrid: boolean;
   onConfirm: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -974,6 +1161,30 @@ function CellRunState({
           This generates images that will be added to the <strong>public</strong> benchmark grid, visible to
           all viewers.
         </span>
+        {/* 🔴 THE EXTRA SENTENCE A PRIVATE GRID NEEDS, AND IT IS ADDITIVE RATHER THAN
+            A REPLACEMENT. `cell-public-notice` above is true on every grid and stays;
+            what the private case needs on top of it is that the grid's OWN privacy —
+            which the panel badges a few hundred pixels up — does not extend to these
+            outputs. On the confirm panel because that is the press that SPENDS, and the
+            last point at which a viewer who has misread the badge can still stop.
+
+            ⚠️ IT IS NOT THE PRESS THAT MAKES ANYTHING PUBLIC, WHICH IS WHAT THIS SAID.
+            REFUTED #2 in {@link PRIVATE_GRID_RUN_NOTICE}'s docblock: there is a SECOND,
+            host-side confirm after generation, and three branches that end with nothing
+            on the board.
+
+            🔴 READ THAT DOCBLOCK BEFORE TOUCHING THE STRING — it is the third rationale
+            for the sentence, and it carries four surviving clauses, two refutations and
+            two bounds, not "the three code facts" this comment used to promise. The
+            text is pinned as a typed literal in `src/gridOpenPrivate.test.tsx`. */}
+        {privateGrid && (
+          <span
+            style={{ color: token.error, fontSize: 11 }}
+            data-testid="cell-private-grid-notice"
+          >
+            {PRIVATE_GRID_RUN_NOTICE}
+          </span>
+        )}
         {(gate === 'insufficient' || gate === 'cost-unknown') && (
           <span style={{ color: token.error, fontSize: 11 }} data-testid="cell-insufficient">
             {gate === 'insufficient' ? 'Insufficient Buzz balance' : 'Cost unavailable'}
