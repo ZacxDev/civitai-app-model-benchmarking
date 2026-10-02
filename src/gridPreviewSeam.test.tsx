@@ -231,8 +231,12 @@ describe('🔴 the matrix/card seam: the open grid has no card, so it cannot re-
   it('the OPEN grid contributes NO card while the matrix shows its images — one render, exact counts', async () => {
     renderApp();
     const matrix = await screen.findByTestId('results-grid');
-    // The Top Grid is open by construction (`openKey === null`), and it is the
-    // system entry — so the default page load is exactly the state the defect hit.
+    // The Top Grid is open by construction — `openGridRef` initialises to
+    // `{ kind: 'system' }`, so `openKeyResolved` is `SYSTEM_GRID_DOM_KEY` — and it is
+    // the system entry, so the default page load is exactly the state the defect hit.
+    // ⚠️ THIS SAID "`openKey === null`", WHICH IS NOW FALSE: `null` means "nothing in
+    // the list is open", the state a PRIVATE grid being open produces. This case passes
+    // either way because it drives the real `App`; only the comment was wrong.
     // ONE card, not two: the open grid is not listed.
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 

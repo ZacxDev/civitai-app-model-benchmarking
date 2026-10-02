@@ -1234,8 +1234,10 @@ describe('#3 estimate rejection: a workflow that cannot be priced fails honestly
 // case 1 as "the count guard" — that is backwards, and it deletes the only money
 // assertion in the block that a runs-clearing regression can move.
 //
-// 🔴 AND THE THIRD CASE IS THE ONE THAT CHANGED PRODUCTION CODE. `openGridKey` was a
-// `useState` inside `GridsView`; it is `App`'s now. Without that hoist, returning from
+// 🔴 AND THE THIRD CASE IS THE ONE THAT CHANGED PRODUCTION CODE. The open-grid state
+// was a `useState` inside `GridsView`; it is `App`'s now, as `openGridRef` (it was
+// spelled `openGridKey: string | null` when this was written — a RENAME, not a change of
+// substance: see `OpenGridRef` for why it is a tagged three-way reference now). Without that hoist, returning from
 // My Benchmarks resets the open grid to the Top Grid, so a viewer who started a run
 // inside a community grid comes back to a DIFFERENT matrix with their stalled cell
 // nowhere on screen: charged, still running, invisible, and the only route back is to
@@ -1244,10 +1246,10 @@ describe('#3 estimate rejection: a workflow that cannot be priced fails honestly
 // adopted-cell-cannot-resume bug this file already guards.
 //
 // ⚠️ AND IT CLOSES THE VIEW-SWITCH HALF ONLY — do not read case 3 as closing the
-// charged-running-invisible shape. `openGridKey` is NOT PERSISTED (no KV write, no URL —
+// charged-running-invisible shape. `openGridRef` is NOT PERSISTED (no KV write, no URL —
 // operator decision, YAGNI), so after a RELOAD the app opens on the Top Grid and a
 // stalled cell on a community grid is off-screen again, exactly as before. That half is
-// unchanged by this stack rather than introduced by it: `openGridKey` was equally
+// unchanged by this stack rather than introduced by it: the state was equally
 // unpersisted as `GridsView`'s own `useState`. Persisting it is a separate decision
 // nobody has made, and no case in this block covers the reload path.
 describe('#5 the view switch: a live run survives a trip to My Benchmarks', () => {
@@ -1465,14 +1467,14 @@ describe('#5 the view switch: a live run survives a trip to My Benchmarks', () =
   });
 
   it('🔴 the OPEN GRID survives the round trip, so a stalled cell is still on screen', async () => {
-    // 🔴 THE CASE THE HOIST EXISTS FOR. `openGridKey` was `GridsView`'s `useState`;
+    // 🔴 THE CASE THE HOIST EXISTS FOR. The open-grid state was `GridsView`'s `useState`;
     // navigating away unmounts that component, so coming back reset the open grid to the
     // Top Grid. A viewer who started a run inside a community grid would return to a
     // different matrix with their in-flight cell nowhere on screen — charged, running,
     // invisible.
     //
     // ⚠️ SCOPE, STATED SO THIS CASE IS NOT READ AS MORE: it covers the VIEW SWITCH, not
-    // a RELOAD. `openGridKey` is not persisted, so a reload still opens on the Top Grid
+    // a RELOAD. `openGridRef` is not persisted, so a reload still opens on the Top Grid
     // with a community grid's stalled cell off-screen — see the §5 header.
     const submit = vi.fn(async () => processingSnap);
     const { shared } = fakeShared({ seed: seedWithGrid() });

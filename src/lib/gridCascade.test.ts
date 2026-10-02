@@ -4,11 +4,16 @@
 // 🔴 WHAT THE CLASSIFIER IS FOR, SO THE CASES BELOW READ AS CLAIMS AND NOT TRIVIA.
 // A grid stores member KEYS. Until the private-member change every one of them was
 // a host-minted SHARED key; a private matchup or prompt has only a per-viewer LOCAL
-// id. A published grid row is world-readable and effectively permanent
-// (`shared.update`/`withdraw` are author-scoped, there is no merge), so a row naming
-// a local id is a permanent public reference nobody else can resolve. The classifier
-// is what decides, per key, whether something has to be published first and what the
-// key must be rewritten to.
+// id. A published grid row is world-readable, so a row naming a local id is a public
+// reference NO OTHER VIEWER can resolve — and that nobody at all can resolve once the
+// private record is gone. The classifier is what decides, per key, whether something
+// has to be published first and what the key must be rewritten to.
+//
+// ⚠️ THIS PARAGRAPH USED TO SAY "effectively permanent (`shared.update`/`withdraw` are
+// author-scoped, there is no merge)". That inference is REFUTED — author-scoping is what
+// PERMITS the author to remove the row, and a grid row has a withdraw control in this
+// app. `lib/gridCascade.ts`'s header carries the correction and its bound; the claim
+// this file's cases rest on is UNRESOLVABILITY by other viewers, never permanence.
 //
 // 🔴 THE POINTER BRANCH IS THE ONE THAT IS EASY TO LOSE AND EXPENSIVE TO LOSE. A
 // local id whose record has ALREADY become a `PublishedPointer` must resolve to the

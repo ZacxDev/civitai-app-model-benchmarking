@@ -394,3 +394,101 @@ licence to build it unasked.
   changing no layout: set `pointer-events: none` on the sticky footer, re-hit-test, click,
   then RESTORE it.
 
+
+### EVICTED 2026-10-02 — the Qwen-Image cell, full ruled-out evidence
+
+### The Qwen-Image cell can never be filled, and this account cannot remove it
+- as-of: 2026-09-30
+- **Symptom + exact repro:** the Top Grid's Qwen-Image × "Lighthouse on a rocky coast at sunset"
+  cell renders `not generated yet` / `Run this cell` and appears in ALL THREE board capture
+  assets, because the Top Grid matrix renders above every board. The operator reports the
+  checkpoint is no longer available, so the cell can never produce an image.
+- **Observed (with values):** live, as session `zachlowdenzx` (id 8753561): 20 grid cells, 19
+  `result-image`, 1 empty. The Run button is **`disabled: false`** — the app does not know the
+  checkpoint is gone and would attempt a spend. The matchup holding it, "Modern text-to-image
+  baselines", offers **Edit 0 · Withdraw 0 · Report 1**; the sibling card "Community
+  checkpoints: SD 1.5 vs Illustrious" offers **Edit 1 · Withdraw 1 · Report 0** as a positive
+  control proving the query can see those controls. `via: measurement`
+- **Ruled out:** *"remove it from the operator's own grid"* — the empty cell is in the SYSTEM
+  Top Grid, whose members are `topByVotes(combinations, DEFAULT_TOP_N)` (`App.tsx:1001`);
+  `openGridKey` defaults to `null` = Top Grid (`App.tsx:535`), and the captures are taken at
+  boot. Editing the operator's own grid changes nothing in the assets. `via: code`
+- **Ruled out:** *"the operator can edit or withdraw the matchup"* — `canEdit = isOwn && …`
+  (`MatchupBody.tsx:122`), and both controls are absent for this viewer against a firing
+  positive control on the sibling card. They do not own it. `via: measurement`
+- **Ruled out:** *"sign in as another account"* — workbench `work` and laptop `work` are both
+  `zachlowdenzx` (8753561); laptop `personal` returns `{}` (signed out), read same-origin after
+  a cross-origin read returned a misleading `None`. No second Civitai account is reachable on
+  either host. `via: measurement`
+- **Leading hypothesis:** nothing this account can do removes it. It leaves the board only by
+  the author acting, or by the matchup falling out of the top-N on votes — and with two
+  matchups on the board and `DEFAULT_TOP_N` above that, it cannot fall out today.
+- **Next probe:** decide rather than measure — ship the placeholder as a recorded exception,
+  submit a competing matchup with live checkpoints, or ask the author. If ships-as-is, note it
+  against `shelf-life-and-what-not-to-shoot.md:59` in the capture PR.
+
+### EVICTED 2026-10-02 — two open investigations, full prose (720px, mock host)
+
+### A 720px viewport reports `innerWidth: 721` and the block stays desktop
+- as-of: 2026-09-29
+- **Symptom + exact repro:** emulate a 720px-wide viewport against the live app; the block
+  reports `innerWidth: 721` and renders the desktop sidebar rather than the compact top bar.
+  Reproduced **3×**.
+- **Observed (with values):** `innerWidth` 721 at a requested 720. The breakpoint is
+  `MOBILE_BREAKPOINT_PX` in `src/compact.ts`, consumed by `src/useMediaQuery.ts` as
+  `(max-width: <n>px)` — an inclusive bound, so 721 legitimately fails it. The collapse DOES
+  fire at 718. `via: measurement`
+- **Leading hypothesis:** nothing has been eliminated yet — two rivals, and nothing observed
+  separates them — (a) OOPIF/CDP
+  emulation rounding, i.e. an artefact of how the block's iframe is sized inside the host
+  page, or (b) a real off-by-one in how the host sizes the frame, which would mean a physical
+  720px device gets the desktop layout. 🔴 An empty/ambiguous result cannot distinguish them;
+  do not pick the convenient one.
+- **Next probe:** the discriminator is a NON-EMULATED 720px width — a physical device, or a
+  real browser window resized to 720 outer width with the iframe's own `innerWidth` read from
+  inside the frame. If the frame reports 720 there, (a) is confirmed and this closes.
+
+### Does the installed mock host serve gated images? `Harness.tsx:22-25` may be stale prose
+- as-of: 2026-09-29
+- **Symptom + exact repro:** `src/Harness.tsx:22-25` asserts "the 0.30 publish/gated hooks
+  have no mock-host scenario in the installed (pre-0.30) testing package, so the grid's gated
+  cells render fail-closed (hidden) in the harness". The taste pass reported this as factually
+  wrong. It decides whether ~10 run-cell states are capturable at all.
+- **Observed (with values):** installed is `@civitai/blocks-react@0.51.0` — the comment's
+  "(pre-0.30)" premise is stale by version number alone, **confirmed**. But the installed
+  `dist/testing.d.ts` is 3,989 B and contains **0** occurrences of `gated`, `Gated`,
+  `publish`, `Publish` or `image`, against a firing positive control in the SAME command
+  (`Harness` 9, `createMockHost` 3, `viewer` 1) — so the zeros are real and not a broken
+  pattern. `src/test-harness.tsx:17` confirms gated images ride the bridge `<Harness>`, not
+  the REST fake. `via: measurement`
+- **Ruled out:** *"the type surface settles it"* — `testing.d.ts` is a thin 4 KB re-export
+  surface; a scenario implemented at runtime need not be named there. **A type declaration is
+  not a code path**, and its silence is evidence about the `.d.ts`, not about the mock host.
+  `via: code`
+- **Leading hypothesis:** the comment's PREMISE is stale (confirmed) while its CONCLUSION may
+  still hold by accident — 0.51.0 may still not implement those scenarios. The taste pass ran
+  against the LIVE app and never booted the harness, so it is unclear what evidence it had;
+  treat its runtime claim as UNVERIFIED. 🔴 The same wrong constraint was written into this
+  session's own recon and into the agent's brief, so it has now propagated three times.
+- **Next probe:** boot it and look — `pnpm run dev:harness` then, in headless chromium,
+  grep the DOM for `result-image` / `result-hidden` / `result-pending` / `gated-loading`.
+  Present ⇒ the comment is wrong and must be corrected in-file; absent ⇒ the comment is right
+  for a stale reason and its "(pre-0.30)" clause should be rewritten. Either way the file
+  changes.
+
+
+### EVICTED 2026-10-02 — the five guards that proved less than they claimed
+
+- 🔴 **THE WHOLE SESSION'S PATTERN: every defect that mattered PASSED CI, and none would
+  have been caught by reading the code.** Five guards proved less than they claimed:
+  (1) the sidebar depth indent was DEAD — `padding: '6px 10px'` after `paddingLeft` in
+  the same style object, and React serialises in INSERTION ORDER, so every nav row sat at
+  10px; the only witness asserted `--civitai-nav-depth`, **which nothing in this tree
+  consumes**. (2) `money-path` §5 case 1 was VACUOUS — its spend-attempt helper pressed
+  Run, which set `confirming`, which made the cell render as `running`, so the helper
+  REPAIRED both observables the case then asserted. (3) the no-navigation guard pinned
+  the MECHANISM (`NAVIGATE`) not the STATE, so `window.open` and `window.location.href`
+  handlers both survived. (4) `includedCount={0}` at two of four call sites left the full
+  suite green. (5) a report test switched BOARDS rather than unmounting, so its mutant
+  stayed green. **The lesson that generalises: ask what property your witness actually
+  reads, and whether anything consumes it.**

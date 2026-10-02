@@ -120,6 +120,7 @@ function renderGrid() {
       onConfirmRun={vi.fn()}
       onResumeRun={vi.fn()}
       onCancelRun={vi.fn()}
+      privateGrid={false}
       onOpenMatchup={onOpenMatchup}
       onOpenPrompt={onOpenPrompt}
     />,

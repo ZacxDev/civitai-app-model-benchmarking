@@ -50,7 +50,7 @@ import { relative, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { productionReachable, scannedSources } from './lib/sourceScan.js';
+import { productionReachable, scannedSources, stripComments } from './lib/sourceScan.js';
 
 /*
  * 🔴 THE WALKER IS `lib/sourceScan.ts` NOW, NOT A LOCAL COPY, and the reason is a
@@ -84,10 +84,14 @@ import { productionReachable, scannedSources } from './lib/sourceScan.js';
  * over-stripping is a FALSE NEGATIVE — the quiet kind. So `//` is only treated as a
  * comment when it is not preceded by `:`, which covers every URL in this tree, and the
  * stripper is validated by its own controls below rather than trusted.
+ *
+ * 🔴 THE IMPLEMENTATION MOVED TO `lib/sourceScan.ts` AND IS IMPORTED. It was a local
+ * function here while this file was the only consumer; `rowActions.test.tsx`'s
+ * structural ledger now needs the same strip, and a second copy of it is precisely the
+ * drift `sourceScan.ts`'s own header records about the walker it already de-duplicated.
+ * The CONTROLS stay here — this file is where the stripper is validated, and the other
+ * ledger reads a stripper that has been watched working.
  */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-}
 
 const SRC = resolve(process.cwd(), 'src');
 const SCANNED = scannedSources(SRC);

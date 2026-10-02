@@ -24,15 +24,22 @@ import { DEFAULT_TOP_N, indexResultsByCell } from './benchmark.js';
 import {
   buildTopGrid,
   communityGridEntries,
+  entryDomKey,
   entryKeys,
   gridMemberSummary,
   gridPreviewIds,
   GRID_PREVIEW_MAX,
   missingMembersNotice,
+  openGridName,
+  openSystemGrid,
   orderGridsByVotes,
+  privateGridShortfall,
   resolveGridRows,
+  resolveOpenGrid,
+  SYSTEM_GRID_DOM_KEY,
   TOP_GRID_NAME,
   type GridEntry,
+  type OpenGrid,
 } from './gridEntries.js';
 
 // ---------------------------------------------------------------------------
@@ -536,5 +543,339 @@ describe('gridPreviewIds — the one batched read per card, in the node tier', (
     );
     expect(ids).toEqual([91, 92]);
     expect(total).toBe(2);
+  });
+});
+
+// ===========================================================================
+// 🔴 THE OPEN GRID — the third kind, and the property the whole feature rests on
+//
+// `OpenGrid` is a SUPERSET of `GridEntry`: the open panel can show a grid that is
+// still in the viewer's own per-viewer KV, which the Grids LIST cannot. These cases
+// are the node-tier half of `src/gridOpenPrivate.test.tsx`; that file drives the real
+// `App` and asserts against the `shared.append` log, this one pins the pure rules the
+// App composes.
+// ===========================================================================
+
+/**
+ * The per-viewer LOCAL ids a private grid stores as member keys.
+ *
+ * 🔴 BARE, NOT STORAGE-KEY-SHAPED, AND THAT IS A CORRECTION. These fixtures used
+ * `'draft:v1:dm-1'` / `'unpub:prompt:v1:dp-1'`, which are the KV KEYS the records live
+ * under (`draftKey` / `unpubPromptKey`) and NOT what a grid holds: `App` builds the
+ * picker's items with `key: d.localId` (`App.tsx`'s `matchupPickerItems`), so a private
+ * member key on the wire is the bare local id. The absence assertions below therefore
+ * scanned for a prefix production never produces — green, and about nothing.
+ *
+ * 🔴 PAIRWISE DISTINCT, AND NO SUBSTRING OF ANY BOARD KEY in `MANY_MATCHUPS` /
+ * `MANY_PROMPTS` (all `mk-*` / `qk-*`), which is what makes a `not.toContain` over the
+ * serialised result a real claim rather than one a board key could satisfy.
+ */
+const LOCAL_MATCHUP = 'dm-1';
+const LOCAL_PROMPT = 'dp-1';
+const LOCAL_PROMPT_2 = 'dp-2';
+
+/** An `UnpublishedGrid`-shaped record: a local id, no key, no count, no author. */
+function privateGrid(matchupKeys: string[], promptKeys: string[]) {
+  return {
+    v: 1 as const,
+    localId: 'ug-local-1',
+    name: 'My private grid',
+    description: 'not on the board',
+    matchupKeys,
+    promptKeys,
+    updatedAt: '2026-10-01T00:00:00.000Z',
+  };
+}
+
+describe('🔴 the open grid: three kinds, one resolver', () => {
+  // 🔴 THE THREE-KIND KEY READ, ASSERTED THROUGH THE RESOLVER RATHER THAN THROUGH
+  // `openGridKeys`. That helper was exported with exactly one production consumer —
+  // `resolveOpenGrid`, in its own module — and this case was the second call site that
+  // made it look like module surface; it is module-private now. The claim is unchanged
+  // and is now made where it MATTERS: which rows and columns the matrix is built from.
+  // An intermediate key list that is right while the resolution is wrong buys nothing.
+  it('🔴 resolveOpenGrid reads the authored keys out of each of the three kinds', () => {
+    const top = openSystemGrid(buildTopGrid(MANY_MATCHUPS, MANY_PROMPTS));
+    // 🔴 LITERALS, NOT `buildTopGrid(...)` RE-CALLED. An expectation computed from the
+    // implementation passes whatever the implementation says. `DEFAULT_TOP_N` is 5 and
+    // these are the five highest counts in `MANY_MATCHUPS`, in descending order — and
+    // every one of them is on the board, so all five survive resolution.
+    expect(resolveOpenGrid(top, MANY_MATCHUPS, MANY_PROMPTS).matchups.map((r) => r.key)).toEqual([
+      'mk-alpha',
+      'mk-echo',
+      'mk-foxtrot',
+      'mk-delta',
+      'mk-bravo',
+    ]);
+
+    const published: OpenGrid = {
+      kind: 'published',
+      row: grid('gk-p', 9, ['mk-echo', 'mk-golf'], ['qk-tango']),
+    };
+    const pub = resolveOpenGrid(published, MANY_MATCHUPS, MANY_PROMPTS);
+    expect(pub.matchups.map((r) => r.key)).toEqual(['mk-echo', 'mk-golf']);
+    expect(pub.prompts.map((r) => r.key)).toEqual(['qk-tango']);
+
+    const priv: OpenGrid = { kind: 'private', rec: privateGrid(['mk-bravo'], ['qk-romeo']) };
+    const privResolved = resolveOpenGrid(priv, MANY_MATCHUPS, MANY_PROMPTS);
+    expect(privResolved.matchups.map((r) => r.key)).toEqual(['mk-bravo']);
+    expect(privResolved.prompts.map((r) => r.key)).toEqual(['qk-romeo']);
+    // ⚠️ THERE WAS A CROSS-ARM INEQUALITY HERE — `privResolved.matchups` ≠
+    // `pub.matchups`, labelled "THE DISCRIMINATOR BETWEEN THE THREE ARMS" — AND IT IS
+    // DELETED, not demoted. The three `toEqual`s above pin each arm to a LITERAL key
+    // list, and those three literals are pairwise distinct, so the inequality is implied
+    // by assertions that have already run: it cannot fail while they pass, and it can
+    // never be the assertion that catches anything. That is the same vacuity for which
+    // `rowActions.test.tsx` deleted its own CLAIM 5 in this PR. The discrimination
+    // between arms is carried by the literals themselves — a resolver that ignored
+    // `kind` and always read the system key list fails the `published` and `private`
+    // expectations outright, because neither literal is the system one.
+  });
+
+  it('openGridName: the system name, else the record name, else "Untitled grid"', () => {
+    expect(openGridName(openSystemGrid(buildTopGrid(MANY_MATCHUPS, MANY_PROMPTS)))).toBe(
+      TOP_GRID_NAME,
+    );
+    expect(openGridName({ kind: 'published', row: grid('gk-p', 1, [], []) })).toBe('Grid gk-p');
+    expect(openGridName({ kind: 'private', rec: privateGrid([], []) })).toBe('My private grid');
+    // The empty-name fallback, on BOTH kinds that can have one — a `||` dropped from
+    // either arm would otherwise render a blank title.
+    expect(
+      openGridName({ kind: 'published', row: { ...grid('gk-p', 1, [], []), name: '' } }),
+    ).toBe('Untitled grid');
+    expect(
+      openGridName({ kind: 'private', rec: { ...privateGrid([], []), name: '' } }),
+    ).toBe('Untitled grid');
+  });
+
+  // -------------------------------------------------------------------------
+  // 🔴 THE INVARIANT: A PRIVATE MEMBER CONTRIBUTES NO ROW AND NO COLUMN.
+  //
+  // That is what keeps a per-viewer LOCAL id out of every cell identity, and a cell
+  // identity is what every result row is written under (`buildResultPayload`). The
+  // feature is safe because the resolver resolves against the BOARD — not because
+  // anything checks for a local id.
+  // -------------------------------------------------------------------------
+  it('🔴 resolveOpenGrid excludes a PRIVATE member from both axes, and counts it as short', () => {
+    // 🔴 ASYMMETRIC AND PAIRWISE DISTINCT: 2 board + 1 local on the matchup axis, 1
+    // board + 2 local on the prompt axis. Every number below (1, 2, 3, 6) is distinct
+    // from every other, so a count read off the wrong axis fails.
+    const open: OpenGrid = {
+      kind: 'private',
+      rec: privateGrid(
+        ['mk-alpha', LOCAL_MATCHUP, 'mk-bravo'],
+        ['qk-tango', LOCAL_PROMPT, LOCAL_PROMPT_2],
+      ),
+    };
+    const resolved = resolveOpenGrid(open, MANY_MATCHUPS, MANY_PROMPTS);
+
+    expect(resolved.matchups.map((r) => r.key)).toEqual(['mk-alpha', 'mk-bravo']);
+    expect(resolved.prompts.map((r) => r.key)).toEqual(['qk-tango']);
+    expect(resolved.missingMatchups).toBe(1);
+    expect(resolved.missingPrompts).toBe(2);
+    expect(resolved.missingTotal).toBe(3);
+    expect(resolved.authoredTotal).toBe(6);
+    // A WHOLE-SHAPE LEDGER, AND ⚠️ IT IS NOT "THE CLAIM STATED THE OTHER WAY ROUND",
+    // WHICH IS WHAT THIS SAID. MEASURED, isolated to one expression — `resolveMembers`
+    // (`lib/grids.ts`) changed to `present.push(key)` unconditionally, so an UNRESOLVED
+    // key survives into `present` while both missing counts stay correct: 53 failed /
+    // 974 passed across the whole suite, and THIS case died at line 672, the FIRST
+    // `toEqual` above, on `TypeError: Cannot read properties of undefined (reading
+    // 'key')` — it never reached these three absences at all. (`resolveMembers` is used
+    // far more widely than this file, which is why the blast radius is 53 and not a
+    // handful.) So while the assertions above it pass, these absences cannot fail: they
+    // are not independent regression coverage for the invariant in the banner above.
+    //
+    // WHAT THEY DO BUY IS FORWARD AND STRUCTURAL: `toEqual` reads two NAMED fields, and
+    // this reads the whole serialised shape, so a field added to `ResolvedGridRows` that
+    // carried an authored key through would fail here and nowhere else. Label it as the
+    // ledger it is, not as the invariant restated.
+    //
+    // 🔴 THE EXACT IDS, which is what these used to miss — they scanned for the
+    // `draft:v1:` / `unpub:prompt:v1:` STORAGE prefixes that a grid's member keys never
+    // carry. See the constants' docblock. POSITIVE CONTROL first, so the absences below
+    // are absences and not a `not.toContain` against an empty serialisation.
+    const wire = JSON.stringify(resolved);
+    expect(wire, 'the resolved shape serialised to nothing').toContain('mk-alpha');
+    expect(wire).not.toContain(LOCAL_MATCHUP);
+    expect(wire).not.toContain(LOCAL_PROMPT);
+    expect(wire).not.toContain(LOCAL_PROMPT_2);
+  });
+
+  it('🔴 a MEMBER-ONLY publish does not rescue the reference — only the grid publish does', () => {
+    // 🔴 THIS PINS A CLAIM THE VIEWER-FACING COPY MAKES, and it exists because the first
+    // draft of that copy said the OPPOSITE. `PRIVATE_GRID_EMPTY_BODY` told the viewer to
+    // publish their private matchups and prompts from My Benchmarks and they would appear
+    // in the grid. They do not, and this is the mechanism: resolution is BY KEY, the grid
+    // stores the bare LOCAL id, and publishing a member mints a NEW host-minted key. The
+    // local-id → shared-key rewrite is `lib/gridCascade.ts`'s and runs only on the GRID
+    // publish.
+    //
+    // 🔴 THE FIXTURE IS THE WHOLE POINT: the board now holds a row for the published
+    // matchup, under the key the host minted (`fk_7`, which is the fake host's shape and
+    // is pairwise distinct from every other key here). Its NAME is irrelevant; what
+    // decides is that its key is not the local id.
+    const published = combo('fk_7', 50);
+    const board = [...MANY_MATCHUPS, published];
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid([LOCAL_MATCHUP], ['qk-tango']) },
+      board,
+      MANY_PROMPTS,
+    );
+
+    // POSITIVE CONTROL: the board row IS there and IS resolvable — by its own key.
+    expect(board.map((r) => r.key)).toContain('fk_7');
+    expect(
+      resolveOpenGrid({ kind: 'private', rec: privateGrid(['fk_7'], ['qk-tango']) }, board, MANY_PROMPTS)
+        .matchups.map((r) => r.key),
+      'the newly published row is unresolvable even by its own key — wrong fixture',
+    ).toEqual(['fk_7']);
+
+    // 🔴 THE CLAIM: the grid still names the local id, so it resolves to NOTHING. One
+    // axis empty means no cells, which is the state the empty-state copy renders in.
+    expect(resolved.matchups).toEqual([]);
+    expect(resolved.missingMatchups).toBe(1);
+    expect(resolved.prompts.map((r) => r.key)).toEqual(['qk-tango']);
+  });
+
+  it('resolveOpenGrid agrees with resolveGridRows on a PUBLISHED grid', () => {
+    // 🔴 A SEAM GUARD, NOT A TAUTOLOGY: the two entry points are different functions
+    // over different TYPES (`OpenGrid` vs `GridEntry`) and a reader has to be able to
+    // trust they delegate to the same body. If `resolveOpenGrid` ever grew its own
+    // resolution rule, this is the case that notices.
+    const row = grid('gk-p', 9, ['mk-echo', 'mk-gone', 'mk-golf'], ['qk-tango', 'qk-gone']);
+    expect(resolveOpenGrid({ kind: 'published', row }, MANY_MATCHUPS, MANY_PROMPTS)).toEqual(
+      resolveGridRows({ system: false, row }, MANY_MATCHUPS, MANY_PROMPTS),
+    );
+  });
+});
+
+describe('🔴 privateGridShortfall — the sentence that attributes NO cause', () => {
+  it('is null when every authored member resolved', () => {
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['mk-alpha'], ['qk-tango']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(resolved.missingTotal).toBe(0); // the premise
+    expect(privateGridShortfall(resolved)).toBeNull();
+  });
+
+  it('🔴 states the arithmetic and the rule, and names no cause', () => {
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['mk-alpha', LOCAL_MATCHUP], ['qk-tango', LOCAL_PROMPT]) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    // 🔴 THE WHOLE STRING AS A LITERAL. The artifact under test IS prose, so a keyword
+    // guard is walkable by a reword — including one that puts the false attribution
+    // back. 2 of 4 here, which are distinct numbers. BOTH axes resolve one member, so
+    // there IS a matrix below and the reassurance clause is earned.
+    expect(privateGridShortfall(resolved)).toBe(
+      "2 of this grid's 4 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew. ' +
+        'Everything else below still renders; nothing was quietly dropped.',
+    );
+    // 🔴 THE CLAUSE THAT WAS FALSE ON A TRUNCATED SCAN, HELD OUT BY WORDS. "Only members
+    // with a row on the shared board can be" is wrong when `listAll` hit its page cap: a
+    // member DOES have a row there and is still excluded. The rule is stated over rows
+    // the app has READ now, and this is what fails if the old absolute comes back.
+    expect(privateGridShortfall(resolved)).not.toContain('Only members with a row');
+  });
+
+  it('🔴 and it DROPS the "everything else below" clause when NOTHING is below', () => {
+    // 🔴 THE ALL-PRIVATE GRID, which is this feature's most likely first state: nothing
+    // resolves, the matrix is empty, and "Everything else below still renders" is a
+    // promise about a remainder that does not exist. Two points on the one dimension
+    // that decides it — the case above has a matrix, this one does not.
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid([LOCAL_MATCHUP], [LOCAL_PROMPT]) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(resolved.matchups).toEqual([]); // the premise
+    expect(resolved.prompts).toEqual([]);
+    expect(privateGridShortfall(resolved)).toBe(
+      "2 of this grid's 2 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew.',
+    );
+  });
+
+  it('🔴 ONE axis empty is ALSO nothing below — the boundary, not just the all-empty case', () => {
+    // 🔴 THE BOUNDARY THE `&&` IN `hasMatrix` IS FOR, and a mutant that tested `||` —
+    // "either axis has something" — would pass the two cases above and fail here. A cell
+    // needs a row AND a column, so one surviving matchup with no surviving prompt renders
+    // no cells at all: the clause must still be absent. The counts (1 missing of 3, not 2
+    // of 2 or 2 of 4) are distinct from both cases above, so a wrong fixture cannot pass
+    // by reusing another case's expectation.
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['mk-alpha', 'mk-bravo'], [LOCAL_PROMPT]) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(resolved.matchups.map((r) => r.key)).toEqual(['mk-alpha', 'mk-bravo']); // the premise
+    expect(resolved.prompts).toEqual([]);
+    expect(privateGridShortfall(resolved)).not.toContain('Everything else below still renders');
+    // POSITIVE CONTROL: a sentence WAS produced, so the absence above is an absence and
+    // not a `null` the `toContain` never saw.
+    expect(privateGridShortfall(resolved)).toContain("1 of this grid's 3 members");
+  });
+
+  it('🔴 and it is NOT what `missingMembersNotice` says about the same shortfall', () => {
+    // 🔴 THE DISCRIMINATING PAIR. Both functions are handed the SAME resolved shape;
+    // the only difference that can show up is the copy, which is the entire reason the
+    // second function exists. `missingMembersNotice`'s complete-scan arm attributes the
+    // absence to the members' authors — false about the viewer's own private record —
+    // and this case is what fails if the private arm is ever pointed back at it.
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['mk-alpha', LOCAL_MATCHUP], ['qk-tango']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    const shared = missingMembersNotice(resolved, false);
+    const priv = privateGridShortfall(resolved);
+    // POSITIVE CONTROL: both produced a sentence, so the inequality is between two
+    // strings rather than against a null.
+    expect(typeof shared).toBe('string');
+    expect(typeof priv).toBe('string');
+    expect(priv).not.toBe(shared);
+    expect(shared).toContain('their authors removed them');
+    expect(priv).not.toContain('their authors removed them');
+  });
+});
+
+describe('🔴 SYSTEM_GRID_DOM_KEY is the one spelling, and entryDomKey is TOTAL', () => {
+  it('the exported sentinel is what entryDomKey returns for the system entry', () => {
+    // 🔴 THE LITERAL, TYPED OUT. `App` and `GridsView` both name this value now (the
+    // open-filter contract), and a ledger that compared the constant to itself would
+    // not notice the string changing under every consumer that hardcodes it.
+    expect(SYSTEM_GRID_DOM_KEY).toBe('__system__');
+    expect(entryDomKey(buildTopGrid(MANY_MATCHUPS, MANY_PROMPTS))).toBe(SYSTEM_GRID_DOM_KEY);
+  });
+
+  // ⚠️ INVARIANT GUARD — GREEN at `bb63087`. `entryDomKey` was already total there;
+  // what was wrong was that `GridsView` compared `entryOpenKey` instead. This pins the
+  // property the new contract RESTS on, so it is not regression coverage for the bug.
+  it('🔴 no LISTABLE entry maps to null — which is what frees null to mean "none"', () => {
+    // 🔴 THIS IS THE PROPERTY `GridsView`'s open-filter DEPENDS ON, and it used to be
+    // violated: the filter compared `entryOpenKey`, whose `null` IS the system entry,
+    // so passing `null` for "nothing in this list is open" silently hid the Top Grid.
+    // Totality over the whole listed set is the fact that makes the new contract sound.
+    const entries = communityGridEntries(
+      buildTopGrid(MANY_MATCHUPS, MANY_PROMPTS),
+      [grid('gk-one', 5, [], []), grid('gk-two', 2, [], [])],
+    );
+    expect(entries.length).toBe(3); // the premise: system + two published
+    for (const entry of entries) {
+      const key = entryDomKey(entry);
+      expect(typeof key).toBe('string');
+      expect(key.length).toBeGreaterThan(0);
+    }
+    // …and the keys are pairwise distinct, or the filter could exclude two cards at once.
+    expect(new Set(entries.map(entryDomKey)).size).toBe(3);
   });
 });

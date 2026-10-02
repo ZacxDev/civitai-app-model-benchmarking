@@ -182,7 +182,28 @@ export function MatchupBody({
   const canVote = !isOwn;
 
   return (
-    <Group justify="space-between" align="flex-start">
+    /* 🔴 A COLUMN, NOT A `space-between` ROW, AND THE REFLOW IT REMOVES WAS MEASURED.
+       This was `<Group justify="space-between" align="flex-start">` with the content on
+       the left and the `⋮` + vote pair on the right. Measured live on 0.4.14, two
+       matchup cards in ONE list: a 1-line description put the control pair at
+       top-right (y 17, x 1055) and a 2-line description put the SAME pair at
+       bottom-left (y 113, x 17). Opposite corners, same controls, one list.
+
+       The mechanism is the ownership mirror below, and it is CORRECT — a foreign
+       card's vote is an interactive `VoteButton` inside the cluster while the owner's
+       is a non-interactive `VoteTally`, so the cluster's intrinsic width differs per
+       row and the flex line wraps for some rows and not others. Do NOT "fix" the
+       VoteButton/VoteTally split; it is what lets an author see their own score
+       without being offered the press. Putting the actions BELOW the content removes
+       the reflow STRUCTURALLY: there is no second flex item on the content's line to
+       wrap, so the action row sits at the bottom of every card whatever the content's
+       height.
+
+       ⚠️ jsdom resolves NO layout, so no test in this repo can assert the positions
+       above. What `src/rowActions.test.tsx` pins is the DOM shape this change
+       consists of: `row-actions` is the LAST element child of a Stack (column)
+       container that carries no `justify-content: space-between`. */
+    <Stack gap={10} style={{ minWidth: 0 }}>
       <Stack gap={4} style={{ minWidth: 0 }}>
         <strong>{combo.name || `#${combo.key}`}</strong>
         {combo.description && <span style={mutedText}>{combo.description}</span>}
@@ -269,7 +290,14 @@ export function MatchupBody({
           </span>
         )}
       </Stack>
-      <Group gap={6} align="center">
+      {/* 🔴 ONE TESTID FOR ONE CONCEPT, SPELLED THE SAME ON ALL FIVE CARD SHAPES
+          (`MatchupBody`, `PromptBody`, `MyList`'s private row, `MyGridsView`'s card,
+          `GridsView`'s card). It is noun-NEUTRAL on purpose: the thing being named is
+          "the row's action cluster", and five spellings of it would be five things to
+          keep in step — plus `matchup-actions` would have to join
+          `renameWireCompat.test.ts`'s 33-entry matchup-spelled ledger for a selector
+          that says nothing about matchups. Scope with `within(card)`. */}
+      <Group gap={6} align="center" data-testid="row-actions">
         {extraActions}
         {(canEdit || canWithdraw || canReport) && (
           <Menu
@@ -319,6 +347,6 @@ export function MatchupBody({
           <VoteTally count={combo.count} />
         )}
       </Group>
-    </Group>
+    </Stack>
   );
 }

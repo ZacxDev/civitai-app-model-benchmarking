@@ -47,7 +47,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
 
 import { GatedCell } from './components/GatedCell.js';
 import { GridsView } from './components/GridsView.js';
-import { GRID_PREVIEW_MAX } from './lib/gridEntries.js';
+import { GRID_PREVIEW_MAX, SYSTEM_GRID_DOM_KEY } from './lib/gridEntries.js';
 import type { CombinationRow, GridRow, PromptRow, ResultRow } from './types.js';
 
 const VIEWER_ID = 99;
@@ -111,8 +111,10 @@ const result = (comboKey: string, configId: string, promptKey: string, imageIds:
  * cells are displayed full-size by the matrix above the list, and previewing them
  * again made the one grid the viewer is looking at read its images TWICE (see
  * `gridPreviewSeam.test.tsx`, which pins that relationship). The system Top Grid is
- * open by construction (`openKey === null`), so the cards under test here are the
- * two published ones.
+ * open by construction — `App`'s `openGridRef` initialises to `{ kind: 'system' }` — so
+ * the cards under test here are the two published ones. (⚠️ This said
+ * "`openKey === null`"; `null` now means "nothing in the list is open", which is what a
+ * PRIVATE grid being open produces. The claim is unaffected; the spelling was stale.)
  *
  * 🔴 THEIR MEMBER SETS ARE DELIBERATELY DIFFERENT. If both named the same members
  * they would issue IDENTICAL id arrays, and no assertion could tell "one call per
@@ -217,9 +219,16 @@ afterEach(() => {
  * telemetry. A stubbed cell would make every count below a fact about the stub.
  * ⚠️ `renderMatrix` IS GONE FROM THE PROPS, and so is the open grid's whole panel:
  * `GridsView` is the community BOARD now, nothing more. The matrix moved to
- * `GridOpenPanel`, which `App` renders above the board subnav. `openKey={null}` below
- * means "the system Top Grid is the one open" — the default — so the Top Grid is NOT
- * listed and only the two published grids are.
+ * `GridOpenPanel`, which `App` renders above the board subnav. `openKey` below is
+ * `SYSTEM_GRID_DOM_KEY` — "the system Top Grid is the one open", the default — so the
+ * Top Grid is NOT listed and only the two published grids are.
+ *
+ * ⚠️ IT USED TO BE `null`, AND THAT SPELLING NOW MEANS SOMETHING ELSE. `openKey` is an
+ * `entryDomKey` rather than an `entryOpenKey`, because a grid OUTSIDE this list — one
+ * of the viewer's own private ones — can be the open one, and `null` is how that is
+ * expressed ("nothing in this list is open"). Left as `null` these cases would list
+ * the Top Grid as a THIRD card and every call count below would be about three cards
+ * rather than two. See `GridsView.openKey`.
  */
 function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
   return (
@@ -239,7 +248,7 @@ function gridsElement(opts: { grids?: GridRow[]; results?: ResultRow[] } = {}) {
       onRequireAuth={vi.fn()}
       onWithdraw={vi.fn()}
       onReport={vi.fn()}
-      openKey={null}
+      openKey={SYSTEM_GRID_DOM_KEY}
       onOpen={vi.fn()}
     />
   );

@@ -1,0 +1,732 @@
+// 🔴 THE ROW ACTION CLUSTER SITS BELOW THE CONTENT, ON EVERY CARD SHAPE.
+//
+// ── THE DEFECT, MEASURED ────────────────────────────────────────────────────
+//
+// Every list card was `<Group justify="space-between" align="flex-start">` with the
+// content on the left and the row's controls (`⋮` plus the vote affordance) on the
+// right. Measured live on 0.4.14, two matchup cards in ONE list: the card whose
+// description wrapped to 1 line put the control pair at **top-right (y 17, x 1055)**
+// and the card whose description wrapped to 2 lines put the SAME pair at
+// **bottom-left (y 113, x 17)**. Same controls, same list, opposite corners.
+//
+// The mechanism is the ownership mirror in `MatchupBody`, and that mirror is CORRECT:
+// a foreign card's vote is an interactive `VoteButton` inside the cluster while the
+// owner's is a non-interactive `VoteTally` (`VoteButton.tsx`'s `VoteCount` split), so
+// the cluster's intrinsic width differs per row, the flex line wraps for some rows and
+// not others, and the wrapped cluster lands under the content at the left margin.
+// 🔴 DO NOT "FIX" THE VoteButton/VoteTally SPLIT — it is what lets an author see
+// their own score without being offered the press. Moving the cluster BELOW the
+// content removes the reflow structurally: there is no second flex item on the
+// content's line left to wrap.
+//
+// ── 🔴 WHAT THIS FILE CAN AND CANNOT ASSERT ─────────────────────────────────
+//
+// jsdom performs NO LAYOUT. `getBoundingClientRect()`, `scrollWidth` and
+// `clientWidth` are all 0 here, so NOTHING in this file is evidence about the
+// positions quoted above, about whether the cluster still wraps, or about how any of
+// it looks. Those remain unverified from this repo and need a human in a real host.
+//
+// What IS assertable, and is the whole content of the change, is the emitted DOM
+// SHAPE. For each card shape:
+//
+//   1. the card renders exactly ONE `row-actions` cluster;
+//   2. its PARENT is a `Stack` — `data-civitai-ui="stack"`, the pack's COLUMN
+//      container — and not a `Group` (`"group"`, the pack's ROW container);
+//   3. that parent carries NO `justify-content: space-between` inline, which is the
+//      property the old shape's reflow depended on;
+//   4. `row-actions` is the LAST element child of that parent, i.e. the bottom of the
+//      card.
+//
+// ── 🔴 WHAT THE BASE MATRIX DOES AND DOES NOT PROVE ─────────────────────────
+//
+// ⚠️ THIS FILE USED TO CLAIM "Claims 2–4 are what fail at `bb63087`", AND THAT
+// ATTRIBUTION WAS FALSE. Rolled back to base, all six shape cases fail at CLAIM 1 —
+// `Unable to find … [data-testid="row-actions"]`, because the testid is NEW — so claims
+// 2, 3 and 4 never execute there. A 6/6-red matrix over a whole-file rollback is
+// evidence that a new selector did not exist at base and nothing more: it is the
+// enclosing-condition shape, where the mutation removes the guard TOGETHER with the
+// condition that reaches it.
+//
+// 🔴 THE GUARD IS NONETHELESS SOUND, AND THIS IS THE MEASUREMENT THAT SHOWS IT.
+// ISOLATED MUTATION: `MatchupBody`'s outer `<Stack gap={10}>` changed to
+// `<Group justify="space-between" align="flex-start">` — i.e. the defect itself,
+// reintroduced in ONE file, with the `row-actions` testid KEPT so claim 1 still passes
+// and the later claims still run. Result, re-run at this HEAD: 2 failed / 6 passed of
+// the 8 cases in this file. The `MatchupBody` shape case dies on CLAIM 2's own
+// assertion with its own message — `expected 'group' to be 'stack'` — and the
+// STRUCTURAL ledger dies on its own, with
+// `expected [ 'components/MatchupBody.tsx' ] to deeply equal []`. That is each guard
+// firing on its own condition, on the narrowest expression that can be wrong, which is
+// what a whole-file rollback cannot show.
+//
+// ⚠️ THE EARLIER REPORT OF THIS MUTATION SAID "1 failed / 6 passed" AND THAT NUMBER IS
+// STALE RATHER THAN WRONG: it was taken before the structural ledger existed and before
+// claim 5 was deleted, so the file held 7 cases and only one guard could see the
+// mutant. Re-measured here rather than restated.
+//
+// 🔴 AND THE SECOND LEDGER WAS VALIDATED THE SAME WAY, SEPARATELY. Reverting
+// `GridPicker`'s option row to the `space-between` / `flex-start` shape takes the
+// structural ledger red — `expected [ 'components/GridPicker.tsx' ] to deeply equal []`
+// — at 1 failed / 7 passed, with the ACTION-CLUSTER ledger and all six shape cases
+// GREEN. That green is the point: the first ledger is structurally blind to a card
+// shape that ships the defect under no `row-actions` id, which is why there are two.
+//
+// 🔴 ⚠️ AND THAT SECOND VALIDATION CERTIFIED A LEDGER THAT COULD NOT DO ITS JOB. The
+// signature was a regex with `[^>]*` between its two halves, which cannot cross an
+// attribute containing `>` — `onClick={(e) => …}`, `n >= 2` — and the revert above put
+// the two halves ADJACENT, so the control exercised the only shape the pattern could
+// see. RE-MEASURED, three runs, one variable, `vitest run --project dom
+// src/rowActions.test.tsx`:
+//
+//   - OLD regex, `GridPicker`'s content container reverted to the defect shape with an
+//     ARROW-FUNCTION attribute BETWEEN the two halves → 8 passed / 8. The defect is
+//     present in full and the ledger reports a clean zero.
+//   - OLD regex, the SAME revert with the two halves ADJACENT → 1 failed / 7. So the
+//     old instrument was not inert; it was blind to one shape, and that shape is the
+//     ordinary one.
+//   - NEW predicate ({@link openTags} + {@link hasSignature}), the ARROW-ATTRIBUTE
+//     revert → 1 failed / 7, dying on the structural ledger's own assertion with its
+//     own message, `expected [ 'components/GridPicker.tsx' ] to deeply equal []`.
+//
+// The mutant is isolated to the OPENING TAG of one container: the element name and the
+// closing tag are untouched, so claim 1 and the six shape cases still run and still
+// pass, and only the predicate under test can decide the outcome.
+//
+// ⚠️ AND NOTHING HERE IS A CLAIM ABOUT THE OTHER FOUR SHAPES' MUTANTS. Two isolated
+// mutations were run, in `MatchupBody` and `GridPicker`. The remaining shapes are
+// covered by the SET ledgers below rather than by four more mutants.
+//
+// ── WHY FIVE SHAPES AND TWO LEDGERS ─────────────────────────────────────────
+//
+// The defect is shared by five independently-written card bodies (two community row
+// bodies, the private row, and two grid cards) — exercised below as SIX cases, because
+// the private row is rendered twice: once bare and once with the `preview` strip only
+// `MyGridsView` passes, where a third child sits between the content and the cluster.
+// A per-shape case would leave a sixth FILE free to reintroduce the defect silently,
+// so the SOURCE LEDGERS at the bottom assert SETS. There are TWO of them because a new
+// card shape can ship the defect under its own testid or under none at all, and the
+// first ledger cannot see either:
+//
+//   - the ACTION-CLUSTER ledger — the exact set of production files rendering
+//     `data-testid="row-actions"`, failing when it GROWS (a card shape nobody checked)
+//     and when it SHRINKS (a shape that lost its cluster or had the id renamed);
+//   - the STRUCTURAL ledger — the exact set of production files containing the
+//     SIGNATURE, `justify="space-between"` together with `align="flex-start"` on one
+//     element. That is the shape with a variable-width right cluster on the content's
+//     own flex line, whatever the id on it. It found a SIXTH instance the first ledger
+//     was blind to: `GridPicker`'s option row, which has the identical two-flex-item
+//     shape with an optional `meta` plus a conditional `Selected`/`Limit reached`
+//     badge, under no `row-actions` id at all because nothing in that cluster is an
+//     action. Its allowlist is EMPTY, and an addition to it is a decision someone has
+//     to write down.
+//
+// 🔴 THE ID IS NOUN-NEUTRAL (`row-actions`, not `matchup-actions`) FOR TWO REASONS.
+// One concept spelled five ways is five things to keep in step; and a matchup-spelled
+// selector would have to join `renameWireCompat.test.ts`'s 33-entry ledger for a name
+// that says nothing about matchups.
+
+import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+
+import { SYSTEM_GRID_DOM_KEY } from './lib/gridEntries.js';
+import { scannedSources, stripComments } from './lib/sourceScan.js';
+
+import { GridsView } from './components/GridsView.js';
+import { MatchupBody } from './components/MatchupBody.js';
+import { MyGridsView } from './components/MyGridsView.js';
+import { MyList } from './components/MyList.js';
+import { PromptBody } from './components/PromptBody.js';
+import { fakeGatedCell } from './test-helpers.js';
+import type { CombinationRow, GridRow, PromptRow, UnpublishedGrid } from './types.js';
+
+const VIEWER_ID = 42;
+/** The rows' author — distinct from the viewer, so the FOREIGN-row branch renders
+ *  (an interactive `VoteButton` plus a Report item), which is the wider cluster. */
+const OTHER_ID = 7;
+
+const matchupRow: CombinationRow = {
+  key: 'mk-a',
+  count: 3,
+  authorUserId: OTHER_ID,
+  name: 'Echo showdown',
+  description: 'two realism checkpoints, one of them freshly merged',
+  data: {
+    v: 2,
+    kind: 'combination',
+    configs: [
+      {
+        id: 'cfg-a',
+        checkpoint: {
+          versionId: 1001,
+          modelId: 500,
+          baseModel: 'SDXL 1.0',
+          modelName: 'JuggernautXL',
+        },
+        loras: [],
+      },
+    ],
+  },
+};
+
+const promptRow: PromptRow = {
+  key: 'qk-1',
+  count: 2,
+  authorUserId: OTHER_ID,
+  name: 'Whisky portrait',
+  description: 'a moody close-up with a lot of description text behind it',
+  data: { v: 3, kind: 'prompt', default: { prompt: 'a moody close-up', params: {} } },
+};
+
+const gridRow: GridRow = {
+  key: 'gk-1',
+  count: 5,
+  authorUserId: OTHER_ID,
+  name: 'Realism sweep',
+  description: 'the realism checkpoints against the portrait prompts',
+  data: { v: 1, kind: 'grid', matchupKeys: ['mk-a'], promptKeys: ['qk-1'] },
+};
+
+/** The viewer's OWN grid row — `MyGridsView` only lists rows the caller narrowed. */
+const ownGridRow: GridRow = { ...gridRow, key: 'gk-own', authorUserId: VIEWER_ID };
+
+const privateGrid: UnpublishedGrid = {
+  v: 1,
+  localId: 'ug-1',
+  name: 'A private grid',
+  description: 'not on the board yet',
+  matchupKeys: ['mk-a'],
+  promptKeys: ['qk-1'],
+  updatedAt: '2026-10-01T00:00:00.000Z',
+};
+
+/**
+ * The five card shapes, as `[label, render, cardTestId, contentTestId]`.
+ *
+ * `contentTestId` is a node that is unambiguously CONTENT rather than an action, so
+ * claim 5 is about a real content/action pair and not about two controls.
+ */
+const SHAPES: ReadonlyArray<
+  readonly [label: string, mount: () => void, card: string, content: string]
+> = [
+  [
+    'MatchupBody — the community matchup card',
+    () =>
+      render(
+        <div data-testid="shape-card">
+          <MatchupBody
+            combo={matchupRow}
+            voted={false}
+            reported={false}
+            viewerId={VIEWER_ID}
+            onVote={vi.fn()}
+            onUnvote={vi.fn()}
+            onRequireAuth={vi.fn()}
+            onReport={vi.fn()}
+          />
+        </div>,
+      ),
+    'shape-card',
+    'matchup-config-summary',
+  ],
+  [
+    'PromptBody — the community prompt card',
+    () =>
+      render(
+        <div data-testid="shape-card">
+          <PromptBody
+            prompt={promptRow}
+            voted={false}
+            reported={false}
+            viewerId={VIEWER_ID}
+            /* 🔴 `detail` SO THERE IS A NAMED CONTENT NODE TO ORDER AGAINST — and so
+               the two bodies between them cover BOTH branches: the matchup shape above
+               is rendered as a CARD (`matchup-config-summary`) and this one as the
+               DETAIL MODAL (`prompt-detail-text`). One component, two call shapes, and
+               the cluster's placement is the same claim in each. */
+            detail
+            onVote={vi.fn()}
+            onUnvote={vi.fn()}
+            onRequireAuth={vi.fn()}
+            onReport={vi.fn()}
+          />
+        </div>,
+      ),
+    'shape-card',
+    'prompt-detail-text',
+  ],
+  [
+    "MyList — the viewer's PRIVATE row",
+    () =>
+      render(
+        <MyList
+          noun="matchup"
+          drafts={[
+            {
+              localId: 'dm-1',
+              name: 'A private matchup',
+              meta: '2 models',
+              description: 'kept in my own storage, with a long enough line to wrap',
+            },
+          ]}
+          rows={[]}
+          keyOf={(r: CombinationRow) => r.key}
+          archivedKeys={new Set()}
+          loading={false}
+          onNew={vi.fn()}
+          onEditDraft={vi.fn()}
+          onDiscardDraft={vi.fn()}
+          onPublishDraft={vi.fn()}
+          onEditPublished={vi.fn()}
+          onWithdraw={vi.fn()}
+          renderCard={() => null}
+        />,
+      ),
+    'unpublished-card',
+    'unpublished-name',
+  ],
+  [
+    'MyGridsView — the published grid card on My Benchmarks',
+    () =>
+      render(
+        <MyGridsView
+          ownGrids={[ownGridRow]}
+          combinations={[matchupRow]}
+          prompts={[promptRow]}
+          results={[]}
+          GatedCell={fakeGatedCell()}
+          viewerId={VIEWER_ID}
+          loading={false}
+          error={null}
+          publishError={null}
+          archivedKeys={new Set()}
+          unpublished={[]}
+          onRequireAuth={vi.fn()}
+          onWithdraw={vi.fn()}
+          onNewUnpublished={vi.fn()}
+          onEditUnpublished={vi.fn()}
+          onDiscardUnpublished={vi.fn()}
+          onPublishUnpublished={vi.fn()}
+          onEditPublished={vi.fn()}
+          onOpenUnpublished={vi.fn()}
+        />,
+      ),
+    'grid-card',
+    'grid-card-name',
+  ],
+  [
+    // 🔴 A SIXTH CASE OVER THE SAME COMPONENT AS case 3, AND NOT A DUPLICATE OF IT:
+    // only `MyGridsView` hands `MyList` a `preview`, so this is the one shape where a
+    // THIRD node sits between the content and the cluster. "Last child" is a different
+    // claim once a middle child exists — and the preview is CONTENT, so it belongs
+    // above the actions.
+    'MyList via MyGridsView — the PRIVATE grid row, which also carries a preview strip',
+    () =>
+      render(
+        <MyGridsView
+          ownGrids={[]}
+          combinations={[matchupRow]}
+          prompts={[promptRow]}
+          results={[]}
+          GatedCell={fakeGatedCell()}
+          viewerId={VIEWER_ID}
+          loading={false}
+          error={null}
+          publishError={null}
+          archivedKeys={new Set()}
+          unpublished={[privateGrid]}
+          onRequireAuth={vi.fn()}
+          onWithdraw={vi.fn()}
+          onNewUnpublished={vi.fn()}
+          onEditUnpublished={vi.fn()}
+          onDiscardUnpublished={vi.fn()}
+          onPublishUnpublished={vi.fn()}
+          onEditPublished={vi.fn()}
+          onOpenUnpublished={vi.fn()}
+        />,
+      ),
+    'unpublished-card',
+    'unpublished-name',
+  ],
+  [
+    'GridsView — the community grid card',
+    () =>
+      render(
+        <GridsView
+          grids={[gridRow]}
+          combinations={[matchupRow]}
+          prompts={[promptRow]}
+          results={[]}
+          GatedCell={fakeGatedCell()}
+          votedKeys={new Set()}
+          reportedKeys={new Set()}
+          viewerId={VIEWER_ID}
+          loading={false}
+          error={null}
+          /* The Top Grid is the open one, so the list holds exactly ONE card and the
+             shape lookup below cannot pick the wrong one. `openKey` is an
+             `entryDomKey`; `null` would mean "nothing in this list is open" and would
+             list the Top Grid as a second card. */
+          openKey={SYSTEM_GRID_DOM_KEY}
+          onOpen={vi.fn()}
+          onVote={vi.fn()}
+          onUnvote={vi.fn()}
+          onRequireAuth={vi.fn()}
+          onWithdraw={vi.fn()}
+          onReport={vi.fn()}
+        />,
+      ),
+    'grid-card',
+    'grid-card-name',
+  ],
+];
+
+describe('🔴 the row action cluster is the LAST child of a COLUMN container', () => {
+  it.each(SHAPES)('%s', (_label, mount, cardId, contentId) => {
+    mount();
+
+    // The card. `GridsView` lists the Top Grid as well, so take the one that holds
+    // the content node this shape named.
+    const cards = screen.getAllByTestId(cardId);
+    const card = cards.find((c) => within(c).queryByTestId(contentId) !== null);
+    expect(card, `no ${cardId} holding ${contentId} — the shape did not render`).toBeDefined();
+
+    // CLAIM 1 — exactly one cluster.
+    const clusters = within(card!).getAllByTestId('row-actions');
+    expect(clusters).toHaveLength(1);
+    const actions = clusters[0]!;
+
+    const parent = actions.parentElement;
+    expect(parent, 'the cluster has no parent element').not.toBeNull();
+
+    // CLAIM 2 — a COLUMN container. `Stack` stamps `data-civitai-ui="stack"` and
+    // `Group` stamps `"group"` (measured in `@civitai/blocks-react/dist/ui/*.js`);
+    // the flex DIRECTION lives in the pack's injected sheet, so the attribute is the
+    // structural fact available here.
+    //
+    // 🔴 THIS IS THE CLAIM THE ISOLATED MUTATION KILLS — see the header. A
+    // `<Group justify="space-between">` in place of the Stack fails here, with this
+    // message, and nothing else in the file moves.
+    //
+    // ⚠️ THE `not.toBe('group')` THAT USED TO FOLLOW IS GONE: it is SUBSUMED by the
+    // equality above (a value cannot be both `'stack'` and `'group'`), and its stated
+    // reason — "a parent that is neither would satisfy a lone `not.toBe('group')`" —
+    // argued for the equality, not for the pair.
+    expect(parent!.getAttribute('data-civitai-ui')).toBe('stack');
+
+    // CLAIM 3 — no `space-between`, which is what the old row shape used to spread
+    // the content and the actions to opposite ends of one line.
+    expect(parent!.style.justifyContent).not.toBe('space-between');
+
+    // CLAIM 4 — the BOTTOM of that container.
+    const siblings = Array.from(parent!.children);
+    expect(siblings[siblings.length - 1]).toBe(actions);
+    // …and it is not the ONLY child, or "last" would be trivially true.
+    expect(siblings.length).toBeGreaterThan(1);
+
+    // ⚠️ THERE WAS A CLAIM 5 — "a named CONTENT node precedes the cluster in document
+    // order" — AND IT IS DELETED, not demoted. It was VERIFIED VACUOUS: DOM order was
+    // already content-then-actions in the `space-between` shape (the content Stack was
+    // the first flex item, the action Group the second), so it is GREEN at `bb63087`
+    // against the very defect this file exists to pin, and it was self-labelled weak.
+    // A green assertion that reads as coverage while providing none is worse than its
+    // absence, because it stops anyone looking. Claim 4 above — last child of a COLUMN —
+    // is the discriminating form of the same idea, and the `contentTestId` the shape
+    // table still carries is what locates the right card in a multi-card render.
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 TWO LEDGERS — see the header for why one is not enough.
+//
+// The first asserts which production files render a row ACTION CLUSTER. The second
+// asserts which contain the STRUCTURAL SIGNATURE of the defect, under any id or none.
+// ---------------------------------------------------------------------------
+
+const SRC = resolve(process.cwd(), 'src');
+
+const ROW_ACTION_FILES = [
+  'components/GridsView.tsx',
+  'components/MatchupBody.tsx',
+  'components/MyGridsView.tsx',
+  'components/MyList.tsx',
+  'components/PromptBody.tsx',
+] as const;
+
+/**
+ * Every JSX OPENING TAG in `src`, as the raw text from its `<` through the `>` that
+ * closes it — quote- and brace-aware, so an attribute whose VALUE contains `>` or `<`
+ * does not end the tag early.
+ *
+ * 🔴 WHY A SCANNER AND NOT A REGEX, AND THIS LEDGER WAS MEASURED BLIND BECAUSE OF ONE.
+ * The signature used to be `/<[A-Za-z][^>]*justify="…"[^>]*align="…"/` (plus the mirror
+ * order). `[^>]*` cannot cross an attribute containing `>`, which is ORDINARY JSX —
+ * `onClick={(e) => …}`, `disabled={n >= 2}` — so the two attributes were only ever
+ * detectable when nothing like that sat between them. MEASURED: `GridPicker`'s row
+ * reverted to the defect shape WITH an arrow-function attribute between the two scanned
+ * CLEAN (8 passed of 8); the same revert WITHOUT it was caught (1 failed of 7). The
+ * ledger's own positive controls used ADJACENT attributes, so they were structurally
+ * incapable of seeing that — which is the half worth copying forward: a control that
+ * only exercises the easy shape certifies the easy shape.
+ *
+ * 🔴 THE DROP DIRECTION IS THE DANGEROUS ONE AND IT WAS MEASURED, NOT ASSUMED. A `<`
+ * that is not inside braces or a quote ends the scan, and such a start is then DROPPED
+ * rather than reported — a false green. Over the STRIPPED-COMMENT pass this ledger
+ * actually reads: 851 `<`-plus-letter starts, 841 closed, 10 dropped, and all 10 are
+ * TYPESCRIPT GENERICS — `useState<Record<string, CellRun>>`, `Omit<Partial<ResultData>,
+ * 'v'>` and the like. Those are not JSX tags and dropping them is correct. ZERO real
+ * opening tags are dropped on that pass.
+ *
+ * ⚠️ ON THE RAW PASS — the second positive control below, which does NOT strip comments
+ * — 11 real tags ARE dropped. WHAT IS UNIFORMLY TRUE OF ALL 11 IS NARROWER THAN A DRAFT
+ * OF THIS PARAGRAPH CLAIMED ("every one of them a tag carrying an inline `/* … *\/`
+ * comment BETWEEN ITS ATTRIBUTES"): each is a tag whose text contains an inline comment
+ * whose prose holds an ODD number of apostrophes, which opens a quote the scanner never
+ * sees closed. The comment's FORM and POSITION both vary and neither is part of the
+ * mechanism — most are `/* … *\/` blocks between attributes, but `GatedCell.tsx`,
+ * `ResultsGrid.tsx` and `MatchupsView.tsx` carry `//` LINE comments, and in
+ * `GatedCell.tsx`, `MatchupForm.tsx` and `MyGridsView.tsx` the odd comment sits inside
+ * an attribute's `{…}` expression rather than between attributes. `stripComments` removes
+ * both forms, which is why the stripped pass drops none of the 11. That control's only
+ * job is to show the prose instances exist, and it still returns exactly the two files it
+ * asserts, so the blindness does not reach a claim. It would matter if anything ever
+ * scanned RAW source for an ABSENCE — don't.
+ *
+ * 🔴 AND A THIRD SHAPE HAS NO SAFE DIRECTION — A DRAFT OF THIS PARAGRAPH CLAIMED IT HAD
+ * ONE, AND THE OPPOSITE IS WHAT MEASURES. A tag whose attribute string contains an
+ * ESCAPED quote (`aria-label={'a\'b'}`) flips the scan's quote parity, so the real `>` is
+ * swallowed, no `>` is found at depth 0, and THE START IS DROPPED — the same drop
+ * mechanism the paragraph above measures 11 times, i.e. a FALSE GREEN, and not the "can
+ * only over-report — the ledger goes RED and someone reads it" the draft asserted.
+ * ISOLATED CONTROL: appending
+ * `<Group justify="space-between" align="flex-start" aria-label={'a\'b'}>` to
+ * `components/PromptBody.tsx` leaves this file 8 passed of 8 while a production source
+ * carries the defect signature in full; the identical probe with `aria-label={'ab'}` —
+ * the escape removed, nothing else changed — is caught, with
+ * `expected [ 'components/PromptBody.tsx' ] to deeply equal []`.
+ *
+ * ⚠️ AND THE OVER-REPORT OUTCOME IS NOT MERELY RARER HERE — IT DID NOT HAPPEN ONCE. That
+ * same probe injected at each of 4829 positions across all 59 scanned sources (every line
+ * boundary following a letter, `}`, `)`, `]` or `;`) was DROPPED at 4829 of them
+ * and closed at a wrong `>` at ZERO. The reason is parity: apostrophes in code come in
+ * matched pairs, so a parity flipped by an escape stays flipped to end-of-file. Which
+ * outcome a given escape takes is decided by the rest of the FILE, not by the tag — so
+ * there is no direction to call safe, and in this tree the one it takes is the quiet one.
+ *
+ * 🔴 SO IT IS PINNED RATHER THAN DOCUMENTED. This function returns its DROPPED starts
+ * alongside its closed tags, and {@link EXPECTED_DROPPED_STARTS} asserts them, so a NEW
+ * drop goes red on its own assertion instead of silently shrinking the population the
+ * zero below was computed over. ⚠️ THAT IS DETECTION, NOT REPAIR — `hasSignature` still
+ * cannot see the signature on such a tag, and REACHABILITY TODAY IS ZERO: no production
+ * source carries an escaped quote in an attribute, which is exactly what the 10-generic
+ * drop set above records. The defect was in the CLAIM, not in the current result.
+ */
+function openTags(src: string): { tags: string[]; dropped: string[] } {
+  const tags: string[] = [];
+  /** Starts the scan could not close — see the docblock; a dropped start is never READ. */
+  const dropped: string[] = [];
+  for (let i = 0; i < src.length; i += 1) {
+    if (src[i] !== '<' || !/[A-Za-z]/.test(src[i + 1] ?? '')) continue;
+    let depth = 0; // `{}` nesting — a `>` inside an attribute expression is not the end
+    let quote: string | null = null;
+    let j = i + 1;
+    for (; j < src.length; j += 1) {
+      const c = src[j];
+      if (quote !== null) {
+        if (c === quote) quote = null;
+        continue;
+      }
+      if (c === '"' || c === "'" || c === '`') quote = c;
+      else if (c === '{') depth += 1;
+      else if (c === '}') depth -= 1;
+      else if (depth === 0 && (c === '>' || c === '<')) break;
+    }
+    // Note: `i` is NOT advanced past the tag, so a tag nested inside an ATTRIBUTE value
+    // (`panel={<Row … />}`) is scanned on its own `<` too.
+    if (src[j] === '>') tags.push(src.slice(i, j + 1));
+    // A start with no `>` at depth 0 is DROPPED. Reported by the IDENTIFIER after the
+    // `<` rather than by text or offset: that is what distinguishes a TypeScript generic
+    // (`<Record`, benign) from a JSX tag (`<Group`, a hole in the ledger), and it is
+    // stable under formatting the way a byte offset is not.
+    else dropped.push(src.slice(i + 1).match(/^[A-Za-z][A-Za-z0-9_$.-]*/)?.[0] ?? '');
+  }
+  return { tags, dropped };
+}
+
+/**
+ * The defect's structural signature: `justify="space-between"` and
+ * `align="flex-start"` on ONE element.
+ *
+ * 🔴 BOTH HALVES, AND IN EITHER ORDER. `space-between` alone is an ordinary and correct
+ * pattern in this tree — a section header with a title on the left and ONE
+ * fixed-width primary button on the right (`MyList`'s "Your grids / New grid",
+ * `GridOpenPanel`'s title row, the forms' footers). Those are safe because the right
+ * item's width does not vary with the row's content, which is exactly what
+ * `align="flex-start"` signals the author was NOT doing: aligning to the top of a
+ * TALL content column, i.e. a column with a variable-height, variable-width sibling
+ * beside it. The conjunction is the discriminating predicate; either half alone is
+ * either noisy or blind.
+ *
+ * 🔴 AND "ON ONE ELEMENT" IS NOW LITERAL: both halves must be in the SAME opening tag's
+ * text, which is what {@link openTags} delimits. Attribute ORDER is irrelevant and no
+ * longer needs a second alternation to say so.
+ */
+const hasSignature = (src: string): boolean =>
+  openTags(src).tags.some(
+    (t) => t.includes('justify="space-between"') && t.includes('align="flex-start"'),
+  );
+
+/**
+ * Every `<`-plus-letter START {@link openTags} cannot close, per `src`-relative file,
+ * sorted — on the STRIPPED-COMMENT pass, which is the pass the ledger's zero is computed
+ * over.
+ *
+ * 🔴 WHY THIS IS A LEDGER AND NOT A SENTENCE. A dropped start is a start the scan never
+ * EXAMINED, so it cannot carry a signature match — it is the one way this guard's
+ * expected zero can be a false green rather than a measurement, and it was documented
+ * for two rounds while being wrong about its own direction (see {@link openTags}).
+ * Asserting the SET makes a new drop go red here, with this file's own message, instead
+ * of quietly shrinking the population the zero was taken over.
+ *
+ * 🔴 EVERY MEMBER IS A TYPESCRIPT GENERIC IN TYPE POSITION, AND THAT IS WHAT MAKES THE
+ * SET SAFE TO ALLOW: `useState<Record<…>>` drops because the NESTED `<` ends the scan,
+ * which is correct — those are not JSX tags. A JSX component name appearing here is the
+ * failure this pins, and `components/PromptBody.tsx: ['Group']` is literally what the
+ * escaped-quote probe in {@link openTags}'s docblock adds.
+ *
+ * ⚠️ IT ROTS ON A ROUTINE EDIT, DELIBERATELY: adding or removing a nested generic moves
+ * a line here, and the fix is to read WHICH name moved. A name that is not a type
+ * constructor is the signal.
+ */
+const EXPECTED_DROPPED_STARTS: Readonly<Record<string, readonly string[]>> = {
+  'App.tsx': ['Map', 'Record', 'ReturnType', 'Set', 'Set'],
+  'components/PromptForm.tsx': ['Array'],
+  'lib/benchmark.ts': ['Partial', 'Partial', 'Record'],
+  'lib/sdk-transport.ts': ['Record'],
+};
+
+/**
+ * Production files ALLOWED to carry the signature. 🔴 EMPTY, AND THAT IS THE POINT: an
+ * addition here is a decision someone has to write down, next to the reason.
+ */
+const SIGNATURE_ALLOWLIST: readonly string[] = [];
+
+/** `src`-relative, forward-slashed, for a stable comparison on either platform. */
+const rel = (f: string): string => relative(SRC, f).split('\\').join('/');
+
+describe('🔴 the row-actions ledger', () => {
+  it('exactly these five production files render a `row-actions` cluster', () => {
+    const files = scannedSources(SRC);
+    // POSITIVE CONTROL on the scan: it read files at all, so an empty `found` below
+    // would be an absence and not a walker that returned nothing.
+    expect(files.length, 'the source walker found no files').toBeGreaterThan(20);
+
+    const found = files
+      .filter((f) => readFileSync(f, 'utf8').includes('data-testid="row-actions"'))
+      .map(rel)
+      .sort();
+
+    expect(found).toEqual([...ROW_ACTION_FILES]);
+  });
+});
+
+describe('🔴 the STRUCTURAL ledger — no production source carries the defect shape', () => {
+  it('🔴 no `justify="space-between"` + `align="flex-start"` element outside the allowlist', () => {
+    // 🔴 POSITIVE CONTROLS ON THE PREDICATE, FIRST, BECAUSE THE EXPECTED RESULT IS A
+    // ZERO. An empty `found` is indistinguishable from a predicate that can never
+    // match, so it is fed cases it MUST hit — in BOTH attribute orders.
+    expect(hasSignature('<Group justify="space-between" align="flex-start" gap={8}>')).toBe(true);
+    expect(hasSignature('<Group align="flex-start" justify="space-between">')).toBe(true);
+
+    // 🔴 THE CONTROL THE OLD ONES WERE MISSING, AND IT IS WHY THIS LEDGER READ CLEAN
+    // THROUGH A REAL REVERT: an attribute whose VALUE CONTAINS `>` sitting BETWEEN the
+    // two halves. The previous `[^>]*` pattern returned false for both of these while
+    // the defect was present in full. Adjacent-attribute controls cannot see that, so
+    // they certified a predicate that could not do its job.
+    expect(
+      hasSignature('<Group justify="space-between" onClick={(e) => stop(e)} align="flex-start">'),
+    ).toBe(true);
+    expect(
+      hasSignature('<Group align="flex-start" disabled={n >= 2} justify="space-between">'),
+    ).toBe(true);
+    // …and across a line break with the arrow attribute between, which is the shape the
+    // formatter actually produces in this tree.
+    expect(
+      hasSignature(
+        '<Group\n  justify="space-between"\n  onClick={() => {\n    act();\n  }}\n  align="flex-start"\n>',
+      ),
+    ).toBe(true);
+
+    // 🔴 AND NEGATIVE CONTROLS: the safe header shape, and either half alone. A
+    // predicate that matched these would make the ledger permanently red and therefore
+    // worthless.
+    expect(hasSignature('<Group justify="space-between" align="center" gap={12}>')).toBe(false);
+    expect(hasSignature('<Stack align="flex-start">')).toBe(false);
+    // 🔴 THE NEGATIVE CONTROL THE SCANNER NEEDS THAT THE REGEX DID NOT: the two halves
+    // on DIFFERENT elements. "On ONE element" is the whole discriminating claim, and a
+    // scanner that ran past a tag end would collapse these two into one match.
+    expect(hasSignature('<Group justify="space-between">\n  <Stack align="flex-start" />')).toBe(
+      false,
+    );
+    expect(
+      hasSignature('<Group justify="space-between" onClick={() => go()}>\n  <Stack align="flex-start" />'),
+    ).toBe(false);
+
+    // 🔴 THE ESCAPED-QUOTE SHAPE, AS A TEST RATHER THAN AS A PARAGRAPH. An escaped quote
+    // flips the scan's quote parity, the real `>` is swallowed, and the start is DROPPED —
+    // so `hasSignature` reports FALSE on a tag carrying both halves in full. A previous
+    // round's docblock called that direction "can only over-report", i.e. safe; it is the
+    // opposite. Pinned here so the next reader gets the direction from a passing
+    // assertion and not from prose.
+    const ESCAPED = `<Group justify="space-between" aria-label={'a\\'b'} align="flex-start">`;
+    expect(openTags(ESCAPED).dropped, 'the escaped-quote start is not dropped').toEqual(['Group']);
+    expect(hasSignature(ESCAPED), 'the escaped-quote tag is no longer a FALSE GREEN').toBe(false);
+    // …and the ONE-CHARACTER-DIFFERENT control: the same tag with the escape removed is
+    // closed and seen. Without this pair the line above would also pass for a predicate
+    // that can never match anything.
+    const PLAIN = `<Group justify="space-between" aria-label={'ab'} align="flex-start">`;
+    expect(openTags(PLAIN).dropped, 'an ordinary tag was dropped').toEqual([]);
+    expect(hasSignature(PLAIN)).toBe(true);
+
+    const files = scannedSources(SRC);
+    expect(files.length, 'the source walker found no files').toBeGreaterThan(20);
+
+    // 🔴 THE DROP SET, ASSERTED BEFORE THE ZERO IT QUALIFIES. A start the scan could not
+    // close was never EXAMINED, so it cannot contribute to `found` — read this assertion
+    // first, or the zero below is a claim about an unknown population. See
+    // {@link EXPECTED_DROPPED_STARTS} for why today's ten are benign.
+    const droppedStarts = Object.fromEntries(
+      files
+        .map((f) => [rel(f), [...openTags(stripComments(readFileSync(f, 'utf8'))).dropped].sort()])
+        .filter(([, d]) => d.length > 0),
+    );
+    expect(
+      droppedStarts,
+      'a `<` start the scanner could not close is a start it never EXAMINED — the zero below cannot see a signature on it',
+    ).toEqual(EXPECTED_DROPPED_STARTS);
+
+    // 🔴 COMMENTS ARE STRIPPED, AND WITHOUT THAT THIS LEDGER IS PERMANENTLY RED. Two
+    // production files — `MatchupBody.tsx` and `GridPicker.tsx` — QUOTE the old markup
+    // in the comment explaining why it is gone, which is this repo's discipline; a raw
+    // scan reports those explanations as instances of the defect. `stripComments` is
+    // `lib/sourceScan.ts`', validated by `sourceScanLedger.test.ts`'s own controls.
+    const found = files
+      .filter((f) => hasSignature(stripComments(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+
+    expect(found).toEqual([...SIGNATURE_ALLOWLIST].sort());
+
+    // 🔴 THE SECOND POSITIVE CONTROL, ON THE REAL TREE: the prose instances DO exist, so
+    // the zero above is the stripper working rather than a scan that read nothing. This
+    // is what tells a reader the empty `found` is a measurement.
+    const inProse = files
+      .filter((f) => hasSignature(readFileSync(f, 'utf8')))
+      .map(rel)
+      .sort();
+    expect(inProse, 'no production file quotes the old shape — the stripper is untested here')
+      .toEqual(['components/GridPicker.tsx', 'components/MatchupBody.tsx']);
+  });
+});

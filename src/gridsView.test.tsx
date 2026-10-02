@@ -535,6 +535,23 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
       within(card).getByTestId('grid-card-members').textContent?.trim(),
     ]);
     expect(within(card).getByTestId('grid-system-note')).toBeInTheDocument();
+
+    // 🔴 AND THE PANEL NOW SHOWS THE PUBLISHED GRID — same ledger, third surface. A
+    // "Private" pill belongs to a grid in per-viewer KV and `gk-yank` is a board row,
+    // so a panel that badged it private would be asserting the wrong state about a
+    // public object. This is the structural form of a `queryByTestId(
+    // 'grid-open-private-badge')).toBeNull()` and strictly stronger than it: it fails
+    // when the pill reappears under ANY spelling, which is the walkable shape on a
+    // surface whose whole complaint was "too many pills". Two deleted
+    // `gridOpenPrivate.test.tsx` invariant guards carried that absence as their only
+    // novel line; it lives here and in `boardTruncation.test.tsx` instead.
+    const pubPanel = screen.getByTestId('grid-open-panel');
+    expect(badgeTexts(pubPanel)).toEqual([
+      within(pubPanel).getByTestId('grid-open-members').textContent?.trim(),
+    ]);
+    // POSITIVE CONTROL that the panel really did change: the published arm's own
+    // affordance is there, so the single-badge ledger above is about a published grid.
+    expect(within(pubPanel).getByTestId('grid-open-vote')).toBeInTheDocument();
   });
 
   it('offers no author affordances on the Top Grid — there is no author', async () => {
@@ -627,7 +644,7 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
   // and `App`'s `openEntry` comment both argue that the resolution has to happen ONCE,
   // in `App`, because a grid the viewer had open can be WITHDRAWN while they look at it:
   // the panel falls back to the Top Grid, and a list applying its own
-  // `key !== openGridKey` test would find no match, keep the Top Grid listed, and show
+  // `key !== openGridRef` test would find no match, keep the Top Grid listed, and show
   // the same grid TWICE — once in the panel, once as a card. That duplication is exactly
   // what `gridPreviewSeam.test.tsx` exists to keep off the page (a second gated read of
   // the same ids), and nothing exercised the route that produces it.
@@ -638,10 +655,18 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
   // drive — another tab's withdraw, and a `listAll` page cap dropping a row between
   // polls — so this case is the cheap one of three, not the only one.
   //
-  // 🔴 MUTATION-ISOLATED: replacing `openKey={openKeyResolved}` with
-  // `openKey={openGridKey}` in `App.tsx` — the raw key, i.e. the defect both comments
-  // describe — takes THIS case red on the card ledger and leaves the rest of the file
-  // green. Measured.
+  // 🔴 MUTATION-ISOLATED: replacing `openKey={openKeyResolved}` with the RAW
+  // reference's key in `App.tsx` — i.e. the defect both comments describe — takes THIS
+  // case red on the card ledger and leaves the rest of the file green. Measured.
+  //
+  // ⚠️ THE MUTATION'S SPELLING HAS MOVED and the measurement has not been re-run at the
+  // new spelling. `App` held an `openGridKey: string | null` when that was measured; it now
+  // holds `openGridRef`, a tagged three-way reference, and `openKeyResolved` is an
+  // `entryDomKey` rather than an `entryOpenKey` (see `GridsView.openKey` for why). The
+  // equivalent mutant today is `openKey={openGridRef.kind === 'published' ?
+  // openGridRef.key : SYSTEM_GRID_DOM_KEY}` — the raw reference, unresolved against
+  // `grids`. The CLAIM below is unchanged and still passes; only the mutant's text is
+  // stale, and saying so is better than quietly rewriting a measurement nobody re-took.
   it('🔴 WITHDRAWING the open grid falls back to the Top Grid WITHOUT also listing it', async () => {
     const MINE = row('gk-mine', 6, 'My grid', gridData(['mk-alpha'], ['qk-tango']), {
       authorUserId: VIEWER_ID,

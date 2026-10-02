@@ -205,6 +205,42 @@ export interface MyGridsViewProps {
    * is".
    */
   onEditPublished: (row: GridRow) => void;
+  /**
+   * OPEN one of the viewer's own PRIVATE grids — the Ask-D route.
+   *
+   * 🔴 IT IS THE ONLY WAY A PRIVATE GRID'S MATRIX CAN BE REACHED. A private grid has
+   * no shared row, so it is not on the community board and `GridsView`'s `grid-open`
+   * cannot name it; before this control a viewer had to PUBLISH a grid to generate
+   * into it, which is the wrong order — publishing is irreversible and the grid is
+   * what they were still assembling.
+   *
+   * 🔴 WHAT THE APP DOES WITH IT, AND WHY THIS COMPONENT STILL WRITES NOTHING: `App`
+   * holds the open-grid state (see its `openGridRef`), resolves the local id back to
+   * the KV record, and resolves that record's MEMBER KEYS against the live board with
+   * the same `resolveMemberRows` every other grid uses. A member that is one of the
+   * viewer's own private matchups/prompts therefore contributes no row and no column —
+   * so the matrix is built from board rows only and a local id cannot reach a result
+   * row. That property belongs to the resolver, not to this prop.
+   *
+   * ⚠️ AND THE GRID'S PRIVACY DOES NOT COVER A RUN'S OUTPUTS. A result row is keyed
+   * `comboKey · configId × promptKey` and is not grid-scoped, so once a cell's images
+   * reach the shared board they are there for every grid that contains the cell, whether
+   * or not this one is ever published. 🔴 WHAT GETS THEM THERE IS A SECOND HUMAN CONFIRM,
+   * not this press — `publish()` opens the HOST's "Publish to the shared grid?" dialog
+   * and rejects on refusal (`App.tsx`'s `driveToResult`). A draft of this paragraph said
+   * the images "go to the shared board" as though the press settled it; it does not. The
+   * viewer is told the whole of it on the confirm path (`PRIVATE_GRID_RUN_NOTICE`), not
+   * here.
+   *
+   * ⚠️ THERE IS NO `onOpenPublished` BESIDE IT, AND THERE WAS FOR ONE ROUND. The
+   * published half of this list carried an Open too, on the argument that the
+   * alternative is "go to Home, switch to the Grids board, find your card, press Open".
+   * It was cut: a published grid IS on that board with a `grid-open` of its own, so the
+   * control was a second door to one destination — for the one kind of grid that was
+   * never short of doors — and it also appeared on the ARCHIVED rows, which `MyList`
+   * renders through the same action group.
+   */
+  onOpenUnpublished: (localId: string) => void;
 }
 
 export function MyGridsView({
@@ -230,6 +266,7 @@ export function MyGridsView({
   onDiscardUnpublished,
   onPublishUnpublished,
   onEditPublished,
+  onOpenUnpublished,
 }: MyGridsViewProps): React.JSX.Element {
   /** Cell → result index, built ONCE per render and shared by every card's strip. */
   const byCell = useMemo(() => indexResultsByCell(results), [results]);
@@ -289,7 +326,10 @@ export function MyGridsView({
     return (
       <Card key={row.key} withBorder padding="md" data-testid="grid-card" data-key={row.key}>
         <Stack gap={10} style={{ minWidth: 0 }}>
-        <Group justify="space-between" align="flex-start" gap={10}>
+        {/* 🔴 NO `space-between` ROW HERE ANY MORE — the content column is a direct
+            child of the card's Stack and the actions are its LAST child, below the
+            preview strip. `MatchupBody`'s header carries the measured reflow this
+            removes; all five card shapes took the same change in one pass. */}
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
               <strong data-testid="grid-card-name">{name}</strong>
@@ -306,12 +346,6 @@ export function MyGridsView({
               </span>
             )}
           </Stack>
-          {/* 🔴 THE ACTIONS COME FROM `MyList`, not from here. Remove used to be an
-              inline button beside an inline Archive; both are behind this row's `⋮`
-              now, and Edit — which a published grid had no route to at all — is the
-              one control on the row. */}
-          <Group gap={6} align="center">{actions}</Group>
-        </Group>
         {/* 🔴 THE INLINE PREVIEW, the SAME component and the SAME budget as the
             community grid cards: ids collected by `gridPreviewIds`, handed to ONE
             `GatedCell`, so a card costs exactly one batched `getImages` call
@@ -323,6 +357,12 @@ export function MyGridsView({
           label={name}
           GatedCell={GatedCell}
         />
+        {/* 🔴 THE ACTIONS COME FROM `MyList`, not from here. Remove used to be an
+            inline button beside an inline Archive; both are behind this row's `⋮`
+            now, and Edit — which a published grid had no route to at all — plus Open
+            are the controls on the row. `row-actions` is the one spelling shared by
+            all five card shapes; see `MatchupBody`. */}
+        <Group gap={6} align="center" data-testid="row-actions">{actions}</Group>
         </Stack>
       </Card>
     );
@@ -392,6 +432,11 @@ export function MyGridsView({
           onWithdraw={onWithdraw}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
+          /* 🔴 ONLY THE PRIVATE HALF GETS Open, and `MyList` has no published-row Open
+             to wire any more. A published grid is on the community board with a
+             `grid-open` of its own; a private one has no shared row and therefore no
+             other route to its matrix at all. See `onOpenUnpublished`. */
+          onOpenDraft={onOpenUnpublished}
           renderCard={card}
         />
       </Stack>

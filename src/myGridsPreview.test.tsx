@@ -252,6 +252,11 @@ function renderMine(
       onDiscardUnpublished={vi.fn()}
       onPublishUnpublished={vi.fn()}
       onEditPublished={vi.fn()}
+      /* ⚠️ Stubs — the Open routes are measured in `src/gridOpenPrivate.test.tsx`
+         against the real `App`. Adding the control does not change this file's claim:
+         the read budget is one batched `getImages` per CARD, and a button issues
+         none. */
+      onOpenUnpublished={vi.fn()}
     />,
   );
 }

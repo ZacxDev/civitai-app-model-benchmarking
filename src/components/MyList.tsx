@@ -71,14 +71,26 @@ export interface MyDraftItem {
   localId: string;
   name: string;
   /**
-   * A short STRUCTURAL summary (e.g. "2 models", "3 ecosystems").
+   * A short STRUCTURAL summary (e.g. "2 models", "2 × 1"), or `undefined` for NO
+   * badge at all.
    *
    * ⚠️ IT USED TO READ "2 configs" AND THE EXAMPLE WAS THE LIVE STRING, not a
    * placeholder: the matchup caller built it from `configs.length` with the repo's
    * internal noun. The viewer-facing word is "models" now — see `modelCountSummary`
    * in `lib/benchmark.ts`, which owns it for both callers.
+   *
+   * 🔴 OPTIONAL, AND THE OPTIONALITY IS THE FEATURE. A badge earns its place by
+   * telling a viewer something they could not assume, so the caller omits it on the
+   * state that IS the assumption: the prompt surface rendered "default only" on every
+   * prompt with no overrides — the overwhelming majority — which spent a pill saying
+   * "nothing unusual here". `PromptsView` now passes a value only for the informative
+   * minority (`default + N override(s)`), and the badge is unmounted otherwise. Same
+   * reasoning that settled the Private badge: badge the minority state.
+   *
+   * ⚠️ An EMPTY STRING is not the way to ask for no badge — it renders an empty pill.
+   * Pass `undefined` (or omit the key).
    */
-  meta: string;
+  meta?: string;
   description?: string;
   /**
    * An OPTIONAL extra body node, rendered BELOW the name/meta/description row and
@@ -132,6 +144,44 @@ export interface MyListProps<Row> {
   onWithdraw: (key: string) => Promise<void> | void;
   onArchive?: (key: string) => Promise<void> | void;
   onUnarchive?: (key: string) => Promise<void> | void;
+  /**
+   * OPEN this viewer's own PRIVATE record, if the noun has somewhere to open it.
+   *
+   * 🔴 ONLY THE GRID SURFACE PASSES IT, and the optionality is what keeps the other
+   * two honest: a matchup or a prompt has no "open" destination — the thing a viewer
+   * opens is a GRID, whose matrix is the app's primary object. With the callback
+   * omitted the control is UNMOUNTED, not disabled, for the same reason the Top Grid
+   * gets no greyed vote button: a dead control advertises an action that does not
+   * exist.
+   *
+   * 🔴 OPENING A PRIVATE GRID IS WHAT MAKES IT RUNNABLE BEFORE IT IS PUBLISHED, which
+   * is the whole point of the control — and the grid's privacy does NOT cover a run's
+   * outputs: a result row is keyed on the matchup and the prompt, never on the grid, so
+   * once a cell's images reach the shared board every grid containing that cell shows
+   * them to every viewer.
+   *
+   * ⚠️ "THE OUTPUTS ARE PUBLIC" IS WHAT THIS SAID, AND IT SKIPS THE STEP THAT PUTS THEM
+   * THERE. On the path that reaches the board it takes a SECOND human confirm —
+   * `publish()` opens the host's own dialog and rejects on refusal — and `driveToResult`
+   * has two further arms that end with nothing published, both named in that docblock
+   * (a terminal non-`succeeded` workflow, and the `imageIds.length > 0` guard before
+   * `shared.append`). The twin docblock on
+   * `MyGridsView.onOpenPrivate` was corrected for exactly this and this one was left;
+   * see `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` for the whole account. That notice is
+   * where the viewer is told, on the confirm path. Nothing on THIS row claims
+   * otherwise, and nothing here writes anything: the callback raises intent, exactly
+   * like every other one in this file.
+   *
+   * ⚠️ THERE IS NO `onOpenRow` BESIDE IT, AND THERE WAS FOR ONE ROUND. The PUBLISHED
+   * half of this list carried an Open too, under a `my-open` testid; it was cut because
+   * a published grid is listed on the community board and already carries `grid-open`
+   * there, so the control was a second door to one destination — for the one kind of
+   * grid that was never short of doors. The private record is the one with no other
+   * route to its matrix, which is why this callback is the one that survives. Cutting it
+   * also removed the Open from the ARCHIVED rows, which reach `publishedActions` through
+   * the same path.
+   */
+  onOpenDraft?: (localId: string) => void;
   /** Render one published row's card, with the action group this list supplies. */
   renderCard: (row: Row, actions: ReactNode) => ReactNode;
 }
@@ -157,6 +207,7 @@ export function MyList<Row>({
   onWithdraw,
   onArchive,
   onUnarchive,
+  onOpenDraft,
   renderCard,
 }: MyListProps<Row>): React.JSX.Element {
   // Which record is mid-publish — the button that could mint a public row is disabled
@@ -206,6 +257,10 @@ export function MyList<Row>({
    */
   const publishedActions = (row: Row, archiveAction: ReactNode): React.JSX.Element => (
     <>
+      {/* ⚠️ NO Open HERE. A published row's Open lived at the head of this group for one
+          round, as `my-open`; it was cut because every published row is on the community
+          board with a `grid-open` of its own, and the ask was about the record that has
+          no such row. See `onOpenDraft`. */}
       <Button
         size="sm"
         variant="subtle"
@@ -293,12 +348,18 @@ export function MyList<Row>({
               {/* 🔴 A `Stack` AROUND THE ROW, so an optional `preview` sits BELOW it
                   rather than squeezed into the name column. Matches the published
                   grid cards' shape (`GridsView`'s `entryCard`), which is the point:
-                  a private grid and a published one should read the same way. With
-                  no `preview` the Stack holds exactly one child and the row is
-                  structurally what it was. */}
+                  a private grid and a published one should read the same way.
+                  ⚠️ The sentence that used to end this comment — "with no `preview`
+                  the Stack holds exactly one child and the row is structurally what
+                  it was" — is now FALSE and is removed rather than reworded: the
+                  action cluster is a second child of this Stack unconditionally. */}
               <Stack gap={10} style={{ minWidth: 0 }}>
-              <Group justify="space-between" align="flex-start" gap={10}>
-                <Stack gap={4} style={{ minWidth: 0 }}>
+              {/* 🔴 NO LONGER A `space-between` ROW WITH THE ACTIONS ON THE RIGHT. See
+                  `MatchupBody`'s header for the measured reflow this removes; the
+                  private row shares the shape and therefore the defect. The content
+                  column is now the Stack's own child and the actions are its LAST
+                  child, below the optional `preview`. */}
+              <Stack gap={4} style={{ minWidth: 0 }}>
                   <Group gap={8} align="center">
                     <strong data-testid="unpublished-name">{item.name || `Untitled ${noun}`}</strong>
                     {/* 🔴 THE STATE MARKER, and the ONE place this app names the
@@ -328,13 +389,45 @@ export function MyList<Row>({
                     <Badge variant="filled" data-testid="draft-badge">
                       Private
                     </Badge>
-                    <Badge variant="light" data-testid="unpublished-meta">
-                      {item.meta}
-                    </Badge>
+                    {/* 🔴 UNMOUNTED WHEN THE CALLER HAS NOTHING WORTH SAYING — not
+                        rendered empty. A present-but-empty `unpublished-meta` would
+                        keep every `getByTestId('unpublished-meta')` resolving and make
+                        "the badge is gone" unassertable; see the prop's docblock. */}
+                    {item.meta !== undefined && (
+                      <Badge variant="light" data-testid="unpublished-meta">
+                        {item.meta}
+                      </Badge>
+                    )}
                   </Group>
                   {item.description && <span style={mutedText}>{item.description}</span>}
                 </Stack>
-                <Group gap={6} align="center" wrap={false}>
+              {/* 🔴 THE PREVIEW IS CONTENT, SO IT STAYS ABOVE THE ACTIONS. Only
+                  `MyGridsView` passes one (a `GridPreview` thumbnail strip); the
+                  matchup and prompt callers pass nothing and this renders nothing. */}
+              {item.preview}
+              {/* 🔴 THE ACTION CLUSTER, AT THE BOTTOM OF THE CARD. `row-actions` is the
+                  one spelling shared by all five card shapes — see `MatchupBody` for
+                  the measured reflow this placement removes and for why the id is
+                  noun-neutral.
+                  ⚠️ `wrap={false}` is KEPT. It is about the three controls not
+                  breaking apart from each other, which is still true on a full-width
+                  row; it was never what positioned the cluster. */}
+              <Group gap={6} align="center" wrap={false} data-testid="row-actions">
+                  {/* 🔴 OPEN A RECORD THAT IS NOT ON THE BOARD, which is what lets a
+                      viewer generate into their grid BEFORE publishing it. Unmounted
+                      unless the caller has a destination — see `onOpenDraft`. Its own
+                      `unpublished-*` id, like every other control on this row. */}
+                  {onOpenDraft && (
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onClick={() => onOpenDraft(item.localId)}
+                      data-testid="unpublished-open"
+                      aria-label={`Open your private ${noun}`}
+                    >
+                      Open
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="subtle"
@@ -395,9 +488,7 @@ export function MyList<Row>({
                       data-testid="unpublished-discard"
                     />
                   </Menu>
-                </Group>
               </Group>
-              {item.preview}
               </Stack>
             </Card>
           ))}

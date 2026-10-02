@@ -9,23 +9,62 @@
 // per-viewer LOCAL id (`draft:v1:<localId>` / `unpub:prompt:v1:<localId>`).
 //
 // 🔴 SO A GRID CAN HOLD TWO KINDS OF KEY, AND EXACTLY ONE OF THEM MAY REACH THE
-// PUBLIC BOARD. A published grid row is world-readable and effectively permanent
-// (`shared.update`/`withdraw` are author-scoped and there is no merge), so a row
-// naming a local id would be a permanent public reference nobody but its author
-// can resolve — and nobody at all can resolve once the private record is gone.
-// Publishing a grid therefore has to do two things in one go: PUBLISH the private
-// members first, and REWRITE their local ids to the shared keys the host just
-// minted.
+// PUBLIC BOARD. A published grid row is world-readable, and a row naming a local id
+// is a public reference NO OTHER VIEWER can resolve — and that nobody at all can
+// resolve once the private record is gone. Publishing a grid therefore has to do two
+// things in one go: PUBLISH the private members first, and REWRITE their local ids to
+// the shared keys the host just minted.
 //
-// 🔴 DEPENDENCIES FIRST IS NOT A STYLE CHOICE. `shared.append` is irreversible
-// (see `unpublished.ts`'s `publishPointerFailedNotice` for the asymmetry), so the
-// order decides what a failure LEAVES BEHIND:
+// ⚠️ THIS PARAGRAPH USED TO CALL SUCH A ROW "EFFECTIVELY PERMANENT", JUSTIFIED BY
+// "`shared.update`/`withdraw` are author-scoped and there is no merge" — the SAME
+// inference an audit refuted for `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE`, and it is
+// backwards in exactly the same way. `sdk-runtime.ts` documents `withdraw` as "Delete a
+// row the viewer authored", so author-scoping is what PERMITS the author to remove it —
+// and unlike a result row, a grid row HAS a withdraw control in this very app
+// (`grid-withdraw`, `grid-open-withdraw`, and `grid-withdraw` behind My Benchmarks' ⋮).
+// What is true, and all this file needs, is the OTHER-VIEWER claim above: nobody else
+// can repair the reference, and the author cannot repair it either — only delete the
+// whole row. Permanence was never the premise; unresolvability is.
+//
+// 🔴 DEPENDENCIES FIRST IS NOT A STYLE CHOICE. `shared.append` has no idempotency key
+// and no merge (see `unpublished.ts`'s `publishPointerFailedNotice` for the asymmetry),
+// so the order decides what a failure LEAVES BEHIND:
 //   - members first, grid last  → a failure leaves public members and a private
 //     grid. Nothing on the board is wrong; the viewer retries.
 //   - grid first, members last  → a failure leaves a PUBLIC grid pointing at
-//     private rows, permanently, with no way to repair it.
-// The second outcome cannot be undone by anything this app can call. That is the
-// whole reason the planner below emits an ORDERED list and the caller walks it.
+//     private rows, which no retry can repair: the local ids are already on the
+//     board and `update` cannot be aimed at them from a later pass.
+// ⚠️ THE SECOND OUTCOME IS NOT "WITH NO WAY TO REPAIR IT", WHICH IS WHAT THIS SAID.
+// The author can `withdraw` the grid row and start again — a recovery, at the cost of
+// the row's votes and its key. What they cannot do is FIX the published row in place,
+// which is the property the ordering defends. That is the whole reason the planner
+// below emits an ORDERED list and the caller walks it.
+//
+// 🔴 BOUND ON THIS CORRECTION, AND THE PREVIOUS WORDING OF THIS BOUND WAS ITSELF WRONG.
+// It said "what was corrected here is THE ONE SITE that used author-scoping as the
+// REASON for permanence". There were more, including one further down THIS FILE —
+// `cascadeRefusal`'s hazard note — which went on repeating the refuted inference
+// verbatim while this bound asserted it had been dealt with. A retraction is a
+// tree-wide sweep, not an edit where you happened to be reading.
+//
+// RE-SWEPT, over text NORMALISED per file (comment leaders stripped, whitespace
+// collapsed) so a claim that wraps across comment lines is still one string, with two
+// differently-shaped patterns — a proximity match between `permanen*` and
+// `author-scoped` in either order, and the `no merge` + `no history` parenthetical
+// fingerprint — each watched to HIT a site known to carry it before any zero was read.
+// Three sites used author-scoping (or no-merge/no-history) as the REASON for permanence
+// and are corrected: this file's hazard note, `App.tsx`'s published-grid-edit comment,
+// and `gridDraftsCascade.test.tsx`'s second-write-site case.
+//
+// ⚠️ THE SITES THE SWEEP LEFT STANDING ARE A DIFFERENT CLAIM, NOT AN OVERSIGHT:
+// `types.ts`, `lib/grids.ts`, `renameWireCompat.test.ts` and `docs/matchups.md` scope
+// the impossibility to THIS APP or to the APP OWNER touching ANOTHER viewer's row,
+// which author-scoping does establish; `lib/unpublished.ts`,
+// `publishPointerFailure.test.tsx` and this file's `partialCascadeNotice` rest on
+// `withdraw` being KEY-ADDRESSED with the key unavailable, which is also not the refuted
+// inference. "Permanent public row" is still used loosely elsewhere on the publish path
+// to mean "this app offers no control that takes it back"; that looseness was not
+// audited site by site and is not claimed correct here.
 //
 // 🔴 AND NOTHING HERE PROMISES A ROLLBACK, because none exists. The copy builders
 // at the bottom say which items DID publish and what state the grid is in. An
@@ -261,10 +300,19 @@ export interface BoardSnapshot {
  * ── WHY IT REFUSES RATHER THAN DISCLOSES, AND WHAT IT COSTS ────────────────
  *
  * 🔴 THE HAZARD. A grid's member list is written to a shared row that is
- * world-readable and effectively permanent (`shared.update`/`withdraw` are
- * author-scoped, no merge, no history). A per-viewer LOCAL ID on that row is
- * unresolvable by every other viewer — and, once the private record behind it is
- * gone, by its own author too. THREE measured paths put one there with no error:
+ * world-readable and UNREPAIRABLE: a per-viewer LOCAL ID on that row is unresolvable
+ * by every other viewer, none of whom can fix it (`shared.update` is author-scoped),
+ * and — once the private record behind it is gone — by its own author either, whose
+ * only remedy is to `withdraw` the whole row and lose its key and its votes.
+ *
+ * ⚠️ THIS SAID "effectively permanent (`shared.update`/`withdraw` are author-scoped, no
+ * merge, no history)" — THE REFUTED INFERENCE THIS FILE'S OWN HEADER RETRACTS, under a
+ * bound that claimed the one site here had been corrected. It had not; the
+ * bound was wrong about its own file. Author-scoping is what PERMITS the author to
+ * remove a row, and a grid row has a withdraw control in this very app. Permanence was
+ * never the premise and nothing below needs it.
+ *
+ * THREE measured paths put a local id there with no error:
  *
  *   A. the viewer DISCARDS a private matchup the grid names (nothing prunes it from
  *      any grid), then presses Publish;
