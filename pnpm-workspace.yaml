@@ -10,13 +10,29 @@
 # RETURNING `undefined` — that means THE DEFAULT APPLIES, not that the gate is off.
 # Measured on this repo's own pinned pnpm (11.25.0, the `version: 11` in
 # `.github/workflows/ci.yml`) with CI's exact command, `pnpm install --frozen-lockfile`,
-# over a removed `node_modules`, on 2026-10-02:
-#   • all five entries present            → exit 0
-#   • app-sdk/blocks-react reverted to the
-#     previous versions                   → exit 1, ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION,
-#                                           naming app-sdk@0.55.0 + blocks-react@0.63.0
-#   • components/theme entries deleted    → exit 1, same error, naming
-#                                           components@0.9.1 + theme@0.5.0
+# over a removed `node_modules`, on 2026-10-02. EACH TOKEN WAS CONTROLLED ON ITS OWN —
+# removed singly, clean-installed, restored — rather than adding four and declaring
+# victory, so every line below is known load-bearing instead of assumed:
+#   • all five entries present     → exit 0
+#   • blocks-react@0.63.0 removed  → exit 1, ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION,
+#                                    naming exactly @civitai/blocks-react@0.63.0
+#   • app-sdk@0.55.0 removed       → exit 1, naming exactly @civitai/app-sdk@0.55.0
+#   • theme@0.5.0 removed          → exit 1, naming exactly @civitai/theme@0.5.0
+#   • components@0.9.1 removed     → exit 1, naming exactly @civitai/components@0.9.1
+#   • sdk@0.10.0 removed           → exit 0 — ALREADY AGED OUT (published
+#                                    2026-10-01T02:51:14Z, i.e. >24h before this bump).
+#                                    It is kept because `package.json` still pins
+#                                    `^0.10.0` and the rule here is that an entry
+#                                    expires by the PIN moving, not by the clock.
+#
+# Registry publish instants for the four that matter (`npm view <pkg>@<ver> time`):
+#   @civitai/theme@0.5.0           2026-10-02T17:39:39.927Z
+#   @civitai/components@0.9.1      2026-10-02T17:40:22.093Z
+#   @civitai/app-sdk@0.55.0        2026-10-02T17:41:53.057Z
+#   @civitai/blocks-react@0.63.0   2026-10-02T17:42:54.561Z
+# ⚠️ pnpm's own error text reports all four as 17:38:42–43Z, i.e. it does NOT read the
+# registry's `time` field. Both sets sit inside the window so nothing here turns on it,
+# but do not expect pnpm's instant to match `npm view`.
 # An interactive `pnpm install` does NOT fail — `minimumReleaseAgeStrict` defaults to
 # false, so pnpm silently APPENDS the entries it needs (it merged `0.62.0 || 0.63.0`
 # when blocks-react alone was bumped). Only `--frozen-lockfile`, which cannot rewrite
