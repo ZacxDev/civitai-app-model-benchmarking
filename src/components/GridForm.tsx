@@ -207,7 +207,16 @@ export function GridForm({
               onClick={() => setPicker('matchups')}
               data-testid="grid-form-pick-rows"
             >
-              Choose rows
+              {/* 🔴 IT NAMES THE OBJECT, NOT THE AXIS, and the picker it opens already
+                  did. `GridPicker`'s `AXIS` table titles the very dialog this button
+                  raises "Choose matchups" / "Choose prompts", so the old "Choose rows"
+                  / "Choose columns" asked the viewer to hold a mapping the app states
+                  nowhere on this screen — and then contradicted itself one click
+                  later. The axis words survive where they describe POSITION rather
+                  than identity (`grid-form-rows-count`'s testid, `AxisCards`' `axis`
+                  prop, and the sentence below about members being removed), because
+                  there a row genuinely is a row. */}
+              Choose matchups
             </Button>
           </Group>
           <AxisCards keys={matchupKeys} items={matchupItems} axis="rows" />
@@ -225,7 +234,8 @@ export function GridForm({
               onClick={() => setPicker('prompts')}
               data-testid="grid-form-pick-cols"
             >
-              Choose columns
+              {/* 🔴 Same change, same reason — see the matchup button above. */}
+              Choose prompts
             </Button>
           </Group>
           <AxisCards keys={promptKeys} items={promptItems} axis="cols" />

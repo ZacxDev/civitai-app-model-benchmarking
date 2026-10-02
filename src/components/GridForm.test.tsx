@@ -79,6 +79,50 @@ describe('🔴 the two axis headings', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 🔴 THE TWO PICKER BUTTONS AGREE WITH THE DIALOG THEY OPEN.
+//
+// This is a RELATIONSHIP guard, not a copy guard, and that is deliberate. The two
+// strings were "Choose rows" / "Choose columns" on the buttons while `GridPicker`'s
+// own `AXIS` table has always titled the dialog they raise "Choose matchups" /
+// "Choose prompts" — so one click contradicted the button that produced it, and a
+// guard pinning only the new button text would go green on a half-change that left
+// the dialog alone (or vice versa). Pinning the PAIR fails whichever side drifts.
+//
+// The button label is read as a WHOLE normalised string and the old wording is
+// asserted ABSENT from the form, because "Choose matchups" does not contain "Choose
+// rows": a substring check would be satisfied by a button carrying both.
+// ---------------------------------------------------------------------------
+
+describe('🔴 the axis picker buttons name the OBJECT, and match their dialog', () => {
+  it.each([
+    ['grid-form-pick-rows', 'grid-pick-rows', 'Choose matchups'] as const,
+    ['grid-form-pick-cols', 'grid-pick-cols', 'Choose prompts'] as const,
+  ])('%s reads %s and opens a dialog with the SAME title', async (buttonId, pickerId, label) => {
+    const { form } = renderForm();
+
+    const button = within(form).getByTestId(buttonId);
+    expect((button.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(label);
+
+    // The dialog's ACCESSIBLE NAME, which is what `GridPicker` builds from its own
+    // `AXIS` table — so this equality is the lockstep, read off two components.
+    await userEvent.click(button);
+    const picker = await screen.findByTestId(pickerId);
+    expect(screen.getByRole('dialog', { name: label })).toContainElement(picker);
+  });
+
+  it('🔴 the retired axis wording is ABSENT from the form', () => {
+    const { form } = renderForm();
+    const text = (form.textContent ?? '').replace(/\s+/g, ' ');
+    expect(text, 'the form still offers "Choose rows"').not.toContain('Choose rows');
+    expect(text, 'the form still offers "Choose columns"').not.toContain('Choose columns');
+    // POSITIVE CONTROL on the read: this scan CAN see the buttons' text, so the two
+    // absences above are absences and not a mis-targeted `textContent`.
+    expect(text).toContain('Choose matchups');
+    expect(text).toContain('Choose prompts');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 🔴 THE CHOSEN MEMBERS RENDER AS CARDS.
 //
 // Paired in one case: no cards when nothing is chosen, one named card per chosen
