@@ -111,8 +111,10 @@ const result = (comboKey: string, configId: string, promptKey: string, imageIds:
  * cells are displayed full-size by the matrix above the list, and previewing them
  * again made the one grid the viewer is looking at read its images TWICE (see
  * `gridPreviewSeam.test.tsx`, which pins that relationship). The system Top Grid is
- * open by construction (`openKey === null`), so the cards under test here are the
- * two published ones.
+ * open by construction — `App`'s `openGridRef` initialises to `{ kind: 'system' }` — so
+ * the cards under test here are the two published ones. (⚠️ This said
+ * "`openKey === null`"; `null` now means "nothing in the list is open", which is what a
+ * PRIVATE grid being open produces. The claim is unaffected; the spelling was stale.)
  *
  * 🔴 THEIR MEMBER SETS ARE DELIBERATELY DIFFERENT. If both named the same members
  * they would issue IDENTICAL id arrays, and no assertion could tell "one call per

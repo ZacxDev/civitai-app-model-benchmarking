@@ -210,7 +210,9 @@ describe('board scan truncation', () => {
     //
     // ⚠️ IT WAS `grid-open-system-badge`, with the comment "the Top Grid is computed
     // from the scanned rows, so its presence means the scan settled". That is FALSE and
-    // the sentence is retracted. `openKey` initialises to `null`, and
+    // the sentence is retracted. `openGridRef` initialises to `{ kind: 'system' }`
+    // (this read "`openKey` initialises to `null`" — stale since `null` came to mean
+    // "nothing in the list is open"; the timing argument is unaffected), and
     // `buildTopGrid([], [])` still yields a system entry — so the system marker is in
     // the DOM on FIRST PAINT, before the board scan has resolved anything. The
     // `toBeNull()` below could therefore run before a notice could possibly have
@@ -250,7 +252,7 @@ describe('board scan truncation', () => {
   it('🔴 ANCHOR CONTROL: the system marker renders while the board scan is still in flight', async () => {
     renderApp({ shared: pendingShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The note is there on first paint: `openKey` starts `null` and
+    // The note is there on first paint: `openGridRef` starts `{ kind: 'system' }` and
     // `buildTopGrid([], [])` yields a system entry regardless of what the scan found.
     await waitFor(() => expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument());
     // …and the board it sits above has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it

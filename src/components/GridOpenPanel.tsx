@@ -47,7 +47,7 @@
 // value.
 //
 // 🔴 IT HOLDS NO STATE AND RESOLVES NOTHING. Which grid is open, and what its members
-// resolve to against the live board, are `App`'s (see `openGridKey` there). That is
+// resolve to against the live board, are `App`'s (see `openGridRef` there). That is
 // not a style choice: hoisting the open key above the board switch is what makes an
 // in-flight run survive a trip to My Benchmarks and back, on the grid the viewer
 // actually started it on — a `useState` in here would reset to the Top Grid on

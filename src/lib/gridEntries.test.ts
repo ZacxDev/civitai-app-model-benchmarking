@@ -556,6 +556,24 @@ describe('gridPreviewIds — the one batched read per card, in the node tier', (
 // App composes.
 // ===========================================================================
 
+/**
+ * The per-viewer LOCAL ids a private grid stores as member keys.
+ *
+ * 🔴 BARE, NOT STORAGE-KEY-SHAPED, AND THAT IS A CORRECTION. These fixtures used
+ * `'draft:v1:dm-1'` / `'unpub:prompt:v1:dp-1'`, which are the KV KEYS the records live
+ * under (`draftKey` / `unpubPromptKey`) and NOT what a grid holds: `App` builds the
+ * picker's items with `key: d.localId` (`App.tsx`'s `matchupPickerItems`), so a private
+ * member key on the wire is the bare local id. The absence assertions below therefore
+ * scanned for a prefix production never produces — green, and about nothing.
+ *
+ * 🔴 PAIRWISE DISTINCT, AND NO SUBSTRING OF ANY BOARD KEY in `MANY_MATCHUPS` /
+ * `MANY_PROMPTS` (all `mk-*` / `qk-*`), which is what makes a `not.toContain` over the
+ * serialised result a real claim rather than one a board key could satisfy.
+ */
+const LOCAL_MATCHUP = 'dm-1';
+const LOCAL_PROMPT = 'dp-1';
+const LOCAL_PROMPT_2 = 'dp-2';
+
 /** An `UnpublishedGrid`-shaped record: a local id, no key, no count, no author. */
 function privateGrid(matchupKeys: string[], promptKeys: string[]) {
   return {
@@ -641,8 +659,8 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     const open: OpenGrid = {
       kind: 'private',
       rec: privateGrid(
-        ['mk-alpha', 'draft:v1:dm-1', 'mk-bravo'],
-        ['qk-tango', 'unpub:prompt:v1:dp-1', 'unpub:prompt:v1:dp-2'],
+        ['mk-alpha', LOCAL_MATCHUP, 'mk-bravo'],
+        ['qk-tango', LOCAL_PROMPT, LOCAL_PROMPT_2],
       ),
     };
     const resolved = resolveOpenGrid(open, MANY_MATCHUPS, MANY_PROMPTS);
@@ -656,8 +674,16 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     // 🔴 THE CLAIM STATED THE OTHER WAY ROUND, over the whole resolved shape: no local
     // id survives into anything the matrix is built from. A row that resolved would
     // put its key into a cell identity and therefore onto a result row.
-    expect(JSON.stringify(resolved)).not.toContain('draft:v1:');
-    expect(JSON.stringify(resolved)).not.toContain('unpub:prompt:v1:');
+    //
+    // 🔴 THE EXACT IDS, which is what these used to miss — they scanned for the
+    // `draft:v1:` / `unpub:prompt:v1:` STORAGE prefixes that a grid's member keys never
+    // carry. See the constants' docblock. POSITIVE CONTROL first, so the absences below
+    // are absences and not a `not.toContain` against an empty serialisation.
+    const wire = JSON.stringify(resolved);
+    expect(wire, 'the resolved shape serialised to nothing').toContain('mk-alpha');
+    expect(wire).not.toContain(LOCAL_MATCHUP);
+    expect(wire).not.toContain(LOCAL_PROMPT);
+    expect(wire).not.toContain(LOCAL_PROMPT_2);
   });
 
   it('resolveOpenGrid agrees with resolveGridRows on a PUBLISHED grid', () => {
@@ -685,7 +711,7 @@ describe('🔴 privateGridShortfall — the sentence that attributes NO cause', 
 
   it('🔴 states the arithmetic and the rule, and names no cause', () => {
     const resolved = resolveOpenGrid(
-      { kind: 'private', rec: privateGrid(['mk-alpha', 'draft:v1:dm-1'], ['qk-tango', 'unpub:prompt:v1:dp-1']) },
+      { kind: 'private', rec: privateGrid(['mk-alpha', LOCAL_MATCHUP], ['qk-tango', LOCAL_PROMPT]) },
       MANY_MATCHUPS,
       MANY_PROMPTS,
     );
@@ -713,7 +739,7 @@ describe('🔴 privateGridShortfall — the sentence that attributes NO cause', 
     // promise about a remainder that does not exist. Two points on the one dimension
     // that decides it — the case above has a matrix, this one does not.
     const resolved = resolveOpenGrid(
-      { kind: 'private', rec: privateGrid(['draft:v1:dm-1'], ['unpub:prompt:v1:dp-1']) },
+      { kind: 'private', rec: privateGrid([LOCAL_MATCHUP], [LOCAL_PROMPT]) },
       MANY_MATCHUPS,
       MANY_PROMPTS,
     );
@@ -735,7 +761,7 @@ describe('🔴 privateGridShortfall — the sentence that attributes NO cause', 
     // of 2 or 2 of 4) are distinct from both cases above, so a wrong fixture cannot pass
     // by reusing another case's expectation.
     const resolved = resolveOpenGrid(
-      { kind: 'private', rec: privateGrid(['mk-alpha', 'mk-bravo'], ['unpub:prompt:v1:dp-1']) },
+      { kind: 'private', rec: privateGrid(['mk-alpha', 'mk-bravo'], [LOCAL_PROMPT]) },
       MANY_MATCHUPS,
       MANY_PROMPTS,
     );
@@ -754,7 +780,7 @@ describe('🔴 privateGridShortfall — the sentence that attributes NO cause', 
     // absence to the members' authors — false about the viewer's own private record —
     // and this case is what fails if the private arm is ever pointed back at it.
     const resolved = resolveOpenGrid(
-      { kind: 'private', rec: privateGrid(['mk-alpha', 'draft:v1:dm-1'], ['qk-tango']) },
+      { kind: 'private', rec: privateGrid(['mk-alpha', LOCAL_MATCHUP], ['qk-tango']) },
       MANY_MATCHUPS,
       MANY_PROMPTS,
     );

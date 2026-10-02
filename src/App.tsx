@@ -2731,7 +2731,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // that RENDERS it and the list that EXCLUDES it. `openGridRef` can name a grid that
   // has since been withdrawn — by its author in another tab, or by this viewer from
   // the list — and the panel falls back to the Top Grid in that case. A list that
-  // applied its own `key !== openGridKey` test would then find no match, keep the Top
+  // applied its own `key !== openGridRef` test would then find no match, keep the Top
   // Grid in the list, and show the same grid twice: once in the panel, once as a card.
   // So the fallback happens once and `GridsView` is handed the RESOLVED key.
   //
@@ -3367,7 +3367,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         >
           {/* 🔴 THE SIDEBAR HOLDS NO VIEW STATE — `view` is App's, which is what makes
               an in-flight run survive a trip to My Benchmarks and back. See
-              `openGridKey` and `SideNav`'s own header. */}
+              `openGridRef` and `SideNav`'s own header. */}
           <SideNav view={view} onSelect={setView} />
 
           <div style={{ minWidth: 0, display: 'grid', gap: 14 }} data-testid="app-surface">

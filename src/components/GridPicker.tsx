@@ -506,7 +506,33 @@ export function GridPicker({
                   }}
                   style={optionStyle(isSelected, isActive, blocked)}
                 >
-                  <Group justify="space-between" align="flex-start" gap={8}>
+                  {/* 🔴 A COLUMN, NOT A `space-between` ROW, AND IT IS THE SAME DEFECT
+                      THE FIVE CARD SHAPES HAD. This was
+                      `<Group justify="space-between" align="flex-start">` with the
+                      name/description on the left and a VARIABLE-WIDTH right cluster —
+                      an optional `meta`, plus a conditional `Selected` or
+                      `Limit reached` badge — so the cluster's intrinsic width differs
+                      per option, the flex line wraps for some options and not others,
+                      and the wrapped cluster lands under the content at the left
+                      margin. Identical mechanism, identical fix: the cluster below the
+                      content, with no second flex item on the content's line to wrap.
+
+                      ⚠️ jsdom resolves NO layout, so nothing in this repo measured THIS
+                      row's reflow — the measurement quoted in `MatchupBody`'s header
+                      was taken on the matchup cards. What is asserted here is the
+                      structural signature, by `rowActions.test.tsx`'s second ledger,
+                      which fails if any production source grows a `space-between`
+                      `flex-start` Group again. The inference from the cards to this row
+                      is a derivation, and saying so is the honest form of it.
+
+                      🔴 IT CARRIES NO `row-actions` TESTID, DELIBERATELY. The right
+                      cluster here is METADATA, not actions — nothing in it is pressable,
+                      and both badges are `aria-hidden` mirrors of the option's own
+                      `aria-selected`/`aria-disabled`. Borrowing the id would put a
+                      sixth file in the action-cluster ledger for a node that renders no
+                      action, which is why that ledger gained a STRUCTURAL sibling
+                      instead of a sixth entry. */}
+                  <Stack gap={6} style={{ minWidth: 0 }}>
                     <Stack gap={2} style={{ minWidth: 0 }}>
                       <strong style={{ fontSize: 14 }}>{item.name}</strong>
                       {item.description && <span style={metaText}>{item.description}</span>}
@@ -528,7 +554,7 @@ export function GridPicker({
                         </Badge>
                       )}
                     </Group>
-                  </Group>
+                  </Stack>
                 </div>
               );
             })}

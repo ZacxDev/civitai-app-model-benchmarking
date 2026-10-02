@@ -9,15 +9,23 @@
 // irreversible, so the viewer had to make the public commitment before they could
 // see whether the matrix was worth making. Open closes that order.
 //
-// 🔴 THE PRICE IS ALREADY PAID BY THE DATA MODEL, AND THE COPY HAS TO SAY SO. A
-// result row's key is `result:${comboKey}·${configId}×${promptKey}`
-// (`buildResultPayload`) — it names NO grid, so a cell is shared by every grid that
-// contains it; and the run's publish step is an unconditional `publish({ workflowId })`.
-// So the GRID stays private while its OUTPUTS go public immediately and permanently.
-// That is the operator's settled decision (no ephemeral-output path was built), which
-// makes the viewer-facing sentence load-bearing rather than decorative: the panel's
-// "Private" badge is true about the grid and would otherwise be read as covering the
-// images. `PRIVATE_GRID_RUN_NOTICE` is that sentence and this file pins it WHOLE.
+// 🔴 THE PRICE IS PAID BY THE DATA MODEL, AND THE COPY HAS TO SAY SO. A result row's
+// key is `result:${comboKey}·${configId}×${promptKey}` (`buildResultPayload`) — it names
+// NO grid, so a cell is shared by every grid that contains it. The GRID stays private;
+// its outputs are not grid-scoped and, once on the board, are there for everyone.
+//
+// ⚠️ THIS PARAGRAPH USED TO SAY THE OUTPUTS "go public immediately and permanently",
+// justified by "the run's publish step is an unconditional `publish({ workflowId })`".
+// BOTH HALVES ARE REFUTED and the sentence is corrected rather than softened. The CALL
+// SITE is unconditional; the PUBLISH is not — `publish()` opens the HOST's "Publish to
+// the shared grid?" confirm and rejects on refusal or consent timeout, and `App`'s
+// `driveToResult` also has a terminal-non-`succeeded` arm and an `imageIds.length > 0`
+// guard, each of which ends with nothing on the board. So "immediately" is false even on
+// the happy path (there is a SECOND human confirm after generation), and "permanently"
+// was never established — `withdraw` is documented as "Delete a row the viewer
+// authored", which is what would PERMIT removal. `ResultsGrid`'s
+// `PRIVATE_GRID_RUN_NOTICE` docblock carries the full account of both refutations; it is
+// the THIRD rationale for that sentence and this file pins the sentence WHOLE.
 //
 // ── 🔴 THE INVARIANT THIS FEATURE MUST NOT BREAK ────────────────────────────
 //
@@ -47,18 +55,32 @@
 //
 // ── 🔴 COVERAGE STATUS, MEASURED PER CASE ───────────────────────────────────
 //
-// Rolling the seven production sources this feature touches back to `bb63087` and
-// running the suite gave 8 of these 11 cases RED. The THREE that stayed GREEN are
-// INVARIANT GUARDS over behaviour that already worked, and they are labelled as such
-// at each case — they are not regression coverage and must not be counted as it:
+// ⚠️ THE CENSUS THIS REPLACES WAS WRONG ON BOTH NUMBERS — it said "8 of these 11 cases
+// RED" with "THREE that stayed GREEN", over seven production sources. There were TWELVE
+// cases, ELEVEN production sources, and FOUR green. Recorded because a census is a
+// claim like any other, and a hand-counted one rots on the next case anyone adds.
 //
-//   - "the DEFAULT is still the Top Grid …"
-//   - "the COMMUNITY board Open still opens a published grid …"
-//   - "Open is offered on GRIDS ONLY …" (the matchup/prompt negative control)
+// RE-MEASURED, mechanically: all ELEVEN production sources `git diff bb63087..HEAD`
+// names were rolled back in place to `bb63087` and this file run with
+// `vitest --project dom --reporter=verbose`. Of its THIRTEEN cases, TEN were RED and
+// THREE GREEN. The three, with why each is green:
 //
-// They exist because this change rewrote the open-grid state and the panel's props,
-// so "the two paths that already worked still work" is the claim most at risk and the
-// one least likely to be red.
+//   - "a PUBLISHED grid gets NO Open on My Benchmarks — live row or archived" — green
+//     because at `bb63087` NO row had an Open at all, so it passes VACUOUSLY there. It
+//     is an INVARIANT GUARD over a deliberate CUT, not regression coverage: what it
+//     buys is forward, against the control being re-added to the published half.
+//   - "Open is offered on GRIDS ONLY — a matchup and a prompt row carry none" — green
+//     for exactly the same reason, and likewise an invariant guard. The cheap mistake
+//     it defends against is wiring an optional callback for all three nouns.
+//   - "THE NEGATIVE CONTROL: a PUBLISHED grid gets the ordinary notice and NOT this
+//     one" — green at base is CORRECT and is the point: the private-grid notice did
+//     not exist there, so its absence is the base state. A negative control that went
+//     red at base would be asserting the wrong thing.
+//
+// 🔴 AND ONE RED CASE IS NOT REGRESSION COVERAGE OVER `main` EITHER — see "a PRIVATE
+// grid being open leaves the community list COMPLETE", whose own comment says so: it is
+// red at `bb63087` only because the feature does not exist there, and the bug it caught
+// lived in an intermediate state of this PR.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -499,6 +521,10 @@ describe('🔴 the private open path leaves the community board intact', () => {
     expect(screen.queryByTestId('grids-empty')).toBeNull();
   });
 
+  // ⚠️ INVARIANT GUARD — GREEN at `bb63087`, where no row had an Open at all, so it
+  // passes VACUOUSLY there. It is not regression coverage; what it buys is forward,
+  // against the control being re-added to the published half (or to the archived rows,
+  // which share its action group).
   it('🔴 a PUBLISHED grid gets NO Open on My Benchmarks — live row or archived', async () => {
     // 🔴 THE CUT, ASSERTED ON BOTH HALVES OF THE LIST. My Benchmarks ▸ Grids briefly
     // offered Open on the viewer's own PUBLISHED grids, under a `my-open` testid. It was

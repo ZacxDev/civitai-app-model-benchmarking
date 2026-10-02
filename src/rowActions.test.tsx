@@ -35,27 +35,69 @@
 //   3. that parent carries NO `justify-content: space-between` inline, which is the
 //      property the old shape's reflow depended on;
 //   4. `row-actions` is the LAST element child of that parent, i.e. the bottom of the
-//      card;
-//   5. a named CONTENT node of the card precedes it in document order.
+//      card.
 //
-// 🔴 (4) IS THE DISCRIMINATING ONE AND (5) ALONE IS VACUOUS. DOM order was ALREADY
-// content-then-actions in the `space-between` shape — the content Stack was the first
-// flex item and the action Group the second — so a document-order check passes on the
-// pre-change code and proves nothing. What changed is the CONTAINER: a row became a
-// column, and the cluster became that column's last child. Claims 2–4 are what fail
-// at `bb63087`; claim 5 is kept because it is the sentence a reader expects to see,
-// labelled here as the weak one rather than quietly counted.
+// ── 🔴 WHAT THE BASE MATRIX DOES AND DOES NOT PROVE ─────────────────────────
 //
-// ── WHY FIVE SHAPES AND A LEDGER ────────────────────────────────────────────
+// ⚠️ THIS FILE USED TO CLAIM "Claims 2–4 are what fail at `bb63087`", AND THAT
+// ATTRIBUTION WAS FALSE. Rolled back to base, all six shape cases fail at CLAIM 1 —
+// `Unable to find … [data-testid="row-actions"]`, because the testid is NEW — so claims
+// 2, 3 and 4 never execute there. A 6/6-red matrix over a whole-file rollback is
+// evidence that a new selector did not exist at base and nothing more: it is the
+// enclosing-condition shape, where the mutation removes the guard TOGETHER with the
+// condition that reaches it.
+//
+// 🔴 THE GUARD IS NONETHELESS SOUND, AND THIS IS THE MEASUREMENT THAT SHOWS IT.
+// ISOLATED MUTATION: `MatchupBody`'s outer `<Stack gap={10}>` changed to
+// `<Group justify="space-between" align="flex-start">` — i.e. the defect itself,
+// reintroduced in ONE file, with the `row-actions` testid KEPT so claim 1 still passes
+// and the later claims still run. Result, re-run at this HEAD: 2 failed / 6 passed of
+// the 8 cases in this file. The `MatchupBody` shape case dies on CLAIM 2's own
+// assertion with its own message — `expected 'group' to be 'stack'` — and the
+// STRUCTURAL ledger dies on its own, with
+// `expected [ 'components/MatchupBody.tsx' ] to deeply equal []`. That is each guard
+// firing on its own condition, on the narrowest expression that can be wrong, which is
+// what a whole-file rollback cannot show.
+//
+// ⚠️ THE EARLIER REPORT OF THIS MUTATION SAID "1 failed / 6 passed" AND THAT NUMBER IS
+// STALE RATHER THAN WRONG: it was taken before the structural ledger existed and before
+// claim 5 was deleted, so the file held 7 cases and only one guard could see the
+// mutant. Re-measured here rather than restated.
+//
+// 🔴 AND THE SECOND LEDGER WAS VALIDATED THE SAME WAY, SEPARATELY. Reverting
+// `GridPicker`'s option row to the `space-between` / `flex-start` shape takes the
+// structural ledger red — `expected [ 'components/GridPicker.tsx' ] to deeply equal []`
+// — at 1 failed / 7 passed, with the ACTION-CLUSTER ledger and all six shape cases
+// GREEN. That green is the point: the first ledger is structurally blind to a card
+// shape that ships the defect under no `row-actions` id, which is why there are two.
+//
+// ⚠️ AND NOTHING HERE IS A CLAIM ABOUT THE OTHER FOUR SHAPES' MUTANTS. Two isolated
+// mutations were run, in `MatchupBody` and `GridPicker`. The remaining shapes are
+// covered by the SET ledgers below rather than by four more mutants.
+//
+// ── WHY FIVE SHAPES AND TWO LEDGERS ─────────────────────────────────────────
 //
 // The defect is shared by five independently-written card bodies (two community row
 // bodies, the private row, and two grid cards) — exercised below as SIX cases, because
 // the private row is rendered twice: once bare and once with the `preview` strip only
 // `MyGridsView` passes, where a third child sits between the content and the cluster.
 // A per-shape case would leave a sixth FILE free to reintroduce the defect silently,
-// so the SOURCE LEDGER at the bottom asserts the exact SET of production files that
-// render `row-actions` — failing when the set GROWS (a new card shape nobody checked)
-// as well as when it SHRINKS (a shape that lost its cluster).
+// so the SOURCE LEDGERS at the bottom assert SETS. There are TWO of them because a new
+// card shape can ship the defect under its own testid or under none at all, and the
+// first ledger cannot see either:
+//
+//   - the ACTION-CLUSTER ledger — the exact set of production files rendering
+//     `data-testid="row-actions"`, failing when it GROWS (a card shape nobody checked)
+//     and when it SHRINKS (a shape that lost its cluster or had the id renamed);
+//   - the STRUCTURAL ledger — the exact set of production files containing the
+//     SIGNATURE, `justify="space-between"` together with `align="flex-start"` on one
+//     element. That is the shape with a variable-width right cluster on the content's
+//     own flex line, whatever the id on it. It found a SIXTH instance the first ledger
+//     was blind to: `GridPicker`'s option row, which has the identical two-flex-item
+//     shape with an optional `meta` plus a conditional `Selected`/`Limit reached`
+//     badge, under no `row-actions` id at all because nothing in that cluster is an
+//     action. Its allowlist is EMPTY, and an addition to it is a decision someone has
+//     to write down.
 //
 // 🔴 THE ID IS NOUN-NEUTRAL (`row-actions`, not `matchup-actions`) FOR TWO REASONS.
 // One concept spelled five ways is five things to keep in step; and a matchup-spelled
@@ -69,7 +111,7 @@ import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
 import { SYSTEM_GRID_DOM_KEY } from './lib/gridEntries.js';
-import { scannedSources } from './lib/sourceScan.js';
+import { scannedSources, stripComments } from './lib/sourceScan.js';
 
 import { GridsView } from './components/GridsView.js';
 import { MatchupBody } from './components/MatchupBody.js';
@@ -341,10 +383,17 @@ describe('🔴 the row action cluster is the LAST child of a COLUMN container', 
     // CLAIM 2 — a COLUMN container. `Stack` stamps `data-civitai-ui="stack"` and
     // `Group` stamps `"group"` (measured in `@civitai/blocks-react/dist/ui/*.js`);
     // the flex DIRECTION lives in the pack's injected sheet, so the attribute is the
-    // structural fact available here. Both halves are asserted: a parent that is
-    // neither would satisfy a lone `not.toBe('group')`.
+    // structural fact available here.
+    //
+    // 🔴 THIS IS THE CLAIM THE ISOLATED MUTATION KILLS — see the header. A
+    // `<Group justify="space-between">` in place of the Stack fails here, with this
+    // message, and nothing else in the file moves.
+    //
+    // ⚠️ THE `not.toBe('group')` THAT USED TO FOLLOW IS GONE: it is SUBSUMED by the
+    // equality above (a value cannot be both `'stack'` and `'group'`), and its stated
+    // reason — "a parent that is neither would satisfy a lone `not.toBe('group')`" —
+    // argued for the equality, not for the pair.
     expect(parent!.getAttribute('data-civitai-ui')).toBe('stack');
-    expect(parent!.getAttribute('data-civitai-ui')).not.toBe('group');
 
     // CLAIM 3 — no `space-between`, which is what the old row shape used to spread
     // the content and the actions to opposite ends of one line.
@@ -356,23 +405,23 @@ describe('🔴 the row action cluster is the LAST child of a COLUMN container', 
     // …and it is not the ONLY child, or "last" would be trivially true.
     expect(siblings.length).toBeGreaterThan(1);
 
-    // CLAIM 5 — content first. 🔴 LABELLED WEAK: this was already true before the
-    // change (see the header) and is NOT regression coverage.
-    const content = within(card!).getByTestId(contentId);
-    expect(
-      content.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING,
-      'the action cluster precedes the content',
-    ).toBeTruthy();
+    // ⚠️ THERE WAS A CLAIM 5 — "a named CONTENT node precedes the cluster in document
+    // order" — AND IT IS DELETED, not demoted. It was VERIFIED VACUOUS: DOM order was
+    // already content-then-actions in the `space-between` shape (the content Stack was
+    // the first flex item, the action Group the second), so it is GREEN at `bb63087`
+    // against the very defect this file exists to pin, and it was self-labelled weak.
+    // A green assertion that reads as coverage while providing none is worse than its
+    // absence, because it stops anyone looking. Claim 4 above — last child of a COLUMN —
+    // is the discriminating form of the same idea, and the `contentTestId` the shape
+    // table still carries is what locates the right card in a multi-card render.
   });
 });
 
 // ---------------------------------------------------------------------------
-// 🔴 THE LEDGER — which production files render a row action cluster.
+// 🔴 TWO LEDGERS — see the header for why one is not enough.
 //
-// Five shapes carried the same defect because each was written separately. This
-// asserts the SET, so it fails when a SIXTH card shape appears (nobody checked its
-// placement) and when one of the five LOSES its cluster (the id was renamed, or the
-// `space-between` row came back). A per-shape case cannot see either.
+// The first asserts which production files render a row ACTION CLUSTER. The second
+// asserts which contain the STRUCTURAL SIGNATURE of the defect, under any id or none.
 // ---------------------------------------------------------------------------
 
 const SRC = resolve(process.cwd(), 'src');
@@ -385,6 +434,32 @@ const ROW_ACTION_FILES = [
   'components/PromptBody.tsx',
 ] as const;
 
+/**
+ * The defect's structural signature: `justify="space-between"` and
+ * `align="flex-start"` on ONE element.
+ *
+ * 🔴 BOTH HALVES, AND IN EITHER ORDER. `space-between` alone is an ordinary and correct
+ * pattern in this tree — a section header with a title on the left and ONE
+ * fixed-width primary button on the right (`MyList`'s "Your grids / New grid",
+ * `GridOpenPanel`'s title row, the forms' footers). Those are safe because the right
+ * item's width does not vary with the row's content, which is exactly what
+ * `align="flex-start"` signals the author was NOT doing: aligning to the top of a
+ * TALL content column, i.e. a column with a variable-height, variable-width sibling
+ * beside it. The conjunction is the discriminating predicate; either half alone is
+ * either noisy or blind.
+ */
+const SIGNATURE =
+  /<[A-Za-z][^>]*justify="space-between"[^>]*align="flex-start"|<[A-Za-z][^>]*align="flex-start"[^>]*justify="space-between"/;
+
+/**
+ * Production files ALLOWED to carry the signature. 🔴 EMPTY, AND THAT IS THE POINT: an
+ * addition here is a decision someone has to write down, next to the reason.
+ */
+const SIGNATURE_ALLOWLIST: readonly string[] = [];
+
+/** `src`-relative, forward-slashed, for a stable comparison on either platform. */
+const rel = (f: string): string => relative(SRC, f).split('\\').join('/');
+
 describe('🔴 the row-actions ledger', () => {
   it('exactly these five production files render a `row-actions` cluster', () => {
     const files = scannedSources(SRC);
@@ -394,9 +469,51 @@ describe('🔴 the row-actions ledger', () => {
 
     const found = files
       .filter((f) => readFileSync(f, 'utf8').includes('data-testid="row-actions"'))
-      .map((f) => relative(SRC, f).split('\\').join('/'))
+      .map(rel)
       .sort();
 
     expect(found).toEqual([...ROW_ACTION_FILES]);
+  });
+});
+
+describe('🔴 the STRUCTURAL ledger — no production source carries the defect shape', () => {
+  it('🔴 no `justify="space-between"` + `align="flex-start"` element outside the allowlist', () => {
+    // 🔴 POSITIVE CONTROL ON THE PATTERN, FIRST, BECAUSE THE EXPECTED RESULT IS A ZERO.
+    // An empty `found` is indistinguishable from a regex that can never match, so the
+    // signature is fed a case it MUST hit — in BOTH attribute orders, which is the half
+    // of the pattern a single control would leave unproven.
+    expect(SIGNATURE.test('<Group justify="space-between" align="flex-start" gap={8}>')).toBe(
+      true,
+    );
+    expect(SIGNATURE.test('<Group align="flex-start" justify="space-between">')).toBe(true);
+    // 🔴 AND NEGATIVE CONTROLS: the safe header shape, and either half alone. A pattern
+    // that matched these would make the ledger permanently red and therefore worthless.
+    expect(SIGNATURE.test('<Group justify="space-between" align="center" gap={12}>')).toBe(false);
+    expect(SIGNATURE.test('<Stack align="flex-start">')).toBe(false);
+
+    const files = scannedSources(SRC);
+    expect(files.length, 'the source walker found no files').toBeGreaterThan(20);
+
+    // 🔴 COMMENTS ARE STRIPPED, AND WITHOUT THAT THIS LEDGER IS PERMANENTLY RED. Two
+    // production files — `MatchupBody.tsx` and `GridPicker.tsx` — QUOTE the old markup
+    // in the comment explaining why it is gone, which is this repo's discipline; a raw
+    // scan reports those explanations as instances of the defect. `stripComments` is
+    // `lib/sourceScan.ts`', validated by `sourceScanLedger.test.ts`'s own controls.
+    const found = files
+      .filter((f) => SIGNATURE.test(stripComments(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+
+    expect(found).toEqual([...SIGNATURE_ALLOWLIST].sort());
+
+    // 🔴 THE SECOND POSITIVE CONTROL, ON THE REAL TREE: the prose instances DO exist, so
+    // the zero above is the stripper working rather than a scan that read nothing. This
+    // is what tells a reader the empty `found` is a measurement.
+    const inProse = files
+      .filter((f) => SIGNATURE.test(readFileSync(f, 'utf8')))
+      .map(rel)
+      .sort();
+    expect(inProse, 'no production file quotes the old shape — the stripper is untested here')
+      .toEqual(['components/GridPicker.tsx', 'components/MatchupBody.tsx']);
   });
 });

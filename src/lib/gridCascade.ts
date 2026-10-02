@@ -9,23 +9,44 @@
 // per-viewer LOCAL id (`draft:v1:<localId>` / `unpub:prompt:v1:<localId>`).
 //
 // 🔴 SO A GRID CAN HOLD TWO KINDS OF KEY, AND EXACTLY ONE OF THEM MAY REACH THE
-// PUBLIC BOARD. A published grid row is world-readable and effectively permanent
-// (`shared.update`/`withdraw` are author-scoped and there is no merge), so a row
-// naming a local id would be a permanent public reference nobody but its author
-// can resolve — and nobody at all can resolve once the private record is gone.
-// Publishing a grid therefore has to do two things in one go: PUBLISH the private
-// members first, and REWRITE their local ids to the shared keys the host just
-// minted.
+// PUBLIC BOARD. A published grid row is world-readable, and a row naming a local id
+// is a public reference NO OTHER VIEWER can resolve — and that nobody at all can
+// resolve once the private record is gone. Publishing a grid therefore has to do two
+// things in one go: PUBLISH the private members first, and REWRITE their local ids to
+// the shared keys the host just minted.
 //
-// 🔴 DEPENDENCIES FIRST IS NOT A STYLE CHOICE. `shared.append` is irreversible
-// (see `unpublished.ts`'s `publishPointerFailedNotice` for the asymmetry), so the
-// order decides what a failure LEAVES BEHIND:
+// ⚠️ THIS PARAGRAPH USED TO CALL SUCH A ROW "EFFECTIVELY PERMANENT", JUSTIFIED BY
+// "`shared.update`/`withdraw` are author-scoped and there is no merge" — the SAME
+// inference an audit refuted for `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE`, and it is
+// backwards in exactly the same way. `sdk-runtime.ts` documents `withdraw` as "Delete a
+// row the viewer authored", so author-scoping is what PERMITS the author to remove it —
+// and unlike a result row, a grid row HAS a withdraw control in this very app
+// (`grid-withdraw`, `grid-open-withdraw`, and `grid-withdraw` behind My Benchmarks' ⋮).
+// What is true, and all this file needs, is the OTHER-VIEWER claim above: nobody else
+// can repair the reference, and the author cannot repair it either — only delete the
+// whole row. Permanence was never the premise; unresolvability is.
+//
+// 🔴 DEPENDENCIES FIRST IS NOT A STYLE CHOICE. `shared.append` has no idempotency key
+// and no merge (see `unpublished.ts`'s `publishPointerFailedNotice` for the asymmetry),
+// so the order decides what a failure LEAVES BEHIND:
 //   - members first, grid last  → a failure leaves public members and a private
 //     grid. Nothing on the board is wrong; the viewer retries.
 //   - grid first, members last  → a failure leaves a PUBLIC grid pointing at
-//     private rows, permanently, with no way to repair it.
-// The second outcome cannot be undone by anything this app can call. That is the
-// whole reason the planner below emits an ORDERED list and the caller walks it.
+//     private rows, which no retry can repair: the local ids are already on the
+//     board and `update` cannot be aimed at them from a later pass.
+// ⚠️ THE SECOND OUTCOME IS NOT "WITH NO WAY TO REPAIR IT", WHICH IS WHAT THIS SAID.
+// The author can `withdraw` the grid row and start again — a recovery, at the cost of
+// the row's votes and its key. What they cannot do is FIX the published row in place,
+// which is the property the ordering defends. That is the whole reason the planner
+// below emits an ORDERED list and the caller walks it.
+//
+// ⚠️ BOUND ON THIS CORRECTION: "permanent public row" is used across this app's whole
+// publish path (`unpublished.ts`, `App`'s cascade comments, the notice builders below)
+// to mean "this app offers no control that takes it back". For a DUPLICATE row that is
+// unmergeable but withdrawable by its author, so the vocabulary is loose there too.
+// Those sites have NOT been re-audited one by one and are not claimed correct by this
+// paragraph; what was corrected here is the one site that used author-scoping as the
+// REASON for permanence, which is the refuted inference.
 //
 // 🔴 AND NOTHING HERE PROMISES A ROLLBACK, because none exists. The copy builders
 // at the bottom say which items DID publish and what state the grid is in. An
