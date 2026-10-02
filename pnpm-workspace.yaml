@@ -2,24 +2,70 @@
 # submitted bundle — the packager takes whatever is on disk bar `.env*` and `.git`.
 #
 # WHY IT APPEARED. `pnpm` refuses a dependency younger than its `minimumReleaseAge`.
-# The three versions below were published inside that window, so `pnpm install`
+# The versions below were published inside that window, so `pnpm install`
 # rejected them until they were named here. `CLAUDE.md`'s release protocol prescribes
 # exactly this shape; `civitai-app-gen-matrix` is the prior art.
+#
+# 🔴 THE LIST IS NOT INERT, AND IT IS NOT WAIVED BY `pnpm config get minimumReleaseAge`
+# RETURNING `undefined` — that means THE DEFAULT APPLIES, not that the gate is off.
+# Measured on this repo's own pinned pnpm (11.25.0, the `version: 11` in
+# `.github/workflows/ci.yml`) with CI's exact command, `pnpm install --frozen-lockfile`,
+# over a removed `node_modules`, on 2026-10-02. EACH TOKEN WAS CONTROLLED ON ITS OWN —
+# removed singly, clean-installed, restored — rather than adding four and declaring
+# victory, so every line below is known load-bearing instead of assumed:
+#   • all five entries present     → exit 0
+#   • blocks-react@0.63.0 removed  → exit 1, ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION,
+#                                    naming exactly @civitai/blocks-react@0.63.0
+#   • app-sdk@0.55.0 removed       → exit 1, naming exactly @civitai/app-sdk@0.55.0
+#   • theme@0.5.0 removed          → exit 1, naming exactly @civitai/theme@0.5.0
+#   • components@0.9.1 removed     → exit 1, naming exactly @civitai/components@0.9.1
+#   • sdk@0.10.0 removed           → exit 0 — ALREADY AGED OUT (published
+#                                    2026-10-01T02:51:14Z, i.e. >24h before this bump).
+#                                    It is kept because `package.json` still pins
+#                                    `^0.10.0` and the rule here is that an entry
+#                                    expires by the PIN moving, not by the clock.
+#
+# Registry publish instants for the four that matter (`npm view <pkg>@<ver> time`):
+#   @civitai/theme@0.5.0           2026-10-02T17:39:39.927Z
+#   @civitai/components@0.9.1      2026-10-02T17:40:22.093Z
+#   @civitai/app-sdk@0.55.0        2026-10-02T17:41:53.057Z
+#   @civitai/blocks-react@0.63.0   2026-10-02T17:42:54.561Z
+# ⚠️ pnpm's own error text reports all four as 17:38:42–43Z, i.e. it does NOT read the
+# registry's `time` field. Both sets sit inside the window so nothing here turns on it,
+# but do not expect pnpm's instant to match `npm view`.
+# An interactive `pnpm install` does NOT fail — `minimumReleaseAgeStrict` defaults to
+# false, so pnpm silently APPENDS the entries it needs (it merged `0.62.0 || 0.63.0`
+# when blocks-react alone was bumped). Only `--frozen-lockfile`, which cannot rewrite
+# this file, turns the gate into a hard CI failure. So "it installed locally" is
+# never evidence that this list is complete.
 #
 # ⚠️ `packages` IS NOT OPTIONAL even though this repo is a single package and pnpm
 # will create the file without it: the key is what makes this a workspace root rather
 # than a stray config, and omitting it changes how pnpm resolves `.` on a fresh clone.
 #
 # 🔴 THE EXCLUSIONS NAME EXACT VERSIONS ON PURPOSE. A bare package name would waive
-# the gate for every future release of that package, silently, forever. These three
+# the gate for every future release of that package, silently, forever. These
 # entries expire by being wrong: once `package.json` moves off these versions the
 # lines do nothing, and the next bump has to make the same deliberate decision.
-# `@civitai/components-react` and `@civitai/theme` are absent because their pinned
-# versions were already past the age gate — do not add them for symmetry.
+# 🔴 SO THIS LIST IS REPLACED, NOT APPENDED TO — the 0.63.0 bump REPLACED
+# `app-sdk@0.54.0`/`blocks-react@0.62.0` rather than keeping them alongside. Leaving a
+# superseded version behind, or accepting pnpm's auto-merged `0.62.0 || 0.63.0`, widens
+# the waiver past what any `package.json` line can still resolve to. Sibling app repos
+# use the opposite (append) convention; THIS repo replaces.
+#
+# ⚠️ `@civitai/components@0.9.1` and `@civitai/theme@0.5.0` are TRANSITIVE — nothing in
+# `package.json` names either version (it pins `@civitai/theme: ^0.4.0`), they arrive
+# under `blocks-react@0.63.0`, and they were published in the same batch, so they are
+# inside the age window too. They are here because deleting them was MEASURED to fail
+# (arm 3 above), not for symmetry. An earlier revision of this comment asserted
+# `@civitai/theme` was absent because it had aged past the gate and said "do not add
+# them for symmetry" — that is now wrong in the direction that breaks CI.
 packages:
   - '.'
 
 minimumReleaseAgeExclude:
-  - '@civitai/app-sdk@0.54.0'
-  - '@civitai/blocks-react@0.62.0'
+  - '@civitai/app-sdk@0.55.0'
+  - '@civitai/blocks-react@0.63.0'
   - '@civitai/sdk@0.10.0'
+  - '@civitai/components@0.9.1'
+  - '@civitai/theme@0.5.0'
