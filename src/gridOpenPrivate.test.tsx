@@ -123,12 +123,24 @@ import type {
 // comment claiming that pinned the sentence against "a keyword check a reword can walk
 // past". It did not pin it at all: a reword of the constant changes BOTH sides of that
 // equality at once, so the guard stays green through any rewrite — including one that
-// puts a REFUTED clause back. MEASURED: rewording `PRIVATE_GRID_RUN_NOTICE` to
-// reinstate the refuted "right away and permanently", and reverting
-// `PRIVATE_GRID_EMPTY_BODY` to the sentence its own docblock retracts as false, left
-// the whole suite GREEN (69 files / 1027 tests) — while the same mutation on
-// `privateGridShortfall`'s sentence, which `lib/gridEntries.test.ts` pins as a literal,
-// went red. The literal is the only form that costs a second edit.
+// puts a REFUTED clause back.
+//
+// MEASURED, one mutation at a time, `pnpm test` read from a file:
+//
+//   - OLD guard, BOTH refuted clauses reinstated at once — `PRIVATE_GRID_RUN_NOTICE`
+//     ending "They go public right away and permanently." and `PRIVATE_GRID_EMPTY_BODY`
+//     back to the "Publish your own private matchups and prompts … and they will appear
+//     in this grid" sentence its own docblock retracts as FALSE → 69 files / 1027 tests
+//     GREEN. Nothing in the tree objected.
+//   - NEW literal guard, the RUN-NOTICE clause alone → 1 failed / 1026, in this file's
+//     "renders PRIVATE_GRID_RUN_NOTICE verbatim" case, printing the reinstated clause
+//     against the expected text.
+//   - NEW literal guard, the EMPTY-BODY revert alone → 1 failed / 1026, in this file's
+//     "the empty state is the PRIVATE one" case, likewise printing both strings.
+//
+// The literal is the only form that costs a second edit — which is the form
+// `privateGridShortfall`'s sentence already had in `lib/gridEntries.test.ts`, and why
+// the same class of mutation there was caught while these two were not.
 //
 // So: the text lives HERE as well as in the source, and a reword must be made in both
 // places. That is the price, and it is the point — a cosmetic reword fails this file,

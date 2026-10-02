@@ -347,9 +347,11 @@ export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
  * message outright when the request does not resolve (`if (!req) return`), and replies
  * `error: 'no block token'` with no dialog when the page holds no block token. In
  * neither does a dialog open, so the viewer is not asked — and in neither is anything
- * published: the first leaves the SDK call to reject on its consent timeout and the
- * second rejects immediately, and both land in `driveToResult`'s `catch` with the cell
- * `failed`. So the sentence over-promises the ASK in those windows while erring toward
+ * published: the first leaves the SDK call to reject on the consent-length timeout
+ * `usePublishGenerationOutputs` documents, the second rejects immediately, and both land
+ * in the `catch` of `runCell`/`resumeRun` — `driveToResult` itself has none, it lets the
+ * rejection out — with the cell set `failed`. So the sentence over-promises the ASK in
+ * those windows while erring toward
  * warning on the PRIVACY, which is the safe direction. 🔴 WHAT IS NOT ESTABLISHED: that
  * the deployed host behaves like that checkout, at this or any commit. Nothing here was
  * measured against a live host.

@@ -71,6 +71,27 @@
 // GREEN. That green is the point: the first ledger is structurally blind to a card
 // shape that ships the defect under no `row-actions` id, which is why there are two.
 //
+// 🔴 ⚠️ AND THAT SECOND VALIDATION CERTIFIED A LEDGER THAT COULD NOT DO ITS JOB. The
+// signature was a regex with `[^>]*` between its two halves, which cannot cross an
+// attribute containing `>` — `onClick={(e) => …}`, `n >= 2` — and the revert above put
+// the two halves ADJACENT, so the control exercised the only shape the pattern could
+// see. RE-MEASURED, three runs, one variable, `vitest run --project dom
+// src/rowActions.test.tsx`:
+//
+//   - OLD regex, `GridPicker`'s content container reverted to the defect shape with an
+//     ARROW-FUNCTION attribute BETWEEN the two halves → 8 passed / 8. The defect is
+//     present in full and the ledger reports a clean zero.
+//   - OLD regex, the SAME revert with the two halves ADJACENT → 1 failed / 7. So the
+//     old instrument was not inert; it was blind to one shape, and that shape is the
+//     ordinary one.
+//   - NEW predicate ({@link openTags} + {@link hasSignature}), the ARROW-ATTRIBUTE
+//     revert → 1 failed / 7, dying on the structural ledger's own assertion with its
+//     own message, `expected [ 'components/GridPicker.tsx' ] to deeply equal []`.
+//
+// The mutant is isolated to the OPENING TAG of one container: the element name and the
+// closing tag are untouched, so claim 1 and the six shape cases still run and still
+// pass, and only the predicate under test can decide the outcome.
+//
 // ⚠️ AND NOTHING HERE IS A CLAIM ABOUT THE OTHER FOUR SHAPES' MUTANTS. Two isolated
 // mutations were run, in `MatchupBody` and `GridPicker`. The remaining shapes are
 // covered by the SET ledgers below rather than by four more mutants.
