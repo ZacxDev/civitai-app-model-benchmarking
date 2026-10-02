@@ -532,7 +532,6 @@ describe('🔴 the private grid panel is PER-VIEWER', () => {
            the real `App` in `src/gridOpenPrivate.test.tsx`, which is the only place
            the open panel exists to land on. Stubbed here so the component compiles. */
         onOpenUnpublished={vi.fn()}
-        onOpenPublished={vi.fn()}
       />
     );
   }

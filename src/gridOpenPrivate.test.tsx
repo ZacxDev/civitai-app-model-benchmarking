@@ -69,9 +69,14 @@ import type { SharedItem } from '@civitai/sdk';
 
 import { Harness } from './test-harness.js';
 import { App } from './App.js';
-import { PRIVATE_GRID_RUN_NOTICE } from './components/ResultsGrid.js';
+import {
+  PRIVATE_GRID_EMPTY_BODY,
+  PRIVATE_GRID_EMPTY_TITLE,
+  PRIVATE_GRID_RUN_NOTICE,
+} from './components/ResultsGrid.js';
 import { TOP_GRID_NAME } from './lib/gridEntries.js';
 import type { SharedStore } from './lib/sdk-runtime.js';
+import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
@@ -188,6 +193,26 @@ const mixedPrivateGrid: UnpublishedGrid = {
   description: 'one board member and one private member per axis',
   matchupKeys: ['mk-a', DRAFT_LOCAL_ID],
   promptKeys: ['qk-1', PROMPT_LOCAL_ID],
+  updatedAt: '2026-09-30T00:00:00.000Z',
+};
+
+/**
+ * A private grid whose members are ALL the viewer's own private records.
+ *
+ * 🔴 THIS IS THE FEATURE'S MOST LIKELY FIRST STATE AND IT WAS THE ONE NOT COVERED. A
+ * viewer assembles a grid out of the matchups and prompts they are still drafting, and
+ * nothing in it resolves against the board — so the matrix is empty, which is a
+ * different screen from the mixed fixture above and was the one that read wrong. The
+ * mix is the right fixture for the exclusion and the run; it is the WORST fixture for
+ * the empty case, because it is the case that works.
+ */
+const allPrivateGrid: UnpublishedGrid = {
+  v: 1,
+  localId: GRID_LOCAL_ID,
+  name: 'All Private Grid',
+  description: 'every member is still in my own storage',
+  matchupKeys: [DRAFT_LOCAL_ID],
+  promptKeys: [PROMPT_LOCAL_ID],
   updatedAt: '2026-09-30T00:00:00.000Z',
 };
 
@@ -311,9 +336,10 @@ describe('🔴 Open on an unpublished grid shows its matrix', () => {
     // IS prose, so a keyword guard ("private", "published") is walkable by a reword
     // that quietly puts the false attribution back.
     expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
-      "2 of this grid's 4 members are not in the matrix below. Only members with a row " +
-        'on the shared board can be: your own private matchups and prompts are not in it ' +
-        'until you publish them, and a member another author withdrew is not either. ' +
+      "2 of this grid's 4 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew. ' +
         'Everything else below still renders; nothing was quietly dropped.',
     );
     // 🔴 THE PHRASE THAT MUST NOT APPEAR. `missingMembersNotice`'s complete-scan arm
@@ -341,52 +367,83 @@ describe('🔴 Open on an unpublished grid shows its matrix', () => {
 });
 
 // ===========================================================================
+// 1b — THE ALL-PRIVATE GRID: AN EMPTY MATRIX, WITH THE RIGHT NEXT STEP
+// ===========================================================================
+
+describe('🔴 an ALL-PRIVATE grid opens to an honest empty state, not the system one', () => {
+  /** Open the all-private grid. Same route; only the seeded record differs. */
+  async function openAllPrivate(): Promise<HTMLElement> {
+    const { shared } = fakeShared({ seed: BOARD });
+    mountApp({ shared, store: seedStore(allPrivateGrid) });
+    return openPrivateGrid();
+  }
+
+  it('🔴 the empty state is the PRIVATE one — no "Submit a matchup", no system copy', async () => {
+    const panel = await openAllPrivate();
+
+    // THE PREMISE: nothing resolved, so the matrix is empty and this is the screen the
+    // viewer lands on. `grid-open-members` is the resolved count, not the authored one.
+    expect(within(panel).getByTestId('grid-open-members').textContent).toBe(
+      '0 matchups × 0 prompts',
+    );
+    const empty = await screen.findByTestId('grid-empty');
+
+    // 🔴 THE WHOLE NORMALISED STRINGS, against the EXPORTED constants. The artifact under
+    // test IS prose, so a keyword guard is walkable by a reword.
+    expect((empty.textContent ?? '').replace(/\s+/g, ' ')).toContain(
+      PRIVATE_GRID_EMPTY_TITLE,
+    );
+    expect((empty.textContent ?? '').replace(/\s+/g, ' ')).toContain(
+      PRIVATE_GRID_EMPTY_BODY.replace(/\s+/g, ' '),
+    );
+
+    // 🔴 THE SYSTEM-GRID COPY IS GONE, not merely supplemented. "Submit and vote to fill
+    // the top slots" is about the TOP GRID, whose members are the board's top-voted rows;
+    // it says nothing true about a grid the viewer authored out of their own drafts.
+    expect(empty.textContent ?? '').not.toContain('No benchmark grid yet');
+    expect(empty.textContent ?? '').not.toContain('Submit and vote to fill the top slots');
+
+    // 🔴 AND THE WRONG ACTION IS ABSENT. The button opened the PUBLIC matchup submit
+    // form — a new matchup, when the viewer already has the members and owes only the
+    // publish. An absence plus a POSITIVE CONTROL in the same frame: the empty state
+    // itself rendered, so this is a missing button and not a missing panel.
+    expect(within(empty).queryByTestId('grid-empty-add-matchup')).toBeNull();
+    expect(within(empty).queryByTestId('grid-empty-add-prompt')).toBeNull();
+    expect(within(empty).queryByRole('button')).toBeNull();
+  });
+
+  it('🔴 the shortfall sentence drops its "everything else below" clause when nothing is below', async () => {
+    const panel = await openAllPrivate();
+    const notice = within(panel).getByTestId('grid-missing-notice');
+
+    // 🔴 THE WHOLE NORMALISED STRING, typed out. The reassurance clause is FALSE here —
+    // there is no "everything else below" — and a sentence that renders it over an empty
+    // matrix is the same class of lie the clause exists to deny.
+    expect((notice.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
+      "2 of this grid's 2 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew.',
+    );
+    expect(notice.textContent ?? '').not.toContain('Everything else below still renders');
+  });
+});
+
+// ===========================================================================
 // 2 — THE PUBLISHED PATH AND THE TOP-GRID DEFAULT STILL WORK
 // ===========================================================================
 
-describe('🔴 the two pre-existing open paths are unchanged', () => {
-  // ⚠️ INVARIANT GUARD — GREEN at `bb63087`. It pins behaviour this change had to
-  // preserve while rewriting the open-grid state, not a defect that was fixed.
-  it('the DEFAULT is still the Top Grid, with its system note and no vote control', async () => {
-    const { shared } = fakeShared({ seed: BOARD });
-    mountApp({ shared });
-
-    const panel = await screen.findByTestId('grid-open-panel');
-    expect(within(panel).getByTestId('grid-open-title').textContent).toBe(TOP_GRID_NAME);
-    expect(within(panel).getByTestId('grid-open-system-note')).toBeInTheDocument();
-    // The Top Grid has no shared row, so there is no key to vote/withdraw/report on.
-    expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
-    expect(within(panel).queryByTestId('grid-open-private-badge')).toBeNull();
-  });
-
-  // ⚠️ INVARIANT GUARD — GREEN at `bb63087`, same reason as the case above.
-  it('the COMMUNITY board Open still opens a published grid, with its vote control', async () => {
-    const { shared } = fakeShared({ seed: BOARD });
-    mountApp({ shared });
-    await screen.findByTestId('grid-view');
-
-    const card = await waitFor(() => {
-      const el = screen.getAllByTestId('grid-card').find((c) => c.getAttribute('data-key') === 'gk-pub');
-      if (!el) throw new Error('the published grid is not listed');
-      return el;
-    });
-    await userEvent.click(within(card).getByTestId('grid-open'));
-
-    const panel = await screen.findByTestId('grid-open-panel');
-    expect(within(panel).getByTestId('grid-open-title').textContent).toBe('Board Grid');
-    // 🔴 THE VOTE CONTROL IS THE DISCRIMINATOR. A published grid HAS a shared row, so
-    // it keeps the affordance the other two kinds cannot have — which is what proves
-    // the `open.kind === 'published'` arm, not merely that a title rendered.
-    expect(within(panel).getByTestId('grid-open-vote')).toBeInTheDocument();
-    expect(within(panel).queryByTestId('grid-open-private-badge')).toBeNull();
-    expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
-    // And the open grid is no longer ALSO listed — the partition `openKeyResolved`
-    // feeds, which the private arm must not have disturbed.
-    expect(
-      screen.getAllByTestId('grid-card').map((c) => c.getAttribute('data-key')),
-    ).not.toContain('gk-pub');
-  });
-
+// ⚠️ TWO CASES WERE DELETED FROM THIS BLOCK AND IT IS WORTH SAYING WHICH, so nobody
+// re-adds them as "missing coverage". They were "the DEFAULT is still the Top Grid …" and
+// "the COMMUNITY board Open still opens a published grid …", both labelled INVARIANT
+// GUARDS and both GREEN at `bb63087`. Everything they asserted was already held more
+// strongly elsewhere — the Top-Grid default and its system note by
+// `boardTruncation.test.tsx`, the published arm's panel and the fact that its vote
+// reaches the HOST by `gridsView.test.tsx`'s own cases — except for one line each: the
+// ABSENCE of `grid-open-private-badge`. That line moved into `gridsView.test.tsx`'s badge
+// LEDGER, which enumerates what the pack actually rendered and therefore fails when the
+// pill returns under any spelling, not only its own testid.
+describe('🔴 the private open path leaves the community board intact', () => {
   it('🔴 a PRIVATE grid being open leaves the community list COMPLETE', async () => {
     // 🔴 THIS CASE CAUGHT A REAL DEFECT IN THIS BRANCH'S FIRST IMPLEMENTATION, and the
     // defect is worth naming because it is invisible by inspection. `GridsView`'s
@@ -414,23 +471,80 @@ describe('🔴 the two pre-existing open paths are unchanged', () => {
     expect(keys).toContain('__system__');
   });
 
-  it("MY BENCHMARKS can open the viewer's own PUBLISHED grid, and lands on Home", async () => {
-    const { shared } = fakeShared({ seed: [...BOARD, row('gk-mine', 2, 'My Grid', gridData(['mk-a'], ['qk-1']), VIEWER_ID)] });
-    mountApp({ shared, store: {} });
+  it('🔴 "No published grids yet" and a LISTED CARD are never on screen together', async () => {
+    // 🔴 THE EMPTY STATE WAS GATED ON `grids.length === 0`, WHICH USED TO IMPLY THE
+    // RENDERED LIST WAS EMPTY. It no longer does: with a PRIVATE grid open, `openKey` is
+    // `null` ("nothing in this list is open"), so the Top Grid stays in the list — and
+    // the banner saying there are none rendered directly above the card that is one.
+    // The gate is the RENDERED LIST now, which is the thing the sentence is about.
+    const { shared } = fakeShared({ seed: [row('mk-a', 9, 'Board Matchup A', comboData('cfg-a')), row('qk-1', 7, 'Board Prompt One', promptData)] });
+    mountApp({ shared });
+    await screen.findByTestId('grid-view');
+
+    // POSITIVE CONTROL FIRST, in the state the banner is FOR: nothing published, the Top
+    // Grid open, so the list really is empty and the sentence really is the whole story.
+    await waitFor(() => expect(screen.getByTestId('grids-empty')).toBeInTheDocument());
+    expect(screen.queryAllByTestId('grid-card')).toHaveLength(0);
+
+    // …then open a private grid, which pushes the Top Grid into the list.
+    await openPrivateGrid();
+
+    const keys = await waitFor(() => {
+      const found = screen.getAllByTestId('grid-card').map((c) => c.getAttribute('data-key'));
+      if (!found.includes('__system__')) throw new Error(`the Top Grid is not listed: ${found}`);
+      return found;
+    });
+    expect(keys).toEqual(['__system__']);
+    // 🔴 THE CLAIM: the banner is gone, because the list it describes is not empty.
+    expect(screen.queryByTestId('grids-empty')).toBeNull();
+  });
+
+  it('🔴 a PUBLISHED grid gets NO Open on My Benchmarks — live row or archived', async () => {
+    // 🔴 THE CUT, ASSERTED ON BOTH HALVES OF THE LIST. My Benchmarks ▸ Grids briefly
+    // offered Open on the viewer's own PUBLISHED grids, under a `my-open` testid. It was
+    // removed: a published grid is listed on the community board and already carries
+    // `grid-open` there, so the control was a second door to one destination — for the
+    // one kind of grid that was never short of doors.
+    //
+    // 🔴 AND THE ARCHIVED HALF IS THE REASON THIS CASE EXISTS RATHER THAN A ONE-LINER ON
+    // THE LIVE ROW. `MyList` renders both halves through the SAME `publishedActions`, so
+    // the control appeared on an ARCHIVED row too — a row the viewer has hidden from
+    // their own list, offering to open a matrix. One deletion closed both, and this is
+    // what makes "both" a measurement instead of a derivation.
+    const { shared } = fakeShared({
+      seed: [
+        ...BOARD,
+        row('gk-mine', 2, 'My Grid', gridData(['mk-a'], ['qk-1']), VIEWER_ID),
+        row('gk-arch', 1, 'My Archived Grid', gridData(['mk-a'], ['qk-1']), VIEWER_ID),
+      ],
+    });
+    // The archive flag is per-viewer KV, under the same store this mount injects.
+    mountApp({ shared, store: { [ARCHIVE_KEY]: ['gk-arch'] } });
 
     await openMyList('grid');
-    const card = await waitFor(() => {
+    const live = await waitFor(() => {
       const el = screen.getAllByTestId('grid-card').find((c) => c.getAttribute('data-key') === 'gk-mine');
       if (!el) throw new Error('the own published grid is not listed');
       return el;
     });
-    await userEvent.click(within(card).getByTestId('my-open'));
+    expect(within(live).queryByTestId('my-open')).toBeNull();
+    // POSITIVE CONTROL in the same frame: the row's OTHER controls are there, so the
+    // null above is a missing button and not a missing row.
+    expect(within(live).getByTestId('grid-edit')).toBeInTheDocument();
 
-    // 🔴 THE NAVIGATION IS PART OF THE ACTION. The open panel only exists on Home, so
-    // a press that set the reference without switching the view would look inert.
-    const panel = await screen.findByTestId('grid-open-panel');
-    expect(within(panel).getByTestId('grid-open-title').textContent).toBe('My Grid');
-    expect(within(panel).getByTestId('grid-open-own-badge').textContent).toBe('Yours');
+    // …and the ARCHIVED half, behind its toggle.
+    await userEvent.click(screen.getByTestId('archived-toggle'));
+    const archivedList = await screen.findByTestId('archived-list');
+    const archived = within(archivedList).getByTestId('grid-card');
+    expect(archived.getAttribute('data-key')).toBe('gk-arch');
+    expect(within(archived).queryByTestId('my-open')).toBeNull();
+    expect(within(archived).getByTestId('unarchive-action')).toBeInTheDocument();
+
+    // 🔴 AND THE WORD IS GONE FROM THE WHOLE SURFACE, not merely the testid — an Open
+    // re-added without its id would satisfy both nulls above. The PRIVATE row's Open is
+    // not on screen here: this mount seeds no private grid.
+    expect(screen.queryAllByTestId('unpublished-card')).toHaveLength(0);
+    expect(screen.getByTestId('my-grids-view').textContent ?? '').not.toContain('Open');
   });
 
   // ⚠️ INVARIANT GUARD — GREEN at `bb63087`, where NO row had an Open at all, so it

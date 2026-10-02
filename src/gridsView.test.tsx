@@ -535,6 +535,23 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
       within(card).getByTestId('grid-card-members').textContent?.trim(),
     ]);
     expect(within(card).getByTestId('grid-system-note')).toBeInTheDocument();
+
+    // 🔴 AND THE PANEL NOW SHOWS THE PUBLISHED GRID — same ledger, third surface. A
+    // "Private" pill belongs to a grid in per-viewer KV and `gk-yank` is a board row,
+    // so a panel that badged it private would be asserting the wrong state about a
+    // public object. This is the structural form of a `queryByTestId(
+    // 'grid-open-private-badge')).toBeNull()` and strictly stronger than it: it fails
+    // when the pill reappears under ANY spelling, which is the walkable shape on a
+    // surface whose whole complaint was "too many pills". Two deleted
+    // `gridOpenPrivate.test.tsx` invariant guards carried that absence as their only
+    // novel line; it lives here and in `boardTruncation.test.tsx` instead.
+    const pubPanel = screen.getByTestId('grid-open-panel');
+    expect(badgeTexts(pubPanel)).toEqual([
+      within(pubPanel).getByTestId('grid-open-members').textContent?.trim(),
+    ]);
+    // POSITIVE CONTROL that the panel really did change: the published arm's own
+    // affordance is there, so the single-badge ledger above is about a published grid.
+    expect(within(pubPanel).getByTestId('grid-open-vote')).toBeInTheDocument();
   });
 
   it('offers no author affordances on the Top Grid — there is no author', async () => {

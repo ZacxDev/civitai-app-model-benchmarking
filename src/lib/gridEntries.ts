@@ -100,26 +100,6 @@ export function communityGridEntries(topGrid: SystemGridEntry, grids: GridRow[])
 }
 
 /**
- * ONE SPELLING OF "WHICH GRID IS THIS", as the value `openGridKey` uses: `null` for the
- * system Top Grid, the shared key for a published one.
- *
- * 🔴 IT EXISTS BECAUSE THE SAME TERNARY WAS OPEN-CODED THREE TIMES IN `GridsView`, in
- * two different shapes — `entry.system ? '__system__' : entry.row.key` for the card's
- * React/`data-key`, `entry.system ? null : entry.row.key` for the Open callback, and
- * `entry.system ? openKey !== null : entry.row.key !== openKey` for the list filter. All
- * three answer one question, and a predicate open-coded at N sites is typically wrong at
- * N−1 of them. The filter is the one that matters: it decides whether the OPEN grid is
- * ALSO listed, i.e. whether the same grid renders twice.
- *
- * `null` is the system entry's identity rather than a sentinel string because that is
- * what `App`'s `openGridKey` holds — see {@link entryDomKey} for the one place a
- * non-null string is needed instead.
- */
-export function entryOpenKey(entry: GridEntry): string | null {
-  return entry.system ? null : entry.row.key;
-}
-
-/**
  * The system entry's identity as a non-null string.
  *
  * 🔴 EXPORTED SO THE SENTINEL IS WRITTEN DOWN EXACTLY ONCE. It was a literal inside
@@ -131,19 +111,48 @@ export function entryOpenKey(entry: GridEntry): string | null {
 export const SYSTEM_GRID_DOM_KEY = '__system__';
 
 /**
- * The same identity as a NON-NULL string, for a React key / `data-key`.
+ * ONE SPELLING OF "WHICH LISTED CARD IS THIS", as a non-null string — the React key,
+ * the card's `data-key`, and the value `GridsView`'s open-filter compares.
  *
- * 🔴 A SEPARATE FUNCTION RATHER THAN A `?? SYSTEM_GRID_DOM_KEY` AT THE CALL SITE, so
- * the fallback is applied in one place.
+ * 🔴 IT EXISTS BECAUSE THE SAME TERNARY WAS OPEN-CODED THREE TIMES IN `GridsView`, in
+ * three different shapes — one for the card's React/`data-key`, one for the Open
+ * callback, and `entry.system ? openKey !== null : entry.row.key !== openKey` for the
+ * list filter. All three answered one question, and a predicate open-coded at N sites is
+ * typically wrong at N−1 of them. The filter is the one that matters: it decides whether
+ * the OPEN grid is ALSO listed, i.e. whether the same grid renders twice.
  *
- * 🔴 AND IT IS TOTAL ON EVERY LISTABLE ENTRY, WHICH IS LOAD-BEARING RATHER THAN
- * incidental: because no entry maps to `null`, `null` is free to mean "no listed entry
- * at all", which is what `GridsView`'s open-filter needs now that a grid OUTSIDE the
- * list (a private one) can be the open one. {@link entryOpenKey} cannot serve there —
- * its `null` already means the system entry.
+ * 🔴 IT IS TOTAL ON EVERY LISTABLE ENTRY, WHICH IS LOAD-BEARING RATHER THAN incidental:
+ * because no entry maps to `null`, `null` is free to mean "no listed entry at all",
+ * which is what the open-filter needs now that a grid OUTSIDE the list (a private one)
+ * can be the open one.
+ *
+ * ⚠️ IT REPLACED AN `entryOpenKey` THAT RETURNED `string | null` WITH `null` FOR THE
+ * SYSTEM ENTRY, and that function is DELETED rather than kept beside this one. Its
+ * `null` and the filter's `null` were two different facts in one value, which is the
+ * collision this round closed; and once the Open callback took an {@link OpenGridRef}
+ * (see {@link entryOpenRef}) it had no caller left. Two identity encodings in one
+ * component is the shape that produced the collision in the first place.
  */
 export function entryDomKey(entry: GridEntry): string {
-  return entryOpenKey(entry) ?? SYSTEM_GRID_DOM_KEY;
+  return entry.system ? SYSTEM_GRID_DOM_KEY : entry.row.key;
+}
+
+/**
+ * THE SAME ENTRY AS THE REFERENCE `App` HOLDS — what the Open callback passes up.
+ *
+ * 🔴 A TAGGED REFERENCE RATHER THAN A KEY, so `GridsView` names no identity of its own
+ * and `App` needs no adapter: `onOpen` IS `setOpenGridRef`. It replaced a `string | null`
+ * callback whose `null` meant the Top Grid, which forced an adapter in `App` that read
+ * the same `null` the open-filter uses for "nothing in this list is open".
+ *
+ * ⚠️ IT ANSWERS A DIFFERENT QUESTION FROM {@link entryDomKey} AND THAT IS WHY BOTH
+ * EXIST. This one is "which grid should be open", a value that outlives the list and
+ * must survive a private grid being open; that one is "which card is this in the DOM".
+ * They return different types to different consumers, and neither is derived from the
+ * other — a derivation is what let the old pair share a `null`.
+ */
+export function entryOpenRef(entry: GridEntry): OpenGridRef {
+  return entry.system ? { kind: 'system' } : { kind: 'published', key: entry.row.key };
 }
 
 /** The authored member keys of either kind of entry, in authored order. */
@@ -204,7 +213,7 @@ export function resolveGridRows(
  * grid card renders a thumbnail strip, which needs the same row-major cell order
  * the published cards use (`gridPreviewIds` consumes this shape), and a second
  * resolver would be the "predicate open-coded at N sites" shape this file's own
- * `entryOpenKey` docblock exists to warn about. `resolveGridRows` delegates here.
+ * {@link entryDomKey} docblock exists to warn about. `resolveGridRows` delegates here.
  *
  * ⚠️ A PRIVATE MEMBER RESOLVES AS *MISSING* HERE, AND THAT IS CORRECT RATHER THAN A
  * GAP. A private matchup or prompt has only a per-viewer LOCAL id and no row on the
@@ -436,8 +445,18 @@ export function openSystemGrid(top: SystemGridEntry): OpenGrid {
   return { kind: 'system', matchupKeys: top.matchupKeys, promptKeys: top.promptKeys };
 }
 
-/** The authored member keys of whatever is open, in authored order. */
-export function openGridKeys(open: OpenGrid): {
+/**
+ * The authored member keys of whatever is open, in authored order.
+ *
+ * 🔴 MODULE-PRIVATE. It was exported, and {@link resolveOpenGrid} — in this same file —
+ * was its only consumer; a second, test-only call site is what made it look like part of
+ * the module's surface. An export is a licence for a caller to resolve a grid's members
+ * some other way, which is the one thing this file's whole private-grid argument rests on
+ * NOT happening (see {@link resolveOpenGrid}). Its three-kind coverage now lives on the
+ * resolver's own node case, where the claim is about the keys that reach the matrix
+ * rather than about an intermediate shape.
+ */
+function openGridKeys(open: OpenGrid): {
   matchupKeys: readonly string[];
   promptKeys: readonly string[];
 } {
@@ -511,14 +530,38 @@ export function openGridName(open: OpenGrid): string {
  * ⚠️ IT TAKES NO `boardTruncated`, deliberately: with the cause unattributed there is
  * nothing for the flag to switch between. The truncation disclosure a viewer needs in
  * that state is the page-level `board-truncated-notice`, which is unchanged.
+ *
+ * 🔴 THE RULE CLAUSE USED TO BE FALSE ON A TRUNCATED SCAN, AND THE DECISION IS TO FIX
+ * THE SENTENCE RATHER THAN LEAN ON THAT PAGE-LEVEL NOTICE. It read "Only members with a
+ * row on the shared board can be [in the matrix]" — and on a scan that hit `listAll`'s
+ * page cap a member DOES have a row and is still excluded, which is exactly why
+ * {@link missingMembersNotice} carries a dedicated truncated arm. The rule is now stated
+ * over the rows the app HAS READ, which is true on a complete scan, on a truncated one,
+ * and for a row whose `data` does not parse. 🔴 AND THE TWO NAMED CAUSES ARE EXAMPLES
+ * RATHER THAN A CLOSED LIST — the dash is what makes that readable, and it is the half
+ * that matters: a two-item list introduced by "Only … can be:" reads as exhaustive while
+ * this function's own docblock names a third cause. Enumerating all three would put a
+ * "may simply not have been read yet" in front of every viewer whose scan WAS complete,
+ * which is the claim-without-evidence the sibling's `boardTruncated` flag exists to
+ * avoid; the two named here are the two the viewer can act on.
+ *
+ * 🔴 AND THE REASSURANCE CLAUSE IS CONDITIONAL ON THERE BEING SOMETHING BELOW. "Everything
+ * else below still renders" is FALSE for an all-private grid — the commonest first state
+ * of this feature — where nothing resolves, the matrix is empty, and what renders below is
+ * `ResultsGrid`'s empty state. A sentence promising a remainder over an empty matrix is the
+ * same class of lie the clause exists to deny, so it is DROPPED rather than reworded: there
+ * is no honest short way to say "nothing was dropped, and also nothing is there".
  */
 export function privateGridShortfall(resolved: ResolvedGridRows): string | null {
   if (resolved.missingTotal <= 0) return null;
+  /** Is there a matrix below at all? Both axes must be non-empty for a cell to exist. */
+  const hasMatrix = resolved.matchups.length > 0 && resolved.prompts.length > 0;
   return (
     `${resolved.missingTotal} of this grid's ${resolved.authoredTotal} members are not in the ` +
-    'matrix below. Only members with a row on the shared board can be: your own private ' +
-    'matchups and prompts are not in it until you publish them, and a member another author ' +
-    'withdrew is not either. Everything else below still renders; nothing was quietly dropped.'
+    'matrix below. The matrix is built from the rows the app has read off the shared board, ' +
+    'so a member with no such row is left out — your own private matchups and prompts until ' +
+    'you publish them, and a member another author withdrew.' +
+    (hasMatrix ? ' Everything else below still renders; nothing was quietly dropped.' : '')
   );
 }
 

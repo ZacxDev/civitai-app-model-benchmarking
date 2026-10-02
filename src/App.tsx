@@ -633,26 +633,26 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    */
   const [openGridRef, setOpenGridRef] = useState<OpenGridRef>({ kind: 'system' });
   /**
-   * Open the grid named by a COMMUNITY-BOARD callback, whose contract is still
-   * `string | null` (`null` = the Top Grid — see `entryOpenKey`).
-   *
-   * 🔴 THE ADAPTER IS HERE RATHER THAN IN `GridsView`, so that component keeps
-   * knowing only about the two kinds it can LIST. Widening its callback to the
-   * three-way reference would hand it a shape with an arm it can never produce.
-   */
-  const openPublishedKey = useCallback((key: string | null) => {
-    setOpenGridRef(key === null ? { kind: 'system' } : { kind: 'published', key });
-  }, []);
-  /**
-   * Open one of the viewer's own grids FROM MY BENCHMARKS, which also means going to
-   * Home — the open panel only exists on `view.kind === 'home'`.
+   * Open one of the viewer's own PRIVATE grids FROM MY BENCHMARKS, which also means
+   * going to Home — the open panel only exists on `view.kind === 'home'`.
    *
    * 🔴 THE NAVIGATION IS PART OF THE ACTION, not a separate step the viewer takes.
    * Setting the reference without switching the view would leave the press looking
    * inert: the panel that renders it is unmounted, so nothing on screen would change.
+   *
+   * 🔴 IT TAKES A LOCAL ID, NOT AN `OpenGridRef`, BECAUSE THE PUBLISHED HALF OF THIS
+   * ROUTE WAS CUT. My Benchmarks briefly offered Open on the viewer's own PUBLISHED
+   * grids too; a published grid already has an Open on the community board, so that was
+   * a second door to one destination — and the ask was about the grid that has no door
+   * at all, the private one. A `kind: 'published'` arm here would be a shape with no
+   * caller.
+   *
+   * ⚠️ THERE IS NO ADAPTER FOR THE COMMUNITY BOARD ANY MORE. `GridsView.onOpen` passes
+   * an `OpenGridRef` built by `entryOpenRef`, so `setOpenGridRef` is wired to it
+   * directly; it used to take a `string | null` key and translate here.
    */
-  const openOwnGrid = useCallback((ref: OpenGridRef) => {
-    setOpenGridRef(ref);
+  const openOwnPrivateGrid = useCallback((localId: string) => {
+    setOpenGridRef({ kind: 'private', localId });
     setView({ kind: 'home' });
   }, []);
   // 🔴 THE PER-VIEWER "Show top N" `Slider` IS GONE (§11.5, criterion 9), and so
@@ -3495,7 +3495,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       /* 🔴 RESOLVED, not raw — see the prop's own docblock for the
                          same-grid-twice bug a second resolution would create. */
                       openKey={openKeyResolved}
-                      onOpen={openPublishedKey}
+                      /* 🔴 THE SETTER, DIRECTLY. `GridsView` hands up an `OpenGridRef`
+                         (built by `entryOpenRef`), so there is nothing left to adapt —
+                         the `string | null` callback this replaced needed a translation
+                         step that read the same `null` the open-filter uses for
+                         "nothing in this list is open". */
+                      onOpen={setOpenGridRef}
                       onVote={onVote}
                       onUnvote={onUnvote}
                       onRequireAuth={requireAuth}
@@ -3617,17 +3622,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                        on the community board, a grid author does not and must go to My
                        Benchmarks. Recorded so it reads as a choice, not an oversight. */
                     onEditPublished={(row) => setModal({ kind: 'grid', edit: row })}
-                    /* 🔴 THE TWO OPEN ROUTES FROM THIS SURFACE, and the private one is
-                       the only way a private grid's matrix can be reached at all — a
-                       private grid has no shared row, so the community board cannot
-                       list it and `grid-open` there cannot name it. Both go through
-                       `openOwnGrid`, which ALSO returns to Home: the open panel only
-                       exists on `view.kind === 'home'`, so setting the reference
-                       without the view switch would leave the press looking inert. */
-                    onOpenUnpublished={(localId) =>
-                      openOwnGrid({ kind: 'private', localId })
-                    }
-                    onOpenPublished={(row) => openOwnGrid({ kind: 'published', key: row.key })}
+                    /* 🔴 THE ONE OPEN ROUTE FROM THIS SURFACE, and it is the only way a
+                       private grid's matrix can be reached at all — a private grid has
+                       no shared row, so the community board cannot list it and
+                       `grid-open` there cannot name it. It goes through
+                       `openOwnPrivateGrid`, which ALSO returns to Home: the open panel
+                       only exists on `view.kind === 'home'`, so setting the reference
+                       without the view switch would leave the press looking inert.
+
+                       ⚠️ THERE WAS A SECOND ROUTE HERE AND IT WAS CUT: Open on the
+                       viewer's own PUBLISHED grids. A published grid is listed on the
+                       community board and already carries `grid-open` there, so this was
+                       a second door to one destination for the one kind of grid that was
+                       never short of doors. It also put an Open on the ARCHIVED rows,
+                       which `MyList` renders through the same `publishedActions`. */
+                    onOpenUnpublished={openOwnPrivateGrid}
                     /* The preview strips' source, on the viewer's OWN grids now too —
                        ONE batched gated read per card, private and published alike.
                        See `MyGridsView.GatedCell` for why this does not move the

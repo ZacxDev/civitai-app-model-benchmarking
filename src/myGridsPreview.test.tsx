@@ -257,7 +257,6 @@ function renderMine(
          the read budget is one batched `getImages` per CARD, and a button issues
          none. */
       onOpenUnpublished={vi.fn()}
-      onOpenPublished={vi.fn()}
     />,
   );
 }

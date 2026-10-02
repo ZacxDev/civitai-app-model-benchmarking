@@ -30,7 +30,6 @@ import {
   gridPreviewIds,
   GRID_PREVIEW_MAX,
   missingMembersNotice,
-  openGridKeys,
   openGridName,
   openSystemGrid,
   orderGridsByVotes,
@@ -571,12 +570,19 @@ function privateGrid(matchupKeys: string[], promptKeys: string[]) {
 }
 
 describe('🔴 the open grid: three kinds, one resolver', () => {
-  it('openGridKeys reads the authored keys out of each of the three kinds', () => {
+  // 🔴 THE THREE-KIND KEY READ, ASSERTED THROUGH THE RESOLVER RATHER THAN THROUGH
+  // `openGridKeys`. That helper was exported with exactly one production consumer —
+  // `resolveOpenGrid`, in its own module — and this case was the second call site that
+  // made it look like module surface; it is module-private now. The claim is unchanged
+  // and is now made where it MATTERS: which rows and columns the matrix is built from.
+  // An intermediate key list that is right while the resolution is wrong buys nothing.
+  it('🔴 resolveOpenGrid reads the authored keys out of each of the three kinds', () => {
     const top = openSystemGrid(buildTopGrid(MANY_MATCHUPS, MANY_PROMPTS));
     // 🔴 LITERALS, NOT `buildTopGrid(...)` RE-CALLED. An expectation computed from the
     // implementation passes whatever the implementation says. `DEFAULT_TOP_N` is 5 and
-    // these are the five highest counts in `MANY_MATCHUPS`, in descending order.
-    expect(openGridKeys(top).matchupKeys).toEqual([
+    // these are the five highest counts in `MANY_MATCHUPS`, in descending order — and
+    // every one of them is on the board, so all five survive resolution.
+    expect(resolveOpenGrid(top, MANY_MATCHUPS, MANY_PROMPTS).matchups.map((r) => r.key)).toEqual([
       'mk-alpha',
       'mk-echo',
       'mk-foxtrot',
@@ -588,16 +594,20 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
       kind: 'published',
       row: grid('gk-p', 9, ['mk-echo', 'mk-golf'], ['qk-tango']),
     };
-    expect(openGridKeys(published)).toMatchObject({
-      matchupKeys: ['mk-echo', 'mk-golf'],
-      promptKeys: ['qk-tango'],
-    });
+    const pub = resolveOpenGrid(published, MANY_MATCHUPS, MANY_PROMPTS);
+    expect(pub.matchups.map((r) => r.key)).toEqual(['mk-echo', 'mk-golf']);
+    expect(pub.prompts.map((r) => r.key)).toEqual(['qk-tango']);
 
     const priv: OpenGrid = { kind: 'private', rec: privateGrid(['mk-bravo'], ['qk-romeo']) };
-    expect(openGridKeys(priv)).toMatchObject({
-      matchupKeys: ['mk-bravo'],
-      promptKeys: ['qk-romeo'],
-    });
+    const privResolved = resolveOpenGrid(priv, MANY_MATCHUPS, MANY_PROMPTS);
+    expect(privResolved.matchups.map((r) => r.key)).toEqual(['mk-bravo']);
+    expect(privResolved.prompts.map((r) => r.key)).toEqual(['qk-romeo']);
+    // 🔴 THE DISCRIMINATOR BETWEEN THE THREE ARMS, stated as an inequality: the private
+    // arm read `rec`, not `row` or the system key lists, so its members are NOT the
+    // other two's. Without this, a resolver that ignored `kind` and always read the
+    // system keys would satisfy the published and private expectations by accident of
+    // the fixture only if they happened to coincide — they do not, and this says so.
+    expect(privResolved.matchups.map((r) => r.key)).not.toEqual(pub.matchups.map((r) => r.key));
   });
 
   it('openGridName: the system name, else the record name, else "Untitled grid"', () => {
@@ -681,13 +691,60 @@ describe('🔴 privateGridShortfall — the sentence that attributes NO cause', 
     );
     // 🔴 THE WHOLE STRING AS A LITERAL. The artifact under test IS prose, so a keyword
     // guard is walkable by a reword — including one that puts the false attribution
-    // back. 2 of 4 here, which are distinct numbers.
+    // back. 2 of 4 here, which are distinct numbers. BOTH axes resolve one member, so
+    // there IS a matrix below and the reassurance clause is earned.
     expect(privateGridShortfall(resolved)).toBe(
-      "2 of this grid's 4 members are not in the matrix below. Only members with a row " +
-        'on the shared board can be: your own private matchups and prompts are not in it ' +
-        'until you publish them, and a member another author withdrew is not either. ' +
+      "2 of this grid's 4 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew. ' +
         'Everything else below still renders; nothing was quietly dropped.',
     );
+    // 🔴 THE CLAUSE THAT WAS FALSE ON A TRUNCATED SCAN, HELD OUT BY WORDS. "Only members
+    // with a row on the shared board can be" is wrong when `listAll` hit its page cap: a
+    // member DOES have a row there and is still excluded. The rule is stated over rows
+    // the app has READ now, and this is what fails if the old absolute comes back.
+    expect(privateGridShortfall(resolved)).not.toContain('Only members with a row');
+  });
+
+  it('🔴 and it DROPS the "everything else below" clause when NOTHING is below', () => {
+    // 🔴 THE ALL-PRIVATE GRID, which is this feature's most likely first state: nothing
+    // resolves, the matrix is empty, and "Everything else below still renders" is a
+    // promise about a remainder that does not exist. Two points on the one dimension
+    // that decides it — the case above has a matrix, this one does not.
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['draft:v1:dm-1'], ['unpub:prompt:v1:dp-1']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(resolved.matchups).toEqual([]); // the premise
+    expect(resolved.prompts).toEqual([]);
+    expect(privateGridShortfall(resolved)).toBe(
+      "2 of this grid's 2 members are not in the matrix below. The matrix is built from " +
+        'the rows the app has read off the shared board, so a member with no such row is ' +
+        'left out — your own private matchups and prompts until you publish them, and a ' +
+        'member another author withdrew.',
+    );
+  });
+
+  it('🔴 ONE axis empty is ALSO nothing below — the boundary, not just the all-empty case', () => {
+    // 🔴 THE BOUNDARY THE `&&` IN `hasMatrix` IS FOR, and a mutant that tested `||` —
+    // "either axis has something" — would pass the two cases above and fail here. A cell
+    // needs a row AND a column, so one surviving matchup with no surviving prompt renders
+    // no cells at all: the clause must still be absent. The counts (1 missing of 3, not 2
+    // of 2 or 2 of 4) are distinct from both cases above, so a wrong fixture cannot pass
+    // by reusing another case's expectation.
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid(['mk-alpha', 'mk-bravo'], ['unpub:prompt:v1:dp-1']) },
+      MANY_MATCHUPS,
+      MANY_PROMPTS,
+    );
+    expect(resolved.matchups.map((r) => r.key)).toEqual(['mk-alpha', 'mk-bravo']); // the premise
+    expect(resolved.prompts).toEqual([]);
+    expect(privateGridShortfall(resolved)).not.toContain('Everything else below still renders');
+    // POSITIVE CONTROL: a sentence WAS produced, so the absence above is an absence and
+    // not a `null` the `toContain` never saw.
+    expect(privateGridShortfall(resolved)).toContain("1 of this grid's 3 members");
   });
 
   it('🔴 and it is NOT what `missingMembersNotice` says about the same shortfall', () => {

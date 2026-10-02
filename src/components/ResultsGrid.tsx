@@ -70,11 +70,18 @@ export interface ResultsGridProps {
    * `true` when the grid these cells belong to is one of the viewer's OWN PRIVATE
    * grids (per-viewer KV, no shared row) rather than a published or the system one.
    *
-   * 🔴 IT ONLY EVER ADDS A SENTENCE — {@link PRIVATE_GRID_RUN_NOTICE} on the confirm
-   * path. It gates NO behaviour: the run, the claim, the spend, the publish and the
+   * 🔴 IT GATES NO MONEY BEHAVIOUR: the run, the claim, the spend, the publish and the
    * result row's key are byte-identical either way, because a result row is not
-   * grid-scoped. Anything here that branched on it would be a second money path, and
-   * there is deliberately only one.
+   * grid-scoped. Anything here that branched on it in the run path would be a second
+   * money path, and there is deliberately only one.
+   *
+   * 🔴 WHAT IT DOES GATE IS TWO PIECES OF COPY, AND THE DOCBLOCK USED TO SAY "only ever
+   * adds a sentence", which was one short. It selects {@link PRIVATE_GRID_RUN_NOTICE} on
+   * the confirm path, and it selects the EMPTY STATE: a grid assembled out of the
+   * viewer's own drafts resolves to no rows and no columns, and the system-grid empty
+   * state ("Submit and vote to fill the top slots", plus a button opening the public
+   * matchup form) told that viewer to go and make a NEW matchup when what they owe is a
+   * publish. See {@link PRIVATE_GRID_EMPTY_BODY}.
    *
    * 🔴 REQUIRED, NOT OPTIONAL-DEFAULTING-TO-FALSE, for the reason `GridsView.results`
    * records about its own prop: the forgetful case degrades SILENTLY and in the unsafe
@@ -282,29 +289,91 @@ export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
  * generated into before it is published.
  *
  * 🔴 IT EXISTS BECAUSE THE GRID'S "Private" BADGE IS TRUE AND WOULD OTHERWISE BE READ
- * AS COVERING THE OUTPUTS. It does not. Written from what the code does, not from
- * intent, and each clause is traceable:
+ * AS COVERING THE OUTPUTS. It does not.
  *
- *   - a result row's key is `result:${comboKey}·${configId}×${promptKey}`
- *     (`buildResultPayload` in `lib/benchmark.ts`) — it names no grid, so the row is
- *     shared by EVERY grid that contains that cell, public or private;
- *   - the run's publish step is an unconditional `publish({ workflowId })` in
- *     `App.tsx` — there is no private-output path to take instead;
- *   - and the row reaches the board through `shared.append`, which is irreversible:
- *     `update`/`withdraw` are author-scoped and there is no merge.
+ * ━━━ 🔴 THIS IS THE THIRD RATIONALE FOR THIS SENTENCE. TWO WERE REFUTED. ━━━
  *
- * So the honest sentence is that the IMAGES go public even though the GRID does not,
- * and that it cannot be undone from here. It deliberately does not say "and you can
- * delete them later", because this app cannot.
+ * Read both before editing either the string or this docblock. A fourth writer reaching
+ * for a better-sounding reason is exactly how the first two were produced.
+ *
+ *   ⚠️ REFUTED #1 — "irreversible, because `update`/`withdraw` are author-scoped and
+ *   there is no merge". BACKWARDS. `lib/sdk-runtime.ts` documents `withdraw` as "Delete
+ *   a row the viewer authored", and the viewer authors their own result rows — so
+ *   author-scoping is precisely what would PERMIT removal, not forbid it. (No control in
+ *   this app withdraws a result row today, which is a fact about the UI and NOT the
+ *   data-model claim the sentence was making.)
+ *
+ *   ⚠️ REFUTED #2 — "right away and permanently, because the run's publish step is an
+ *   unconditional `publish({ workflowId })`". The CALL SITE is unconditional; the PUBLISH
+ *   is not. Three reachable branches in `App.tsx`'s `driveToResult` end with no images on
+ *   the board: a workflow that goes terminal non-`succeeded` (the Buzz is spent and
+ *   nothing is published), the `publish()` call itself — which is HOST-CONSENT-GATED, so
+ *   a refusal or a consent timeout rejects into the `catch` and the cell lands `failed` —
+ *   and the `imageIds.length > 0` guard before the `shared.append`. So "right away" is
+ *   false even on the happy path: there is a SECOND human confirm after generation.
+ *
+ * 🔴 SO BOTH CLAUSES ARE DELETED RATHER THAN RE-ARGUED. "Permanently" could not be
+ * established and is gone; "right away" was false and is replaced by the confirm it
+ * concealed. No replacement reason was sought for either — "I could not establish this"
+ * is the finding, and a reason found under pressure to supply one is a hypothesis.
+ *
+ * 🔴 WHAT EACH SURVIVING CLAUSE RESTS ON, and nothing is in the string that is not here:
+ *
+ *   - "that does not cover its cells’ images" — the grid record lives in per-viewer KV
+ *     and says nothing about any result row;
+ *   - "stored against the matchup and the prompt — not against this grid" — a result
+ *     row's key is `result:${comboKey}·${configId}×${promptKey}` (`buildResultPayload`
+ *     in `lib/benchmark.ts`), which names no grid;
+ *   - "every grid that contains the cell shows them to every viewer" — the row is on the
+ *     shared board, so every viewer's scan reads it, and every grid whose members make
+ *     that cell renders it;
+ *   - "If the run succeeds you will be asked to confirm publishing them there" — the
+ *     `publish()` host dialog above, reached only from the `terminal.status ===
+ *     'succeeded'` branch.
  *
  * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`. A keyword guard on
- * "public" is walkable by a reword that quietly drops the irreversibility.
+ * "public" is walkable by a reword that quietly puts a refuted clause back.
  */
 export const PRIVATE_GRID_RUN_NOTICE =
-  'This grid is private, but these images will not be. A cell’s outputs are stored ' +
-  'against the matchup and the prompt — not against this grid — so running this cell ' +
-  'publishes them to the shared board for every viewer, right away and permanently, ' +
-  'whether or not you ever publish the grid.';
+  'This grid is private, but that does not cover its cells’ images. A cell’s outputs ' +
+  'are stored against the matchup and the prompt — not against this grid — so once they ' +
+  'reach the shared board, every grid that contains the cell shows them to every ' +
+  'viewer, whether or not you ever publish this one. If the run succeeds you will be ' +
+  'asked to confirm publishing them there.';
+
+/**
+ * The empty-state copy for an open grid that is still PRIVATE and resolves to no cells.
+ *
+ * 🔴 IT EXISTS BECAUSE THE SYSTEM-GRID EMPTY STATE WAS A DEAD END WITH THE WRONG WORDS,
+ * in the state this feature is MOST LIKELY TO BE FIRST SEEN IN. A viewer assembles a grid
+ * from the matchups and prompts they are still drafting; none of those has a row on the
+ * board, so `resolveOpenGrid` yields 0 × 0 and the matrix is empty. What rendered there
+ * was "No benchmark grid yet / …Submit and vote to fill the top slots" plus a **Submit a
+ * matchup** button opening the PUBLIC submit form — i.e. the viewer who had just built a
+ * grid was told it was empty and sent to author a new matchup, when the next step is to
+ * publish the members they already have.
+ *
+ * 🔴 AND IT CARRIES NO BUTTON, DELIBERATELY. The next step is on another surface (My
+ * Benchmarks ▸ Matchups / Prompts) and `ResultsGrid` has no callback that reaches it —
+ * the two it has open the public submit modals, which is the wrong action. A wrong button
+ * is worse than none; the step is named in words instead. Wiring a real one means a new
+ * prop threaded from `App`, which is a separate change.
+ *
+ * ⚠️ IT NAMES NO AXIS, WHICH THE PUBLIC COPY DOES. The public branch distinguishes "no
+ * rows" from "no columns" because the two have different submit forms; here the remedy is
+ * the same for both, and `grid-open-members` above already states the resolved shape
+ * ("0 matchups × 0 prompts"). That is the trade, not an omission.
+ *
+ * ⚠️ AND THE RULE CLAUSE IS ABOUT ROWS THE APP HAS *READ*, not about rows that exist. On a
+ * board over `listAll`'s page cap a member's row may be unread rather than absent — the
+ * same correction `privateGridShortfall` carries, for the same reason. The sentence stays
+ * true on a truncated scan.
+ */
+export const PRIVATE_GRID_EMPTY_TITLE = 'This grid has no cells yet';
+export const PRIVATE_GRID_EMPTY_BODY =
+  'A matchup or a prompt only becomes a row or a column here once the app has read its ' +
+  'row off the shared board. Publish your own private matchups and prompts from My ' +
+  'Benchmarks, and they will appear in this grid.';
 
 /**
  * The confirm gate, as ONE three-valued decision instead of a boolean plus a
@@ -453,6 +522,21 @@ export function ResultsGrid({
   // columns are two different objects with two different submit forms, and the
   // old single sentence made the reader work out which one to go and fix.
   if (configs.length === 0 || prompts.length === 0) {
+    // 🔴 THE PRIVATE ARM COMES FIRST AND TAKES NO ACTION. The copy below is about the
+    // TOP GRID — "Submit and vote to fill the top slots" is how the system grid's members
+    // are chosen — and it is flatly wrong about a grid the viewer authored out of their
+    // own drafts, where the matrix is empty because the members are not published yet.
+    // See {@link PRIVATE_GRID_EMPTY_BODY} for the dead end this closes and for why there
+    // is no button.
+    if (privateGrid) {
+      return (
+        <EmptyState
+          data-testid="grid-empty"
+          title={PRIVATE_GRID_EMPTY_TITLE}
+          body={PRIVATE_GRID_EMPTY_BODY}
+        />
+      );
+    }
     const needsCombination = configs.length === 0;
     const needsPrompt = prompts.length === 0;
     const body = needsCombination && needsPrompt

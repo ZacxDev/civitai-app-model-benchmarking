@@ -160,10 +160,17 @@ export interface MyListProps<Row> {
    * `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` is where the viewer is told so, on the
    * confirm path. Nothing on THIS row claims otherwise, and nothing here writes
    * anything: the callback raises intent, exactly like every other one in this file.
+   *
+   * ⚠️ THERE IS NO `onOpenRow` BESIDE IT, AND THERE WAS FOR ONE ROUND. The PUBLISHED
+   * half of this list carried an Open too, under a `my-open` testid; it was cut because
+   * a published grid is listed on the community board and already carries `grid-open`
+   * there, so the control was a second door to one destination — for the one kind of
+   * grid that was never short of doors. The private record is the one with no other
+   * route to its matrix, which is why this callback is the one that survives. Cutting it
+   * also removed the Open from the ARCHIVED rows, which reach `publishedActions` through
+   * the same path.
    */
   onOpenDraft?: (localId: string) => void;
-  /** OPEN an already-PUBLISHED row. Same shape, same single caller (grids). */
-  onOpenRow?: (row: Row) => void;
   /** Render one published row's card, with the action group this list supplies. */
   renderCard: (row: Row, actions: ReactNode) => ReactNode;
 }
@@ -190,7 +197,6 @@ export function MyList<Row>({
   onArchive,
   onUnarchive,
   onOpenDraft,
-  onOpenRow,
   renderCard,
 }: MyListProps<Row>): React.JSX.Element {
   // Which record is mid-publish — the button that could mint a public row is disabled
@@ -240,22 +246,10 @@ export function MyList<Row>({
    */
   const publishedActions = (row: Row, archiveAction: ReactNode): React.JSX.Element => (
     <>
-      {/* 🔴 OPEN COMES FIRST, AND ONLY WHEN THE CALLER HAS A DESTINATION. It is the
-          same affordance the community board's card carries (`grid-open` in
-          `GridsView`), under a DISTINCT testid because both surfaces address a
-          `grid-card` and a shared id would make `getByTestId` ambiguous the moment a
-          test scopes to the wrong one. */}
-      {onOpenRow && (
-        <Button
-          size="sm"
-          variant="light"
-          onClick={() => onOpenRow(row)}
-          data-testid="my-open"
-          aria-label={`Open your ${noun}`}
-        >
-          Open
-        </Button>
-      )}
+      {/* ⚠️ NO Open HERE. A published row's Open lived at the head of this group for one
+          round, as `my-open`; it was cut because every published row is on the community
+          board with a `grid-open` of its own, and the ask was about the record that has
+          no such row. See `onOpenDraft`. */}
       <Button
         size="sm"
         variant="subtle"

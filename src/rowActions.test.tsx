@@ -248,7 +248,6 @@ const SHAPES: ReadonlyArray<
           onPublishUnpublished={vi.fn()}
           onEditPublished={vi.fn()}
           onOpenUnpublished={vi.fn()}
-          onOpenPublished={vi.fn()}
         />,
       ),
     'grid-card',
@@ -283,7 +282,6 @@ const SHAPES: ReadonlyArray<
           onPublishUnpublished={vi.fn()}
           onEditPublished={vi.fn()}
           onOpenUnpublished={vi.fn()}
-          onOpenPublished={vi.fn()}
         />,
       ),
     'unpublished-card',

@@ -222,14 +222,25 @@ export interface MyGridsViewProps {
    * so the matrix is built from board rows only and a local id cannot reach a result
    * row. That property belongs to the resolver, not to this prop.
    *
-   * ⚠️ AND THE OUTPUTS OF A RUN STARTED THERE ARE PUBLIC. A result row is keyed
-   * `comboKey · configId × promptKey` and is not grid-scoped, so the images go to the
-   * shared board whether or not the grid is ever published. The viewer is told so on
-   * the confirm path (`PRIVATE_GRID_RUN_NOTICE`), not here.
+   * ⚠️ AND THE GRID'S PRIVACY DOES NOT COVER A RUN'S OUTPUTS. A result row is keyed
+   * `comboKey · configId × promptKey` and is not grid-scoped, so once a cell's images
+   * reach the shared board they are there for every grid that contains the cell, whether
+   * or not this one is ever published. 🔴 WHAT GETS THEM THERE IS A SECOND HUMAN CONFIRM,
+   * not this press — `publish()` opens the HOST's "Publish to the shared grid?" dialog
+   * and rejects on refusal (`App.tsx`'s `driveToResult`). A draft of this paragraph said
+   * the images "go to the shared board" as though the press settled it; it does not. The
+   * viewer is told the whole of it on the confirm path (`PRIVATE_GRID_RUN_NOTICE`), not
+   * here.
+   *
+   * ⚠️ THERE IS NO `onOpenPublished` BESIDE IT, AND THERE WAS FOR ONE ROUND. The
+   * published half of this list carried an Open too, on the argument that the
+   * alternative is "go to Home, switch to the Grids board, find your card, press Open".
+   * It was cut: a published grid IS on that board with a `grid-open` of its own, so the
+   * control was a second door to one destination — for the one kind of grid that was
+   * never short of doors — and it also appeared on the ARCHIVED rows, which `MyList`
+   * renders through the same action group.
    */
   onOpenUnpublished: (localId: string) => void;
-  /** OPEN one of the viewer's own PUBLISHED grids, without a trip to the board. */
-  onOpenPublished: (row: GridRow) => void;
 }
 
 export function MyGridsView({
@@ -256,7 +267,6 @@ export function MyGridsView({
   onPublishUnpublished,
   onEditPublished,
   onOpenUnpublished,
-  onOpenPublished,
 }: MyGridsViewProps): React.JSX.Element {
   /** Cell → result index, built ONCE per render and shared by every card's strip. */
   const byCell = useMemo(() => indexResultsByCell(results), [results]);
@@ -422,12 +432,11 @@ export function MyGridsView({
           onWithdraw={onWithdraw}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
-          /* 🔴 BOTH HALVES OF THE LIST GET Open, because both have a matrix. The
-             private half is the asked-for change; the published half gets it too
-             because the alternative is "go to Home, switch to the Grids board, find
-             your card, press Open" for a grid the viewer is already looking at. */
+          /* 🔴 ONLY THE PRIVATE HALF GETS Open, and `MyList` has no published-row Open
+             to wire any more. A published grid is on the community board with a
+             `grid-open` of its own; a private one has no shared row and therefore no
+             other route to its matrix at all. See `onOpenUnpublished`. */
           onOpenDraft={onOpenUnpublished}
-          onOpenRow={onOpenPublished}
           renderCard={card}
         />
       </Stack>

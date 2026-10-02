@@ -67,7 +67,7 @@ import {
   buildTopGrid,
   communityGridEntries,
   entryDomKey,
-  entryOpenKey,
+  entryOpenRef,
   gridMemberSummary,
   gridPreviewIds,
   missingMembersNotice,
@@ -75,6 +75,7 @@ import {
   TOP_GRID_NAME,
   TOP_GRID_NOTE,
   type GridEntry,
+  type OpenGridRef,
   type ResolvedGridRows,
 } from '../lib/gridEntries.js';
 import { metaText, mutedText } from '../theme.js';
@@ -146,13 +147,14 @@ export interface GridsViewProps {
    * twice. One spelling of "which grid is open", decided once, in `App`.
    *
    * 🔴 IT WAS `null` = "THE TOP GRID IS OPEN", AND THAT COLLAPSED TWO STATES THE
-   * MOMENT A THIRD KIND OF GRID COULD BE OPEN. `entryOpenKey` returns `null` for the
-   * system entry, so `entryOpenKey(entry) !== openKey` excluded the Top Grid from the
-   * list whenever `openKey` was `null` — which is exactly what `App` passes while one
-   * of the viewer's own PRIVATE grids is open. The Top Grid then vanished from the
-   * board for a reason no one could see: it is not open, and it is not listed either.
-   * Measured by `src/gridOpenPrivate.test.tsx`'s list-completeness case, which failed
-   * on the first implementation of the private open path.
+   * MOMENT A THIRD KIND OF GRID COULD BE OPEN. The filter compared an `entryOpenKey`
+   * (deleted since — see `entryDomKey`), which returned `null` for the system entry, so
+   * the comparison excluded the Top Grid from the list whenever `openKey` was `null` —
+   * which is exactly what `App` passes while one of the viewer's own PRIVATE grids is
+   * open. The Top Grid then vanished from the board for a reason no one could see: it is
+   * not open, and it is not listed either. Measured by `src/gridOpenPrivate.test.tsx`'s
+   * list-completeness case, which failed on the first implementation of the private open
+   * path.
    *
    * `entryDomKey` is the fix because it is TOTAL on the listable entries — every one
    * of them maps to a non-null string — which leaves `null` free to mean "none of
@@ -160,8 +162,17 @@ export interface GridsViewProps {
    * filter cannot drift from the thing it filters.
    */
   openKey: string | null;
-  /** Open a listed grid (`null` for the system Top Grid). `App` holds the state. */
-  onOpen: (key: string | null) => void;
+  /**
+   * Open a listed grid. `App` holds the state and this IS its setter.
+   *
+   * 🔴 AN {@link OpenGridRef}, NOT A KEY, SO THERE IS NO ADAPTER. It was
+   * `(key: string | null) => void` with `null` meaning the Top Grid, which needed a
+   * `key === null ? {kind:'system'} : …` translation in `App` — a second place reading
+   * the same `null` that `openKey` above uses for "nothing in this list is open". The
+   * tagged reference removes both the adapter and the shared sentinel; this component
+   * builds it with `entryOpenRef` and names no identity of its own.
+   */
+  onOpen: (ref: OpenGridRef) => void;
   onVote: (key: string) => Promise<number> | void;
   onUnvote: (key: string) => Promise<number> | void;
   onRequireAuth: () => void;
@@ -197,6 +208,19 @@ export function GridsView({
   const communityEntries = useMemo(
     () => communityGridEntries(topGrid, grids),
     [topGrid, grids],
+  );
+
+  /**
+   * The entries this list actually RENDERS — every community entry except the open one.
+   *
+   * 🔴 ONE FILTER, READ BY BOTH THE LIST AND ITS EMPTY STATE. The empty state used to
+   * gate on `grids.length === 0`, a different predicate that agreed with this one only
+   * while the Top Grid could not be left in the list — see the empty state's own
+   * comment for the state that broke the agreement.
+   */
+  const listed = useMemo(
+    () => communityEntries.filter((entry) => entryDomKey(entry) !== openKey),
+    [communityEntries, openKey],
   );
 
   /** Cell → result index, built once per render for every card's preview. */
@@ -322,7 +346,7 @@ export function GridsView({
           <Button
             size="sm"
             variant="light"
-            onClick={() => onOpen(entryOpenKey(entry))}
+            onClick={() => onOpen(entryOpenRef(entry))}
             data-testid="grid-open"
           >
             Open
@@ -389,32 +413,34 @@ export function GridsView({
 
       {/* ---- ALL GRIDS: one flat list, no sub-tabs ---- */}
       <Stack gap={10} data-testid="grids-all-section" style={{ minWidth: 0 }}>
-        {/* 🔴 THE EMPTY STATE IS ABOUT THE *LIST*, AND THE LIST DOES NOT CONTAIN THE
-            OPEN GRID.
+        {/* 🔴 THE EMPTY STATE IS GATED ON THE RENDERED LIST, NOT ON `grids.length`, AND
+            THAT IS A FIX RATHER THAN A TIDY-UP. `grids.length === 0` USED TO IMPLY the
+            rendered list was empty, because the only entry it could hold besides a
+            published row was the Top Grid and the Top Grid was always the open one in
+            that state. A PRIVATE grid can be open now, in which case `openKey` is `null`
+            ("nothing in this list is open") and `entryDomKey(topGrid)` is `'__system__'`,
+            so the Top Grid IS listed — and the banner saying there are no grids rendered
+            directly above a card that is one. `listed` is the thing the sentence is
+            about, so `listed` is what it reads.
 
-            🔴 THE COPY CHANGE HERE HAS NO ESTABLISHED REASON, AND SAYING SO IS THE
-            HONEST OPTION. The body used to read "The Top Grid above is always here",
-            and an earlier version of this comment (and the PR body) claimed the
-            sidebar/board change had made that FALSE. It did not, and the mechanism is
-            worth writing down so nobody re-derives the false reason: this state renders
-            iff `grids.length === 0`, which makes `communityGridEntries(topGrid, [])`
-            exactly `[topGrid]`, which makes `App`'s `openEntry` the Top Grid
-            UNCONDITIONALLY — `openGridKey === null` returns it, and a non-null key can
-            only name a row in an empty `grids`, so it falls back to it. The Top Grid
-            therefore IS always the grid above, in precisely the one state this empty
-            state appears in.
+            🔴 THE COPY IS NOW TRUE IN EXACTLY THE STATE IT RENDERS, which is what the
+            gate change bought. `listed.length === 0` requires BOTH that nothing is
+            published AND that the open grid is the Top Grid (it is entry 0 of
+            `communityGridEntries` by construction, so the only way the list is empty is
+            that the filter removed it) — so "the grid open above is all there is" is
+            literally the case, every time this renders.
 
-            The new wording is KEPT (the operator has not objected, and being
-            noun-agnostic is harmless), but it is a STYLE CHOICE with no correctness
-            argument behind it. Per this repo's rule: a copy change whose reason turns
-            out to be false gets recorded as having none, rather than fitted with a
-            better-sounding one composed after the fact.
+            ⚠️ THE PARAGRAPH THIS REPLACES SAID THE COPY HAD NO ESTABLISHED REASON, and
+            that was honest at the time and is recorded rather than dropped: an earlier
+            version claimed the sidebar/board change had made "The Top Grid above is
+            always here" false, which it had not. What makes the sentence load-bearing is
+            the gate above it, which did not exist then.
 
             🔴 AND IT CARRIES NO ACTION. Creating a grid lives on My Benchmarks ▸
             Grids, where the viewer's own grids are; an empty-state button here would
             be a second door to the same modal, which is the duplication the removal of
             `grid-new` closed. */}
-        {!loading && grids.length === 0 && (
+        {!loading && listed.length === 0 && (
           <EmptyState
             data-testid="grids-empty"
             title="No published grids yet"
@@ -441,11 +467,14 @@ export function GridsView({
 
             🔴 The Top Grid is entry 0 of `communityGridEntries` by construction, not
             by a sort that happens to put it there — so when it IS listed it is still
-            first. ---- */}
+            first.
+
+            🔴 AND THE FILTERED LIST IS COMPUTED ONCE, ABOVE, BECAUSE THE EMPTY STATE
+            READS IT TOO. Two `.filter()` calls over the same predicate is how a banner
+            comes to disagree with the list it is about — which is the defect the gate
+            on `listed.length` closes. ---- */}
         <Stack gap={10} data-testid="grids-list">
-          {communityEntries
-            .filter((entry) => entryDomKey(entry) !== openKey)
-            .map((entry) => entryCard(entry))}
+          {listed.map((entry) => entryCard(entry))}
         </Stack>
       </Stack>
     </Stack>
