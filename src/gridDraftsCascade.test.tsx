@@ -382,8 +382,8 @@ describe('🔴 private matchups and prompts are pickable into a grid', () => {
     // press — unresolvable by every other viewer and unrepairable by any of them, the
     // author's only remedy being to withdraw the whole row. ⚠️ NOT "permanently
     // (author-scoped, no merge, no history)", which is what this said: that is the
-    // inference this file's own header retracts 370 lines up, and it survived the sweep
-    // that wrote the retraction. The absence below is
+    // inference this file's own header retracts, and it survived the sweep that wrote
+    // that retraction. The absence below is
     // the claim; the private picker finding the SAME row two interactions later is the
     // positive control that makes the absence meaningful rather than "the record was
     // never loaded".

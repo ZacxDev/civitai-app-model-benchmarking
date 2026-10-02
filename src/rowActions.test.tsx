@@ -471,12 +471,26 @@ const ROW_ACTION_FILES = [
  * incapable of seeing that — which is the half worth copying forward: a control that
  * only exercises the easy shape certifies the easy shape.
  *
- * ⚠️ TWO ACKNOWLEDGED BOUNDS, STATED RATHER THAN HIDDEN. A tag containing an UNBALANCED
- * quote (an escaped `\"` inside an attribute string) can run the scan past the real tag
- * end; a tag containing a bare `<` outside braces and outside a quote ends the scan
- * early and that tag is dropped. Neither occurs in this tree today. The first direction
- * can only over-report — the ledger goes RED and someone reads it — which is the safe
- * way round for a guard whose expected result is a zero.
+ * 🔴 THE DROP DIRECTION IS THE DANGEROUS ONE AND IT WAS MEASURED, NOT ASSUMED. A `<`
+ * that is not inside braces or a quote ends the scan, and such a start is then DROPPED
+ * rather than reported — a false green. Over the STRIPPED-COMMENT pass this ledger
+ * actually reads: 851 `<`-plus-letter starts, 841 closed, 10 dropped, and all 10 are
+ * TYPESCRIPT GENERICS — `useState<Record<string, CellRun>>`, `Omit<Partial<ResultData>,
+ * 'v'>` and the like. Those are not JSX tags and dropping them is correct. ZERO real
+ * opening tags are dropped on that pass.
+ *
+ * ⚠️ ON THE RAW PASS — the second positive control below, which does NOT strip comments
+ * — 11 real tags ARE dropped, every one of them a tag carrying an inline `/* … *\/`
+ * comment between its attributes whose prose holds an apostrophe, which opens a quote
+ * the scanner never sees closed. That control's only job is to show the prose instances
+ * exist, and it still returns exactly the two files it asserts, so the blindness does
+ * not reach a claim. It would matter if anything ever scanned RAW source for an
+ * ABSENCE — don't.
+ *
+ * ⚠️ AND A THIRD SHAPE IS NOT MEASURED EITHER WAY: a tag whose attribute string
+ * contains an ESCAPED quote (`\"`) would run the scan past the real tag end. That
+ * direction can only over-report — the ledger goes RED and someone reads it — which is
+ * the safe way round for a guard whose expected result is a zero.
  */
 function openTags(src: string): string[] {
   const tags: string[] = [];

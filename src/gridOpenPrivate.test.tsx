@@ -139,8 +139,11 @@ import type {
 //     "the empty state is the PRIVATE one" case, likewise printing both strings.
 //
 // The literal is the only form that costs a second edit — which is the form
-// `privateGridShortfall`'s sentence already had in `lib/gridEntries.test.ts`, and why
-// the same class of mutation there was caught while these two were not.
+// `privateGridShortfall`'s sentence already had in `lib/gridEntries.test.ts`. THE
+// CONTRAST, measured the same way: changing ONE WORD of that sentence ("left out" →
+// "omitted") takes `lib/gridEntries.test.ts` to 2 failed / 38 passed of 40. Same class
+// of mutation, opposite outcome, and the only difference is where the expected text
+// lives.
 //
 // So: the text lives HERE as well as in the source, and a reword must be made in both
 // places. That is the price, and it is the point — a cosmetic reword fails this file,

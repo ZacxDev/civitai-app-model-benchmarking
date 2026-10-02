@@ -351,18 +351,17 @@ export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
  * `usePublishGenerationOutputs` documents, the second rejects immediately, and both land
  * in the `catch` of `runCell`/`resumeRun` — `driveToResult` itself has none, it lets the
  * rejection out — with the cell set `failed`. So the sentence over-promises the ASK in
- * those windows while erring toward
- * warning on the PRIVACY, which is the safe direction. 🔴 WHAT IS NOT ESTABLISHED: that
- * the deployed host behaves like that checkout, at this or any commit. Nothing here was
- * measured against a live host.
+ * those windows while erring toward warning on the PRIVACY, which is the safe
+ * direction. 🔴 WHAT IS NOT ESTABLISHED: that the deployed host behaves like that
+ * checkout, at this or any commit. Nothing here was measured against a live host.
  *
  * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`, which types the text
  * out as its OWN literal (`EXPECTED_RUN_NOTICE`) and compares BOTH the rendered notice
- * and this constant against it. ⚠️ IT DID NOT USED TO, AND THIS LINE CLAIMED IT DID:
- * the guard compared the rendered text to THIS CONSTANT, so a reword moved both sides
- * at once and the guard stayed green through any rewrite — including one putting a
- * refuted clause back. Measured: that mutation left 69 files / 1027 tests green. The
- * literal is what makes a reword cost a second edit; see that file's literals header.
+ * and this constant against it. ⚠️ THAT IS NEW, AND THIS LINE CLAIMED IT ALREADY: the
+ * guard compared the rendered text to THIS CONSTANT, so a reword moved both sides at
+ * once and stayed green through any rewrite — including one putting a refuted clause
+ * back. Measured: that mutation left 69 files / 1027 tests green. The literal is what
+ * makes a reword cost a second edit; see that file's literals header.
  */
 export const PRIVATE_GRID_RUN_NOTICE =
   'This grid is private, but that does not cover its cells’ images. A cell’s outputs ' +

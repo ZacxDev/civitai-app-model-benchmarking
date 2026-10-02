@@ -676,10 +676,15 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     expect(resolved.missingTotal).toBe(3);
     expect(resolved.authoredTotal).toBe(6);
     // A WHOLE-SHAPE LEDGER, AND ⚠️ IT IS NOT "THE CLAIM STATED THE OTHER WAY ROUND",
-    // WHICH IS WHAT THIS SAID. Measured: a mutant that let an unresolved key survive
-    // resolution killed 7 cases, and killed THIS one on the `toEqual` above rather than
-    // here — so while its siblings pass these three absences cannot fail, and they are
-    // not independent regression coverage for the invariant in the banner above.
+    // WHICH IS WHAT THIS SAID. MEASURED, isolated to one expression — `resolveMembers`
+    // (`lib/grids.ts`) changed to `present.push(key)` unconditionally, so an UNRESOLVED
+    // key survives into `present` while both missing counts stay correct: 53 failed /
+    // 974 passed across the whole suite, and THIS case died at line 672, the FIRST
+    // `toEqual` above, on `TypeError: Cannot read properties of undefined (reading
+    // 'key')` — it never reached these three absences at all. (`resolveMembers` is used
+    // far more widely than this file, which is why the blast radius is 53 and not a
+    // handful.) So while the assertions above it pass, these absences cannot fail: they
+    // are not independent regression coverage for the invariant in the banner above.
     //
     // WHAT THEY DO BUY IS FORWARD AND STRUCTURAL: `toEqual` reads two NAMED fields, and
     // this reads the whole serialised shape, so a field added to `ResolvedGridRows` that

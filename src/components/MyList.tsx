@@ -161,9 +161,11 @@ export interface MyListProps<Row> {
    * them to every viewer.
    *
    * ⚠️ "THE OUTPUTS ARE PUBLIC" IS WHAT THIS SAID, AND IT SKIPS THE STEP THAT PUTS THEM
-   * THERE. Reaching the board takes a SECOND human confirm — `publish()` opens the
-   * host's own dialog and rejects on refusal — and `App.tsx`'s `driveToResult` has two
-   * further arms that end with nothing published. The twin docblock on
+   * THERE. On the path that reaches the board it takes a SECOND human confirm —
+   * `publish()` opens the host's own dialog and rejects on refusal — and `driveToResult`
+   * has two further arms that end with nothing published, both named in that docblock
+   * (a terminal non-`succeeded` workflow, and the `imageIds.length > 0` guard before
+   * `shared.append`). The twin docblock on
    * `MyGridsView.onOpenPrivate` was corrected for exactly this and this one was left;
    * see `ResultsGrid`'s `PRIVATE_GRID_RUN_NOTICE` for the whole account. That notice is
    * where the viewer is told, on the confirm path. Nothing on THIS row claims

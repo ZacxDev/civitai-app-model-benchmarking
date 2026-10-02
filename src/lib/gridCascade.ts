@@ -42,9 +42,9 @@
 //
 // 🔴 BOUND ON THIS CORRECTION, AND THE PREVIOUS WORDING OF THIS BOUND WAS ITSELF WRONG.
 // It said "what was corrected here is THE ONE SITE that used author-scoping as the
-// REASON for permanence". There were more, including one 260 lines below this paragraph
-// in THIS file (`cascadeRefusal`'s hazard note), which went on repeating the refuted
-// inference verbatim while this bound asserted it had been dealt with. A retraction is a
+// REASON for permanence". There were more, including one further down THIS FILE —
+// `cascadeRefusal`'s hazard note — which went on repeating the refuted inference
+// verbatim while this bound asserted it had been dealt with. A retraction is a
 // tree-wide sweep, not an edit where you happened to be reading.
 //
 // RE-SWEPT, over text NORMALISED per file (comment leaders stripped, whitespace
@@ -306,8 +306,8 @@ export interface BoardSnapshot {
  * only remedy is to `withdraw` the whole row and lose its key and its votes.
  *
  * ⚠️ THIS SAID "effectively permanent (`shared.update`/`withdraw` are author-scoped, no
- * merge, no history)" — THE REFUTED INFERENCE THIS FILE'S OWN HEADER RETRACTS, 260 lines
- * up, under a bound that claimed the one site here had been corrected. It had not; the
+ * merge, no history)" — THE REFUTED INFERENCE THIS FILE'S OWN HEADER RETRACTS, under a
+ * bound that claimed the one site here had been corrected. It had not; the
  * bound was wrong about its own file. Author-scoping is what PERMITS the author to
  * remove a row, and a grid row has a withdraw control in this very app. Permanence was
  * never the premise and nothing below needs it.
