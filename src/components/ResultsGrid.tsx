@@ -329,7 +329,16 @@ export const BALANCE_LOADING_MESSAGE = 'Checking your Buzz balance…';
  *     that cell renders it;
  *   - "If the run succeeds you will be asked to confirm publishing them there" — the
  *     `publish()` host dialog above, reached only from the `terminal.status ===
- *     'succeeded'` branch.
+ *     'succeeded'` branch. Independently confirmed against
+ *     `@civitai/blocks-react/dist/hooks/usePublishGenerationOutputs.d.ts`, which calls
+ *     it "CONSENT-GATED, SO IT WAITS ON A PERSON" and documents a rejection on the
+ *     consent timeout.
+ *
+ * ⚠️ ONE BOUND ON THAT LAST CLAUSE, STATED RATHER THAN HIDDEN: `driveToResult` returns
+ * BEFORE the dialog when `cellHasResult` finds the cell already published — a racer or a
+ * prior session got there first. The viewer is then not asked, and nothing of theirs is
+ * published. The sentence errs toward warning in that window, which is the safe direction
+ * for a privacy notice, and it is a race a confirm panel on an EMPTY cell reaches rarely.
  *
  * 🔴 PINNED AS A WHOLE STRING by `src/gridOpenPrivate.test.tsx`. A keyword guard on
  * "public" is walkable by a reword that quietly puts a refuted clause back.
@@ -368,12 +377,30 @@ export const PRIVATE_GRID_RUN_NOTICE =
  * board over `listAll`'s page cap a member's row may be unread rather than absent — the
  * same correction `privateGridShortfall` carries, for the same reason. The sentence stays
  * true on a truncated scan.
+ *
+ * 🔴 ⚠️ THE FIRST DRAFT OF THIS BODY WAS FALSE AND IS RETRACTED HERE RATHER THAN QUIETLY
+ * REPLACED — written in the same round that corrected two other people's rationales, which
+ * is the point of recording it. It ended "Publish your own private matchups and prompts
+ * from My Benchmarks, and they will appear in this grid." They do NOT. A private grid
+ * stores its members as BARE LOCAL IDS (`App`'s `matchupPickerItems` uses
+ * `key: d.localId`), `resolveMemberRows` matches those against board rows BY KEY, and
+ * publishing a member on its own mints a NEW host-minted key while the grid still names
+ * the old local id. Nothing on the open-grid path rewrites it: the local-id → shared-key
+ * rewrite lives in `lib/gridCascade.ts` and runs only on the GRID publish. Measured by
+ * `lib/gridEntries.test.ts`'s "a member-only publish does not rescue the reference" case,
+ * which is the guard this retraction left behind.
+ *
+ * 🔴 SO THE TWO REMEDIES NAMED ARE THE TWO THAT WORK, and both are traceable: publishing
+ * the GRID cascades through `planGridCascade` (publish the private members first, then
+ * `rewriteGridMembers` through the `resolved` map), and editing the grid to name board
+ * members needs no rewrite at all. "Publish the member" is deliberately NOT offered.
  */
 export const PRIVATE_GRID_EMPTY_TITLE = 'This grid has no cells yet';
 export const PRIVATE_GRID_EMPTY_BODY =
-  'A matchup or a prompt only becomes a row or a column here once the app has read its ' +
-  'row off the shared board. Publish your own private matchups and prompts from My ' +
-  'Benchmarks, and they will appear in this grid.';
+  'A matchup or a prompt becomes a row or a column here only once the app has read its ' +
+  'row off the shared board. Publishing the grid is what publishes its private members ' +
+  'and repoints it at them — or edit the grid to name matchups and prompts that are ' +
+  'already on the board.';
 
 /**
  * The confirm gate, as ONE three-valued decision instead of a boolean plus a

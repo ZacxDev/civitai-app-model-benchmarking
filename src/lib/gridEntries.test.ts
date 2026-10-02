@@ -686,6 +686,42 @@ describe('🔴 the open grid: three kinds, one resolver', () => {
     expect(wire).not.toContain(LOCAL_PROMPT_2);
   });
 
+  it('🔴 a MEMBER-ONLY publish does not rescue the reference — only the grid publish does', () => {
+    // 🔴 THIS PINS A CLAIM THE VIEWER-FACING COPY MAKES, and it exists because the first
+    // draft of that copy said the OPPOSITE. `PRIVATE_GRID_EMPTY_BODY` told the viewer to
+    // publish their private matchups and prompts from My Benchmarks and they would appear
+    // in the grid. They do not, and this is the mechanism: resolution is BY KEY, the grid
+    // stores the bare LOCAL id, and publishing a member mints a NEW host-minted key. The
+    // local-id → shared-key rewrite is `lib/gridCascade.ts`'s and runs only on the GRID
+    // publish.
+    //
+    // 🔴 THE FIXTURE IS THE WHOLE POINT: the board now holds a row for the published
+    // matchup, under the key the host minted (`fk_7`, which is the fake host's shape and
+    // is pairwise distinct from every other key here). Its NAME is irrelevant; what
+    // decides is that its key is not the local id.
+    const published = combo('fk_7', 50);
+    const board = [...MANY_MATCHUPS, published];
+    const resolved = resolveOpenGrid(
+      { kind: 'private', rec: privateGrid([LOCAL_MATCHUP], ['qk-tango']) },
+      board,
+      MANY_PROMPTS,
+    );
+
+    // POSITIVE CONTROL: the board row IS there and IS resolvable — by its own key.
+    expect(board.map((r) => r.key)).toContain('fk_7');
+    expect(
+      resolveOpenGrid({ kind: 'private', rec: privateGrid(['fk_7'], ['qk-tango']) }, board, MANY_PROMPTS)
+        .matchups.map((r) => r.key),
+      'the newly published row is unresolvable even by its own key — wrong fixture',
+    ).toEqual(['fk_7']);
+
+    // 🔴 THE CLAIM: the grid still names the local id, so it resolves to NOTHING. One
+    // axis empty means no cells, which is the state the empty-state copy renders in.
+    expect(resolved.matchups).toEqual([]);
+    expect(resolved.missingMatchups).toBe(1);
+    expect(resolved.prompts.map((r) => r.key)).toEqual(['qk-tango']);
+  });
+
   it('resolveOpenGrid agrees with resolveGridRows on a PUBLISHED grid', () => {
     // 🔴 A SEAM GUARD, NOT A TAUTOLOGY: the two entry points are different functions
     // over different TYPES (`OpenGrid` vs `GridEntry`) and a reader has to be able to
