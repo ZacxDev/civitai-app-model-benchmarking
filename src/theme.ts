@@ -6,7 +6,7 @@
 // (see App.tsx). The pack (Button/Card/Badge/…) is self-themed off the same
 // tokens, so the hand-rolled matrix reads as one system with it.
 //
-// Token source: `@civitai/theme@0.2.0` — imported once in main.tsx via
+// Token source: `@civitai/theme` (installed: 0.4.0) — imported once in main.tsx via
 // `@civitai/theme/styles.css` (and also injected at runtime by the pack's
 // injectBlocksStyles()). NOTE: the `--civitai-color-gray-*` ramp is theme-
 // INVARIANT (not redefined under [data-theme='dark']), so it is deliberately NOT

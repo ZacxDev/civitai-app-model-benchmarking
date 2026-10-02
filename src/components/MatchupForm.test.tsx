@@ -343,11 +343,29 @@ describe('🔴 the remove-model control', () => {
 // 🔴 THE ADOPTED UPSTREAM `ResourceCard`.
 //
 // What matters here is NOT that a card renders — it is that the STATIC arm was
-// taken. Passing `interactive` would reintroduce a focus stop and a control that
+// taken. A structural check is what catches a change of arm, because `interactive` is
+// a prop nobody looks at and the visual result is nearly identical.
+//
+// ⚠️ THE REASON GIVEN HERE HAS CHANGED, so it is restated rather than left standing.
+// It read: "Passing `interactive` would reintroduce a focus stop and a control that
 // advertises a navigation this block cannot perform, which is the whole argument
-// `components/ResourceName.tsx` records (filed as `civitai/civitai` #5209). A
-// structural check is what catches that, because `interactive` is a prop nobody
-// looks at and the visual result is nearly identical.
+// `components/ResourceName.tsx` records." The second half is now FALSE — `civitai/civitai`
+// **#5250** shipped `scope: 'site'`, `ResourceName` navigates, and this block can
+// perform it. The case below is kept on a DIFFERENT and still-true argument:
+//
+//   - `interactive`'s `onSelect` is a SELECTION contract (it sets `aria-pressed`), and
+//     these cards are a read-only summary of what the author already picked. There is
+//     nothing to select, so a focus stop and a pressed state announce a state that
+//     does not exist.
+//   - upstream `ResourceCard` is still "NOT A LINK, on purpose" — re-measured in the
+//     installed `@civitai/blocks-react@0.61.0`, which references `modelId` in a comment
+//     and nowhere else. So the anchor sweep at the end of that case is unchanged: it
+//     pins that this app has not hand-wrapped the card in one. An `<a href>` here
+//     would still navigate THE IFRAME, which #5250 did not change.
+//
+// 🔴 AND THE FORM IS NOT THE MODAL. `ResourceName`'s links live in the matchup DETAIL
+// MODAL (`matchupModalResources.test.tsx`); this file is the SUBMIT form, where the
+// resource rows are an editing surface. Nothing here is expected to link.
 // ---------------------------------------------------------------------------
 
 describe('🔴 selected resources render through the upstream ResourceCard', () => {
@@ -401,9 +419,15 @@ describe('🔴 selected resources render through the upstream ResourceCard', () 
       expect(screen.getByTestId(id)).not.toHaveAttribute('data-interactive');
     }
 
-    // 🔴 AND NO NAVIGATION AFFORDANCE ANYWHERE IN EITHER CARD — a whole-subtree
-    // sweep, because the hazard could be reintroduced on a wrapper. This is the
-    // no-navigation posture `ResourceName.tsx` records.
+    // 🔴 AND NO ANCHOR ANYWHERE IN EITHER CARD — a whole-subtree sweep, because the
+    // hazard could be reintroduced on a wrapper.
+    // ⚠️ THIS USED TO SAY "the no-navigation posture `ResourceName.tsx` records", and
+    // that posture no longer exists: `ResourceName` navigates via `scope: 'site'` since
+    // `civitai/civitai` #5250. The sweep is unchanged because what it pins never was
+    // about navigating in general — an `<a href>` inside this sandboxed iframe navigates
+    // THE IFRAME, replacing the running block with an opaque-origin, logged-out
+    // civitai.com. That is a hazard whatever the host grants, which is exactly why
+    // `ResourceName`'s own link is a `<button>` posting a host message.
     for (const id of ['checkpoint-card', 'lora-row']) {
       const card = screen.getByTestId(id);
       expect(card.querySelectorAll('a')).toHaveLength(0);

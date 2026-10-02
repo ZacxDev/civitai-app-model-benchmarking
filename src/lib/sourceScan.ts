@@ -1,11 +1,11 @@
 // 🔴 NODE-ONLY, AND NOTHING IN PRODUCTION MAY IMPORT IT. It reads `node:fs`, so a
-// production import would break the browser build — and `navigationDormancy.test.ts`'s
+// production import would break the browser build — and `sourceScanLedger.test.ts`'s
 // scaffolding ledger asserts this file is NOT in `src/main.tsx`'s dependency graph, so
 // such an import fails a test rather than shipping.
 //
 // ── WHY IT EXISTS: THE SAME WALKER WAS WRITTEN TWICE ────────────────────────
 //
-// `navigationDormancy.test.ts`'s `scannedSources` and `renameWireCompat.test.ts`'s
+// `sourceScanLedger.test.ts`'s `scannedSources` and `renameWireCompat.test.ts`'s
 // `productionSources` were SEMANTICALLY IDENTICAL — same eight-line body, same regex,
 // same filter, differing only in the function name and in whether the `if`/`else` arms
 // carried braces. (⚠️ A draft of this paragraph, and of the two comments that point at
@@ -39,7 +39,7 @@ import { dirname, join, resolve } from 'node:path';
  *
  * 🔴 WHICH FILES THOSE ARE IS NOT WRITTEN DOWN HERE, ON PURPOSE. A draft of this
  * docstring enumerated five by name — and enumerating by hand is the exact defect this
- * module exists to close. The paragraph it replaced in `navigationDormancy.test.ts` went
+ * module exists to close. The paragraph it replaced in `sourceScanLedger.test.ts` went
  * through two wrong versions: the first miscounted which of them are test-only, and the
  * SECOND — the one that survived review — still omitted `test-setup.ts` and
  * `manifest.ts` entirely. The live, asserted list is that file's `LEDGER` case, which
@@ -73,7 +73,7 @@ function resolveSpecifier(fromFile: string, spec: string): string | null {
  * i.e. the set that is genuinely in the production bundle's graph.
  *
  * 🔴 THIS IS THE MECHANICAL ANSWER TO A QUESTION THAT HAS BEEN GOT WRONG TWICE BY HAND.
- * `navigationDormancy.test.ts`'s scaffolding paragraph has already been corrected once
+ * `sourceScanLedger.test.ts`'s scaffolding paragraph has already been corrected once
  * ("a draft said TWO of four") and was still wrong afterwards — it enumerated FOUR
  * scaffolding files and missed both `src/test-setup.ts` (the vitest `setupFiles` entry)
  * and `src/manifest.ts` (imported only by `manifest.test.ts`, and not scaffolding-shaped
@@ -94,13 +94,13 @@ function resolveSpecifier(fromFile: string, spec: string): string | null {
  *     NEITHER resolves to a real file, so both callers' results are currently exact.
  *
  * 🔴 WHY THE DIRECTION MATTERS DIFFERENTLY PER CALLER. For
- * `navigationDormancy.test.ts`'s LEDGER, an over-large reachable set makes the test-only
+ * `sourceScanLedger.test.ts`'s LEDGER, an over-large reachable set makes the test-only
  * set too SMALL — it under-reports rather than inventing members, and the ledger simply
  * goes red. For `renameWireCompat.test.ts`, which NARROWS its scan to this set, the same
  * over-inclusion is the unsafe direction: a production file merely MENTIONING
  * `'./test-helpers.js'` in prose would put a test helper back into a ledger that claims
  * to hold only what production renders. If that ever happens, strip comments before
- * matching (`navigationDormancy.test.ts` already has a `stripComments` for its own scan).
+ * matching (`sourceScanLedger.test.ts` already has a `stripComments` for its own scan).
  *
  * A dynamic `import(expr)` with a computed path is invisible to it; there are none in
  * this tree, and a static `import()` with a literal is matched like any other.

@@ -634,7 +634,8 @@ describe('420 — the 44px figure itself', () => {
   // nothing in this app or the pack emits that role any more. The SUBJECT moved to
   // `SideNav`; the lesson did not move at all.
   //
-  // `SideNav` is hand-built because this repo is pinned to `@civitai/components@0.4.1`,
+  // `SideNav` is hand-built because this repo is pinned to
+  // `@civitai/components-react@^0.4.1` (installed `0.4.3`),
   // which ships no `<civitai-nav-item>` (the upstream element is real, at 0.8.1 — see
   // `SideNav.tsx` for the five-package bump that gates the swap). Its items are plain
   // `<button>`s carrying `padding: 6px 10px` around a 13px line — ~31px, and this nav

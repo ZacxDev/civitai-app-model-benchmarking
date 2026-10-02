@@ -162,12 +162,51 @@ copy — both explain, in the file, the incident they exist to prevent.
 - `block.manifest.json`'s `buildCommand` is `pnpm run build` — that string is
   what the **platform's** builder executes. Changing it is the highest-blast-
   radius line in this repo.
-- This repo has **no `pnpm-workspace.yaml`**: `pnpm install --frozen-lockfile`
-  passes pnpm's freshness gate as-is here. If a future `@civitai/*` bump is
-  refused at install time on `minimumReleaseAge`, add one with
-  `packages: ['.']` plus a `minimumReleaseAgeExclude` naming the exact versions
-  (see `civitai-app-gen-matrix` for the shape) — and re-run the bundle build,
-  because that file *is* part of the submitted bundle.
+- 🔴 **`pnpm-workspace.yaml` EXISTS AND IS LOAD-BEARING — do not delete it as stray
+  config.** This bullet said the repo had none and that `pnpm install
+  --frozen-lockfile` "passes pnpm's freshness gate as-is here"; both halves are now
+  wrong. The file holds a `minimumReleaseAgeExclude` waiving pnpm's publish-age gate
+  for the three just-published versions the `@civitai/*` bump pinned —
+  `@civitai/app-sdk@0.54.0`, `@civitai/blocks-react@0.61.0`, `@civitai/sdk@0.10.0` —
+  plus the `packages: ['.']` key that makes this a workspace root rather than a stray
+  config. Measured — and re-measured 2026-10-01T22:55:38Z — by removing it from a copy
+  of the tree and running a clean `pnpm install --frozen-lockfile`:
+  `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`, naming exactly those three entries. 🔴 That
+  control has a SHELF LIFE; read the next bullet before re-running it. The file's own
+  header carries the full reasoning,
+  including why the exclusions name exact versions (a bare package name would waive
+  the gate for every future release of it, silently, forever) and which `@civitai/*`
+  deps are deliberately absent from the list, named there rather than counted here.
+- 🔴 **Those exclusions expire on TWO clocks, and the fast one is not the one this
+  bullet used to name.** It said only that they "expire by becoming wrong: once
+  `package.json` moves off those versions the lines do nothing" — true, and far too slow
+  to be the mechanism that actually bites.
+  - **Clock 1 — the pinned version moves.** A `@civitai/*` bump makes the exact-version
+    entries dead text, and that bump has to make the same deliberate decision again.
+  - 🔴 **Clock 2 — the AGE WINDOW simply passes, `package.json` UNCHANGED, and the
+    entries go inert on their own.** Measured 2026-10-01T22:55:38Z by the control in the
+    bullet above: pnpm's own error prints its cutoff as `2026-09-30T22:55:38.385Z`
+    against a run one second later — a **24 h** window, which is pnpm 11.25.0's default
+    here, since `pnpm config get minimumReleaseAge` returns `undefined` and nothing sets
+    it (no repo `.npmrc`, nothing in `flake.nix`/`.envrc`, no `npm_config_*` in the dev
+    shell, and `~/.npmrc` holds only an auth token). That same error dates all three
+    publishes at `2026-10-01T02:50:16.000Z`, so the exclusions stop doing anything at
+    about **2026-10-02T02:50Z**, after which the control PASSES without the file. ⚠️ A
+    reader who re-runs it past that point and concludes this bullet is stale is making
+    precisely the mistake that produced the sentence it replaced.
+  - ⚠️ **Do not re-derive those publish times with `npm view <pkg> time` — it disagrees,
+    and pnpm's figure is the operative one.** The full packument gives three DISTINCT and
+    later times (`@civitai/sdk@0.10.0` at `02:51:14.230Z`, `@civitai/app-sdk@0.54.0` at
+    `02:52:24.760Z`, `@civitai/blocks-react@0.61.0` at `02:52:25.743Z`), where pnpm
+    reports one shared whole-second `02:50:16.000Z` for all three. Two minutes is
+    irrelevant against a 24 h window, but the numbers do not match, and the one that
+    decides whether the install is refused is the one pnpm prints.
+  - **Neither clock makes the FILE deletable.** `packages: ['.']` is what makes this a
+    workspace root rather than a stray config, and that key never expires — which is why
+    "the exclusions went inert" is never a reason to remove `pnpm-workspace.yaml`. When a
+    future bump is refused on `minimumReleaseAge`, add the new exact versions there
+    (`civitai-app-gen-matrix` is the prior art) — and re-run the bundle build, because
+    that file *is* part of the submitted bundle.
 - 🔴 **Submit from a clean worktree off `origin/main`, never the base clone.**
   0.4.6's bundle diff showed three files *removed* — `pf.txt`, `sub.txt`,
   `val.txt` — which were **never tracked in git and are not gitignored**, i.e.

@@ -18,7 +18,8 @@
 // does own is the ROUTE SHAPES — path, method, body, reply envelope — and those
 // are taken from two places that agree: the route files in civitai
 // `origin/main` @ `329c89a23e` (`src/pages/api/v1/blocks/{buzz,app-storage,
-// shared-storage}`), and `@civitai/sdk@0.8.0`'s own clients, which are what
+// shared-storage}`), and `@civitai/sdk`'s own clients (installed 0.10.0; this read
+// `0.8.0` until the `scope: 'site'` bump), which are what
 // actually parse these replies (`dist/{storage,shared-storage}/index.js`) and
 // throw rather than default on a field they cannot find.
 //

@@ -1,0 +1,25 @@
+# 🔴 THIS FILE EXISTS ONLY TO GET PAST pnpm's FRESHNESS GATE, and it IS part of the
+# submitted bundle — the packager takes whatever is on disk bar `.env*` and `.git`.
+#
+# WHY IT APPEARED. `pnpm` refuses a dependency younger than its `minimumReleaseAge`.
+# The three versions below were published inside that window, so `pnpm install`
+# rejected them until they were named here. `CLAUDE.md`'s release protocol prescribes
+# exactly this shape; `civitai-app-gen-matrix` is the prior art.
+#
+# ⚠️ `packages` IS NOT OPTIONAL even though this repo is a single package and pnpm
+# will create the file without it: the key is what makes this a workspace root rather
+# than a stray config, and omitting it changes how pnpm resolves `.` on a fresh clone.
+#
+# 🔴 THE EXCLUSIONS NAME EXACT VERSIONS ON PURPOSE. A bare package name would waive
+# the gate for every future release of that package, silently, forever. These three
+# entries expire by being wrong: once `package.json` moves off these versions the
+# lines do nothing, and the next bump has to make the same deliberate decision.
+# `@civitai/components-react` and `@civitai/theme` are absent because their pinned
+# versions were already past the age gate — do not add them for symmetry.
+packages:
+  - '.'
+
+minimumReleaseAgeExclude:
+  - '@civitai/app-sdk@0.54.0'
+  - '@civitai/blocks-react@0.61.0'
+  - '@civitai/sdk@0.10.0'

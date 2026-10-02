@@ -51,21 +51,46 @@ export interface LoraRef {
    * reason: it has been written since v1, and `parseCheckpoint` rejects a config
    * without it.
    *
-   * 🔴 THERE IS NO UI CONSEQUENCE TODAY, AND THE CLAIM THAT THERE WAS IS RETRACTED.
-   * This said "`ResourceLink` renders a LoRA with no `modelId` as plain, un-underlined
-   * text, never as a link that cannot work." `ResourceLink` DOES NOT EXIST — its
-   * successor `components/ResourceName.tsx` renders EVERY resource as plain text
-   * regardless of `modelId`, because every route out of a block's sandboxed iframe is
-   * shut (that file's header carries the measurement, filed as `civitai/civitai`
-   * **#5209**). So this field is currently INVISIBLE: nothing branches on it, and
-   * nothing on screen changes whether it is present or absent.
+   * 🔴 THERE IS A UI CONSEQUENCE AGAIN, AND THIS DOCBLOCK HAS NOW CARRIED THREE
+   * ANSWERS. Round one said "`ResourceLink` renders a LoRA with no `modelId` as plain,
+   * un-underlined text, never as a link that cannot work" — retracted, because
+   * `ResourceLink` had been removed. Round two said the field is "currently INVISIBLE:
+   * nothing branches on it, and nothing on screen changes whether it is present or
+   * absent" — true at the time, and now false. `civitai/civitai` **#5250** shipped
+   * `scope: 'site'` on the `NAVIGATE` message, so `components/ResourceName.tsx`
+   * branches on this field: present and positive ⇒ the LoRA's name is a control that
+   * takes the viewer to `civitai.com/models/<modelId>?modelVersionId=<versionId>`;
+   * absent ⇒ the inert `<span>` it has always been.
    *
-   * ⚠️ IT IS STILL WRITTEN, AND THAT IS THE ONLY REASON IT EXISTS. A row belongs to
-   * its author, so this app can never backfill another viewer's LoRA — the data has to
-   * accrue from the day it starts being written or it is never reliable. Naming a
-   * present-tense UI consequence that does not exist is worse than naming none: a
-   * maintainer who checks and finds no such rendering concludes the field is obsolete
-   * and deletes it, which is the one thing that cannot be undone.
+   * ⚠️ WHICH MAKES THE PRESENCE/ABSENCE SPLIT USER-VISIBLE, PERMANENTLY. Two LoRAs in
+   * the same matchup, one published before this field existed and one after, render as
+   * DIFFERENT ELEMENTS — and that asymmetry can never be flattened, because a row
+   * belongs to its author (`shared.update`/`withdraw` are author-scoped) so this app
+   * can never backfill another viewer's LoRA. There is no migration window at the end
+   * of which every LoRA links. `matchupModalResources.test.tsx` pins both halves.
+   *
+   * 🔴 AND THE UNLINKED HALF IS THE DOMINANT CASE FOR LoRAs, NOT A LEGACY TAIL.
+   * ⚠️ A DRAFT HERE SAID THE OPPOSITE — "IT WAS WRITTEN FOR YEARS BEFORE IT WAS READ,
+   * AND THAT IS WHY THE LINKS WORK ON OLD ROWS AT ALL … and it paid off". That is
+   * retracted; it inverted the feature's reach. Re-derived from this repo's own
+   * history: the first commit is `9de56b4` (2026-07-17) and its `LoraRef` has NO
+   * `modelId` at all; the field — and the one write site that fills it, in
+   * `lib/benchmark.ts`'s pick→`LoraRef` conversion — both arrived in `e8775c0`
+   * (2026-09-29, PR #61), two days before the change that reads it.
+   *
+   * So the accrual window is DAYS old, not years: no LoRA on the shared board written
+   * before 2026-09-29 carries the field, and none of them can be backfilled. That is
+   * every LoRA from the whole of the app's public life bar its last days — the LINKED
+   * case is the recent exception, not the norm. ⚠️ Stated as a bound on which rows CAN
+   * carry the field, which is derivable from this repo; the live board's actual
+   * distribution has NOT been queried from here, so do not upgrade this to a
+   * percentage. Either way, mostly-unlinked LoRA names are the feature WORKING, not
+   * the feature broken — do not read them as a bug and go looking for the link that
+   * failed. The round-two argument for keeping a
+   * field with no consumer still holds on its own terms (the data has to accrue from
+   * the day it starts being written, or it is never reliable); what it had not yet
+   * done, and what the retracted sentence claimed it had, is pay off on old rows.
+   * Do not read the arrival of a consumer as licence to relax the rule below.
    *
    * 🔴 A PARSE MUST NEVER THROW OR REJECT ON ITS ABSENCE. A row on the shared board
    * is read by every viewer; a parse that refused an old row would empty the board

@@ -256,14 +256,13 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     // permanently and unfixably — the row belongs to its author, so no later build can
     // correct it. The field must be ABSENT, not falsy.
     //
-    // ⚠️ RETRACTED, BECAUSE IT NAMED A UI CONSEQUENCE THAT DOES NOT EXIST: this used to
-    // say the default "would make `ResourceLink` render a LINK TO THE WRONG MODEL —
-    // worse than plain text, because a wrong link cannot be told from a right one by
-    // looking". `ResourceLink` was removed before release; `ResourceName` renders every
-    // resource as plain text whatever `modelId` says, so nothing renders a link at all
-    // today. The DATA argument above is the real one and it is strictly stronger — it
-    // does not depend on when, or whether, a caller ever appears (`civitai/civitai`
-    // **#5209**).
+    // ⚠️ THERE IS A UI CONSEQUENCE AGAIN: since `civitai/civitai` **#5250**,
+    // `components/ResourceName.tsx` branches on `modelId`, so a phantom `700` here
+    // would render a link to the CHECKPOINT's model page under a LoRA's name —
+    // unfixably, the row belonging to its author. 🔴 But the DATA argument above is
+    // still what this case rests on, deliberately: it has survived two inversions of
+    // the UI contract without being edited, because it does not depend on when — or
+    // whether — a caller exists.
     expect(lora.modelId).toBeUndefined();
     expect('modelId' in lora).toBe(false);
   });
@@ -314,10 +313,11 @@ describe('527 criterion 2 — the rename does not touch the wire', () => {
     // so every future consumer is entitled to assume it. Dropping it at the parse is
     // what makes that assumption true.
     //
-    // ⚠️ RETRACTED: this used to justify the case by "a string or null here reaching
-    // `ResourceLink` would build `/models/null`". There is no `ResourceLink` and no
-    // consumer of `modelId` at all — see the field's docblock in `src/types.ts`. The
-    // type-integrity argument above is what the case actually rests on.
+    // ⚠️ AND THERE IS A CONSUMER AGAIN, same as the case above:
+    // `components/ResourceName.tsx` guards on `typeof id === 'number'`, so a
+    // carried-through `'900'` STRING would silently render plain text — a linkable
+    // LoRA quietly losing its link. The type-integrity argument above remains the
+    // stronger one: it holds for every future consumer, not just the current one.
     const junk: RawSharedItem = {
       key: 'shared_01HZQ8JUNK',
       count: 0,
@@ -478,7 +478,7 @@ const SRC = resolve(process.cwd(), 'src');
  * Every file the PRODUCTION ENTRY actually reaches, concatenated.
  *
  * 🔴 IT USED TO BE A LOCAL WALKER CALLED `productionSources`, SEMANTICALLY IDENTICAL TO
- * `navigationDormancy.test.ts`'s `scannedSources` (same body and regex, differing only in
+ * `sourceScanLedger.test.ts`'s `scannedSources` (same body and regex, differing only in
  * the name and in brace style), and the duplication rotted exactly as
  * this repo's "one rule, one place" rule predicts: the docstring on the other copy was
  * corrected to say the filter is WIDER than production, and this copy kept the sentence

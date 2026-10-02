@@ -39,6 +39,9 @@ import type { BlockTransport as BridgeTransport } from '@civitai/blocks-react';
  * (`sendTypedRequest(t, req, responseType)`), so the mapping has to live here.
  *
  * Measured against `@civitai/sdk@0.8.0` + `@civitai/blocks-react@0.51.0` by
+ * (⚠️ NOT RE-MEASURED at the installed 0.10.0 / 0.61.0 — the `scope: 'site'` bump
+ * moved both, and this provenance is deliberately left naming what was actually
+ * measured rather than restamped to versions nobody checked)
  * enumerating the SDK's own `call(...)`/`notify(...)` sites in `dist/`: the only
  * `request`-shaped host operation it performs is `REQUEST_TOKEN`
  * (`dist/host/index.js:252`), which the token session issues when an HTTP call
