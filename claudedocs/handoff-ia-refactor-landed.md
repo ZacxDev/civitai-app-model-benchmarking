@@ -657,11 +657,6 @@ DISCHARGED — read the archive before re-running any of them.
 - **Why it is stuck:** the empty cell is in the SYSTEM Top Grid (`topByVotes(...)`,
   `App.tsx:1001`), which renders above every board and is what the captures photograph at boot,
   so editing the operator's own grid changes nothing. They do not own the matchup holding it
-  (`canEdit = isOwn`, `MatchupBody.tsx:122`), and no second Civitai account is reachable here.
-- **Leading hypothesis:** nothing this account can do removes it — it leaves the board only by
-  the author acting, or by falling out of top-N on votes, impossible today at 2 matchups.
-- **Next probe:** decide rather than measure — ship it as a recorded exception, submit a
-  competing matchup with live checkpoints, or ask the author.
   ⚠️ Full ruled-out evidence EVICTED 2026-10-02 to the ARCHIVE.
 
 ### Do private-grid outputs actually reach the shared board in production?
@@ -681,10 +676,6 @@ DISCHARGED — read the archive before re-running any of them.
 - **Leading hypothesis:** the notice is correct for the ordinary success-plus-consent path and
   silent about three branches that end with nothing on the board. The shipped sentence now hedges
   with "If the run succeeds you will be asked to confirm publishing them there."
-- **Next probe:** one real run in a mod-gated host — run a cell from a private grid, answer the
-  host consent dialog, then check the cell appears for a DIFFERENT viewer (or in a logged-out view
-  of the community board). That single observation settles the clause and the rank-1 question at
-  once. 🔴 It spends real Buzz and appends an irreversible shared row; budget one cell.
 
 ## Defects (batched)
 🔴 Re-verify before acting. Fix as batches, never one rank per finding.
