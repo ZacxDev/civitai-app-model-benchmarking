@@ -64,9 +64,10 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
   🔴 **The generalisable point: a release blocker in a SHARED platform is the fastest-rotting
   premise in this doc — someone you are not talking to can close it. Re-measure before building
   anything against one.** Detail in the **cairn entry `model-benchmarking-block`**.
-- 🔵 **THE ARC'S LAST UNSHIPPED ASK IS MERGED AND BEING RELEASED AS 0.4.15 — resource titles
-  link out again.** (Status at the time of writing: release IN FLIGHT this session, NOT yet
-  verified live. Re-read `How to verify` before believing it shipped.)
+- ✅ **0.4.15 IS LIVE AND THE ARC'S LAST UNSHIPPED ASK IS SHIPPED — resource titles link out
+  again. Verified by served CONTENT 2026-10-02, not by the state string.** `app_state.py …
+  0.4.15` → `approved/live` **rc 0**; served bundle `assets/index-DQzwS3Wm.js` (**520,608 B**,
+  from 0.4.14's `index-Bax577u7.js` / 464,448 B — the jump is #75's four-package bump).
   PR **#75** (`5c6cdbc`) re-enables them via `scope: 'site'`, the option `civitai/civitai` **#5250**
   added to the `NAVIGATE` message; `#5209` is CLOSED. It merged ONE commit past 0.4.14's source,
   so it was merged-but-dark until this release. 🔴 **The trap worth keeping: `main` sat at
@@ -316,19 +317,14 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   🔴 **Merged ≠ live** — see `State now` for the 0.4.15 release that carries it.
 - 🔴 **A squash merge BREAKS A STACK — children must be `git rebase --onto origin/main <old-parent-tip>`, retargeted to `main` BEFORE the force-push.** Worked recipe and the CI-event-drop it pairs with: EVICTED 2026-10-01 to the ARCHIVE.
 - 🔴 **A force-push during a parent's merge can drop the CI event entirely** (#61 got ZERO check-runs; proven real by a positive control against a known-green head). Remedy: `gh pr close` + `gh pr reopen`. Detail EVICTED 2026-10-01 to the ARCHIVE.
-- 🔴 **THE WHOLE SESSION'S PATTERN: every defect that mattered PASSED CI, and none would
-  have been caught by reading the code.** Five guards proved less than they claimed:
-  (1) the sidebar depth indent was DEAD — `padding: '6px 10px'` after `paddingLeft` in
-  the same style object, and React serialises in INSERTION ORDER, so every nav row sat at
-  10px; the only witness asserted `--civitai-nav-depth`, **which nothing in this tree
-  consumes**. (2) `money-path` §5 case 1 was VACUOUS — its spend-attempt helper pressed
-  Run, which set `confirming`, which made the cell render as `running`, so the helper
-  REPAIRED both observables the case then asserted. (3) the no-navigation guard pinned
-  the MECHANISM (`NAVIGATE`) not the STATE, so `window.open` and `window.location.href`
-  handlers both survived. (4) `includedCount={0}` at two of four call sites left the full
-  suite green. (5) a report test switched BOARDS rather than unmounting, so its mutant
-  stayed green. **The lesson that generalises: ask what property your witness actually
-  reads, and whether anything consumes it.**
+- 🔴 **EVERY DEFECT THAT MATTERED IN THIS ARC PASSED CI, AND NONE WOULD HAVE BEEN CAUGHT BY
+  READING THE CODE. Five guards proved less than they claimed** — a dead `paddingLeft` whose only
+  witness asserted a CSS var nothing consumes · a vacuous spend-attempt case whose helper REPAIRED
+  both observables it then asserted · a no-navigation guard pinning the MECHANISM not the STATE
+  (so `window.open` and `location.href` both survived) · `includedCount={0}` at two of four call
+  sites, suite still green · a report test that switched BOARDS rather than unmounting. **The
+  lesson that generalises: ask what property your witness actually reads, and whether anything
+  consumes it.** Worked cases EVICTED 2026-10-02 to the ARCHIVE.
 - 🔴 **jsdom SYNTHESISES the `padding` shorthand from four longhands**
   (`"6px 10px 6px calc(24px)"`), so `style.padding === ''` cannot distinguish "no
   shorthand written" from "four longhands written" and can never catch the override bug.
@@ -572,8 +568,8 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files,
   never through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy
   `.envrc`, `direnv allow`, `pnpm install --frozen-lockfile`.
-- Release state: `app_state.py model-benchmarking 0.4.14` — **`approved/live` rc 0**; the next
-  release is 0.4.15. ⚠️ **One version can hold SEVERAL submissions and this command collapses
+- Release state: `app_state.py model-benchmarking 0.4.15` — **`approved/live` rc 0**; the next
+  release is 0.4.16. ⚠️ **One version can hold SEVERAL submissions and this command collapses
   them**: 0.4.14 has a `failed`, two `live` and two `withdrawn` records, and the command read
   `approved/failed` before the live one existed and `approved/live` after — so an earlier failed
   attempt at the same version is INVISIBLE here (it is not reporting the newest record either;
@@ -599,7 +595,17 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
            checkpoint-card unpublished-menu prompt-override-reveal; do echo "0414 $t $(grep -c $t /tmp/live.js)"; done
   ```
   At 0.4.14 the served bundle is `assets/index-Bax577u7.js` (**464,448 B**); 0.4.13 was
-  `index-DlkHPI8F.js` (448,095 B). 🔴 **Derive the discriminating testids MECHANICALLY rather
+  `index-DlkHPI8F.js` (448,095 B). 🔴 **A TESTID DELTA IS NOT ALWAYS AVAILABLE — AND WHEN IT IS
+  EMPTY THE RECIPE BELOW SILENTLY PROVES NOTHING.** 0.4.15 (#75) added **zero** new testids, so
+  the `comm -13` below returned an EMPTY set: every candidate marker was carried, and a check
+  built from carried markers passes against the OLD bundle. **The fallback that worked, and the
+  one to reach for whenever the delta is empty: KEEP THE PREVIOUS RELEASE'S BUNDLE and diff the
+  two served files directly.** For 0.4.15 the decisive string was the compiled navigate payload
+  `models/${e}?modelVersionId=${t}` — present in `index-DQzwS3Wm.js`, **absent from the saved
+  0.4.14 `index-Bax577u7.js`**, i.e. the negative control runs in the same comparison. Counts
+  moved too (`models/` 0→2, `scope:` 2→5, `NAVIGATE` 2→4). 🔴 **Save each release's bundle before
+  the next one ships; once it is gone this control is unavailable.**
+  🔴 **Derive the discriminating testids MECHANICALLY rather
   than guessing — a check built only from carried testids passes against the OLD bundle:**
   ```bash
   for r in <old-release-sha> <new-release-sha>; do git grep -ho 'data-testid="[a-z0-9-]*"' $r -- 'src/*' \
@@ -669,81 +675,44 @@ request and its resolution (normal bookkeeping). 🔴 Their `Next probe` lines a
 DISCHARGED — read the archive before re-running any of them.
 
 ### Does the installed mock host serve gated images? `Harness.tsx:22-25` may be stale prose
-- as-of: 2026-09-29
-- **Symptom + exact repro:** `src/Harness.tsx:22-25` asserts "the 0.30 publish/gated hooks
-  have no mock-host scenario in the installed (pre-0.30) testing package, so the grid's gated
-  cells render fail-closed (hidden) in the harness". The taste pass reported this as factually
-  wrong. It decides whether ~10 run-cell states are capturable at all.
-- **Observed (with values):** installed is `@civitai/blocks-react@0.51.0` — the comment's
-  "(pre-0.30)" premise is stale by version number alone, **confirmed**. But the installed
-  `dist/testing.d.ts` is 3,989 B and contains **0** occurrences of `gated`, `Gated`,
-  `publish`, `Publish` or `image`, against a firing positive control in the SAME command
-  (`Harness` 9, `createMockHost` 3, `viewer` 1) — so the zeros are real and not a broken
-  pattern. `src/test-harness.tsx:17` confirms gated images ride the bridge `<Harness>`, not
-  the REST fake. `via: measurement`
-- **Ruled out:** *"the type surface settles it"* — `testing.d.ts` is a thin 4 KB re-export
-  surface; a scenario implemented at runtime need not be named there. **A type declaration is
-  not a code path**, and its silence is evidence about the `.d.ts`, not about the mock host.
-  `via: code`
-- **Leading hypothesis:** the comment's PREMISE is stale (confirmed) while its CONCLUSION may
-  still hold by accident — 0.51.0 may still not implement those scenarios. The taste pass ran
-  against the LIVE app and never booted the harness, so it is unclear what evidence it had;
-  treat its runtime claim as UNVERIFIED. 🔴 The same wrong constraint was written into this
-  session's own recon and into the agent's brief, so it has now propagated three times.
-- **Next probe:** boot it and look — `pnpm run dev:harness` then, in headless chromium,
-  grep the DOM for `result-image` / `result-hidden` / `result-pending` / `gated-loading`.
-  Present ⇒ the comment is wrong and must be corrected in-file; absent ⇒ the comment is right
-  for a stale reason and its "(pre-0.30)" clause should be rewritten. Either way the file
-  changes.
+- as-of: 2026-09-29 — OPEN. It decides whether ~10 run-cell states are capturable at all.
+- **The comment claims** the publish/gated hooks have no mock-host scenario in the installed
+  "(pre-0.30)" testing package, so gated cells render fail-closed in the harness. Installed is
+  **`@civitai/blocks-react@0.51.0`** (0.61.0 since #75), so the version premise is stale by
+  number alone. But `dist/testing.d.ts` is a 4 KB re-export surface with **0** hits for
+  `gated`/`publish`/`image` against a firing control — and 🔴 **a type declaration is not a code
+  path**, so that zero is evidence about the `.d.ts`, not the mock host.
+- **Next probe:** boot it and look — `pnpm run dev:harness`, then grep the DOM for
+  `result-image`/`result-hidden`/`gated-loading`. Present ⇒ the comment is wrong; absent ⇒ right
+  for a stale reason. Either way the file changes. Detail EVICTED 2026-10-02 to the ARCHIVE.
 
 ### A 720px viewport reports `innerWidth: 721` and the block stays desktop
-- as-of: 2026-09-29
-- **Symptom + exact repro:** emulate a 720px-wide viewport against the live app; the block
-  reports `innerWidth: 721` and renders the desktop sidebar rather than the compact top bar.
-  Reproduced **3×**.
-- **Observed (with values):** `innerWidth` 721 at a requested 720. The breakpoint is
-  `MOBILE_BREAKPOINT_PX` in `src/compact.ts`, consumed by `src/useMediaQuery.ts` as
-  `(max-width: <n>px)` — an inclusive bound, so 721 legitimately fails it. The collapse DOES
-  fire at 718. `via: measurement`
-- **Leading hypothesis:** nothing has been eliminated yet — two rivals, and nothing observed
-  separates them — (a) OOPIF/CDP
-  emulation rounding, i.e. an artefact of how the block's iframe is sized inside the host
-  page, or (b) a real off-by-one in how the host sizes the frame, which would mean a physical
-  720px device gets the desktop layout. 🔴 An empty/ambiguous result cannot distinguish them;
-  do not pick the convenient one.
-- **Next probe:** the discriminator is a NON-EMULATED 720px width — a physical device, or a
-  real browser window resized to 720 outer width with the iframe's own `innerWidth` read from
-  inside the frame. If the frame reports 720 there, (a) is confirmed and this closes.
+- as-of: 2026-10-02 — **STILL UNRESOLVED, and now known to be UNRESOLVABLE from here.**
+- **Symptom:** emulate 720px against the live app; the block reports `innerWidth: 721` and renders
+  the desktop sidebar. Reproduced 3x. `MOBILE_BREAKPOINT_PX` (`src/compact.ts`) is consumed as
+  `(max-width: <n>px)`, an inclusive bound, so 721 legitimately fails it; collapse fires at 718.
+- **Two rivals, nothing observed separates them:** (a) OOPIF/CDP emulation rounding, (b) a real
+  off-by-one in how the host sizes the frame — which would mean a physical 720px device gets the
+  desktop layout. 🔴 Do not pick the convenient one.
+- **Next probe — and it is the ONLY one that can work:** a NON-EMULATED 720px width (a physical
+  device, or a real window resized to 720 outer with the frame's own `innerWidth` read inside).
+  🔴 **Every emulated measurement is structurally incapable of deciding this**, confirmed again by
+  the 2026-10-02 taste pass. Full measurements EVICTED 2026-10-02 to the ARCHIVE.
 
 ### The Qwen-Image cell can never be filled, and this account cannot remove it
-- as-of: 2026-09-30
-- **Symptom + exact repro:** the Top Grid's Qwen-Image × "Lighthouse on a rocky coast at sunset"
-  cell renders `not generated yet` / `Run this cell` and appears in ALL THREE board capture
-  assets, because the Top Grid matrix renders above every board. The operator reports the
-  checkpoint is no longer available, so the cell can never produce an image.
-- **Observed (with values):** live, as session `zachlowdenzx` (id 8753561): 20 grid cells, 19
-  `result-image`, 1 empty. The Run button is **`disabled: false`** — the app does not know the
-  checkpoint is gone and would attempt a spend. The matchup holding it, "Modern text-to-image
-  baselines", offers **Edit 0 · Withdraw 0 · Report 1**; the sibling card "Community
-  checkpoints: SD 1.5 vs Illustrious" offers **Edit 1 · Withdraw 1 · Report 0** as a positive
-  control proving the query can see those controls. `via: measurement`
-- **Ruled out:** *"remove it from the operator's own grid"* — the empty cell is in the SYSTEM
-  Top Grid, whose members are `topByVotes(combinations, DEFAULT_TOP_N)` (`App.tsx:1001`);
-  `openGridKey` defaults to `null` = Top Grid (`App.tsx:535`), and the captures are taken at
-  boot. Editing the operator's own grid changes nothing in the assets. `via: code`
-- **Ruled out:** *"the operator can edit or withdraw the matchup"* — `canEdit = isOwn && …`
-  (`MatchupBody.tsx:122`), and both controls are absent for this viewer against a firing
-  positive control on the sibling card. They do not own it. `via: measurement`
-- **Ruled out:** *"sign in as another account"* — workbench `work` and laptop `work` are both
-  `zachlowdenzx` (8753561); laptop `personal` returns `{}` (signed out), read same-origin after
-  a cross-origin read returned a misleading `None`. No second Civitai account is reachable on
-  either host. `via: measurement`
-- **Leading hypothesis:** nothing this account can do removes it. It leaves the board only by
-  the author acting, or by the matchup falling out of the top-N on votes — and with two
-  matchups on the board and `DEFAULT_TOP_N` above that, it cannot fall out today.
-- **Next probe:** decide rather than measure — ship the placeholder as a recorded exception,
-  submit a competing matchup with live checkpoints, or ask the author. If ships-as-is, note it
-  against `shelf-life-and-what-not-to-shoot.md:59` in the capture PR.
+- as-of: 2026-10-02 — **re-confirmed LIVE this session**: still renders `not generated yet` /
+  `Run this cell` with the button **enabled**, so the app does not know the checkpoint is gone
+  and would attempt a spend.
+- **Why it is stuck:** the empty cell is in the SYSTEM Top Grid (`topByVotes(...)`,
+  `App.tsx:1001`), which renders above every board and is what the captures photograph at boot,
+  so editing the operator's own grid changes nothing. They do not own the matchup holding it
+  (`canEdit = isOwn`, `MatchupBody.tsx:122`), and no second Civitai account is reachable here.
+- **Leading hypothesis:** nothing this account can do removes it — it leaves the board only by
+  the author acting, or by falling out of top-N on votes, impossible today at 2 matchups.
+- **Next probe:** decide rather than measure — ship it as a recorded exception, submit a
+  competing matchup with live checkpoints, or ask the author.
+  ⚠️ Full ruled-out evidence EVICTED 2026-10-02 to the ARCHIVE.
+
 ## Defects (batched)
 🔴 Re-verify before acting. Fix as batches, never one rank per finding.
 ⚠️ **These are ONE-LINE POINTERS. The 16 taste findings' full text — measured values, `file:line`, severity reasoning — is in the Contact Sheet artifact linked under `How to verify`, and in this doc's revision at `5a83f89` (`git show 5a83f89:claudedocs/handoff-ia-refactor-landed.md`). `Defects` is a REPLACE section, so the detail cannot live here across updates; do not re-derive it from these lines.**
@@ -763,6 +732,33 @@ script never committed) · F16 (720px viewport reported `innerWidth: 721`, cause
 **Carried forward, round-1 audit findings** — #59 focus dumped on `<body>` after `grid-open` ·
 #60 `nav-my-group` is a `role="list"` inside a `role="list"` · #61 `document.location.href`
 escapes the no-navigation guard · #59 three scaffolding simplifications.
+
+**NEW, from the 0.4.14 LIVE taste pass (2026-10-02, browser-driven, zero raises):**
+- 🔴 **THE CELLS GREW AND THE IMAGES DID NOT — `GatedCell.tsx:203` lays each cell out as
+  `repeat(auto-fill, minmax(72px, 1fr))`, and every cell holds exactly ONE image, so `auto-fill`
+  turns the extra column width into EMPTY TRACKS.** Measured live: at a 3014px viewport the cell
+  is 403px with **5 tracks x 77px** -> **19% fill**; at 1440px, 184px with 2 x 90px -> **49%**. ✅ #66's `minmax(200px, 420px)` IS working (`grid-body`
+  tracks read `220px 420px x5` at 3014, `180px 200px x5` at 1440) — the gain is absorbed
+  downstream, which is why "make cells larger" did not land visibly. 🔴 **`auto-fit` is NOT a
+  free one-word fix:** one image with `object-fit: cover` in a 403px track makes the ROW ~403px
+  tall (~5x today), so it needs a max (`minmax(72px, ~200px)`) — a sizing decision, not a typo.
+- 🔴 **F2's closing condition FAILS, measured live.** At 390px on Home with no interaction,
+  `side-nav-list.scrollWidth` **411** vs `clientWidth` **345** — overflowing by **66px** (the
+  doc's 90-24 estimate was right). "Grids" is OFF-SCREEN on first paint with a visible
+  scrollbar; `useState(true)` expanding My Benchmarks puts five items in a 345px strip. 🔵 Not a defect, checked and cleared: the 1180px matrix's horizontal scroll
+  IS properly contained (`results-grid` is `overflow-x: auto` and genuinely scrollable).
+- 🔴 **F3 IS WORSE THAN "the action row jumps with description length" — the SAME control pair
+  lands in two different CORNERS.** Two matchup cards in one list: a 1-line description puts
+  the ⋮ + vote at **top-right** (`y 17, x 1055`), a 2-line one at **bottom-left**
+  (`y 113, x 17`). Mechanism: the foreign card's vote is an interactive button inside the
+  cluster, the owned card's is a non-interactive count (#71's `VoteCount`/`VoteTally` split, which
+  is itself behaving correctly), so the cluster reflows.
+- **F13 confirmed live:** on the grid card `Open` is bordered, `Remove` is bare red text, the
+  vote a bordered pill — the destructive control is the quietest of the three.
+- ⚠️ **NOT covered by this pass, and not guessed at:** F10/F11/F12 need create/edit modals opened,
+  which is outside the capture recipe's vetted-clickable set (an in-frame click is a plain
+  authenticated write and nothing refuses one). F16 is unanswerable by emulation BY CONSTRUCTION —
+  its discriminator is a NON-emulated 720px width.
 
 **NEW, from #66/#67's audit ladders:**
 - 🔴 **F2's CLIPPING half is NOT closed and is now UNCONDITIONAL on mobile Home.** Net saving
