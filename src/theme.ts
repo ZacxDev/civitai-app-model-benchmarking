@@ -106,11 +106,10 @@ export const CURSOR_PROP = '--mb-cursor';
  * `--civitai-color-surface-2` to a value distinct from `--civitai-color-body` in BOTH
  * themes, so the measurement the paragraphs above rest on — surface-2 resolving to the
  * same value as body in light theme — describes `@civitai/theme`'s STOCK token set,
- * not what resolves inside this block any more. The ban is kept on two grounds that
- * never depended on the collision: the app's recess has to have ONE home
- * ({@link recessedSurface}) or it goes back to being a per-site judgement call, and a
- * call site cannot tell by reading whether the skin is in effect. Do not re-derive
- * the old light-theme reading off the stock package and report it as live.
+ * not what resolves inside this block any more. The ban is kept anyway, on two grounds
+ * that never depended on the collision — **stated once, on {@link recessedSurface}**,
+ * which is where every site citing them points. Do not re-derive the old light-theme
+ * reading off the stock package and report it as live.
  */
 export const token = {
   text: 'var(--civitai-color-text)',
@@ -200,6 +199,24 @@ export function elevate(pct: number): string {
  * that step reads is a live-rendering question jsdom cannot answer — so every
  * consumer pairs it with `1px solid ${token.border}`, exactly as `GatedCell` always
  * has. Do not drop the border on the grounds that the fill is enough.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ * 🔴 THE TWO GROUNDS THE surface-2 BAN RESTS ON, AND THIS IS THEIR ONE HOME.
+ * Every site that cites "the two grounds" points here — `mobile-responsive.test.tsx`'s
+ * strip-fill assertion, the `elevate()` docblock above, `PromptBody.tsx`, and
+ * {@link token}'s own docblock. Neither depends on surface-2 and body colliding, which
+ * matters because that collision is a STOCK-token-set reading and {@link SKIN_LIGHT} /
+ * {@link SKIN_DARK} have since given the two distinct values in both themes:
+ *
+ *   1. **The app's recess needs ONE home** — or it goes straight back to being a
+ *      per-site judgement call, which is the defect the list above records.
+ *   2. **A call site cannot tell by reading whether the skin is in effect.** A viewer
+ *      can be served this block with the skin live or, in some future host or a
+ *      direct load, without it — so a fill that is only safe under the skin is not
+ *      safe at a call site, and no amount of reading the call site reveals which.
+ *
+ * So: do not reinstate `surface-2` anywhere, and do not delete an assertion banning it
+ * on the grounds that the collision was fixed. The collision was never the argument.
  */
 export const recessedSurface = elevate(5);
 

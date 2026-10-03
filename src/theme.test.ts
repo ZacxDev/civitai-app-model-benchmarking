@@ -202,22 +202,20 @@ describe('the recessed-fill rule has exactly ONE home', () => {
   //     files. An invariant guard.
   //
   // THE STRUCTURAL REASON three of the four cases cannot be regression coverage for
-  // `src/theme.ts`: **this PR removes no executable line from it.** Every deletion is a
-  // comment — the 5-line "ZERO hardcoded colors" header and the 1-line radius docblock —
-  // so nothing those three cases read was removed or changed here. Re-derive it, do not
-  // trust this sentence:
+  // `src/theme.ts`: **this PR removes no executable line from it**, so nothing those
+  // three cases read was removed or changed here. Do not trust that sentence either —
+  // it is one command:
   //
   //     git diff origin/main..HEAD -- src/theme.ts | grep '^-' | grep -v '^---' \
   //       | sed 's/^-//' | grep -vE '^\s*(\*|/\*|//|$)'      # must print nothing
   //
-  // 🔴 NO ADDED/REMOVED LINE COUNT IS STATED HERE, DELIBERATELY, AND YOU ARE THE FOURTH
-  // WRITER OF THIS PARAGRAPH. The count has been wrong every single time it was written:
-  // "+353/−0" (false when written — that very commit deleted the 6 comment lines),
-  // then "+409/−6" (the figure the working tree showed BEFORE `git commit`, so `HEAD`
-  // still meant the parent; the committed truth was 428/6), and it would go stale again
-  // on the next edit to `theme.ts`. Nothing pins it, which is why it rots silently.
-  // The invariant above — zero executable deletions — is what the argument actually
-  // needs, and it is checkable in one command. **Do not restore a count.**
+  // 🔴 NO COUNTS AND NO DELETION INVENTORY HERE, DELIBERATELY. Successive writers of
+  // this paragraph stated an added/removed pair, then an enumeration of which comments
+  // were deleted, and EVERY version was falsified — twice by the same commit that wrote
+  // it, because a figure read from the working tree pre-dates the commit it describes,
+  // and once by a later round deleting two more comment lines. Nothing pins any of it.
+  // The invariant above is the whole of what the argument needs and it cannot rot.
+  // **Do not restore a count, and do not re-add a list of what was deleted.**
   it('🔴 SCAN: `elevate()` is still the only way this app spells a tint', () => {
     // The mirror of the case above, and the reason the deletion is not enough on its
     // own: `recessedSurface` exists so that recesses stop being open-coded, so the
