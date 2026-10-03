@@ -33,6 +33,9 @@
 // are asserted against LITERALS — never against a constant read back out of the
 // component, which is what makes a guard unable to fail.
 
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -55,6 +58,7 @@ import { MatchupForm } from './components/MatchupForm.js';
 import { PromptForm } from './components/PromptForm.js';
 import { validateCombination, validatePrompt } from './lib/benchmark.js';
 import { validateGrid } from './lib/grids.js';
+import { scannedSources, stripComments } from './lib/sourceScan.js';
 import type { BlockResourceInfo } from '@civitai/app-sdk/blocks';
 import type { CombinationData, PromptData } from './types.js';
 
@@ -424,12 +428,13 @@ describe('F10 — the matrix group band\'s glyph matches what pressing it does',
 
     // POSITIVE CONTROL: there is a band to read. With no seeded matchup the grid
     // renders no group row at all and both assertions below would be vacuous.
-    const band = within(grid).queryByTestId('grid-group-matchup');
-    if (band === null) {
-      // No band on an empty board — say so rather than assert about nothing.
-      expect(within(grid).queryAllByTestId('grid-group-matchup')).toHaveLength(0);
-      return;
-    }
+    //
+    // ⚠️ IT IS AN ASSERTION, NOT A BRANCH, AND THAT IS A CORRECTION. This read
+    // `if (band === null) { …; return; }` — a SELF-SKIP: dead under the current
+    // deterministic fixture, and the day the fixture changes it reports PASS over a
+    // case that examined nothing. A control's job is to go red when its premise
+    // fails, which an early return cannot do.
+    const band = within(grid).getByTestId('grid-group-matchup');
 
     const text = band.textContent ?? '';
     // 🔴 THE NEGATIVE HALF IS THE ONE THAT MATTERS. `▸` is this app's DISCLOSURE
@@ -538,6 +543,13 @@ describe('F8 — the empty private list has SHAPE, and it is the shared one', ()
 });
 
 describe('the two app-own token properties are the ones the components read', () => {
+  // 🔴 THE TITLE USED TO CLAIM A SCAN THE BODY NEVER PERFORMED. It said the two
+  // properties "are spelled once, from theme.ts" while the body only asserted each
+  // constant against its own literal plus two `toContain` on the sheet — a claim about
+  // ONE module's contents dressed as a claim about `src/`. A guard whose description is
+  // wider than its implementation reads as coverage while providing none, which is
+  // worse than having none because it stops anyone looking. So the scan is now real,
+  // copying `theme.test.ts`'s `surface-2` ban (the house pattern) with its controls.
   it('🔴 the accent-text and cursor properties are spelled once, from theme.ts', () => {
     // 🔴 A SPELLING GUARD WOULD BE WALKABLE, SO THIS READS THE CONSTANTS. The hazard
     // is a component hardcoding `var(--mb-accent-text)` and the property later being
@@ -550,5 +562,42 @@ describe('the two app-own token properties are the ones the components read', ()
     // this pins the emitted text, which is the thing the browser reads.
     expect(skinCss()).toContain(`${ACCENT_TEXT_PROP}:`);
     expect(skinCss()).toContain(`${CURSOR_PROP}:`);
+
+    // ── and now the scan the title claims ───────────────────────────────────────
+    const srcDir = resolve(process.cwd(), 'src');
+    /** Modules naming `needle` in CODE (comments stripped), relative to `src/`. */
+    const naming = (needle: string): string[] =>
+      scannedSources(srcDir)
+        .filter((f) => stripComments(readFileSync(f, 'utf8')).includes(needle))
+        .map((f) => relative(srcDir, f))
+        .sort();
+
+    // POSITIVE CONTROL 1 — the WALKER can see files, and can see the module that is
+    // supposed to be the sole owner. A reader pointed at the wrong directory returns
+    // the same `['theme.ts']`-shaped nothing as a compliant tree would. (`scannedSources`
+    // excludes `.test.` files, so the four test files that legitimately name these
+    // properties are out of scope by construction, not by an allowlist.)
+    const files = scannedSources(srcDir);
+    expect(files.length, 'the source walk found nothing at all').toBeGreaterThan(20);
+
+    // POSITIVE CONTROL 2 — the MATCHER can match, and comments are what it must NOT
+    // match: `theme.ts` discusses both properties in prose at length, and so do several
+    // components. A scan over raw source would report every explanation as an instance.
+    expect(stripComments(`const x = 'var(${ACCENT_TEXT_PROP})';`)).toContain(ACCENT_TEXT_PROP);
+    expect(
+      stripComments(`// never hardcode var(${ACCENT_TEXT_PROP}) in a component\n`),
+      'stripComments left a comment behind — the scan would flag its own documentation',
+    ).not.toContain(ACCENT_TEXT_PROP);
+
+    // …and only now is the ledger meaningful. ONE owner each, named as a literal so
+    // the set fails when it GROWS as loudly as when it shrinks.
+    expect(
+      naming(ACCENT_TEXT_PROP),
+      `${ACCENT_TEXT_PROP} is spelled outside theme.ts — read it through \`token.accent\``,
+    ).toEqual(['theme.ts']);
+    expect(
+      naming(CURSOR_PROP),
+      `${CURSOR_PROP} is spelled outside theme.ts — read it through \`token.cursor\``,
+    ).toEqual(['theme.ts']);
   });
 });
