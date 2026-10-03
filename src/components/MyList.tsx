@@ -62,6 +62,7 @@ import { Alert, Badge, Button, Card, Group, Stack } from '@civitai/blocks-react/
 import type { MyNoun } from '../types.js';
 import { ARCHIVE_NOTE } from '../lib/archive.js';
 import { metaText, mutedText } from '../theme.js';
+import { EmptyState } from './EmptyState.js';
 import { Menu, MenuControl, MenuItem } from './Menu.js';
 import { WithdrawButton } from './WithdrawButton.js';
 
@@ -330,9 +331,33 @@ export function MyList<Row>({
       )}
 
       {empty ? (
-        <span style={mutedText} data-testid="my-list-empty">
-          No {noun}s yet.
-        </span>
+        /* 🔴 THE SHARED `EmptyState`, NOT A BARE SENTENCE — AND THE COMPONENT ALREADY
+            EXISTED. This was `<span style={mutedText}>No {noun}s yet.</span>`: one
+            dimmed line with no box, no title weight and no next step, sitting where a
+            list of cards normally is. So the one surface whose entire purpose is "make
+            one of these" answered an empty account with the quietest text on the page,
+            while `components/EmptyState.tsx` — a dashed, token-bordered panel with a
+            title, a muted line and an optional action — was already in the tree being
+            used elsewhere. The defect was inconsistency, so the fix is to use the
+            thing, not to restyle this one site.
+
+            🔴 NO `action`, DELIBERATELY. `EmptyState` takes one, and the obvious
+            candidate is a "New {noun}" button — but the primary CTA with that exact
+            label is rendered ~12px above this node, and it carries `new-unpublished`.
+            A second copy would either duplicate that testid (breaking every
+            `getByTestId` for it) or mint a second id for the same action.
+
+            ⚠️ AND THE BODY LINE NAMES THE NEXT STEP ONLY. It does NOT restate the
+            privacy claim, even though an empty private list is where that claim is
+            most tempting: the quota line above states it with host-reported numbers
+            and the row badge states the state, which is why the explanatory sub-line
+            was deleted from this surface in the first place (see the header Stack).
+            Re-adding it here would be the same third telling in a new place. */
+        <EmptyState
+          data-testid="my-list-empty"
+          title={`No ${noun}s yet`}
+          body={`Press New ${noun} above to make your first one.`}
+        />
       ) : (
         <Stack gap={10} data-testid={`my-list-${noun}`}>
           {/* 🔴 DRAFTS FIRST. They are the rows with an outstanding decision; a

@@ -177,6 +177,18 @@ export function GridForm({
         <Stack gap={12}>
           <TextInput
             label="Grid name"
+            /* 🔴 `required` WAS MISSING HERE AND NOWHERE ELSE, AND `validateGrid`
+               ALREADY REFUSED AN EMPTY NAME ("Give the grid a name."). So this one
+               form let the viewer fill it in, press Save, and be told about a rule
+               the field never advertised — while `MatchupForm`'s name and
+               `PromptForm`'s name AND default prompt all carry the prop. The pack's
+               `required` is the single marking idiom in play (its docblock: "shows an
+               asterisk and sets the native `required`"), so marking it is adopting
+               what the other two forms already do rather than inventing a fourth
+               convention. `GridForm.test.tsx` pins the RELATIONSHIP — validation
+               refuses it, therefore the field is marked — on all three forms at once,
+               which is what stops the next form drifting too. */
+            required
             value={name}
             onChange={(e) => setName(e.currentTarget.value)}
             data-testid="grid-form-name"

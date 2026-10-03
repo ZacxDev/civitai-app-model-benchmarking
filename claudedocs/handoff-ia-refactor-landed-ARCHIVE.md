@@ -492,3 +492,43 @@ licence to build it unasked.
   suite green. (5) a report test switched BOARDS rather than unmounting, so its mutant
   stayed green. **The lesson that generalises: ask what property your witness actually
   reads, and whether anything consumes it.**
+
+## Evicted from `claudedocs/handoff-ia-refactor-landed.md` — 2026-10-02
+
+Removed from the live doc on 2026-10-02 after a real cell-run settled the questions these lines were still asking. Keep them for the raw readings, NOT for their instructions: the Qwen-Image block's diagnosis was WRONG (model 1864281 / version 2110043 was public all along and the cell had simply never been paid for), and both evicted next-probes have now been EXECUTED. The refuting and resolving blocks live in the live doc's Open investigations section.
+
+From `Open investigations — live diagnosis state`:
+
+  (`canEdit = isOwn`, `MatchupBody.tsx:122`), and no second Civitai account is reachable here.
+- **Leading hypothesis:** nothing this account can do removes it — it leaves the board only by
+  the author acting, or by falling out of top-N on votes, impossible today at 2 matchups.
+- **Next probe:** decide rather than measure — ship it as a recorded exception, submit a
+  competing matchup with live checkpoints, or ask the author.
+- **Next probe:** one real run in a mod-gated host — run a cell from a private grid, answer the
+  host consent dialog, then check the cell appears for a DIFFERENT viewer (or in a logged-out view
+  of the community board). That single observation settles the clause and the rank-1 question at
+  once. 🔴 It spends real Buzz and appends an irreversible shared row; budget one cell.
+
+## Evicted from `claudedocs/handoff-ia-refactor-landed.md` — 2026-10-02
+
+Auto-evicted 2026-10-02: a CLOSED investigation block whose question a real cell-run had just answered. Read it for the raw pre-answer readings only — its framing treats as open a question that is now settled, and the resolving block sits at the top of the live doc's Open investigations section.
+
+From `Open investigations — live diagnosis state`:
+
+  below, whose `Next probe` was EXECUTED to produce this. Do not re-run it.**
+- **Observed (with values):** one real cell-run from PRIVATE grid `test grid` on live 0.4.17 as
+  `zachlowdenzx` (8753561, moderator), over CDP in a background tab. The board's ONLY empty cell was
+  `Qwen-Image × "Lighthouse on a rocky coast at sunset"` (`data-state="empty"`, 19/20); `test grid`
+  already held both matchups, so adding that board prompt to it (`Save privately`) surfaced it
+  INSIDE the private grid with **no extra shared append**. Spend: Blue **1,290,439 → 1,290,412 =
+  −27 Buzz**; re-read after the run still 1,290,412 — **charged exactly once**. Cell walked
+  `cell-progress` → `cell-publishing`/`cell-publish-preview`/`cell-publish-image`/
+  `cell-publish-notice`. The consent dialog opened on the **TOP frame** (`Cancel`/`Publish`, no
+  budget input, not disabled). After Publish: private grid 8/8 `result`; the SYSTEM **Top Grid**
+  (recomputed from the board, owned by nobody) went **20/20 `result`, 0 `run-cell`**. Second viewer
+  `ZacharyLowden669` (11025902, **not a moderator**), after purging `recentlyOpenedApps`: target
+  cell `result` and the `img` actually DECODED — `complete: true`, **1200×1200**. `via: measurement`
+- **Ruled out:** *"the notice overclaims"* — it does not, for the success-plus-consent path; the
+  rendered promise was observed end to end by a different, non-moderator account. `via: measurement`
+- **Next probe:** none. 🔴 Three branches stay unexercised and the notice is silent on all three —
+  consent REFUSAL, the host `!req` drop, no block token. Each needs a forced failure in a real host.

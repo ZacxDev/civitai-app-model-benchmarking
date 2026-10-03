@@ -857,8 +857,18 @@ function GroupBand({
   };
   const content = (
     <>
+      {/* 🔴 `↗`, NOT `▸`, AND THE GLYPH WAS MAKING A FALSE PROMISE. A right-pointing
+          triangle is the DISCLOSURE idiom — it is what `SideNav`'s own chevron means
+          two files over, where `▸`/`▾` really does expand the group in place. This
+          control opens a MODAL over the page. So the band advertised "unfold this row
+          here" and did something else, which is the one thing an affordance must not
+          do. `↗` is the open-elsewhere idiom and matches what pressing it does.
+
+          `aria-hidden` for both spellings: the band's `aria-label` is
+          `Open matchup: <name>`, which already says it, and a screen reader announcing
+          an arrow character would be noise. */}
       <span aria-hidden="true" style={{ color: token.dimmed, fontSize: 10 }}>
-        ▸
+        ↗
       </span>
       {/* Underlined for the same reason as the column header: the band is the ONLY
           drill-in on a config row, and `cursor: pointer` is not an affordance a

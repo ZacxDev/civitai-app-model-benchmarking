@@ -101,6 +101,20 @@
       block.manifest.json entitles the host to rely on.
       ───────────────────────────────────────────────────────────────────────────
 
+      ⚠️ EVERY COMMENT IN THIS FILE SHIPS. Vite does not strip HTML comments, so all of
+      this prose is served to viewers in `dist/index.html` and counts toward the boot
+      payload — unlike a `.ts` docblock, which the bundler drops. Check it rather than
+      trusting this note, and note the check is its own positive control (a non-zero
+      count IS the finding):
+
+          pnpm build && grep -c 'EVERY COMMENT IN THIS FILE SHIPS' dist/index.html
+
+      No byte figure is quoted here deliberately: the first draft of this very note
+      stated one, which the act of adding the note invalidated. The prose is a
+      deliberate trade — this is the one file whose mistakes are invisible until a
+      viewer sees a colour jump — but weigh it before adding more, and put reasoning
+      that does not have to be HERE in the module that owns it.
+
       With `bootSkeleton: true` the full-page run host stands down its own loading
       treatment: no opaque branded veil, the iframe is `opacity: 1` from mount, no
       reveal transition. The consequence is blunt — with that key set over an EMPTY
@@ -108,21 +122,47 @@
       worse than not opting in. So the markup in `#root` below is load-bearing.
 
       🔴 WHY THE COLOURS ARE LITERALS HERE AND VAR REFERENCES EVERYWHERE ELSE.
-      src/theme.ts is 100% `var(--civitai-*)` with zero hardcoded colour, and those
-      tokens arrive with `@civitai/theme/styles.css` — which Vite emits as a
-      render-blocking `<link>`, i.e. one round trip that has NOT completed during
-      the window this file exists to cover. An inline style cannot reference a token
-      that has not loaded, so the four values below are copied from
-      `@civitai/theme`'s own `[data-theme='dark']` / `:root` blocks and
-      src/bootTokens.test.ts asserts each one against the INSTALLED package. A theme
-      bump that moves a value goes red here rather than drifting into a colour jump
-      at handoff.
+      src/theme.ts's consumers are 100% `var(--civitai-*)`, and those properties are
+      declared by two stylesheets that both arrive with the bundle — Vite's
+      render-blocking `<link>` for `@civitai/theme/styles.css`, and the app's OWN
+      skin `<style>`, which React commits. Neither has happened during the window
+      this file exists to cover, and an inline style cannot reference a property that
+      has not been declared. So the values below are literals.
 
-      🔴 IN LIGHT, `body == surface == surface-2` (all #fefefe) in this design
-      system — a documented trap in src/theme.ts. So the placeholder cannot be a
-      surface fill or it is invisible white-on-white; it is a `color-mix()` of text
-      into surface, exactly as `elevate()` does in src/theme.ts, which reads in BOTH
-      themes.
+      🔴 AND THEY ARE COPIED FROM `src/theme.ts`'s SKIN, NOT FROM `@civitai/theme`.
+      ⚠️ THIS PARAGRAPH USED TO SAY THE OPPOSITE — "copied from `@civitai/theme`'s own
+      `[data-theme='dark']` / `:root` blocks" — and it was correct until this app grew
+      its own token layer. `skinCss()` REDECLARES the `--civitai-*` properties on the
+      app root, so the stock package's values are no longer what the app paints:
+      measured against @civitai/theme 0.4.0, stock dark `body` is #1a1b1e where the
+      skin's is #111216, stock dark `surface` #25262b against #1a1c22, stock dark
+      `text` #c1c2c5 against #e4e7ee, stock light `body` #fefefe against #f7f8fa.
+      Pinning the stock values here painted the skeleton in a palette the app does not
+      use and MOVED the colour step from BLOCK_INIT to React mount rather than removing
+      it. src/bootTokens.test.ts now asserts every COLOUR literal below against
+      `SKIN_DARK` / `SKIN_LIGHT` in src/theme.ts — i.e. against what the block actually
+      paints — so a change to EITHER side goes red here. (It also pins the SEAM that
+      makes the skin the right authority at all: `pageStyle()` paints the first React
+      commit's background with `--civitai-color-body`, and both skins declare it. A
+      rename on either side of that would otherwise leave every colour-by-colour case
+      green over a skeleton matching nothing.)
+
+      ⚠️ WHAT IS STILL NOT PINNED, STATED PLAINLY: the `html` canvas rules below follow
+      the BOOT theme (`data-civitai-boot-theme`), and the skin follows the HOST theme
+      once BLOCK_INIT lands. When the two disagree the canvas keeps the boot guess —
+      visible only on overscroll, behind the app root, and unchanged by this. The skin
+      sheet is scoped to the app root and cannot reach `html`.
+
+      ⚠️ THE PLACEHOLDER IS A `color-mix()`, AND THE REASON GIVEN FOR THAT HAS EXPIRED.
+      It read: "IN LIGHT, `body == surface == surface-2` (all #fefefe) in this design
+      system, so the placeholder cannot be a surface fill or it is invisible
+      white-on-white." That was a reading of the STOCK token set. Inside this block the
+      skin gives body/surface/surface-2 three distinct values in BOTH themes
+      (src/theme.ts's SKIN_LIGHT), so a surface fill would in fact be visible now. The
+      mix is kept anyway, on a smaller claim: it is the same `color-mix` of text into
+      surface that `elevate()` emits in src/theme.ts, so the placeholder is spelled in
+      the app's own elevation idiom rather than in a second one — and nothing in this
+      repo can evaluate the alternative, since jsdom resolves no custom property.
 
       🔴 THE SPINNER IS DELIBERATELY NOT REPRODUCED. `<Loader>` is owned by
       @civitai/blocks-react, its dimensions are not declared in this repo, and a
@@ -142,8 +182,8 @@
          8px body margin and then jumps when the bundle lands. */
       html {
         /* The strong guarantee, independent of `color-scheme` support entirely.
-           --civitai-color-body under [data-theme='dark']. */
-        background: #1a1b1e;
+           SKIN_DARK's --civitai-color-body (src/theme.ts). */
+        background: #111216;
       }
 
       body {
@@ -155,27 +195,30 @@
         font-family:
           -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 
-        /* DARK — the base, unconditioned values, from @civitai/theme
-           [data-theme='dark']. ⚠️ `surface` STOPPED EQUALLING `body` in
-           @civitai/theme 0.4.0 (#1a1b1e → #25262b); src/bootTokens.test.ts is what
-           caught it on the bump, which is the whole reason that file exists. The
-           skeleton's dot and label `color-mix` into surface, so a stale literal here
-           is a visible shade jump at BLOCK_INIT, not a no-op. */
-        --mb-boot-body: #1a1b1e;
-        --mb-boot-text: #c1c2c5;
-        --mb-boot-surface: #25262b;
+        /* DARK — the base, unconditioned values, from src/theme.ts's SKIN_DARK.
+           ⚠️ THESE USED TO BE @civitai/theme's `[data-theme='dark']` values, and
+           src/bootTokens.test.ts asserted them against the installed package — which
+           is why that file caught `surface` stopping equalling `body` on the 0.4.0
+           bump (#1a1b1e → #25262b). Once the app grew its own token layer that guard
+           was pointed at the wrong authority: it stayed green while the skeleton and
+           the app painted different palettes. The skeleton's dot and label `color-mix`
+           into surface, so a literal that disagrees with the skin is a visible shade
+           jump at React mount, not a no-op. */
+        --mb-boot-body: #111216;
+        --mb-boot-text: #e4e7ee;
+        --mb-boot-surface: #1a1c22;
       }
 
       @media (prefers-color-scheme: light) {
         html {
-          background: #fefefe;
+          background: #f7f8fa;
         }
 
         :root {
-          /* LIGHT — @civitai/theme `:root`. */
-          --mb-boot-body: #fefefe;
-          --mb-boot-text: #222;
-          --mb-boot-surface: #fefefe;
+          /* LIGHT — src/theme.ts's SKIN_LIGHT. */
+          --mb-boot-body: #f7f8fa;
+          --mb-boot-text: #15171c;
+          --mb-boot-surface: #ffffff;
         }
       }
 
@@ -195,8 +238,8 @@
 
          🔴 These are NOT a third palette — every value is the same literal as the
          base rules or the light media block above, and src/bootTokens.test.ts
-         asserts all of them against the installed @civitai/theme per region, so a
-         token change that misses one copy goes red.
+         asserts all of them against src/theme.ts's SKIN_DARK / SKIN_LIGHT per
+         region, so a skin change that misses one copy goes red.
 
          🔴 The unconditioned base rules stay DARK-ONLY. A light value reachable
          without either the media query or an explicit `='light'` attribute would
@@ -204,20 +247,20 @@
          file is built on. Asserted structurally, not eyeballed. */
       :root[data-civitai-boot-theme='dark'] {
         color-scheme: dark;
-        background: #1a1b1e;
+        background: #111216;
 
-        --mb-boot-body: #1a1b1e;
-        --mb-boot-text: #c1c2c5;
-        --mb-boot-surface: #25262b;
+        --mb-boot-body: #111216;
+        --mb-boot-text: #e4e7ee;
+        --mb-boot-surface: #1a1c22;
       }
 
       :root[data-civitai-boot-theme='light'] {
         color-scheme: light;
-        background: #fefefe;
+        background: #f7f8fa;
 
-        --mb-boot-body: #fefefe;
-        --mb-boot-text: #222;
-        --mb-boot-surface: #fefefe;
+        --mb-boot-body: #f7f8fa;
+        --mb-boot-text: #15171c;
+        --mb-boot-surface: #ffffff;
       }
 
       /* ---- geometry ----
@@ -243,8 +286,14 @@
         gap: 12px;
       }
 
-      /* `color-mix` of text into surface — `elevate()` in src/theme.ts. A surface
-         fill would be invisible in light, where body == surface. */
+      /* `color-mix` of text into surface — the same mix `elevate()` emits in
+         src/theme.ts, so the placeholder is spelled in the app's own elevation
+         idiom rather than a second one. 🔴 That smaller claim is the ONLY reason
+         left. The original one — "a surface fill would be invisible in light,
+         where body == surface" — was a reading of the STOCK token set and has
+         EXPIRED inside this block, where the skin gives body/surface/surface-2
+         three distinct values in BOTH themes. See the ⚠️ paragraph in this
+         file's header; do not restore the expired reason here. */
       [data-boot-skeleton] [data-boot-dot] {
         box-sizing: border-box;
         width: 36px;

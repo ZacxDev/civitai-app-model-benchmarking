@@ -403,6 +403,62 @@ describe.each(AXES)('GridPicker — the cap on the %s axis', (axis) => {
 });
 
 // ---------------------------------------------------------------------------
+// 🔴 F12 — the roving CURSOR was spelled like a SELECTION
+//
+// THE DEFECT. An option row marked SELECTED three ways, all in the accent family: an
+// `elevate(8)` fill, a `1px solid primary` border, and a `Selected` badge in words.
+// The keyboard-ACTIVE row — the one `aria-activedescendant` points at, which moves on
+// every arrow press over rows the viewer has NOT chosen — was drawn as a `2px solid
+// primary` OUTLINE. Same colour, heavier stroke: arrowing down the list made each
+// unselected row under the cursor read as selected, i.e. the picker looked like it was
+// toggling rows as you moved through them.
+//
+// THE FIX is a token split, not a restyle: `token.cursor` (`--mb-cursor`) is a neutral
+// high-contrast ring, and the accent is left to mean "chosen".
+//
+// ⚠️ jsdom RESOLVES NO CUSTOM PROPERTY, so nothing below knows what either colour
+// actually is, let alone that the ring reads as a cursor. What is asserted is that the
+// two states are spelled with DIFFERENT properties — which is the defect, exactly.
+// ---------------------------------------------------------------------------
+
+describe('GridPicker — the cursor ring is not the selection colour', () => {
+  it('🔴 the ACTIVE row rings in `--mb-cursor`, and the SELECTED row borders in the accent', async () => {
+    const { user } = setup({ selected: ['k-velvet'] });
+
+    const list = screen.getByRole('listbox');
+    await user.click(screen.getByRole('searchbox', { name: 'Search matchups' }));
+    await user.keyboard('{ArrowDown}');
+
+    // The row the cursor is on, named by the listbox itself rather than by position —
+    // so this cannot be satisfied by a row that merely happens to be first.
+    const activeId = list.getAttribute('aria-activedescendant');
+    const active = document.getElementById(activeId ?? '');
+    expect(active, 'no row is active after ArrowDown').not.toBeNull();
+    // POSITIVE CONTROL on the premise this case rests on: the active row must be one
+    // the viewer has NOT selected, since the whole defect is the cursor making an
+    // unselected row look chosen. If the fixture ever changes so the first row IS
+    // selected, this case would be about nothing.
+    expect(active).toHaveAttribute('aria-selected', 'false');
+
+    // LITERALS on both sides, never `token.cursor` / `token.primary` — an expectation
+    // read out of the module under test agrees with a module that swapped them back.
+    expect(active!.style.outline).toBe('2px solid var(--mb-cursor)');
+    expect(
+      active!.style.outline,
+      'the cursor ring is back on the selection accent',
+    ).not.toContain('--civitai-color-primary');
+
+    // …and the SELECTED row, which is what the accent still means. Asserted in the
+    // same render, because "they differ" is the claim and a case that read only one of
+    // them would be green with both on `--mb-cursor`.
+    const selected = optionByKey('k-velvet');
+    expect(selected).toHaveAttribute('aria-selected', 'true');
+    expect(selected.style.border).toBe('1px solid var(--civitai-color-primary)');
+    expect(selected.style.outline).toBe('none');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------
 
