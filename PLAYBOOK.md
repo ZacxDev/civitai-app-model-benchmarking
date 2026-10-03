@@ -148,10 +148,59 @@ export const metaText  = { color: token.dimmed, fontSize: 12, lineHeight: 1.45 }
   full opacity (`style={metaText}`). It's crisper and hits the intended contrast
   instead of stacking opacity on an already-dimmed color.
 
-Audit gate — **two greps, both must come back empty** (or only legitimate non-color opacity):
+> 🔴 **GATE (a) BELOW IS SCOPED, AND THAT IS A REVERSAL DATED 2026-10-02 — do not read
+> it as "must come back empty" any more.** It was written for a block at `accent` brand
+> depth, where the platform owns both themes and this app resolves every colour through
+> a `--civitai-*` property. On the operator's ask, `model-benchmarking` moved to `skin`
+> depth: `src/theme.ts`'s `SKIN_LIGHT` / `SKIN_DARK` **redeclare** those properties on
+> the app root, which is impossible without the app naming colours. That module holds
+> 38 colour values (36 quoted hex + 2 `rgba()`), all inside those two objects.
+>
+> 🔴 **AND THE "COMES BACK EMPTY" WORDING WAS ALREADY FALSE BEFORE ANY OF THAT, FOR A
+> SECOND AND UNRELATED REASON — the pattern matches prose.** `#[0-9a-fA-F]{3,6}` hits
+> every GitHub issue reference in a comment (`#485`, `starters#328`, `civitai#4159`),
+> and `opacity:` hits the word in a comment explaining why opacity-muting is banned.
+> Measured here: at `5992667` — before this repo had any skin — gate (a) returned **32
+> lines, none of them a colour and none of them from `src/theme.ts`**; on the skin tree
+> it returns **76**, of which **44 are `src/theme.ts`** and the other 32 are that same
+> pre-existing prose noise. So a reader running it and seeing output has learned
+> nothing until they read the lines. Treat gate (a) as a pointer, never as a verdict —
+> and if you tighten the pattern, require a colour-shaped boundary
+> (`#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?\b` still matches `#485`, so test it against a real
+> issue reference before trusting it).
+>
+> **The trade, stated plainly: light/dark correctness moves FROM the platform TO the
+> app.** Every pair in those two objects is the repo's to keep correct and nothing
+> upstream will catch a wrong one. `taste.json`'s `brandDepthReversal` records the same
+> decision from the taste side, and the "Zero hardcoded hex" line in the definition of
+> done below is amended with it.
+>
+> **So for a skin-depth block, (a) is read as a BOUNDARY check, not an emptiness
+> check**: colour literals are allowed in the one module that declares the palette and
+> nowhere else. The `| grep -v test` filter was always part of it; the added clause is
+> the palette module. Run it as:
+>
+> ```bash
+> grep -rnE "#[0-9a-fA-F]{3,6}|opacity:|--ci-" src --include=*.tsx --include=*.ts \
+>   | grep -v test | grep -v 'src/theme.ts'
+> ```
+>
+> …and note two things a grep cannot tell you, both of which are now the app's problem:
+> whether the two palettes declare the SAME property set (a property redeclared in one
+> theme only renders the stock value in the other, which reads as "the theme
+> half-applied"), and whether every literal that is DUPLICATED outside TS — notably
+> `index.html`'s pre-React boot skeleton — still matches the skin. Both are tests in
+> this repo rather than greps: `src/theme.test.ts` and `src/bootTokens.test.ts`.
+> ⚠️ A grep is also the wrong instrument for the appearance question entirely; nothing
+> in a repo like this can read a rendered colour, so a clean gate is not a claim that
+> either theme looks right.
+
+Audit gate — **two greps** (or only legitimate non-color opacity):
 
 ```bash
-# (a) no hardcoded hex, no opacity-muting, no stale --ci-* fallbacks
+# (a) no hardcoded hex, no opacity-muting, no stale --ci-* fallbacks.
+#     At `accent` depth this must come back EMPTY. At `skin` depth it must return
+#     nothing outside the ONE module that declares the palette — see the note above.
 grep -rnE "#[0-9a-fA-F]{3,6}|opacity:|--ci-" src --include=*.tsx --include=*.ts | grep -v test
 
 # (b) no theme-INVARIANT / body-colliding token used as a FILL or BACKGROUND.
@@ -298,7 +347,16 @@ call-sites are unchanged.
 ## The definition of done
 
 - [ ] `blocks-react@0.35.2` + `theme@0.2.0` + `app-sdk@0.26.0` installed; `@civitai/theme/styles.css` imported.
-- [ ] Zero hardcoded hex, zero `--ci-*`, zero opacity-muted text (`grep` is clean).
+- [ ] Zero `--ci-*`, zero opacity-muted text, and hex literals confined to their one
+      allowed home — **which depends on brand depth, and that is the 2026-10-02
+      amendment.** At `accent` depth: zero hardcoded hex anywhere, `grep` (a) comes back
+      empty. At `skin` depth: zero outside the single module declaring the palette
+      (`src/theme.ts` here), because a custom palette cannot exist without the app
+      naming colours — and with it, zero stray literals DUPLICATED outside TS (this
+      repo's `index.html` boot skeleton is the one such copy, pinned to the skin by
+      `src/bootTokens.test.ts`). The unqualified "zero hardcoded hex" form of this item
+      is unsatisfiable for a skin-depth block; see §1e's note and `taste.json`'s
+      `brandDepthReversal`.
 - [ ] All UI is pack `/ui` components (no raw styled `<button>`/`<div>` controls); `Group wrap` is boolean.
 - [ ] Light + dark both verified in screenshots; card separation works in light (borders, not fills).
 - [ ] Loading / empty / error states, hover/focus/disabled, and narrow+wide layouts all handled.

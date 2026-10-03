@@ -69,11 +69,13 @@ export interface PromptBodyProps {
  * The quoted prompt TEXT block.
  *
  * 🔴 `recessedSurface`, NEVER `surface-2`. This `<pre>` shipped with
- * `background: token.surface2`, which resolves to the same value as `body` in light
- * theme — so the block had no fill there at all and the prompt text sat directly on
- * the page. The token is gone from `theme.ts` now and `src/theme.test.ts` keeps it
- * from coming back; see {@link recessedSurface} for the full account. The border
- * below is part of the same treatment, not decoration.
+ * `background: token.surface2`, which at the time resolved to the same value as `body`
+ * in light theme — so the block had no fill there at all and the prompt text sat
+ * directly on the page. The token is gone from `theme.ts` now and `src/theme.test.ts`
+ * keeps it from coming back; see {@link recessedSurface} for the full account,
+ * including why the ban outlives the collision (the skin has since given surface-2 and
+ * body distinct values in both themes, so that reading is STOCK-only history). The
+ * border below is part of the same treatment, not decoration.
  */
 const preStyle: React.CSSProperties = {
   margin: 0,

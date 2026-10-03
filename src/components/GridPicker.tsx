@@ -377,7 +377,20 @@ export function GridPicker({
     background: isSelected ? elevate(8) : isActive ? elevate(4) : token.surface,
     color: blocked ? token.dimmed : token.text,
     border: `1px solid ${isSelected ? token.primary : token.border}`,
-    outline: isActive ? `2px solid ${token.primary}` : 'none',
+    // 🔴 THE CURSOR RING IS NEUTRAL, NOT THE ACCENT, AND THE TWO STATES WERE SPELLED
+    // THE SAME. `isSelected` already marks itself three ways — an `elevate(8)` fill, a
+    // `primary` border, and a `Selected` badge in words — all of them in the accent
+    // family. `isActive` is something else entirely: it is the ROVING CURSOR, the row
+    // `aria-activedescendant` points at, and it moves on every arrow press over rows
+    // the viewer has NOT chosen. Drawing it as a 2px `primary` outline made an
+    // unselected row under the cursor read as selected, i.e. the picker appeared to
+    // toggle rows on arrow keys. A neutral high-contrast ring says "the cursor is
+    // here" and leaves the accent to mean "chosen".
+    //
+    // ⚠️ IT IS NOT A `:focus-visible` RING EITHER, and that is why it is drawn at all:
+    // the focused element is the LISTBOX, not this row, so no browser ring lands here
+    // and the skin's focus rule (which targets real focus) cannot cover it.
+    outline: isActive ? `2px solid ${token.cursor}` : 'none',
     outlineOffset: 2,
     cursor: blocked ? 'not-allowed' : 'pointer',
   });

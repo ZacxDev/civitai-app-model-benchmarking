@@ -96,6 +96,7 @@ import {
   immediateSleep,
 } from './test-helpers.js';
 import type { CombinationData, PromptData } from './types.js';
+import { setViewport } from './test-setup.js';
 
 /**
  * Every landmark the capture recipe may address, as
@@ -223,7 +224,28 @@ function seed() {
   ];
 }
 
+/**
+ * Mount the whole app for a landmark walk, AT A NAMED VIEWPORT.
+ *
+ * 🔴 THE VIEWPORT IS PINNED NOW, AND ONE ROW OF {@link LANDMARKS} DEPENDS ON IT.
+ * `['nav-my', 'toggles', 'nav-my-group']` says the My Benchmarks group is ALREADY on
+ * screen and a press hides it. That is true on the wide RAIL and false on the ≤720px
+ * strip, where the group now starts shut so the same press REVEALS it — `SideNav`'s
+ * `expanded` docblock has the measured 390px overflow that made it so.
+ *
+ * 🔴 AND THE DEFAULT WAS NOT THE ONE THIS FILE MEANT. `test-setup.ts` installs a
+ * MOBILE `matchMedia` for the whole `dom` project, so every case here was walking the
+ * COMPACT app while describing a contract written for the wide one. It agreed only
+ * because nothing in the nav read the viewport. `'desktop'` is what the table
+ * describes, so that is what is mounted.
+ *
+ * ⚠️ WHICH VIEWPORT THE REAL CAPTURE RECIPE USES IS NOT KNOWN FROM HERE, and this is
+ * not a claim about it. If a recipe captures at a narrow width, its `nav-my` step is
+ * a `click` (press to reveal), not a `toggles` — and that is the step to change, not
+ * this mount.
+ */
 function renderApp() {
+  setViewport('desktop');
   const { shared } = fakeShared({ seed: seed() });
   render(
     <Harness
