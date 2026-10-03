@@ -106,8 +106,13 @@ describe('GatedCell — the tile grid caps the tile instead of minting empty tra
       `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
     );
 
-    // 🔴 EACH HALF SPELLED OUT SEPARATELY, because the template above would be
-    // satisfied by either half alone and the two defend different things:
+    // ⚠️ EACH HALF SPELLED OUT SEPARATELY — AND THE REASON GIVEN FOR IT HERE WAS
+    // WRONG. It said "the template above would be satisfied by either half alone";
+    // it would not, because the assertion above is a `toBe` on the WHOLE string, so
+    // every mutation that moves either half reds there first and these two can never
+    // score a kill. They are kept as NAMED DIAGNOSTICS, not as coverage — the message
+    // says which half moved, which the equality's diff does not. The new per-surface
+    // case below therefore does not copy the shape.
     //
     //   - `auto-fill` is what minted the empty tracks. `auto-fit` collapses them.
     expect(cell.style.gridTemplateColumns, 'auto-fill is back — the empty tracks with it')
@@ -159,16 +164,12 @@ describe('GatedCell — the tile grid caps the tile instead of minting empty tra
     const cell = await screen.findByTestId('gated-cell');
 
     expect(cell.getAttribute('data-surface')).toBe('preview');
+    // ⚠️ THE WHOLE TEMPLATE AS ONE EQUALITY, AND DELIBERATELY NO PER-HALF
+    // `not.toContain` BESIDE IT. A draft of this case had both, copying the matrix
+    // case above — and the extra assertions are UNREACHABLE: a `toBe` on the whole
+    // string fires first for every mutation that could move either half, so they
+    // could never score a kill and would read as coverage they do not provide.
     expect(cell.style.gridTemplateColumns).toBe(`repeat(auto-fill, minmax(${TILE_MIN_PX}px, 1fr))`);
-    // The two halves spelled separately, same reason as the matrix case: either one
-    // alone satisfies the template string above for the wrong reason.
-    expect(
-      cell.style.gridTemplateColumns,
-      'the strip picked up the matrix cap — the 6th tile now wraps',
-    ).not.toContain(`${TILE_MAX_PX}px`);
-    expect(cell.style.gridTemplateColumns, 'the strip switched to auto-fit').not.toContain(
-      'auto-fit',
-    );
     // 🔴 AND NO `justify-content`. The matrix centres because capping the track leaves
     // leftover width BY CONSTRUCTION; a `1fr` list has no leftover width, so centring
     // it would be a change to a shipped layout dressed up as consistency.
@@ -216,7 +217,10 @@ describe('GatedCell — the tile grid caps the tile instead of minting empty tra
       'the render-site pattern matches nothing',
     ).toEqual(['preview']);
 
-    expect(sites.sort()).toEqual(
+    expect(
+      sites.sort(),
+      'the set of `<GatedCell` render sites moved — classify the new one as matrix or preview',
+    ).toEqual(
       [
         // Up to GRID_PREVIEW_MAX ids in ONE cell — the surface the cap is wrong for.
         'components/GridPreview.tsx:preview',
