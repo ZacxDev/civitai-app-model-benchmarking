@@ -216,8 +216,11 @@ function navPaddingLeft(depth: number): string {
  * — and the half that carries it is `color: primary` plus the shadow, NOT the fill.
  * (The fill only reads there because the pack's segment sits on a `surface-2` TRACK
  * with a border; a nav row sits on the page body, which is why the same fill alone
- * does nothing here. That is the same surface-2/body collision `theme.ts` documents
- * from the other side.) So the three declarations are mirrored, and the transparent
+ * does nothing here — a contrast between two DIFFERENT grounds, which holds whatever
+ * either resolves to. ⚠️ This used to attribute it to "the same surface-2/body
+ * collision `theme.ts` documents"; that collision is a STOCK-token-set reading and no
+ * longer holds inside this block, and it was never what this paragraph needed.) So the
+ * three declarations are mirrored, and the transparent
  * border is given the border TOKEN when active, which is this nav's stand-in for the
  * track the segments have.
  *

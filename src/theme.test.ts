@@ -4,12 +4,15 @@
 // `--civitai-color-body` in the light theme, so anything filled with it had no fill at
 // all there. This repo knew that. It said so in THREE places:
 //
-//   1. `theme.ts`, in the docblock on `elevate()` — "unlike surface-2, identical to
-//      `body` in light mode";
-//   2. `GatedCell.tsx`, above the one site that got it right — "NOT surface-2: in
-//      light theme surface-2 resolves to the same value as body" (the surviving text
-//      is near `GatedCell.tsx:459`; this header used to cite `:278`, which was already
-//      the wrong line before the skin landed — **cite the file, not a line number**);
+//   1. `theme.ts`, in the docblock on `elevate()` — paraphrased: unlike surface-2,
+//      the mix is identical to `body` in light mode;
+//   2. `GatedCell.tsx`, above the one site that got it right — a comment saying not to
+//      use surface-2 because it resolved to the same value as body in light theme.
+//      🔴 NO LINE NUMBER AND NO QUOTATION MARKS, DELIBERATELY. This header has cited
+//      two different lines (`:278`, then `:459`) and both were wrong, and the sentence
+//      it put in quotes is not present in that file at all — the comment there has
+//      since been rewritten to point at `recessedSurface`. Grep the file; do not
+//      re-add a line number, and do not quote text you have not just read;
 //   3. `PLAYBOOK.md` §1e, as an audit gate — a hand-run `grep` for exactly this.
 //
 // ⚠️ PAST TENSE DELIBERATELY: that collision is a property of the STOCK token set, and
@@ -198,17 +201,23 @@ describe('the recessed-fill rule has exactly ONE home', () => {
   //     `mobile-responsive.test.tsx` and this file, and `appModules()` excludes test
   //     files. An invariant guard.
   //
-  // `src/theme.ts` is **+409/−6** in this PR, and every one of those 6 deleted lines is a
-  // COMMENT (the 5-line "ZERO hardcoded colors" header and the 1-line radius docblock) —
-  // measured with `git diff --numstat origin/main..HEAD -- src/theme.ts`, then by filtering
-  // the deleted lines for non-comment content, which leaves zero. THAT is the structural
-  // reason three of the four cases cannot be regression coverage for it: nothing they read
-  // was removed or changed here.
+  // THE STRUCTURAL REASON three of the four cases cannot be regression coverage for
+  // `src/theme.ts`: **this PR removes no executable line from it.** Every deletion is a
+  // comment — the 5-line "ZERO hardcoded colors" header and the 1-line radius docblock —
+  // so nothing those three cases read was removed or changed here. Re-derive it, do not
+  // trust this sentence:
   //
-  // ⚠️ This sentence said "+353/−0, i.e. purely additive" and was false when it was
-  // written — the very commit that wrote it deleted those 6 comment lines. The conclusion
-  // was right and its stated premise was not, which a reader falsifies in one command. If
-  // you touch `theme.ts` again, re-derive the pair rather than editing the numbers.
+  //     git diff origin/main..HEAD -- src/theme.ts | grep '^-' | grep -v '^---' \
+  //       | sed 's/^-//' | grep -vE '^\s*(\*|/\*|//|$)'      # must print nothing
+  //
+  // 🔴 NO ADDED/REMOVED LINE COUNT IS STATED HERE, DELIBERATELY, AND YOU ARE THE FOURTH
+  // WRITER OF THIS PARAGRAPH. The count has been wrong every single time it was written:
+  // "+353/−0" (false when written — that very commit deleted the 6 comment lines),
+  // then "+409/−6" (the figure the working tree showed BEFORE `git commit`, so `HEAD`
+  // still meant the parent; the committed truth was 428/6), and it would go stale again
+  // on the next edit to `theme.ts`. Nothing pins it, which is why it rots silently.
+  // The invariant above — zero executable deletions — is what the argument actually
+  // needs, and it is checkable in one command. **Do not restore a count.**
   it('🔴 SCAN: `elevate()` is still the only way this app spells a tint', () => {
     // The mirror of the case above, and the reason the deletion is not enough on its
     // own: `recessedSurface` exists so that recesses stop being open-coded, so the

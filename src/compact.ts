@@ -525,9 +525,8 @@ export const compactTapTargetCss = (): string => `
    🔴 AND IT IS CHROME NOW, NOT FIVE LOOSE WORDS. The strip shipped with no
    background, no border and no padding, sitting directly on the page body above the
    content — so at <=${MOBILE_BREAKPOINT_PX}px the page's ONLY primary navigation read
-   as a line of body copy. The fill is \`elevate()\`, never \`surface-2\` (see
-   \`recessedSurface\` in theme.ts: surface-2 equals body in light theme, which on this
-   element would reinstate exactly the problem). The border is what makes the strip's
+   as a line of body copy. The fill is \`elevate()\`, never \`surface-2\` — reason in
+   \`recessedSurface\` (theme.ts). The border is what makes the strip's
    EXTENT visible, which is also the cheapest honest answer to "the last item is cut
    off": a label running under a visible rounded edge reads as more-to-scroll, where
    the same label ending in blank page reads as the end of the nav.

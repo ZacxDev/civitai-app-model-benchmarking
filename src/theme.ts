@@ -163,8 +163,13 @@ export const radius = {
 /**
  * A subtle, theme-agnostic elevation tint derived from the tokens: mix a little
  * `text` into `surface`. Works in BOTH themes (in light this darkens white; in
- * dark it lightens the panel) without touching the invariant gray ramp — which
- * is why we don't just use `surface-2` (identical to `body` in light mode).
+ * dark it lightens the panel) without touching the invariant gray ramp.
+ *
+ * ⚠️ This used to end "— which is why we don't just use `surface-2` (identical to
+ * `body` in light mode)". That reason is a reading of `@civitai/theme`'s STOCK token
+ * set and has EXPIRED inside this block ({@link SKIN_LIGHT} gives surface-2 a value
+ * distinct from body in both themes). The ban on surface-2 stays regardless, on the
+ * two grounds that never depended on the collision — see {@link recessedSurface}.
  */
 export function elevate(pct: number): string {
   return `color-mix(in srgb, var(--civitai-color-text) ${pct}%, var(--civitai-color-surface))`;

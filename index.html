@@ -101,6 +101,20 @@
       block.manifest.json entitles the host to rely on.
       ───────────────────────────────────────────────────────────────────────────
 
+      ⚠️ EVERY COMMENT IN THIS FILE SHIPS. Vite does not strip HTML comments, so all of
+      this prose is served to viewers in `dist/index.html` and counts toward the boot
+      payload — unlike a `.ts` docblock, which the bundler drops. Check it rather than
+      trusting this note, and note the check is its own positive control (a non-zero
+      count IS the finding):
+
+          pnpm build && grep -c 'EVERY COMMENT IN THIS FILE SHIPS' dist/index.html
+
+      No byte figure is quoted here deliberately: the first draft of this very note
+      stated one, which the act of adding the note invalidated. The prose is a
+      deliberate trade — this is the one file whose mistakes are invisible until a
+      viewer sees a colour jump — but weigh it before adding more, and put reasoning
+      that does not have to be HERE in the module that owns it.
+
       With `bootSkeleton: true` the full-page run host stands down its own loading
       treatment: no opaque branded veil, the iframe is `opacity: 1` from mount, no
       reveal transition. The consequence is blunt — with that key set over an EMPTY

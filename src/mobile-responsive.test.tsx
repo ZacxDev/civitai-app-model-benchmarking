@@ -1396,10 +1396,14 @@ describe('the compact nav strip: grouping, chrome, and one scroll boundary', () 
     expect(strip['border']).toBe('1px solid var(--civitai-color-border)');
     expect(strip['border-radius']).toBe('var(--civitai-radius)');
     expect(strip['padding']).toBeTruthy();
-    // 🔴 THE FILL IS A `color-mix`, NEVER `surface-2`. On this element specifically,
-    // surface-2 would reinstate the exact bug `src/theme.test.ts` exists for: it
-    // equals `body` in light theme, so the strip would have no fill there — i.e. the
-    // "reads as body copy" complaint, unfixed, in one of the two themes.
+    // 🔴 THE FILL IS A `color-mix`, NEVER `surface-2` — AND THIS ASSERTION STAYS.
+    // ⚠️ Its stated reason used to be "surface-2 equals `body` in light theme, so the
+    // strip would have no fill there". That is a reading of `@civitai/theme`'s STOCK
+    // token set and no longer holds inside this block: the skin gives surface-2 a value
+    // distinct from body in BOTH themes. **Do not delete this assertion on the strength
+    // of that.** The ban survives on the two grounds in `recessedSurface`'s docblock
+    // (`src/theme.ts`), neither of which depended on the collision: the app's recess
+    // needs ONE home, and a call site cannot tell by reading whether the skin is live.
     expect(strip['background']).toContain('color-mix(');
     expect(strip['background']).not.toContain('var(--civitai-color-surface-2)');
     // …and the overflow is made legible rather than left to overlay scrollbars.
