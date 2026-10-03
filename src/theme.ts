@@ -1,10 +1,22 @@
 // Design tokens for the app chrome the `@civitai/blocks-react/ui` pack doesn't
 // cover (page background, muted text, the results-matrix grid scaffolding, sticky
-// headers, cell states). Every value resolves to a `@civitai/theme` CSS custom
-// property (`--civitai-*`) so there are ZERO hardcoded colors and light/dark is
-// driven entirely by the `[data-theme]` attribute the host sets on the block root
-// (see App.tsx). The pack (Button/Card/Badge/…) is self-themed off the same
-// tokens, so the hand-rolled matrix reads as one system with it.
+// headers, cell states). Every CONSUMER resolves its value through a `--civitai-*`
+// CSS custom property, so no component spells a colour and light/dark is driven
+// entirely by the `[data-theme]` attribute the host sets on the block root (see
+// App.tsx). The pack (Button/Card/Badge/…) is self-themed off the same properties,
+// so the hand-rolled matrix reads as one system with it.
+//
+// 🔴 THIS FILE ITSELF NOW HOLDS ~38 HARDCODED COLOUR LITERALS, AND THAT IS THE
+// DELIBERATE REVERSAL OF A RECORDED DECISION. The header used to end "so there are
+// ZERO hardcoded colors", which was true of the whole repo while the app rode the
+// platform's palette. `taste.json`'s 2026-09-03 pass recorded `brandDepth: "accent"`
+// with a decision titled "brandDepth stays `accent`, not `skin`"; that was REVERSED
+// on the operator's ask on 2026-10-02 (see {@link skinCss} and `taste.json`'s
+// `brandDepthReversal`). The trade, stated once: a custom palette cannot exist
+// without this app naming colours, so light/dark correctness moves FROM the platform
+// TO this app — every pair below is this repo's to keep correct, and nothing in the
+// design system will catch it if a value is wrong. `PLAYBOOK.md` §1e's "zero
+// hardcoded hex" gate is scoped around this one file for the same reason.
 //
 // Token source: `@civitai/theme` (installed: 0.4.0) — imported once in main.tsx via
 // `@civitai/theme/styles.css` (and also injected at runtime by the pack's
@@ -124,7 +136,17 @@ export const token = {
   font: 'var(--civitai-font)',
 } as const;
 
-/** `--civitai-radius` (0.25rem) and its common multiples, as strings. */
+/**
+ * `--civitai-radius` and its common multiples, as strings.
+ *
+ * ⚠️ NO PX EQUIVALENTS HERE, DELIBERATELY — this comment used to say "(0.25rem)" and
+ * that is `@civitai/theme`'s STOCK value, not what resolves inside this block. Both
+ * skins redeclare `--civitai-radius` to `0.375rem` ({@link SKIN_LIGHT},
+ * {@link SKIN_DARK}), so `md` is 0.75rem and `lg` is 1.125rem here — and stating any
+ * figure invites exactly the staleness this correction is fixing. The multiples are
+ * `calc()` over whatever the property resolves to, which is the point: the radius is
+ * the identity's one geometric lever and moves in ONE place.
+ */
 export const radius = {
   sm: token.radius,
   md: `calc(${token.radius} * 2)`,
@@ -386,6 +408,17 @@ export const SKIN_DARK: Skin = {
     '--civitai-color-primary': '#6B5CE7',
     '--civitai-color-primary-hover': '#7D70EC',
     '--civitai-color-primary-fg': '#FFFFFF',
+    // ⚠️ THIS IS NOT A TRANSLUCENT FORM OF THE DARK `primary` ABOVE, AND NO REASON
+    // FOR THAT IS RECORDED. `primary` is #6B5CE7 = rgb(107, 92, 231); this wash's base
+    // is rgb(123, 108, 240), which matches neither it nor `primary-hover` (#7D70EC =
+    // rgb(125, 112, 236)). SKIN_LIGHT's pair IS derived — `primary` #5647D6 =
+    // rgb(86, 71, 214) and the wash is `rgba(86, 71, 214, 0.10)` — so the asymmetry
+    // is in this block alone. Left as it is rather than "fixed" to rgb(107, 92, 231):
+    // it is a visible colour on the brand mark (`brandMarkStyle` in App.tsx puts
+    // `accent` on it) and the `aria-expanded` row-menu trigger, jsdom resolves no
+    // custom property, and nothing in this repo can tell whether the derived value
+    // reads better or worse. A live reading in dark theme is owed; whoever takes it
+    // either derives this value or writes down why it is bespoke.
     '--civitai-color-primary-light': 'rgba(123, 108, 240, 0.18)',
     '--civitai-color-error': '#E5484D',
     '--civitai-color-success': '#2BA37C',
@@ -443,12 +476,25 @@ function skinBlock(skin: Skin): string {
  *   - `scrollbar-color` on the two horizontal scrollers this app builds (the results
  *     matrix and the compact nav strip). They are the only places content is clipped
  *     on purpose, which is exactly where a scrollbar earns its ink.
- *   - A focus ring on the app's OWN controls. The pack already rings its controls
- *     (`2px solid var(--civitai-color-primary)`, offset 2) and those follow the skin
- *     for free; the hand-built ones — nav items, menu items, the matrix's group band
- *     — had no `:focus-visible` rule at all. The selector list is enumerated rather
- *     than a bare `:focus-visible`, which would outrank several of the pack's own
- *     rings on specificity and silently restyle controls this change never looked at.
+ *   - A focus ring on the app's OWN controls. The pack rings several of its own
+ *     (`2px solid var(--civitai-color-primary)`, offset 2 — measured in
+ *     `@civitai/components@0.9.1` on checkbox, radio, slider, segment and tabpanel)
+ *     and those follow the skin for free; the hand-built ones — nav items, menu items,
+ *     the matrix's group band — had no `:focus-visible` rule at all.
+ *
+ *     🔴 THE SELECTOR LIST IS ENUMERATED RATHER THAN A BARE `:focus-visible`, AND THE
+ *     REASON GIVEN FOR THAT HERE WAS BACKWARDS. It said a bare `:focus-visible` "would
+ *     outrank several of the pack's own rings ON SPECIFICITY". Specificity is not what
+ *     decides it: `@civitai/components`'s whole sheet ships inside
+ *     `@layer civitai.components` (its `styles.css` line 17) and this sheet is
+ *     UNLAYERED, and an unlayered declaration beats EVERY layered one regardless of
+ *     specificity. So a bare `:focus-visible` would win over those rings at any
+ *     specificity, including a lower one — the opposite of the reassurance the old
+ *     wording gives a reader adding "just a low-specificity rule". The conclusion is
+ *     unchanged and the hazard is wider than stated. (The one nuance: the rings
+ *     `@civitai/blocks-react` keeps in its own `INTERACTIVE_STYLES` — Modal, Select,
+ *     Slider, Collapse, SegmentedControl, ResourceCard — are UNLAYERED, so for those
+ *     specificity does decide. Either way, enumerate.)
  *   - `::selection` in the accent, so dragging over the matrix looks like part of the
  *     app rather than the UA default.
  *   - 🔴 A RESTING BOX ON THE `⋮` ROW-MENU TRIGGER. It is a pack `Button` with
@@ -474,9 +520,12 @@ function skinBlock(skin: Skin): string {
  * (`MENU_CONTROL_ATTR`), and `grid-group-matchup` is `ResultsGrid.tsx`'s testid. They
  * are NOT imported, because `compact.ts` already imports THIS module and `Menu.tsx` is
  * a React component this React-free module must not pull in. So the lockstep is a
- * TEST instead, the way `navIndentVar`'s two ends are pinned: `theme.test.ts` and
- * `skin.test.tsx` assert each owner's constant appears in this sheet, so a rename on
- * either side is red rather than a silently dead rule.
+ * TEST instead, the way `navIndentVar`'s two ends are pinned: `theme.test.ts` (the
+ * `compact.ts` constants) and `designPass.test.tsx` (`MENU_CONTROL_ATTR`, and the
+ * reachability of each selector against live nodes) assert each owner's constant
+ * appears in this sheet, so a rename on either side is red rather than a silently dead
+ * rule. ⚠️ This used to name `skin.test.tsx`, which does not exist anywhere in the
+ * tree — a pointer to a nonexistent guard reads as coverage while providing none.
  *
  * ⚠️ NO COMMENTS INSIDE THE TEMPLATE LITERAL, DELIBERATELY, AND BOTH REASONS HAVE
  * COST THIS REPO A ROUND. This string is rendered as a `<style>` ELEMENT, so anything

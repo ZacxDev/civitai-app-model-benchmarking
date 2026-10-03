@@ -171,8 +171,28 @@ describe('the recessed-fill rule has exactly ONE home', () => {
   // deleted because the consolidation is only durable while the helper stays single,
   // and it is VALIDATED BY MUTATION rather than by a red base: adding
   // `color-mix(in srgb, red 5%, blue)` to `components/Menu.tsx` turns this case — and
-  // only this case — red, with its own message. The three cases above it ARE
-  // regression coverage (red at `origin/main`).
+  // only this case — red, with its own message.
+  //
+  // 🔴 AND THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS FALSE. It read "The three
+  // cases above it ARE regression coverage (red at `origin/main`)". Measured at base
+  // `5992667`, the real matrix is:
+  //
+  //   • the ENUMERATED LEDGER is red — but NOT over `surface-2`. Base `token` already
+  //     has no `surface2` key (that deletion landed in an earlier PR, and its red base
+  //     was watched there, not here); it reds because `accent` and `cursor` do not
+  //     exist at base. So it is regression coverage for THIS PR's two token additions
+  //     and an INVARIANT GUARD with respect to the `surface-2` defect the file is named
+  //     for. A red base is not a claim about WHICH line reddened it.
+  //   • `recessedSurface` is a mix over `surface` — GREEN at base (`recessedSurface =
+  //     elevate(5)` is unchanged by this PR). An invariant guard.
+  //   • SCAN: no module under `src/` names surface-2 — GREEN at base. At `5992667` the
+  //     only occurrences of `var(--civitai-color-surface-2)` anywhere in `src/` are in
+  //     `mobile-responsive.test.tsx` and this file, and `appModules()` excludes test
+  //     files. An invariant guard.
+  //
+  // `src/theme.ts` is +353/−0 in this PR, i.e. purely additive, which is the structural
+  // reason three of the four cases cannot be regression coverage for it: nothing they
+  // read was removed or changed here.
   it('🔴 SCAN: `elevate()` is still the only way this app spells a tint', () => {
     // The mirror of the case above, and the reason the deletion is not enough on its
     // own: `recessedSurface` exists so that recesses stop being open-coded, so the
@@ -346,21 +366,99 @@ describe('the emitted skin sheet carries both themes, and wins the cascade by sh
     expect(sheet()).toContain(`[${theme.SKIN_ATTR}='true'] {`);
   });
 
-  it('🔴 the sheet emits every declaration both palettes hold, with a control', () => {
-    // A serialiser that dropped entries — or a palette whose values never reached the
-    // sheet at all — is the failure this covers, and it is invisible to the palette
-    // cases above (they read the objects, not the text).
-    const css = sheet();
-    for (const [prop, value] of Object.entries(theme.SKIN_LIGHT.vars)) {
-      expect(css, `the sheet never declares light ${prop}`).toContain(`${prop}: ${value};`);
+  // 🔴 THIS CASE REPLACES ONE THAT KILLED NOTHING. The deleted case — "the sheet emits
+  // every declaration both palettes hold, with a control" — asserted that every value
+  // in either palette appeared SOMEWHERE in the sheet. That is satisfiable by any
+  // assignment of palettes to blocks, because the sheet has three blocks and only two
+  // palettes: putting the LIGHT palette in the unknown-theme fallback leaves every
+  // string it looked for still present. Measured on this PR's own tree — swapping
+  // `skinBlock(SKIN_DARK)` for `skinBlock(SKIN_LIGHT)` in the fallback block left all
+  // 70 files / 1054 tests green. What a sheet with three theme blocks needs pinned is
+  // WHICH PALETTE IS IN WHICH BLOCK, so that is what this asserts, and it subsumes the
+  // "every declaration reaches the sheet" claim as a side effect.
+  //
+  // The fallback is the one that matters most and was the one nothing read:
+  // `paintTheme()` (`bootTheme.ts`) passes the HOST's theme string through
+  // unvalidated, so a host sending anything but `dark`/`light` matches neither keyed
+  // rule and lands here — in production, not hypothetically. `theme.ts` asserts the
+  // invariant "unknown means dark here, in `bootTheme.ts` and in `index.html`'s inline
+  // script, so the three agree"; this is the only thing that can watch it.
+  describe('each theme block carries the palette it claims', () => {
+    /**
+     * The declaration body of the ONE rule whose selector is EXACTLY `selector`.
+     *
+     * 🔴 AN `indexOf(selector)` CANNOT DO THIS, which is the whole reason the helper
+     * exists. `[data-mb-skin='true']` is a PREFIX of both
+     * `[data-mb-skin='true'][data-theme='dark']` and `…[data-theme='light']`, so a
+     * substring search for the bare selector returns whichever rule comes first and
+     * the case would be about the wrong block. Exact-match on the trimmed selector.
+     */
+    const ruleBody = (selector: string): string => {
+      for (const chunk of sheet().split('}')) {
+        const at = chunk.indexOf('{');
+        if (at < 0) continue;
+        if (chunk.slice(0, at).trim() === selector) return chunk.slice(at + 1);
+      }
+      throw new Error(`no rule in the sheet has the selector exactly: ${selector}`);
+    };
+
+    const FALLBACK = `[${theme.SKIN_ATTR}='true']`;
+    const KEYED_DARK = `[${theme.SKIN_ATTR}='true'][data-theme='dark']`;
+    const KEYED_LIGHT = `[${theme.SKIN_ATTR}='true'][data-theme='light']`;
+
+    /** The properties the two palettes DISAGREE about — the only ones that can discriminate. */
+    const divergent = Object.keys(theme.SKIN_DARK.vars).filter(
+      (p) => theme.SKIN_DARK.vars[p] !== theme.SKIN_LIGHT.vars[p],
+    );
+
+    it('POSITIVE CONTROL: the extractor tells the three prefix-sharing rules apart', () => {
+      // Without this, every assertion below could be reading one block three times.
+      const bodies = [ruleBody(FALLBACK), ruleBody(KEYED_DARK), ruleBody(KEYED_LIGHT)];
+      for (const b of bodies) expect(b.length).toBeGreaterThan(50);
+      // The fallback is the only one carrying the root typographic rule, so it is
+      // identifiable independently of any colour.
+      expect(bodies[0], 'the extractor did not return the BARE fallback').toContain(
+        'font-variant-numeric: tabular-nums;',
+      );
+      expect(bodies[1]).not.toContain('font-variant-numeric');
+      expect(bodies[2]).not.toContain('font-variant-numeric');
+      // …and the light block is a different string from the dark ones.
+      expect(bodies[2]).not.toBe(bodies[1]);
+      // The discrimination below is only real while the palettes actually differ.
+      expect(divergent.length, 'the two palettes agree everywhere — nothing to discriminate')
+        .toBeGreaterThan(10);
+    });
+
+    for (const [name, selector, skin, other] of [
+      ['the UNKNOWN-THEME FALLBACK', FALLBACK, theme.SKIN_DARK, theme.SKIN_LIGHT],
+      ['the keyed DARK block', KEYED_DARK, theme.SKIN_DARK, theme.SKIN_LIGHT],
+      ['the keyed LIGHT block', KEYED_LIGHT, theme.SKIN_LIGHT, theme.SKIN_DARK],
+    ] as const) {
+      it(`🔴 ${name} declares the ${skin.scheme} palette, and none of the other one`, () => {
+        const body = ruleBody(selector);
+        expect(body, `${name}: wrong color-scheme`).toContain(`color-scheme: ${skin.scheme};`);
+        for (const [prop, value] of Object.entries(skin.vars)) {
+          expect(body, `${name}: does not declare ${skin.scheme} ${prop}`).toContain(
+            `${prop}: ${value};`,
+          );
+        }
+        // 🔴 THE HALF THAT MAKES IT A DISCRIMINATION RATHER THAN A PRESENCE CHECK.
+        // Only the properties the palettes disagree about can say anything: asserting
+        // the absence of a value both palettes share would be permanently red.
+        for (const prop of divergent) {
+          expect(
+            body,
+            `${name}: declares the ${other.scheme} value of ${prop} — this block paints the wrong palette`,
+          ).not.toContain(`${prop}: ${other.vars[prop]};`);
+        }
+      });
     }
-    for (const [prop, value] of Object.entries(theme.SKIN_DARK.vars)) {
-      expect(css, `the sheet never declares dark ${prop}`).toContain(`${prop}: ${value};`);
-    }
-    // NEGATIVE CONTROL — the `toContain` above can also NOT match. Without it, a
-    // `toContain` fed an empty needle (or a sheet that happened to contain every
-    // string asked of it) would pass over nothing.
-    expect(css).not.toContain('--mb-this-property-does-not-exist:');
+
+    // NEGATIVE CONTROL — the `toContain`s above can also NOT match. Without it, a
+    // sheet that happened to contain every string asked of it would pass over nothing.
+    it('NEGATIVE CONTROL: the sheet does not contain an invented property', () => {
+      expect(sheet()).not.toContain('--mb-this-property-does-not-exist:');
+    });
   });
 
   it('🔴 LOCKSTEP: the sheet reaches the selectors `compact.ts` owns, by their constants', () => {

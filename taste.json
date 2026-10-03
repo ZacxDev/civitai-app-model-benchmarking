@@ -3,7 +3,20 @@
   "pass": "2026-09-03",
   "versionAtPass": "0.4.0",
   "baseAtPass": "2a696dec6db09278e97eec967fd11bdf8b7f4a47",
-  "brandDepth": "accent",
+  "brandDepth": "skin",
+  "brandDepthReversal": {
+    "reversedOn": "2026-10-02",
+    "from": "accent",
+    "to": "skin",
+    "why": "the operator asked for a custom theme. A custom palette cannot exist without the app naming colours, so the decision below titled 'brandDepth stays `accent`, not `skin`' is REVERSED rather than still in force. It is left in `decisions` with its own amendment so the reasoning that was traded away is still readable.",
+    "trade": "light/dark correctness moves FROM the platform TO this app. Previously src/theme.ts resolved every colour to a --civitai-* property and the design system owned both themes; now src/theme.ts's SKIN_LIGHT / SKIN_DARK REDECLARE those properties on the app root with ~38 literal values, so every light/dark pair is this repo's to keep correct and nothing upstream will catch a wrong one.",
+    "whatMovedWithIt": [
+      "index.html's boot-skeleton literals, which must now match the SKIN rather than @civitai/theme (src/bootTokens.test.ts asserts that relationship)",
+      "PLAYBOOK.md §1e's hex gate, which can no longer 'come back empty' repo-wide and is scoped around src/theme.ts",
+      "two app-OWN custom properties this app declares itself: --mb-accent-text and --mb-cursor"
+    ],
+    "notVerified": "no appearance claim. jsdom resolves no custom property and performs no layout, so nothing in the repo has read a rendered colour; every contrast figure in src/theme.ts is arithmetic over the hex. A live reading in both themes is owed."
+  },
   "hue": "#00AB89",
   "heroPrompt": null,
   "heroSeed": null,
@@ -18,7 +31,8 @@
     {
       "what": "brandDepth stays `accent`, not `skin`",
       "chose": "leave every surface on the host's --civitai-* tokens",
-      "because": "src/theme.ts already resolves every colour to a host token with zero hardcoded values, so light/dark correctness is the platform's. Moving to `skin` would transfer that debt to this app for no gain the store assets do not already provide — the #00AB89 plate is the brand's expression in the STORE, not in a block whose job is to render other people's images side by side. Notably the theme module already avoids the --civitai-color-gray-* ramp on purpose because it is theme-INVARIANT."
+      "because": "src/theme.ts already resolves every colour to a host token with zero hardcoded values, so light/dark correctness is the platform's. Moving to `skin` would transfer that debt to this app for no gain the store assets do not already provide — the #00AB89 plate is the brand's expression in the STORE, not in a block whose job is to render other people's images side by side. Notably the theme module already avoids the --civitai-color-gray-* ramp on purpose because it is theme-INVARIANT.",
+      "REVERSED": "2026-10-02, on the operator's ask for a custom theme. This entry is kept, not deleted: the cost it names is real and was accepted, not refuted. See `brandDepthReversal` at the top of this file for the trade as it now stands. The one clause that is simply no longer true of the tree is 'zero hardcoded values' — src/theme.ts now holds ~38 colour literals, all inside SKIN_LIGHT / SKIN_DARK."
     },
     {
       "what": "no in-app hero image, despite hero generation being pre-authorised",
@@ -62,8 +76,8 @@
     "brand": {
       "hueFromSystem": "pass",
       "heroReproducible": "n-a — no hero, see decisions",
-      "dualTheme": "pass — accent depth, host owns both themes; zero hardcoded colours in src/theme.ts",
-      "noHardcodedThemeColour": "pass"
+      "dualTheme": "RE-SCOPED 2026-10-02 — no longer 'host owns both themes'. At skin depth this app declares both palettes itself (src/theme.ts SKIN_LIGHT / SKIN_DARK), and src/theme.test.ts pins the RELATIONSHIPS a test can hold: the two palettes declare the same property set, every property the `token` table reads is declared by both, and each of the sheet's three theme blocks carries the palette it claims. NOT a pass on appearance — no rendered colour has been read in either theme.",
+      "noHardcodedThemeColour": "NO LONGER APPLICABLE AS WRITTEN, 2026-10-02 — see `brandDepthReversal`. The repo-wide form of this item ('zero hardcoded hex anywhere in src/') cannot be satisfied by an app that owns its own palette. What holds instead: every CONSUMER still spells colour as `var(--civitai-*)`, and the literals are confined to src/theme.ts's two skin objects. The narrower bans that DO still gate — no `var(--civitai-color-surface-2)` anywhere in src/, and `color-mix(` only in theme.ts — are asserted by src/theme.test.ts's source scans rather than by a hand-run grep."
     },
     "informationArchitecture": {
       "primaryObjectFirst": "pass — the view switch is the first control and the three views are the app's objects",
