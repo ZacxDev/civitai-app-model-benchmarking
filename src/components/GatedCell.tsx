@@ -32,9 +32,20 @@ import { Image, Tooltip } from '@civitai/components-react';
 
 import { recessedSurface, token } from '../theme.js';
 
+/**
+ * Which surface a `GatedCell` is rendering on — and therefore which tile grid it
+ * lays its images out with. See {@link tileGridStyle}: the two surfaces hand this
+ * component a DIFFERENT NUMBER of images, so one track list cannot serve both.
+ */
+export type GatedCellSurface = 'matrix' | 'preview';
+
 /** The injectable render seam for a gated grid cell (App wires the default;
  * pure ResultsGrid tests inject a component stub). */
-export type GatedCellComponent = ComponentType<{ imageIds: number[]; label?: string }>;
+export type GatedCellComponent = ComponentType<{
+  imageIds: number[];
+  label?: string;
+  surface?: GatedCellSurface;
+}>;
 
 /** Max wait for the per-viewer gated host round-trip before the read is
  * treated as failed. Deliberately LONG (45s): this read runs right after a
@@ -61,15 +72,26 @@ const AUTO_RETRIES = 1;
 export const TILE_MIN_PX = 72;
 
 /**
- * The WIDEST an output tile may be laid out, in px — and the fix for the defect
- * described on {@link tileGridStyle}.
+ * The WIDEST an output tile may be laid out **in a results-matrix cell**, in px — and
+ * the fix for the defect described on {@link tileGridStyle}.
  *
  * 🔴 IT IS A SIZING JUDGEMENT, NOT A TYPO FIX, so here is the reasoning rather than
  * just the number. Three constraints, and they do not all pull the same way:
  *
- *   1. A cell in the results matrix holds ONE image in every shipped shape, in a
- *      track whose width is set by the matrix, not by this component. Measured live:
+ *   1. ⚠️ A cell **in the results matrix** holds ONE image in every shipped shape, in
+ *      a track whose width is set by the matrix, not by this component. Measured live:
  *      a 3014px viewport gives a 403px cell; a 1440px viewport gives 184px.
+ *
+ *      🔴 THIS CLAIM USED TO BE WRITTEN AS "A CELL … HOLDS ONE IMAGE", UNQUALIFIED,
+ *      AND THAT WAS FALSE OF THE SECOND CALL SITE. `GatedCell` has exactly two, and
+ *      only one of them is the matrix — the enumerated ledger is in
+ *      `GatedCell.test.tsx` so a THIRD is a decision someone takes:
+ *        • `ResultsGrid.tsx`'s result cell — ONE image, `surface="matrix"` (default).
+ *        • `GridPreview.tsx`'s preview strip — up to `GRID_PREVIEW_MAX` (6) ids from
+ *          `lib/gridEntries.ts`'s `gridPreviewIds`, handed to ONE `GatedCell`,
+ *          `surface="preview"`.
+ *      A cap derived from constraint (1) therefore cannot be applied to the strip,
+ *      which is why {@link tileGridStyle} is a per-surface map and not one object.
  *   2. The tile is `object-fit: cover` on a reserved `aspect-ratio`, so WIDTH SETS
  *      HEIGHT. An uncapped tile in a 403px cell is a ~403px-tall ROW — and the row
  *      height is shared by every cell in it, so one wide column makes the whole
@@ -91,7 +113,36 @@ export const TILE_MIN_PX = 72;
 export const TILE_MAX_PX = 200;
 
 /**
- * The tile grid inside one gated cell.
+ * The tile grid inside one gated cell, PER SURFACE — `matrix` and `preview` are
+ * different track lists, deliberately.
+ *
+ * 🔴 ONE CONSTANT DID NOT FIT BOTH CALL SITES, AND THE SECOND ONE WAS NEVER MEASURED.
+ * The capped `matrix` list below was reasoned about, and only about, a cell holding
+ * ONE image ({@link TILE_MAX_PX} constraint (1)). `GridPreview.tsx` hands this same
+ * component up to `GRID_PREVIEW_MAX` (6) ids, and with 6 items the cap INVERTS from a
+ * height reducer into a height multiplier, because it changes what CSS Grid counts:
+ *
+ *   - `minmax(72px, 1fr)` — the max is INDEFINITE, so the auto-repeat count resolves
+ *     against the MIN (CSS Grid §7.2.2.1). A ~1050px strip gives ~13 tracks and `1fr`
+ *     divides them to ~77px, so all 6 tiles sit in ONE ~77px row.
+ *   - `minmax(72px, 200px)` — the max IS definite, so the count resolves against
+ *     200px: 5 tracks, and the 6th tile WRAPS. Two rows, ≈404px, on every card of a
+ *     long Grids list.
+ *
+ * 🔴 SO THE STRIP KEEPS THE LIST IT HAS SHIPPED WITH FOR MONTHS, AND THAT IS THE
+ * DECISION — `repeat(auto-fill, minmax(72px, 1fr))` with no `justify-content`, byte
+ * for byte what was on `origin/main` before the cap landed. Choosing a second,
+ * strip-specific cap would mean inventing a number: the right one depends on the
+ * rendered width of a Grids card, nothing in this repo can measure that (jsdom does no
+ * layout), and the 1fr list is the only value here with a production reading behind
+ * it. An unreasoned number is worse than the long-shipped one.
+ *
+ * ⚠️ WHAT IS THEREFORE *NOT* FIXED: the strip's own one-row-of-~77px-tiles shape is
+ * unchanged, including whatever is wrong with it. This map scopes the cap, it does not
+ * improve the strip. A live width reading of a Grids card is owed before anyone caps
+ * the strip on purpose.
+ *
+ * ── the `matrix` list ─────────────────────────────────────────────────────────────
  *
  * 🔴 THE DEFECT THIS REPLACES, AND WHY "MAKE THE CELLS BIGGER" NEVER LANDED. It read
  * `repeat(auto-fill, minmax(72px, 1fr))` while every cell holds exactly ONE image, and
@@ -121,11 +172,22 @@ export const TILE_MAX_PX = 200;
  * that sheet's text could not see it. `compact.ts`'s own header records two rounds
  * lost to exactly that.
  */
-export const tileGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
-  justifyContent: 'center',
-  gap: 4,
+export const tileGridStyle: Readonly<Record<GatedCellSurface, React.CSSProperties>> = {
+  matrix: {
+    display: 'grid',
+    gridTemplateColumns: `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
+    justifyContent: 'center',
+    gap: 4,
+  },
+  // 🔴 `auto-fill` AND `1fr`, AND BOTH HALVES MATTER. Swapping in `auto-fit` here
+  // would collapse the empty tracks and let the 6 survivors split the whole strip
+  // width (~172px each at ~1050px) — a different layout from the shipped one, not a
+  // no-op. This is the pre-cap declaration, unchanged.
+  preview: {
+    display: 'grid',
+    gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_MIN_PX}px, 1fr))`,
+    gap: 4,
+  },
 };
 
 interface GatedState {
@@ -153,7 +215,22 @@ const PENDING_TITLE = 'Awaiting rating';
 const PENDING_HINT =
   'Only you can see this output until its rating finishes processing. Nothing has rated it yet.';
 
-export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: string }): React.JSX.Element {
+/**
+ * ⚠️ `surface` DEFAULTS TO `'matrix'`, which is the matrix's OWN value — so the one
+ * call site that must opt in is `GridPreview.tsx`. The default is not "the safe one":
+ * it is the capped one, and a third call site that forgets the prop gets the cap
+ * whether or not its image count suits it. `GatedCell.test.tsx` keeps an enumerated
+ * ledger of every `<GatedCell` render site in `src/` for exactly that reason.
+ */
+export function GatedCell({
+  imageIds,
+  label,
+  surface = 'matrix',
+}: {
+  imageIds: number[];
+  label?: string;
+  surface?: GatedCellSurface;
+}): React.JSX.Element {
   const { getImages } = useGatedImages();
   const { track } = useBlockAnalytics();
   const [state, setState] = useState<GatedState>({
@@ -274,7 +351,7 @@ export function GatedCell({ imageIds, label }: { imageIds: number[]; label?: str
   }
 
   return (
-    <div data-testid="gated-cell" style={tileGridStyle}>
+    <div data-testid="gated-cell" data-surface={surface} style={tileGridStyle[surface]}>
       {state.images.map((img) =>
         img.status === 'visible' && img.ratingPending ? (
           // The viewer's OWN image, which nothing has rated yet. The host gives us

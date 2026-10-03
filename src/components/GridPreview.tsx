@@ -125,7 +125,13 @@ export function GridPreview({
       style={{ display: 'grid', gap: 4, minWidth: 0 }}
     >
       {near ? (
-        <GatedCell imageIds={imageIds} label={`${label} preview`} />
+        /* 🔴 `surface="preview"` IS LOAD-BEARING, NOT A LABEL. This is the ONE call
+           site that hands `GatedCell` more than one image — up to
+           `GRID_PREVIEW_MAX` — and `tileGridStyle.matrix`'s definite 200px maximum
+           makes the auto-repeat count resolve against 200px rather than 72px, which
+           WRAPS the 6th tile onto a second row. See `tileGridStyle`'s docblock for
+           the arithmetic and for why the strip keeps its pre-cap track list. */
+        <GatedCell imageIds={imageIds} label={`${label} preview`} surface="preview" />
       ) : (
         // A reserved, inert placeholder: no spinner, because nothing is loading —
         // the read has deliberately not been issued yet.

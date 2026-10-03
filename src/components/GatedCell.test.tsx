@@ -22,9 +22,14 @@
 // every advance NaN and the red arm dishonest.
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BlockGatedImage } from '@civitai/app-sdk/blocks';
+
+import { scannedSources, stripComments } from '../lib/sourceScan.js';
 
 const { mockGetImages, mockTrack } = vi.hoisted(() => ({
   mockGetImages: vi.fn(),
@@ -75,6 +80,14 @@ afterEach(() => {
 // tracks, no widths and no 19% here — so these cases pin the DECLARED template and the
 // two properties the fix turns on. The 19%/49% readings are external and live, and
 // re-taking them at ≥1440px is owed.
+//
+// 🔴 AND THE "EVERY SHIPPED SHAPE HOLDS ONE IMAGE" SENTENCE ABOVE IS TRUE OF THE
+// MATRIX ONLY — the second writer on this block is correcting the first. `GatedCell`
+// has TWO call sites and the other one, `GridPreview.tsx`'s strip, hands it up to
+// `GRID_PREVIEW_MAX` (6) ids. With 6 items the LENGTH cap inverts: a definite maximum
+// makes the auto-repeat count resolve against 200px instead of 72px, so the 6th tile
+// WRAPS. The cap is therefore per-surface, and the ledger case below is what stops a
+// third call site inheriting the matrix's reasoning by accident.
 // ===========================================================================
 
 describe('GatedCell — the tile grid caps the tile instead of minting empty tracks', () => {
@@ -82,6 +95,9 @@ describe('GatedCell — the tile grid caps the tile instead of minting empty tra
     mockGetImages.mockResolvedValue([visible(9101, 'https://image.civitai.com/t.jpeg')]);
     render(<GatedCell imageIds={[9101]} />);
     const cell = await screen.findByTestId('gated-cell');
+    // The cap is the MATRIX surface's, and `matrix` is the default — so this case is
+    // also what pins which surface an unlabelled call site gets.
+    expect(cell.getAttribute('data-surface')).toBe('matrix');
 
     // 🔴 THE WHOLE TEMPLATE, AS A LITERAL, and interpolated from the two exported
     // constants so the declaration and the constants cannot drift. jsdom reports
@@ -127,6 +143,87 @@ describe('GatedCell — the tile grid caps the tile instead of minting empty tra
     // so a cap accidentally set under the floor would leave the fix silently inert
     // with the template assertion above still green.
     expect(TILE_MAX_PX).toBeGreaterThan(TILE_MIN_PX);
+  });
+
+  // 🔴 THE PREVIEW SURFACE IS NOT THE MATRIX, AND ITS TRACK LIST IS THE PRE-CAP ONE.
+  // `GridPreview.tsx` is the one call site that hands this component more than one
+  // image, so the cap's own reasoning ({@link TILE_MAX_PX} constraint (1): "a cell
+  // holds ONE image") does not apply to it — and applying it anyway wraps the 6th of
+  // `GRID_PREVIEW_MAX` tiles onto a second row. The strip therefore keeps the
+  // declaration it shipped with for months. These literals are the pre-cap ones, NOT
+  // interpolated from the matrix constants, so a future change to the cap cannot
+  // silently drag the strip along with it.
+  it('🔴 PER-SURFACE: `preview` keeps `auto-fill` and the `1fr` maximum', async () => {
+    mockGetImages.mockResolvedValue([visible(9103, 'https://image.civitai.com/t.jpeg')]);
+    render(<GatedCell imageIds={[9103]} surface="preview" />);
+    const cell = await screen.findByTestId('gated-cell');
+
+    expect(cell.getAttribute('data-surface')).toBe('preview');
+    expect(cell.style.gridTemplateColumns).toBe(`repeat(auto-fill, minmax(${TILE_MIN_PX}px, 1fr))`);
+    // The two halves spelled separately, same reason as the matrix case: either one
+    // alone satisfies the template string above for the wrong reason.
+    expect(
+      cell.style.gridTemplateColumns,
+      'the strip picked up the matrix cap — the 6th tile now wraps',
+    ).not.toContain(`${TILE_MAX_PX}px`);
+    expect(cell.style.gridTemplateColumns, 'the strip switched to auto-fit').not.toContain(
+      'auto-fit',
+    );
+    // 🔴 AND NO `justify-content`. The matrix centres because capping the track leaves
+    // leftover width BY CONSTRUCTION; a `1fr` list has no leftover width, so centring
+    // it would be a change to a shipped layout dressed up as consistency.
+    expect(cell.style.justifyContent, 'the strip gained a centring it never had').toBe('');
+    expect(cell.style.gap).toBe('4px');
+  });
+
+  // 🔴 THE ENUMERATED LEDGER OF CALL SITES — the guard the previous round's docblock
+  // asserted ("ONE image in every shipped shape") without anything checking it. A
+  // claim about ALL consumers needs the consumer SET pinned, or the next call site
+  // inherits the matrix's cap by default and nothing says so. It fails when the set
+  // GROWS as loudly as when it shrinks.
+  it('🔴 LEDGER: exactly two render sites in `src/`, each naming its surface', () => {
+    // The house walker (`lib/sourceScan.ts`), not a fourth copy of it — and comments
+    // are stripped, because both modules below EXPLAIN this decision in prose and a
+    // raw scan would read those explanations as render sites.
+    // `resolve(process.cwd(), 'src')`, not `import.meta.url`: in the `dom` project
+    // `import.meta.url` is an `http://` URL and `fileURLToPath` throws on it.
+    // `rowActions.test.tsx`'s scanners resolve the directory the same way.
+    const srcDir = resolve(process.cwd(), 'src');
+    const files = scannedSources(srcDir);
+    // POSITIVE CONTROL — the walker can see files at all, and can see THIS component's
+    // own module. A reader pointed at the wrong directory returns the same reassuring
+    // empty ledger as a compliant tree.
+    expect(files.length, 'the source walk found nothing at all').toBeGreaterThan(10);
+    expect(files.some((f) => f.endsWith('components/GatedCell.tsx'))).toBe(true);
+
+    const SITE = /<GatedCell\b([^>]*)>/g;
+    /** Every `<GatedCell …` render site in production source, as `file:surface`. */
+    const sites: string[] = [];
+    for (const file of files) {
+      const text = stripComments(readFileSync(file, 'utf8'));
+      for (const m of text.matchAll(SITE)) {
+        const surface = /surface="(\w+)"/.exec(m[1]!)?.[1] ?? '(default: matrix)';
+        sites.push(`${relative(srcDir, file)}:${surface}`);
+      }
+    }
+    // POSITIVE CONTROL on the MATCHER: the pattern can match, and it reads the
+    // surface out when one is given. A regex that silently matched nothing would
+    // report an empty ledger as full compliance.
+    expect(
+      [...'<GatedCell imageIds={x} surface="preview" />'.matchAll(SITE)].map(
+        (m) => /surface="(\w+)"/.exec(m[1]!)?.[1],
+      ),
+      'the render-site pattern matches nothing',
+    ).toEqual(['preview']);
+
+    expect(sites.sort()).toEqual(
+      [
+        // Up to GRID_PREVIEW_MAX ids in ONE cell — the surface the cap is wrong for.
+        'components/GridPreview.tsx:preview',
+        // ONE image per cell — the surface `TILE_MAX_PX`'s constraint (1) is about.
+        'components/ResultsGrid.tsx:(default: matrix)',
+      ].sort(),
+    );
   });
 });
 
