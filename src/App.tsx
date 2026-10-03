@@ -3240,10 +3240,32 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       >
         {/* 🔴 THE SKIN IS MOUNTED ON THE `!ready` BRANCH TOO, and that is the whole
             point of putting it here rather than only on the main return. This branch
-            is what paints over index.html's boot skeleton; without the sheet the
-            loading frame would render in the HOST's stock palette and then jump to
-            the app's at BLOCK_INIT — the same flash `bootTheme.ts` exists to prevent,
-            re-introduced one layer up. */}
+            is what paints over index.html's boot skeleton, and `pageStyle()` above
+            paints its background with `var(--civitai-color-body)` — a property the
+            skin REDECLARES. Without the sheet here that property resolves to
+            `@civitai/theme`'s stock value, so the loading frame would step off a
+            skeleton painted with the SKIN's literals (index.html's boot block, pinned
+            to `SKIN_DARK`/`SKIN_LIGHT` by `bootTokens.test.ts`) and then step back at
+            BLOCK_INIT.
+
+            ⚠️ THE SENTENCE THAT USED TO END THIS COMMENT WAS FALSE, AND THIS IS THE
+            SECOND WRITER ON IT. It said the sheet here prevents "the same flash
+            `bootTheme.ts` exists to prevent". It is not the same flash and the two
+            have different causes: `bootTheme.ts` is about the wrong THEME (the SDK's
+            pre-init snapshot hardcodes `theme: 'light'`, so a `!ready` branch reading
+            it paints light for every viewer), while this is about the wrong PALETTE
+            inside the right theme. Worse, when that sentence was written index.html
+            still carried `@civitai/theme`'s STOCK literals, so mounting the sheet here
+            did not remove a step at all — it MOVED it, from BLOCK_INIT to React mount,
+            and the comment claimed the opposite. Repointing index.html at the skin is
+            what closed it.
+
+            ⚠️ AND WHAT IS ACTUALLY VERIFIED IS THE LITERAL RELATIONSHIP, NOT THE
+            APPEARANCE. jsdom resolves no custom property and performs no layout, so
+            nothing in this repo has observed either frame's colour. What is asserted
+            is that index.html's literals equal the skin's declared values and that
+            `pageStyle` reads the property the skin declares. Whether the painted
+            handoff is seamless on a screen is a live reading, and it is owed. */}
         <style data-testid="theme-styles">{skinCss()}</style>
         <Stack align="center" gap={12} style={{ margin: 'auto' }} data-testid="app-loading">
           <Loader />

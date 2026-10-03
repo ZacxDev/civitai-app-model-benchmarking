@@ -172,7 +172,16 @@ export const TILE_MAX_PX = 200;
  * that sheet's text could not see it. `compact.ts`'s own header records two rounds
  * lost to exactly that.
  */
-export const tileGridStyle: Readonly<Record<GatedCellSurface, React.CSSProperties>> = {
+// ⚠️ THE TYPE IS SPELLED OUT PER KEY, NOT AS `Readonly<Record<GatedCellSurface, …>>`,
+// AND A TEST IS WHY — the same seam `theme.ts`'s `Skin.vars` records. A generic
+// written `<Word` is read as a JSX start tag by `rowActions.test.tsx`'s structural
+// scanner, which both reds its dropped-starts ledger and silently NARROWS its scan
+// over this file. Measured: that ledger went red on `components/GatedCell.tsx: [
+// 'Record' ]` when this was a `Record`. The two spellings are the same type.
+export const tileGridStyle: {
+  readonly matrix: React.CSSProperties;
+  readonly preview: React.CSSProperties;
+} = {
   matrix: {
     display: 'grid',
     gridTemplateColumns: `repeat(auto-fit, minmax(${TILE_MIN_PX}px, ${TILE_MAX_PX}px))`,
