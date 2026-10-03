@@ -123,15 +123,24 @@ export const TILE_MAX_PX = 200;
  * height reducer into a height multiplier, because it changes what CSS Grid counts:
  *
  *   - `minmax(72px, 1fr)` — the max is INDEFINITE, so the auto-repeat count resolves
- *     against the MIN (CSS Grid §7.2.2.1). A ~1050px strip gives ~13 tracks and `1fr`
- *     divides them to ~77px, so all 6 tiles sit in ONE ~77px row.
+ *     against the MIN (CSS Grid §7.2.2.1). At a 1050px strip that is 13 tracks
+ *     (13×72 + 12×4 = 984 ≤ 1050, 14 would need 1060) and `1fr` divides them to
+ *     ~77px, so all 6 tiles sit in ONE ~77px row.
  *   - `minmax(72px, 200px)` — the max IS definite, so the count resolves against
- *     200px: 5 tracks, and the 6th tile WRAPS. Two rows, ≈404px, on every card of a
- *     long Grids list.
+ *     200px: 5 tracks (5×200 + 4×4 = 1016 ≤ 1050), and the 6th tile WRAPS. Two rows,
+ *     ≈404px, on every card of a long Grids list.
+ *
+ * ⚠️ THE 1050px IS NOT MEASURED IN THIS REPO. It is the width an audit read for a
+ * Grids card; jsdom performs no layout, so nothing here can confirm it, and the
+ * arithmetic above is only as good as that figure. The DIRECTION does not depend on
+ * it — a definite maximum raises the track count's divisor at every width above
+ * 5×200px — but the 13/5 track counts and the ≈404px do. A live reading is owed.
  *
  * 🔴 SO THE STRIP KEEPS THE LIST IT HAS SHIPPED WITH FOR MONTHS, AND THAT IS THE
- * DECISION — `repeat(auto-fill, minmax(72px, 1fr))` with no `justify-content`, byte
- * for byte what was on `origin/main` before the cap landed. Choosing a second,
+ * DECISION — `repeat(auto-fill, minmax(72px, 1fr))` with no `justify-content`. That
+ * is the same three declarations `origin/main` carried before the cap landed, and
+ * they emit the identical track list (the floor is interpolated from
+ * {@link TILE_MIN_PX} here where it was a literal `72px` there). Choosing a second,
  * strip-specific cap would mean inventing a number: the right one depends on the
  * rendered width of a Grids card, nothing in this repo can measure that (jsdom does no
  * layout), and the 1fr list is the only value here with a production reading behind

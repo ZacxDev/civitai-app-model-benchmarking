@@ -129,8 +129,11 @@ export function GridPreview({
            site that hands `GatedCell` more than one image — up to
            `GRID_PREVIEW_MAX` — and `tileGridStyle.matrix`'s definite 200px maximum
            makes the auto-repeat count resolve against 200px rather than 72px, which
-           WRAPS the 6th tile onto a second row. See `tileGridStyle`'s docblock for
-           the arithmetic and for why the strip keeps its pre-cap track list. */
+           WRAPS the 6th tile onto a second row at the card width an audit read. See
+           `tileGridStyle`'s docblock for the arithmetic, for which figure in it is
+           external and unconfirmed, and for why the strip keeps its pre-cap track
+           list. `GatedCell.test.tsx` keeps the two call sites as a ledger, so this
+           prop cannot be dropped silently. */
         <GatedCell imageIds={imageIds} label={`${label} preview`} surface="preview" />
       ) : (
         // A reserved, inert placeholder: no spinner, because nothing is loading —

@@ -18,10 +18,26 @@
 // came back — it was that the flash MOVED, from BLOCK_INIT to React mount, where
 // nothing was looking for it.
 //
+// 🔴 AND "THE STOCK PALETTE" WAS NEVER ONE THING ANYWAY — a second, independent
+// reason the old authority was the wrong one. Measured here with `pnpm why
+// @civitai/theme`: THREE versions are in the graph. `0.4.0` is this repo's direct
+// dependency, i.e. the one Vite emits the render-blocking `<link>` for and the one the
+// old `createRequire(...).resolve('@civitai/theme/styles.css')` reached; `0.5.0`
+// arrives via `@civitai/blocks-react@0.63.0`, i.e. the one `injectBlocksStyles()`
+// actually injects at runtime; `0.3.2` via `@civitai/components-react@0.4.3`. The
+// three values this file reads happen to be identical across 0.4.0 and 0.5.0 — but
+// WHICH SELECTOR HOLDS THEM INVERTED: in 0.4.0 `:root` is the LIGHT palette, and from
+// 0.5.0 `:root` IS the dark one with light moved behind an explicit
+// `[data-theme='light']` block. The old cases read `:root` AS LIGHT, so a routine bump
+// of the direct dependency to 0.5.0 would have silently compared the light boot
+// literals against dark package values. A guard whose answer depends on which of three
+// installed copies it happens to resolve is not pinning a relationship.
+//
 // So the relationship pinned below is index.html's literals against `SKIN_DARK` /
-// `SKIN_LIGHT` in `src/theme.ts` — what the block actually paints — plus the seam
-// that makes that the right comparison at all: the property the first React commit
-// reads for its background is the same property the skin redeclares.
+// `SKIN_LIGHT` in `src/theme.ts` — what the block actually paints, in one copy, in
+// this repo — plus the seam that makes that the right comparison at all: the property
+// the first React commit reads for its background is the same property the skin
+// redeclares.
 //
 // ⚠️ NOT AN APPEARANCE CLAIM. This is the `node` project; there is no DOM, no
 // layout and no custom-property resolution anywhere in it. Every case here is a
