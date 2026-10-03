@@ -272,8 +272,14 @@
         gap: 12px;
       }
 
-      /* `color-mix` of text into surface — `elevate()` in src/theme.ts. A surface
-         fill would be invisible in light, where body == surface. */
+      /* `color-mix` of text into surface — the same mix `elevate()` emits in
+         src/theme.ts, so the placeholder is spelled in the app's own elevation
+         idiom rather than a second one. 🔴 That smaller claim is the ONLY reason
+         left. The original one — "a surface fill would be invisible in light,
+         where body == surface" — was a reading of the STOCK token set and has
+         EXPIRED inside this block, where the skin gives body/surface/surface-2
+         three distinct values in BOTH themes. See the ⚠️ paragraph in this
+         file's header; do not restore the expired reason here. */
       [data-boot-skeleton] [data-boot-dot] {
         box-sizing: border-box;
         width: 36px;

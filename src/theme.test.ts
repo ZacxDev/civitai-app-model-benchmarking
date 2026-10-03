@@ -1,14 +1,22 @@
 // 🔴 THE RECESSED-FILL RULE, AS A TEST INSTEAD OF A THIRD COMMENT.
 //
-// THE DEFECT. `--civitai-color-surface-2` resolves to the SAME value as
-// `--civitai-color-body` in the light theme, so anything filled with it has no fill
-// at all there. This repo knew that. It said so in THREE places:
+// THE DEFECT. `--civitai-color-surface-2` resolved to the SAME value as
+// `--civitai-color-body` in the light theme, so anything filled with it had no fill at
+// all there. This repo knew that. It said so in THREE places:
 //
 //   1. `theme.ts`, in the docblock on `elevate()` — "unlike surface-2, identical to
 //      `body` in light mode";
-//   2. `GatedCell.tsx:278`, above the one site that got it right — "NOT surface-2: in
-//      light theme surface-2 resolves to the same value as body";
+//   2. `GatedCell.tsx`, above the one site that got it right — "NOT surface-2: in
+//      light theme surface-2 resolves to the same value as body" (the surviving text
+//      is near `GatedCell.tsx:459`; this header used to cite `:278`, which was already
+//      the wrong line before the skin landed — **cite the file, not a line number**);
 //   3. `PLAYBOOK.md` §1e, as an audit gate — a hand-run `grep` for exactly this.
+//
+// ⚠️ PAST TENSE DELIBERATELY: that collision is a property of the STOCK token set, and
+// inside this block it no longer holds — the skin gives body/surface/surface-2 three
+// distinct values in BOTH themes (`SKIN_LIGHT`/`SKIN_DARK` in `theme.ts`). The rule
+// below is still right, and its own inequality case already dates the collision to the
+// stock set; only this header was stating it unqualified and present-tense.
 //
 // …and `PromptBody.tsx`'s prompt-text `<pre>` shipped `background: token.surface2`
 // anyway. A predicate open-coded at three sites and wrong at a fourth is the shape
@@ -190,9 +198,17 @@ describe('the recessed-fill rule has exactly ONE home', () => {
   //     `mobile-responsive.test.tsx` and this file, and `appModules()` excludes test
   //     files. An invariant guard.
   //
-  // `src/theme.ts` is +353/−0 in this PR, i.e. purely additive, which is the structural
-  // reason three of the four cases cannot be regression coverage for it: nothing they
-  // read was removed or changed here.
+  // `src/theme.ts` is **+409/−6** in this PR, and every one of those 6 deleted lines is a
+  // COMMENT (the 5-line "ZERO hardcoded colors" header and the 1-line radius docblock) —
+  // measured with `git diff --numstat origin/main..HEAD -- src/theme.ts`, then by filtering
+  // the deleted lines for non-comment content, which leaves zero. THAT is the structural
+  // reason three of the four cases cannot be regression coverage for it: nothing they read
+  // was removed or changed here.
+  //
+  // ⚠️ This sentence said "+353/−0, i.e. purely additive" and was false when it was
+  // written — the very commit that wrote it deleted those 6 comment lines. The conclusion
+  // was right and its stated premise was not, which a reader falsifies in one command. If
+  // you touch `theme.ts` again, re-derive the pair rather than editing the numbers.
   it('🔴 SCAN: `elevate()` is still the only way this app spells a tint', () => {
     // The mirror of the case above, and the reason the deletion is not enough on its
     // own: `recessedSurface` exists so that recesses stop being open-coded, so the

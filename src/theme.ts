@@ -140,13 +140,19 @@ export const token = {
 /**
  * `--civitai-radius` and its common multiples, as strings.
  *
- * ⚠️ NO PX EQUIVALENTS HERE, DELIBERATELY — this comment used to say "(0.25rem)" and
- * that is `@civitai/theme`'s STOCK value, not what resolves inside this block. Both
- * skins redeclare `--civitai-radius` to `0.375rem` ({@link SKIN_LIGHT},
- * {@link SKIN_DARK}), so `md` is 0.75rem and `lg` is 1.125rem here — and stating any
- * figure invites exactly the staleness this correction is fixing. The multiples are
- * `calc()` over whatever the property resolves to, which is the point: the radius is
- * the identity's one geometric lever and moves in ONE place.
+ * ⚠️ NO FIGURES HERE, DELIBERATELY — this comment used to say "(0.25rem)", which is
+ * `@civitai/theme`'s STOCK value and not what resolves inside this block, because both
+ * skins redeclare `--civitai-radius` ({@link SKIN_LIGHT}, {@link SKIN_DARK}). **Read the
+ * value off those two and nowhere else.**
+ *
+ * 🔴 You are at least the THIRD writer of this paragraph. The first stated a stale
+ * figure; the second declared "no px equivalents here, deliberately" and then stated
+ * three fresh ones in the same breath — the same defect with a longer fuse, because
+ * `theme.test.ts` pins the `--civitai-radius` KEY but not its VALUE, so any figure
+ * written here is unpinned by construction and rots silently on the next palette edit.
+ * Do not add a fourth figure. The multiples are `calc()` over whatever the property
+ * resolves to, which is the point: the radius is the identity's one geometric lever and
+ * moves in ONE place.
  */
 export const radius = {
   sm: token.radius,
@@ -477,11 +483,18 @@ function skinBlock(skin: Skin): string {
  *   - `scrollbar-color` on the two horizontal scrollers this app builds (the results
  *     matrix and the compact nav strip). They are the only places content is clipped
  *     on purpose, which is exactly where a scrollbar earns its ink.
- *   - A focus ring on the app's OWN controls. The pack rings several of its own
- *     (`2px solid var(--civitai-color-primary)`, offset 2 — measured in
- *     `@civitai/components@0.9.1` on checkbox, radio, slider, segment and tabpanel)
- *     and those follow the skin for free; the hand-built ones — nav items, menu items,
- *     the matrix's group band — had no `:focus-visible` rule at all.
+ *   - A focus ring on the app's OWN controls. The pack rings several of its own with
+ *     `2px solid var(--civitai-color-primary)` and those follow the skin for free; the
+ *     hand-built ones — nav items, menu items, the matrix's group band — had no
+ *     `:focus-visible` rule at all.
+ *
+ *     ⚠️ THE OFFSET IS NOT ONE NUMBER, so do not copy a single figure from here.
+ *     Measured in `@civitai/components@0.9.1`'s `styles.css`: four ring sites, at
+ *     offsets **2, 4, 2 and 2** — the slider's is the 4. An earlier draft of this
+ *     comment gave "offset 2" for all five named controls, which would have had anyone
+ *     matching the pack's ring write the wrong offset on the slider. If you need the
+ *     exact pairing, grep `outline-offset:` in that sheet rather than trusting a list
+ *     here; this paragraph deliberately records the SPREAD, not the mapping.
  *
  *     🔴 THE SELECTOR LIST IS ENUMERATED RATHER THAN A BARE `:focus-visible`, AND THE
  *     REASON GIVEN FOR THAT HERE WAS BACKWARDS. It said a bare `:focus-visible` "would
@@ -492,10 +505,16 @@ function skinBlock(skin: Skin): string {
  *     specificity. So a bare `:focus-visible` would win over those rings at any
  *     specificity, including a lower one — the opposite of the reassurance the old
  *     wording gives a reader adding "just a low-specificity rule". The conclusion is
- *     unchanged and the hazard is wider than stated. (The one nuance: the rings
- *     `@civitai/blocks-react` keeps in its own `INTERACTIVE_STYLES` — Modal, Select,
- *     Slider, Collapse, SegmentedControl, ResourceCard — are UNLAYERED, so for those
- *     specificity does decide. Either way, enumerate.)
+ *     unchanged and the hazard is wider than stated.
+ *
+ *     (The one nuance: the rings `@civitai/blocks-react` keeps in its own
+ *     `INTERACTIVE_STYLES` are UNLAYERED, so for those specificity DOES decide. ⚠️ An
+ *     earlier draft listed six components there — Modal, Select, Slider, Collapse,
+ *     SegmentedControl, ResourceCard. That is the set whose CSS lives in that file,
+ *     NOT the set that carries a ring: measured, it holds exactly **three**
+ *     `outline-offset` declarations — `[data-civitai-ui-range]` at 2, `resource-card`
+ *     at −2 and `segmented-control` at 1. Modal, Select and Collapse have no ring at
+ *     all. Either way, enumerate.)
  *   - `::selection` in the accent, so dragging over the matrix looks like part of the
  *     app rather than the UA default.
  *   - 🔴 A RESTING BOX ON THE `⋮` ROW-MENU TRIGGER. It is a pack `Button` with

@@ -417,8 +417,10 @@ leaves that to the platform.
 Every input and layout primitive comes from the pack
 (Button / TextInput / Textarea / Card / Stack / Group / Alert / Loader / Badge /
 Modal / Slider / NumberInput / Select / SegmentedControl, plus `injectBlocksStyles`
-+ `data-theme` for auto light/dark theming). Two intentional hand-rolls, both built
-on the pack's `--ci-*` CSS vars so they stay auto-themed:
++ `data-theme` for auto light/dark theming). Two intentional hand-rolls, both built on
+the pack's `--civitai-*` CSS custom properties — which the block's own skin
+(`src/theme.ts`) redeclares on the app root per theme, so the hand-rolls and the pack
+move together rather than being "auto-themed" by the host:
 
 - **The results matrix** ([`ResultsGrid.tsx`](src/components/ResultsGrid.tsx)) — the
   data-layout is too bespoke for a generic pack component.

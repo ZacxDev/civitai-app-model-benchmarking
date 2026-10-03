@@ -131,10 +131,22 @@ export const TILE_MAX_PX = 200;
  *     ≈404px, on every card of a long Grids list.
  *
  * ⚠️ THE 1050px IS NOT MEASURED IN THIS REPO. It is the width an audit read for a
- * Grids card; jsdom performs no layout, so nothing here can confirm it, and the
- * arithmetic above is only as good as that figure. The DIRECTION does not depend on
- * it — a definite maximum raises the track count's divisor at every width above
- * 5×200px — but the 13/5 track counts and the ≈404px do. A live reading is owed.
+ * Grids card; jsdom performs no layout, so nothing here can confirm it, and the 13/5
+ * track counts and the ≈404px are only as good as that figure. A live reading is owed.
+ *
+ * 🔴 BUT THE WRAP IS A BOUNDED INTERVAL, NOT AN UNBOUNDED "ABOVE 1000px" — and that is
+ * computable here without any live reading, so it is written down rather than guessed.
+ * With `gap: 4`, an auto-repeat count is the largest N satisfying
+ * `N·track + (N−1)·4 ≤ W`, i.e. `N = floor((W+4)/76)` against the 72px floor and
+ * `N = floor((W+4)/204)` against the 200px cap (both reproduce the 13 and 5 above at
+ * W=1050). Six tiles therefore fit ONE row from **W ≥ 452px** uncapped but only from
+ * **W ≥ 1220px** capped, so the cap wraps the 6th tile exactly on **W ∈ [452, 1220)**:
+ * below 452 both lists wrap, at 1220 and above neither does.
+ *
+ * ⚠️ An earlier draft said "the DIRECTION does not depend on it — a definite maximum
+ * raises the divisor at every width above 5×200px". Both halves are wrong in opposite
+ * ways: the divisor is raised at EVERY width, and the wrap it predicts DISAPPEARS above
+ * 1220px. The decision below does not rest on either claim.
  *
  * 🔴 SO THE STRIP KEEPS THE LIST IT HAS SHIPPED WITH FOR MONTHS, AND THAT IS THE
  * DECISION — `repeat(auto-fill, minmax(72px, 1fr))` with no `justify-content`. That
