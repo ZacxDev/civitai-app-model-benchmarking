@@ -371,11 +371,15 @@ describe('the emitted skin sheet carries both themes, and wins the cascade by sh
   // in either palette appeared SOMEWHERE in the sheet. That is satisfiable by any
   // assignment of palettes to blocks, because the sheet has three blocks and only two
   // palettes: putting the LIGHT palette in the unknown-theme fallback leaves every
-  // string it looked for still present. Measured on this PR's own tree — swapping
-  // `skinBlock(SKIN_DARK)` for `skinBlock(SKIN_LIGHT)` in the fallback block left all
-  // 70 files / 1054 tests green. What a sheet with three theme blocks needs pinned is
-  // WHICH PALETTE IS IN WHICH BLOCK, so that is what this asserts, and it subsumes the
-  // "every declaration reaches the sheet" claim as a side effect.
+  // string it looked for still present. MEASURED — and the two readings are separate
+  // claims, so both are stated. An audit swapped `skinBlock(SKIN_DARK)` for
+  // `skinBlock(SKIN_LIGHT)` in the fallback block at `5daa534` and REPORTED 70 files /
+  // 1054 tests all passing. This case was then written and the same mutation
+  // re-applied, and the whole suite came back 1 failed / 1060 passed with THIS case the
+  // only failure anywhere in it — the same fact from the other direction, and the one
+  // measured here rather than taken on report. What a sheet with three theme blocks
+  // needs pinned is WHICH PALETTE IS IN WHICH BLOCK, so that is what this asserts, and
+  // it subsumes the "every declaration reaches the sheet" claim as a side effect.
   //
   // The fallback is the one that matters most and was the one nothing read:
   // `paintTheme()` (`bootTheme.ts`) passes the HOST's theme string through

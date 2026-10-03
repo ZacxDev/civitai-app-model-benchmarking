@@ -6,7 +6,8 @@
 // App.tsx). The pack (Button/Card/Badge/…) is self-themed off the same properties,
 // so the hand-rolled matrix reads as one system with it.
 //
-// 🔴 THIS FILE ITSELF NOW HOLDS ~38 HARDCODED COLOUR LITERALS, AND THAT IS THE
+// 🔴 THIS FILE ITSELF NOW HOLDS 38 HARDCODED COLOUR VALUES (36 quoted hex + 2
+// `rgba()`, counted over the code with comments stripped), AND THAT IS THE
 // DELIBERATE REVERSAL OF A RECORDED DECISION. The header used to end "so there are
 // ZERO hardcoded colors", which was true of the whole repo while the app rode the
 // platform's palette. `taste.json`'s 2026-09-03 pass recorded `brandDepth: "accent"`

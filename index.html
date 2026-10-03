@@ -125,9 +125,13 @@
       `text` #c1c2c5 against #e4e7ee, stock light `body` #fefefe against #f7f8fa.
       Pinning the stock values here painted the skeleton in a palette the app does not
       use and MOVED the colour step from BLOCK_INIT to React mount rather than removing
-      it. src/bootTokens.test.ts now asserts every literal below against `SKIN_DARK` /
-      `SKIN_LIGHT` in src/theme.ts — i.e. against what the block actually paints — so a
-      change to EITHER side goes red here.
+      it. src/bootTokens.test.ts now asserts every COLOUR literal below against
+      `SKIN_DARK` / `SKIN_LIGHT` in src/theme.ts — i.e. against what the block actually
+      paints — so a change to EITHER side goes red here. (It also pins the SEAM that
+      makes the skin the right authority at all: `pageStyle()` paints the first React
+      commit's background with `--civitai-color-body`, and both skins declare it. A
+      rename on either side of that would otherwise leave every colour-by-colour case
+      green over a skeleton matching nothing.)
 
       ⚠️ WHAT IS STILL NOT PINNED, STATED PLAINLY: the `html` canvas rules below follow
       the BOOT theme (`data-civitai-boot-theme`), and the skin follows the HOST theme
