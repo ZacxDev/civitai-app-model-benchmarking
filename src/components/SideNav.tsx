@@ -306,6 +306,19 @@ function itemStyle(depth: number, active: boolean): React.CSSProperties {
   };
 }
 
+/**
+ * "The viewer has not made a choice about the My group yet" — the initial value of
+ * `choice` inside {@link SideNav}, where `true`/`false` mean a choice they DID make.
+ *
+ * ⚠️ A MODULE CONSTANT RATHER THAN `useState<boolean | null>(null)`, AND A TEST IS WHY:
+ * a type argument written `<Word` is read as a JSX start tag by `rowActions.test.tsx`'s
+ * structural scanner, which both reds its dropped-starts ledger and silently NARROWS
+ * its scan over whichever file carries it. The same seam `theme.ts`'s `Skin.vars` and
+ * `GatedCell`'s `tileGridStyle` both record. Declaring it here lets TypeScript infer
+ * the union from the initial value with no angle bracket at the call site.
+ */
+const NO_CHOICE: boolean | null = null;
+
 export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
   const onMyView = view.kind === 'my';
   /**
@@ -319,7 +332,7 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
    */
   const isStrip = useIsMobile();
   /**
-   * Whether the group is open.
+   * Whether the group is open — a CHOICE the viewer may or may not have made yet.
    *
    * 🔴 IT FOLLOWS THE VIEW *UP* BUT NOT *DOWN*. Selecting a My sub-item obviously
    * needs the group open; collapsing it must NOT navigate away, because a
@@ -347,11 +360,31 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
    * disclosure with a chevron advertises itself, where an item pushed past the right
    * edge of a scroller advertises nothing at all.
    *
-   * ⚠️ IT IS AN INITIAL VALUE, NOT A BINDING. Crossing the breakpoint by resizing does
-   * NOT re-collapse or re-expand the group: `useState`'s initialiser runs once. That
-   * is deliberate — a disclosure that reopens itself under the viewer's hand is the
-   * failure mode the next paragraph exists to prevent, and a resize is not a reason to
-   * take their choice away. The first paint is what the measurement above is about.
+   * 🔴 IT IS A CHOICE-OR-DEFAULT, NOT AN INITIAL VALUE, AND THIS IS THE SECOND WRITER
+   * ON THIS PARAGRAPH. It used to be `useState(() => !isStrip)` and this paragraph read
+   * "IT IS AN INITIAL VALUE, NOT A BINDING. Crossing the breakpoint by resizing does
+   * NOT re-collapse or re-expand the group… a resize is not a reason to take their
+   * choice away." The general principle is right; the implementation applied it to a
+   * viewer who had made NO choice, and that is a reachable first-paint defect:
+   *
+   *   load at 390px portrait (strip, group shut by design) → rotate to 800px landscape
+   *   → `App` restamps `COMPACT_ATTR` off the SAME hook, so the nav becomes the wide
+   *   RAIL, but `useState`'s initialiser had already run and `expanded` stayed `false`.
+   *   The rail painted with My Benchmarks collapsed — the exact defect operator
+   *   feedback #1 removed, reachable by a rotation.
+   *
+   * So the state is now the viewer's CHOICE (`null` until they make one) and the
+   * rendered value is `choice ?? !isStrip`. An untouched disclosure tracks the shape on
+   * screen; a touched one is frozen at what the viewer chose, in BOTH directions.
+   *
+   * ⚠️ THE TRADE THAT BUYS, STATED: an UNTOUCHED rail rotated down to a strip now
+   * collapses, where before it stayed open. That is the same direction as the overflow
+   * measurement above (five items do not fit a 345px strip), so it is the side to err
+   * on — but it IS a change under the viewer's hand, and the only thing that makes it
+   * defensible is that they never expressed a preference. One press in either direction
+   * ends it permanently. `sideNav.test.tsx` crosses the breakpoint in both directions,
+   * with and without an interaction first; the per-viewport cases there mount each
+   * viewport fresh and structurally cannot see this path.
    *
    * 🔴 THE INITIAL VALUE AND THE EFFECT'S ONE-WAY RULE ARE A PAIR — changing the
    * initial value must not turn the effect into a re-opener. It does not: the effect
@@ -362,9 +395,14 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
    * you ever make the effect run on every view change, this becomes a group that
    * springs back open under the viewer's hand; `sideNav.test.tsx` has the case.
    */
-  const [expanded, setExpanded] = useState(() => !isStrip);
+  const [choice, setChoice] = useState(NO_CHOICE);
+  const expanded = choice ?? !isStrip;
   useEffect(() => {
-    if (onMyView) setExpanded(true);
+    // 🔴 THIS RECORDS A CHOICE, NOT JUST A STATE, and that is correct: a viewer who
+    // navigated to a My destination has expressed that they want the group's contents,
+    // so the rail/strip shape must stop overriding it from then on. Still ONE-WAY —
+    // it only ever opens, so collapsing the group never navigates away.
+    if (onMyView) setChoice(true);
   }, [onMyView]);
 
   const navRef = useRef<HTMLElement>(null);
@@ -381,7 +419,7 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
    * used no longer reachable by Tab from where they are.
    */
   const collapse = useCallback(() => {
-    setExpanded(false);
+    setChoice(false);
     myTriggerRef.current?.focus();
   }, []);
 
@@ -452,7 +490,7 @@ export function SideNav({ view, onSelect }: SideNavProps): React.JSX.Element {
             aria-expanded={expanded}
             aria-controls={expanded ? groupId : undefined}
             aria-current={triggerCurrent}
-            onClick={() => (expanded ? collapse() : setExpanded(true))}
+            onClick={() => (expanded ? collapse() : setChoice(true))}
             style={itemStyle(0, onMyView)}
           >
             {/* 🔴 THE CHEVRON IS THE EXPANDABLE STATE, which is how upstream shows

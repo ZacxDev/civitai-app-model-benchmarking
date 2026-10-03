@@ -57,7 +57,7 @@
 // To get a real base here, check out the ref itself in a clean worktree.
 // `src/myBenchmarks.test.tsx` carries the same label for its own cases.
 
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -65,6 +65,7 @@ import { BLOCKS_UI_STYLES } from '@civitai/blocks-react/ui';
 
 import { SIDE_NAV_ITEMS, SideNav, type MainView } from './components/SideNav.js';
 import { setViewport } from './test-setup.js';
+import { useIsMobile } from './useMediaQuery.js';
 
 /**
  * The five items, as `[testid, visible label, depth, the view selecting it produces]`,
@@ -646,6 +647,181 @@ describe('SideNav — the COMPACT strip starts shut, and the rail does not', () 
     renderNav({ kind: 'home' }, 'desktop');
     expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
+  });
+
+  // =========================================================================
+  // 🔴 CROSSING THE BREAKPOINT — the path the three cases above structurally CANNOT
+  // see, because each of them mounts its viewport fresh.
+  //
+  // THE DEFECT: `expanded` was `useState(() => !isStrip)`, an initialiser that runs
+  // ONCE, while `App` restamps `COMPACT_ATTR` off the SAME hook reactively. So: load
+  // at 390px portrait (strip, group shut by design), rotate to 800px landscape — the
+  // nav becomes the wide RAIL and the group stayed shut, which is the first-paint
+  // defect operator feedback #1 removed, reachable by a rotation. A per-viewport case
+  // cannot catch it: both of the mounts above are correct in isolation and the bug
+  // lives only in the TRANSITION between them.
+  //
+  // ⚠️ AND THIS IS A `matchMedia` SIMULATION, NOT A RESIZE. jsdom has no layout and no
+  // real media queries; `setViewport()`'s stub has no-op listeners, so it cannot
+  // deliver a change at all. {@link mountWithControllableViewport} installs a stub
+  // that DOES notify, which is what makes the transition observable — the claim is
+  // about `useIsMobile()`'s subscription and this component's reaction to it, not
+  // about any rendered width.
+  // =========================================================================
+  describe('crossing the breakpoint', () => {
+    /**
+     * Install a matchMedia stub whose `max-width` answer can be CHANGED and whose
+     * listeners actually fire. Returns `setMobile` and the live listener count.
+     *
+     * 🔴 `test-setup.ts`'s `makeMatchMedia` CANNOT BE REUSED HERE: its
+     * `addEventListener` is `() => {}`, so `useIsMobile`'s subscription receives
+     * nothing and a "rotation" would be invisible. A test built on it would report the
+     * post-rotation state as unchanged whether or not the component handles it —
+     * green for the wrong reason.
+     *
+     * ⚠️ This ASSIGNS `window.matchMedia`, the same leak `renderNav`'s docblock
+     * records; `renderNav` sets it unconditionally on every mount, so the leak stays
+     * unobservable to the rest of the file.
+     */
+    function installControllableViewport(startMobile: boolean) {
+      let mobile = startMobile;
+      const listeners = new Set<() => void>();
+      window.matchMedia = ((query: string) => {
+        const isMaxWidth = /max-width/.test(query);
+        return {
+          get matches() {
+            return isMaxWidth ? mobile : !mobile;
+          },
+          media: query,
+          onchange: null,
+          addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+          removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        } as unknown as MediaQueryList;
+      }) as typeof window.matchMedia;
+
+      return {
+        setMobile: (next: boolean) => {
+          mobile = next;
+          act(() => {
+            for (const fn of listeners) fn();
+          });
+        },
+        listenerCount: () => listeners.size,
+      };
+    }
+
+    /** Install the stub, then mount the nav on Home against it. */
+    function mountWithControllableViewport(startMobile: boolean) {
+      const ctl = installControllableViewport(startMobile);
+      render(<SideNav view={{ kind: 'home' }} onSelect={vi.fn()} />);
+      return ctl;
+    }
+
+    it('POSITIVE CONTROL: the stub actually delivers a change, measured WITHOUT SideNav', () => {
+      // 🔴 THE CONTROL MOUNTS A PROBE, NOT THE NAV, AND THAT IS THE POINT. A first
+      // draft asserted "after setMobile(false) the nav lays out five rows" — which is
+      // the thing under test, so it went red against the PRE-FIX component too. A
+      // control built out of the component you doubt is a second sample of the same
+      // unknown: it cannot separate "the stub is wired to nothing" from "SideNav does
+      // not react". This probe reads `useIsMobile()` directly, so it is a claim about
+      // the INSTRUMENT only and stays green whatever SideNav does.
+      function Probe(): React.JSX.Element {
+        return <span data-testid="probe">{String(useIsMobile())}</span>;
+      }
+      const { setMobile, listenerCount } = installControllableViewport(true);
+      render(<Probe />);
+      expect(
+        listenerCount(),
+        'useIsMobile() never subscribed — the stub is wired to nothing',
+      ).toBeGreaterThan(0);
+      expect(screen.getByTestId('probe').textContent).toBe('true');
+      setMobile(false);
+      expect(
+        screen.getByTestId('probe').textContent,
+        'the stub notified but the hook did not see the new answer',
+      ).toBe('false');
+      // …and back, so the control covers both directions the cases below use.
+      setMobile(true);
+      expect(screen.getByTestId('probe').textContent).toBe('true');
+    });
+
+    it('🔴 strip → rail with NO interaction: the rail arrives EXPANDED', () => {
+      const { setMobile } = mountWithControllableViewport(true);
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+
+      setMobile(false);
+
+      expect(
+        screen.getByTestId('nav-my'),
+        'the rail arrived with My Benchmarks collapsed — the defect operator feedback #1 removed',
+      ).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('nav-my-group')).toBeInTheDocument();
+    });
+
+    it('🔴 strip → rail AFTER the viewer shut it: their choice SURVIVES', async () => {
+      // The other half, and the one that stops the fix being "always open on the rail".
+      // Here the viewer DID express a preference, on the strip, and the shape change
+      // must not overrule it.
+      const { setMobile } = mountWithControllableViewport(true);
+      // Open it, then shut it — so `choice` is a deliberate `false` rather than the
+      // strip's default, which is the only way this differs from the case above.
+      await userEvent.click(screen.getByTestId('nav-my'));
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+      await userEvent.click(screen.getByTestId('nav-my'));
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+
+      setMobile(false);
+
+      expect(
+        screen.getByTestId('nav-my'),
+        'the rail reopened a group the viewer had shut',
+      ).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('🔴 rail → strip AFTER the viewer opened it: their choice SURVIVES', () => {
+      // The mirror direction. An untouched rail rotated down to a strip DOES collapse
+      // (the overflow trade, recorded in `SideNav`'s docblock) — so the thing worth
+      // pinning is that one press ends that, permanently and in both directions.
+      const { setMobile } = mountWithControllableViewport(false);
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+      // The rail's default is ALREADY open, so pressing once would shut it. Press
+      // twice: shut, then open — leaving `choice === true` rather than `null`.
+      act(() => {
+        screen.getByTestId('nav-my').click();
+      });
+      act(() => {
+        screen.getByTestId('nav-my').click();
+      });
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+
+      setMobile(true);
+
+      expect(
+        screen.getByTestId('nav-my'),
+        'the strip collapsed a group the viewer had deliberately opened',
+      ).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getAllByRole('listitem')).toHaveLength(5);
+    });
+
+    it('⚠️ rail → strip with NO interaction: it collapses — the trade, pinned as a trade', () => {
+      // 🔴 THIS IS A COST, NOT A FEATURE, AND IT IS HERE SO THE NEXT READER SEES IT
+      // ASSERTED RATHER THAN DISCOVERING IT. An untouched rail rotated to a strip takes
+      // the strip's default and collapses, where the old `useState` initialiser left it
+      // open. It errs in the same direction as the 411-vs-345 overflow measurement
+      // (five items do not fit a 345px strip), and the viewer expressed no preference —
+      // but if that judgement is ever reversed, this is the case that has to change,
+      // which is the point of pinning it.
+      const { setMobile } = mountWithControllableViewport(false);
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
+
+      setMobile(true);
+
+      expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getAllByRole('listitem')).toHaveLength(2);
+    });
   });
 
   it('🔴 the strip still REACHES all three destinations — one press, not zero', async () => {
