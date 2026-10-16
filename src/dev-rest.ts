@@ -17,9 +17,9 @@
 // list `limit` ceiling (1–100) and its exact-rule cursors, size and quota ceilings
 // (413), rate limits (429, opt-in) and the error envelope — and the SDK runs the
 // platform's own storage contract against it. This file only converts between `fetch`
-// and its `Http` seam, maps this repo's numeric test viewer ids onto its viewers, and
-// adds the one server behaviour it does not model: a moderator-HIDDEN document, which
-// reads as not found (see `RestSharedSeed.hidden`).
+// and its `Http` seam and maps this repo's numeric test viewer ids onto its viewers.
+// (It does not model moderator-hidden documents; neither does this file — no code
+// path here branches on one, so a fake for it would pin the fake.)
 //
 // The Buzz balance route is still hand-modelled: one bare `{ blue, green, yellow }`.
 
@@ -57,12 +57,6 @@ export interface RestSharedSeed {
   voters?: number[];
   /** Pin the document's key instead of minting one. */
   key?: string;
-  /**
-   * A moderator HID it. The server then answers every read of it — `get`, `list`,
-   * a mark — as if it did not exist (`not_found`, or absent from the page). The SDK
-   * fake does not model moderator hides, so this file does.
-   */
-  hidden?: boolean;
 }
 
 export interface RestFakeOptions {
@@ -81,8 +75,8 @@ export interface RestFakeOptions {
     /** The viewer's document ceiling (`limits.viewerDocs`). */
     limitRows?: number;
     /**
-     * The page size the store applies to a `kv` list that names no `limit` — the
-     * server's own default is 25. Smaller values make a fixture span pages.
+     * A cap on every `kv` list page (the smaller of this and the caller's
+     * `limit`). Smaller values make a fixture span pages.
      */
     pageSize?: number;
   };
@@ -174,12 +168,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** The store's `not_found` envelope, exactly as the SDK fake shapes every refusal. */
-function notFound(): Response {
-  const message = 'document not found';
-  return json({ code: 'not_found', message, error: message }, 404);
-}
-
 /** `blocks/storage/<collection>/<key>[/<op>/<name>]` → its parts, or null. */
 function storageRoute(path: string): { coll: string; key?: string } | null {
   const parts = path.split('/').map((p) => decodeURIComponent(p));
@@ -197,11 +185,23 @@ function storageRoute(path: string): { coll: string; key?: string } | null {
 export function createRestFake(options: RestFakeOptions = {}): typeof globalThis.fetch {
   const viewerUserId = options.viewerUserId ?? 99;
   const untrusted = options.docStore?.untrusted ?? false;
-  const { untrusted: _untrusted, ...docStoreOptions } = options.docStore ?? {};
+  const { untrusted: _untrusted, now: callerNow, ...docStoreOptions } = options.docStore ?? {};
+  // 🔴 SEEDS ARE NOT TRAFFIC, SO THEY MUST NOT SPEND THE RATE LIMITS. With
+  // `enforceRateLimits` on, seeding a few hundred documents would exhaust the
+  // per-minute windows before the app made a single request, and the case would be
+  // measuring its fixture. While seeding, the store's clock jumps a full window per
+  // reading, far in the past, so every seed write lands in a fresh, expired window;
+  // the app's requests then run on the caller's clock (or `Date.now`).
+  let seeding = true;
+  let seedClock = 0;
+  const realNow = callerNow ?? Date.now;
   const docStore: FakeStorage = createFakeStorage({
     manifest,
     viewer: fakeViewer(viewerUserId, untrusted),
     ...docStoreOptions,
+    ...(docStoreOptions.enforceRateLimits || callerNow
+      ? { now: () => (seeding ? (seedClock += 61_000) : realNow()) }
+      : {}),
     ...(options.storage?.limitBytes !== undefined || options.storage?.limitRows !== undefined
       ? {
           limits: {
@@ -211,7 +211,6 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
         }
       : {}),
   });
-  const hidden = new Set<string>();
 
   // Seeds are FIXTURE, not traffic: written as each seed's own author with a full,
   // consented token, before the first request is answered.
@@ -232,9 +231,10 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
         const who = fakeViewer(voter);
         if (who) await docStore.as({ viewer: who }).storage.collection(RECORDS_COLLECTION).mark(key, VOTE_MARK);
       }
-      if (seed.hidden) hidden.add(key);
     }
-  })();
+  })().finally(() => {
+    seeding = false;
+  });
 
   const balanceNow = (): RestBuzzPools | null => {
     const seededBalance = options.buzz;
@@ -261,34 +261,28 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
     if (path === 'blocks/storage' || path.startsWith('blocks/storage/')) {
       await seeded;
       const route = storageRoute(path);
-      // A hidden document reads as absent, on every route that names it.
-      if (route?.key !== undefined && hidden.has(route.key)) return notFound();
       const query: Record<string, string | string[]> = {};
       for (const name of new Set(url.searchParams.keys())) {
         const all = url.searchParams.getAll(name);
         query[name] = all.length === 1 ? (all[0] as string) : all;
       }
-      // The store's DEFAULT page size, modelled for the private collection only.
+      // A page CAP below what the caller asks for, modelled for the private
+      // collection only — every scan asks for 100, so a fixture that wants a second
+      // page must be able to make pages smaller.
       if (
         options.storage?.pageSize !== undefined &&
         method === 'GET' &&
         route?.coll === 'kv' &&
-        route.key === undefined &&
-        query.limit === undefined
+        route.key === undefined
       ) {
-        query.limit = String(options.storage.pageSize);
+        const asked = query.limit === undefined ? Infinity : Number(query.limit);
+        query.limit = String(Math.min(asked, options.storage.pageSize));
       }
       try {
         const reply = await docStore.http<unknown>(method, path, {
           query,
           ...(init?.body == null ? {} : { body }),
         });
-        if (hidden.size > 0 && route?.key === undefined && reply && typeof reply === 'object') {
-          const page = reply as { items?: Array<{ key: string }> };
-          if (Array.isArray(page.items)) {
-            return json({ ...page, items: page.items.filter((d) => !hidden.has(d.key)) });
-          }
-        }
         return json(reply ?? {});
       } catch (err) {
         if (err instanceof ApiError) return json(err.body, err.status);

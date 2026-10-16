@@ -49,7 +49,7 @@ function store(keys: string[], pageSize: number): KvStore & { listCalls: number 
       // of this file are the boundary where the rules differ.
       const more = last !== undefined && hasMore(all.length - from, pageSize);
       return {
-        keys: page.map((key) => ({ key, updatedAt: new Date() })),
+        keys: page.map((key) => ({ key, value: null, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),
       };
     },

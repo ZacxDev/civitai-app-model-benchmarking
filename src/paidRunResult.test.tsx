@@ -1,0 +1,151 @@
+// 🔴 A PAID RUN'S RESULT MUST NOT BE LOST TO THE SHARED WRITE (PR #85 audit, F1).
+//
+// The last step of a run is a shared `create` (the result row), which the document
+// store refuses `consent_required` on a token without `apps:storage:publish`,
+// `rate_limited` past the shared write budget, or `content_rejected`. Two paths
+// reached that refusal AFTER the money:
+//
+//   1. `resumeRun` had no scope gate. A 0.4.18 in-flight record copied into 0.5.0
+//      belongs to a viewer who has never granted `apps:storage:publish`; pressing
+//      Check status re-polled, cleared the record, published the outputs, and was
+//      then refused at the create.
+//   2. `driveToResult` cleared the in-flight record on reaching `succeeded`, BEFORE
+//      the publish and the create. Any failure after that left the cell `failed`,
+//      whose only control is Dismiss → an empty, RUNNABLE cell: a second charge for a
+//      generation that already happened.
+//
+// Both cases below were watched failing at `6efbf674` (the PR head before the fix).
+
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
+
+import { App, RESULT_SAVE_CONSENT_MESSAGE, type AppDeps } from './App.js';
+import { PUBLISH_CONSENT_MESSAGE, SharedWriteRefusal } from './lib/records-store.js';
+import { Harness } from './test-harness.js';
+import { fakeAppStorage, fakeGatedCell, fakeShared, immediateSleep } from './test-helpers.js';
+import type { CombinationData, PromptData } from './types.js';
+
+const comboData: CombinationData = {
+  v: 2,
+  kind: 'combination',
+  configs: [
+    {
+      id: 'cfgSeed',
+      checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+      loras: [],
+    },
+  ],
+};
+const promptData: PromptData = {
+  v: 3,
+  kind: 'prompt',
+  default: { prompt: 'cyberpunk portrait', params: { cfgScale: 5, steps: 30 } },
+};
+const INFLIGHT_KEY = 'inflight:v1:c1::cfgSeed::p1';
+const seedRows = () => [
+  { key: 'c1', authorUserId: 7, count: 3, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboData } },
+  { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '', data: promptData } },
+];
+const succeeded: BlockWorkflowSnapshot = { workflowId: 'wf-prior', status: 'succeeded' };
+
+function renderApp(deps: Partial<AppDeps>, consentGranted: boolean) {
+  render(
+    <Harness
+      viewer={{ id: 99, username: 'me' }}
+      theme="dark"
+      consentGranted={consentGranted}
+      buzzBudget={1000}
+      buzz={{ balance: 5000 }}
+      buzzBalance={{ blue: 0, green: 0, yellow: 5000 }}
+      shared={{ seed: [] }}
+      showLog={false}
+    >
+      <App
+        deps={{
+          resolveResources: async () => [],
+          pollIntervalMs: 0,
+          sleep: immediateSleep,
+          GatedCell: fakeGatedCell({ visibleIds: [9001] }),
+          ...deps,
+        }}
+      />
+    </Harness>,
+  );
+}
+
+async function stalledCell(): Promise<HTMLElement> {
+  await screen.findByTestId('grid-view');
+  const grid = await screen.findByTestId('results-grid');
+  await waitFor(() => expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument());
+  return grid;
+}
+
+describe('🔴 resuming a paid run is gated on the publish grant, BEFORE anything moves', () => {
+  it('a rehydrated 0.4.18 run on an unconsented token asks for consent and polls, publishes, clears NOTHING', async () => {
+    const { appStorage, store, deleteAttempts } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const { shared, appends } = fakeShared({ seed: seedRows() });
+    const poll = vi.fn(async () => succeeded);
+    const publish = vi.fn(async () => [9001]);
+    const requestConsent = vi.fn();
+    renderApp({ shared, appStorage, poll, publish, requestConsent }, false);
+
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+
+    expect(requestConsent).toHaveBeenCalledTimes(1);
+    expect(requestConsent.mock.calls[0]![0].scopes).toContain('apps:storage:publish');
+    expect(poll, 'polled a run whose result could not be published').not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(appends).toHaveLength(0);
+    // The record survives, and the cell is still resumable — never runnable.
+    expect(store.has(INFLIGHT_KEY)).toBe(true);
+    expect(deleteAttempts).toEqual([]);
+    expect(within(grid).getByTestId('cell-stalled')).toBeInTheDocument();
+    expect(within(grid).queryByTestId('run-cell')).toBeNull();
+  });
+});
+
+describe('🔴 the in-flight record outlives the result write', () => {
+  it('a result create refused AFTER the spend keeps the record and leaves the cell RESUMABLE, in true words', async () => {
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const base = fakeShared({ seed: seedRows() });
+    let refuse = true;
+    const shared = {
+      ...base.shared,
+      append: async (value: Parameters<typeof base.shared.append>[0]) => {
+        if (refuse) {
+          throw new SharedWriteRefusal(PUBLISH_CONSENT_MESSAGE, 'consent_required', new Error('403'));
+        }
+        return base.shared.append(value);
+      },
+    };
+    const poll = vi.fn(async () => succeeded);
+    const publish = vi.fn(async () => [9001]);
+    renderApp({ shared, appStorage, poll, publish }, true);
+
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+
+    const message = await within(grid).findByTestId('cell-stalled-message');
+    expect(message).toHaveTextContent(RESULT_SAVE_CONSENT_MESSAGE);
+    // 🔴 Not the publish-form copy: the images WERE published here.
+    expect(message).not.toHaveTextContent(/nothing was published/i);
+    expect(store.has(INFLIGHT_KEY), 'the paid run’s record was deleted before its result landed').toBe(true);
+    expect(within(grid).queryByTestId('cell-failed')).toBeNull();
+    expect(within(grid).queryByTestId('run-cell')).toBeNull();
+
+    // The grant lands; Check status finishes the SAME workflow and only then clears.
+    refuse = false;
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
+    expect(base.appends).toHaveLength(1);
+    expect(poll).toHaveBeenCalledWith('wf-prior');
+  });
+});

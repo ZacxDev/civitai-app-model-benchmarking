@@ -393,13 +393,47 @@ export const ESTIMATE_NO_COST_MESSAGE =
  * It goes to the developer console instead, the same split the estimate errors
  * above use.
  */
+/** Most consecutive automatic re-scans after a read `rate_limited` (see `noteRateLimit`). */
+const PRIVATE_SCAN_RATE_LIMIT_RETRIES = 3;
+/** The store's `retryAfter` (seconds) when `e` is a read rate limit, else `null`. Defaults to 5s. */
+function rateLimitRetryAfterSeconds(e: unknown): number | null {
+  const err = e as { code?: unknown; retryAfter?: unknown; details?: { retryAfter?: unknown } } | null;
+  if (err?.code !== 'rate_limited') return null;
+  const wait = typeof err.retryAfter === 'number' ? err.retryAfter : err.details?.retryAfter;
+  return typeof wait === 'number' && Number.isFinite(wait) && wait >= 0 ? wait : 5;
+}
+
+/**
+ * Viewer copy for a run that WAS charged and generated, but whose outputs could not
+ * be published or whose result row could not be saved to the grid.
+ *
+ * 🔴 IT MUST NOT SAY "NOTHING WAS PUBLISHED" — the images may well be published (the
+ * publish step comes first) — and it must not invite a re-RUN. The cell stays
+ * `stalled` on the same workflow, so the true next step is "Check status", which
+ * re-polls and never charges again. The consent variant names the permission because
+ * that is the one refusal the viewer can fix themselves.
+ */
+export const RESULT_SAVE_FAILED_MESSAGE =
+  "Your images were generated, but they couldn't be added to the grid yet. Press Check status to try again — you won't be charged again.";
+export const RESULT_SAVE_CONSENT_MESSAGE =
+  "Your images were generated, but adding them to the grid needs your permission to publish. Approve it, then press Check status — you won't be charged again.";
+function resultSaveFailedMessage(e: unknown): string {
+  return (e as { code?: unknown } | null)?.code === 'consent_required'
+    ? RESULT_SAVE_CONSENT_MESSAGE
+    : RESULT_SAVE_FAILED_MESSAGE;
+}
+
 export const CLAIM_FAILED_MESSAGE =
   "Couldn't start this run: the app's storage is full or unavailable, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Please try again later.";
 export const CLAIM_NO_VIEWER_MESSAGE =
   "Couldn't start this run: you're signed out, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Sign in and try again.";
 
-const LIST_PAGE = 50;
-const MAX_PAGES = 40; // safety cap when paging the whole shared list
+// 🔴 100 × 20, NOT 50 × 40 (PR #85, F2): the same 2,000-row ceiling in HALF the
+// reads. Every page is one read against the document store's 300 reads/min per
+// (app, viewer), and the board is re-read after every publish, edit and withdraw.
+// 100 is the store's own `listLimitMax`; a larger page is refused, not clamped.
+const LIST_PAGE = 100;
+const MAX_PAGES = 20; // safety cap when paging the whole shared list
 // 🔴 `voted:v1` (a per-viewer KV array of shared keys) IS DELIBERATELY GONE. It
 // mirrored the viewer's up-votes back when `list()` returned only the aggregate
 // `count`; the host now reports `viewerVoted` per row, so the mirror was a
@@ -1039,10 +1073,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const scan = await forEachStoredKey(
           store,
           INFLIGHT_PREFIX,
-          async (key) => {
+          (_key, value) => {
             if (cancelled) return 'stop';
-            const entry = await store.get<InflightRun>(key);
-            if (cancelled) return 'stop';
+            const entry = value as InflightRun | null;
             // 🔴 THIS USED TO SKIP EVERY ENTRY WITHOUT A `workflowId`, which is
             // exactly the record the PHASE-1 CLAIM writes. A claim-only entry was
             // therefore silently ignored and its cell rendered empty and
@@ -1148,6 +1181,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * off it, so there is nothing for state to re-render.
    */
   const privateScanCompleteRef = useRef(false);
+  /** Consecutive rate-limited private scans re-run so far — see `noteRateLimit`. */
+  const privateScanRetriesRef = useRef(0);
 
   useEffect(() => {
     if (!ready) return;
@@ -1171,6 +1206,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       return;
     }
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    /**
+     * 🔴 A READ RATE LIMIT HEALS ITSELF (PR #85, F2). The document store caps reads
+     * at 300/min per (app, viewer) and answers 429 `rate_limited` with a
+     * `retryAfter`. A scan that throws leaves `privateScanCompleteRef` FALSE, which
+     * the grid-publish boundary reads as "could not read your private items" — and
+     * nothing re-ran the scans except a publish, a withdraw or a reload. So a 429
+     * schedules ONE re-scan after the store's own wait, at most
+     * {@link PRIVATE_SCAN_RATE_LIMIT_RETRIES} times in a row: bounded, and never
+     * faster than the store asked for.
+     */
+    let rateLimitWait: number | null = null;
+    const noteRateLimit = (e: unknown) => {
+      const wait = rateLimitRetryAfterSeconds(e);
+      if (wait !== null) rateLimitWait = Math.max(rateLimitWait ?? 0, wait);
+    };
     (async () => {
       const store = depsRef.current.appStorage;
       /** Per-scan completeness, folded into the ref at the end. */
@@ -1181,10 +1232,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const scan = await forEachStoredKey(
           store,
           DRAFT_PREFIX,
-          async (key) => {
+          (_key, value) => {
             if (cancelled) return 'stop';
-            const parsed = parseDraft(await store.get(key));
-            if (cancelled) return 'stop';
+            const parsed = parseDraft(value);
             if (parsed) found.push(parsed);
           },
           // Restores the per-PAGE check the open-coded loop had right after its
@@ -1200,7 +1250,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // is why `cancelled` is part of the test rather than only guarding the
         // `setDrafts` above it.
         matchupsComplete = !cancelled && !scan.truncated;
-      } catch {
+      } catch (e) {
+        noteRateLimit(e);
         /* best-effort — a KV failure must not take the public board down with it.
            `matchupsComplete` stays FALSE, which is the whole point: the publish
            boundary now refuses an unaccountable member instead of silently
@@ -1211,17 +1262,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         const scan = await forEachStoredKey(
           store,
           UNPUB_PROMPT_PREFIX,
-          async (key) => {
+          (_key, value) => {
             if (cancelled) return 'stop';
-            const parsed = parseUnpubPrompt(await store.get(key));
-            if (cancelled) return 'stop';
+            const parsed = parseUnpubPrompt(value);
             if (parsed) foundPrompts.push(parsed);
           },
           { shouldStop: () => cancelled },
         );
         if (!cancelled) setUnpubPrompts(sortUnpubPrompts(foundPrompts));
         promptsComplete = !cancelled && !scan.truncated;
-      } catch {
+      } catch (e) {
+        noteRateLimit(e);
         /* best-effort — same reasoning as the matchup scan above, and the same
            consequence: `promptsComplete` stays FALSE and the boundary refuses. */
       }
@@ -1240,16 +1291,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         await forEachStoredKey(
           store,
           UNPUB_GRID_PREFIX,
-          async (key) => {
+          (_key, value) => {
             if (cancelled) return 'stop';
-            const parsed = parseUnpubGrid(await store.get(key));
-            if (cancelled) return 'stop';
+            const parsed = parseUnpubGrid(value);
             if (parsed) foundGrids.push(parsed);
           },
           { shouldStop: () => cancelled },
         );
         if (!cancelled) setUnpubGrids(sortUnpubGrids(foundGrids));
-      } catch {
+      } catch (e) {
+        noteRateLimit(e);
         /* best-effort — same reasoning as the two scans above */
       }
       try {
@@ -1269,9 +1320,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       } catch {
         if (!cancelled) setQuota(null);
       }
+      if (cancelled) return;
+      if (rateLimitWait !== null && privateScanRetriesRef.current < PRIVATE_SCAN_RATE_LIMIT_RETRIES) {
+        privateScanRetriesRef.current += 1;
+        retryTimer = setTimeout(refreshDrafts, rateLimitWait * 1000);
+      } else if (rateLimitWait === null) {
+        privateScanRetriesRef.current = 0;
+      }
     })();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, viewer?.id, draftsVersion]);
@@ -1469,8 +1528,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     async (prefix: string, sharedKey: string) => {
       const store = depsRef.current.appStorage;
       try {
-        await forEachStoredKey(store, prefix, async (key) => {
-          const parsed = parsePointer(await store.get(key));
+        await forEachStoredKey(store, prefix, async (_key, value) => {
+          const parsed = parsePointer(value);
           if (!parsed || parsed.sharedKey !== sharedKey) return;
           // Idempotent per the SDK: deleting a key that isn't set resolves
           // `{deleted: false}` rather than throwing.
@@ -1492,40 +1551,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
      *   disjoint, so a matchup withdraw can never reach a prompt's pointer.
      */
     async (key: string, pointerPrefix: string) => {
-      // 🔴 THE GUARD IS THE ORDER. THE `ok` BRANCH IS AN INVARIANT GUARD, AND THE
-      // TRANSPORT IT USED TO CITE IS GONE. Be precise about which is which:
-      //
-      //   - THE ORDER is the live guard. `withdraw` REJECTS on failure — the SDK
-      //     states it as a contract ("every failure rejects; nothing resolves to
-      //     mean 'not written'"), so a throw here is the real path and it skips
-      //     every line below.
-      //   - THE `ok` BRANCH is an INVARIANT GUARD: it pins something no transport
-      //     can currently violate. `@civitai/sdk`'s `SharedStorageClient.withdraw`
-      //     is declared `{ ok: true; deleted: boolean }` — the LITERAL `true` — and
-      //     hardcodes it in the implementation. The only thing that makes `!res.ok`
-      //     type-reachable is `SharedStore`'s own widening to `boolean`, which is
-      //     THIS APP's (see the note on `withdraw` in `lib/sdk-runtime.ts` for why
-      //     the widening was kept rather than narrowed, and the follow-up it is
-      //     filed as).
-      //
-      // ⚠️ THREE CLAIMS THAT USED TO BE HERE ARE RETRACTED, not reworded, because
-      // this port falsified them: this branch no longer routes through
-      // `@civitai/blocks-react` AT ALL, so "the pinned 0.43.0", "the 0.43.0
-      // RUNTIME", and the bridge shared-store hook's own lines 115-121 were describing a code path
-      // that is not on this line any more — and the pin was `^0.51.0` even before
-      // that. The claim that `withdraw` is "the only SDK write typed `ok: boolean`"
-      // is also false against the installed SDK, where it is `ok: true` like the
-      // others. Do not derive a fresh justification from the new transport either:
-      // what is true is stated above and nothing more.
-      //
-      // Either way the viewer keeps the only per-viewer handle on a row that is
-      // still live. Shared keys are host-minted, and while the document store can list
-      // the viewer's own rows (`author: 'me'`), nothing on a row names the private
-      // record it came from (docs/matchups.md §4), so deleting that pointer against a
-      // surviving row is UNRECOVERABLE. Dropping the `ok` check, or clearing the
-      // pointer before this line, each turn this fix into a data-loss bug.
-      const res = await depsRef.current.shared.withdraw(key);
-      if (!res.ok) return;
+      // 🔴 THE GUARD IS THE ORDER. `withdraw` REJECTS on every failure (the
+      // document store's `delete` has no resolving refusal, and `SharedStore`
+      // declares `ok: true` — the `ok: boolean` widening and the branch it kept
+      // reachable were deleted in PR #85's round 0), so a throw here skips every
+      // line below. The viewer keeps the only per-viewer handle on a row that is
+      // still live: shared keys are host-minted, and while the document store can
+      // list the viewer's own rows (`author: 'me'`), nothing on a row names the
+      // private record it came from (docs/matchups.md §4), so deleting that pointer
+      // against a surviving row is UNRECOVERABLE. Clearing the pointer before this
+      // line turns this into a data-loss bug.
+      await depsRef.current.shared.withdraw(key);
       optimisticDelete(key);
       await clearPointerFor(pointerPrefix, key);
       depsRef.current.track('withdraw');
@@ -2186,8 +2222,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // Shared tail of the money path: poll a submitted workflow to terminal, then —
   // on success — publish its scanned outputs and append the result row. Used by
   // BOTH the initial confirm AND the stalled-cell resume-poll. Clears the
-  // persisted in-flight row on any terminal outcome (success OR failure); a
-  // NON-terminal poll cap keeps it (still running → resumable).
+  // persisted in-flight row on a terminal FAILURE, and on success only once the
+  // result row is durably written; a NON-terminal poll cap keeps it (still
+  // running → resumable).
   const driveToResult = useCallback(
     async (ck: string, row: BenchConfig, prompt: PromptRow, first: BlockWorkflowSnapshot) => {
       const terminal = await pollToTerminal(depsRef.current.poll, first, {
@@ -2201,46 +2238,67 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         setRun(ck, { status: 'stalled', workflowId: terminal.workflowId });
         return;
       }
-      clearInflight(ck); // terminal → no longer in-flight
       if (terminal.status !== 'succeeded') {
+        clearInflight(ck); // a terminal FAILURE — nothing left to resume
         setRun(ck, { status: mapSnapshotStatus(terminal.status), error: terminal.error });
         return;
       }
       // Already published by a prior session/racer? Don't re-publish — just clear.
       if (cellHasResult(results, row.comboKey, row.config.id, prompt.key)) {
+        clearInflight(ck);
         setRun(ck, null);
         reload();
         return;
       }
-      // 🔴 CARRY THE OUTPUTS INTO THE PUBLISHING WINDOW. `publish()` opens the
-      // HOST's "Publish to the shared grid?" confirm and does not resolve until
-      // the viewer answers it — and that dialog is text-only (host chrome:
-      // `civitai/civitai` `PageBlockHost.tsx`, the `PUBLISH_GENERATION_OUTPUTS`
-      // handler). Until this line the block rendered a bare "Publishing…"
-      // spinner behind it, so the viewer was asked to publish images they had
-      // never seen. The snapshot already carries their urls, so showing them here
-      // is the part of that question THIS repo can answer; putting an image
-      // inside the dialog itself is a host change, and deliberately not one a
-      // block can make (the host's sibling CREATE_POST_FROM_APP gate spells out
-      // why it will not render block-supplied thumbnails). See the field docs on
-      // `CellRun.previewUrls` and the header of `src/publishPreview.test.tsx`.
-      setRun(ck, { status: 'publishing', previewUrls: terminal.imageUrls });
-      const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
-      depsRef.current.track('publish', { imageCount: imageIds.length });
-      const matched = resolveCell(row.config, prompt);
-      if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
-        const payload = buildResultPayload({
-          comboKey: row.comboKey,
-          configId: row.config.id,
-          promptKey: prompt.key,
-          ecosystem: matched.ecosystem,
-          imageIds,
-          // No `promptAuthorUserId` since 0.5.0: the document store never discloses
-          // an author's id (see `ResultData.promptAuthorUserId`).
-        }) as SharedStorageValue;
-        const { key } = await depsRef.current.shared.append(payload);
-        optimisticInsert(key, payload);
+      // 🔴 THE IN-FLIGHT RECORD OUTLIVES THE RESULT WRITE (document-store port, F1).
+      // It used to be cleared HERE, on reaching `succeeded` — before the publish and
+      // before the shared create. Either can still fail after the viewer has paid:
+      // the create in particular is refused `consent_required` on a token without
+      // `apps:storage:publish`, `rate_limited` past the shared write budget, or
+      // `content_rejected`. With the record already gone the cell fell to `failed`,
+      // whose only control is Dismiss → empty and RUNNABLE: a second charge for a
+      // generation that already happened. Now the record is cleared only after the
+      // create resolves, and any failure past this point leaves the cell `stalled`
+      // on the SAME workflow — Check status re-polls it (never re-submits) and
+      // finishes the job.
+      try {
+        // 🔴 CARRY THE OUTPUTS INTO THE PUBLISHING WINDOW. `publish()` opens the
+        // HOST's "Publish to the shared grid?" confirm and does not resolve until
+        // the viewer answers it — and that dialog is text-only (host chrome:
+        // `civitai/civitai` `PageBlockHost.tsx`, the `PUBLISH_GENERATION_OUTPUTS`
+        // handler). Until this line the block rendered a bare "Publishing…"
+        // spinner behind it, so the viewer was asked to publish images they had
+        // never seen. The snapshot already carries their urls, so showing them here
+        // is the part of that question THIS repo can answer; putting an image
+        // inside the dialog itself is a host change, and deliberately not one a
+        // block can make (the host's sibling CREATE_POST_FROM_APP gate spells out
+        // why it will not render block-supplied thumbnails). See the field docs on
+        // `CellRun.previewUrls` and the header of `src/publishPreview.test.tsx`.
+        setRun(ck, { status: 'publishing', previewUrls: terminal.imageUrls });
+        const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
+        depsRef.current.track('publish', { imageCount: imageIds.length });
+        const matched = resolveCell(row.config, prompt);
+        if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
+          const payload = buildResultPayload({
+            comboKey: row.comboKey,
+            configId: row.config.id,
+            promptKey: prompt.key,
+            ecosystem: matched.ecosystem,
+            imageIds,
+          }) as SharedStorageValue;
+          const { key } = await depsRef.current.shared.append(payload);
+          optimisticInsert(key, payload);
+        }
+      } catch (e) {
+        console.debug('[model-benchmarking] result could not be saved after a paid run:', e);
+        setRun(ck, {
+          status: 'stalled',
+          workflowId: terminal.workflowId,
+          error: resultSaveFailedMessage(e),
+        });
+        return;
       }
+      clearInflight(ck); // the result row is written — the run is finished
       setRun(ck, null);
       reload();
     },
@@ -2591,6 +2649,19 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         setRun(ck, null);
         return;
       }
+      // 🔴 THE SAME SCOPE GATE AS `beginRun`, BEFORE ANY POLL (F1). A resume finishes
+      // a run that was already PAID FOR: it publishes the outputs and then CREATES the
+      // shared result row, which needs `apps:storage:publish`. A run rehydrated from
+      // a 0.4.18 in-flight record belongs to a viewer who has never granted that
+      // scope, so without this gate the resume would publish and then be refused —
+      // with nothing to show for the spend. Ask first; the cell stays `stalled`, and
+      // the viewer presses Check status again once the grant lands. Nothing is
+      // polled, published, written or cleared on this branch.
+      if (!hasGenerateScope(token.scopes)) {
+        consentAskedRef.current = true;
+        depsRef.current.requestConsent({ scopes: missingRunScopes(token.scopes) });
+        return;
+      }
       inFlightRef.current.add(ck);
       setRun(ck, { status: 'processing', workflowId: wfId });
       try {
@@ -2602,7 +2673,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         inFlightRef.current.delete(ck);
       }
     },
-    [setRun, clearInflight, driveToResult],
+    [setRun, clearInflight, driveToResult, token.scopes],
   );
 
   const cancelRun = useCallback(

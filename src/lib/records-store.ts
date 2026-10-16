@@ -80,7 +80,7 @@ export interface SharedRecord {
 
 /** The seven shared operations this app performs. */
 export interface SharedStore {
-  list(query?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
+  list(query?: { limit?: number; cursor?: string }): Promise<{
     items: SharedRecord[];
     nextCursor?: string;
   }>;
@@ -88,15 +88,8 @@ export interface SharedStore {
   append(value: SharedStorageValue): Promise<{ key: string }>;
   /** Replace an existing row the viewer authored. Rejects `not_found` if it is gone. */
   update(key: string, value: SharedStorageValue): Promise<void>;
-  /**
-   * Delete a row the viewer authored.
-   *
-   * ⚠ `ok` IS DECLARED `boolean` AND THIS ADAPTER ONLY EVER PRODUCES `true`: every
-   * failure REJECTS. The widening is kept so `App.tsx`'s `withdrawRow` invariant guard
-   * (and the `withdrawRefuses` test fake that drives it) stay type-reachable — see the
-   * note there. It is an invariant guard, not a transport behaviour.
-   */
-  withdraw(key: string): Promise<{ ok: boolean; deleted: boolean }>;
+  /** Delete a row the viewer authored. Every failure REJECTS; `deleted: false` = nothing was there. */
+  withdraw(key: string): Promise<{ ok: true; deleted: boolean }>;
   /** Set the viewer's `vote` mark; resolves the new tally. Idempotent. */
   vote(key: string): Promise<number>;
   /** Remove the viewer's `vote` mark; resolves the new tally. Idempotent. */
@@ -139,19 +132,39 @@ function requireCount(reply: { count?: unknown }, op: string): number {
  * 🔴 IT SAYS "TRY AGAIN" BECAUSE NOTHING RETRIES FOR THEM. Consent is asked for
  * fire-and-forget (the host's dialog has no reply a declined grant can be read from),
  * so the write that triggered it has already failed; once the viewer approves, the
- * next press carries the re-minted token and succeeds. Nothing was published.
+ * next press carries the re-minted token and succeeds.
+ *
+ * ⚠️ NONE OF THESE SAYS "NOTHING WAS PUBLISHED" (PR #85 audit, F1). A single
+ * create that is refused did publish nothing — but these strings are also quoted
+ * inside a grid cascade's partial-failure copy (`lib/gridCascade.ts`, as the host
+ * error) after OTHER records in the same press DID publish, and in that sentence the
+ * clause would be false. The refusal says what to do; the surrounding copy says what
+ * landed.
  */
 export const PUBLISH_CONSENT_MESSAGE =
-  'Publishing needs your permission first. Approve it in the dialog, then try again — nothing was published.';
+  'Publishing needs your permission first. Approve it in the dialog, then try again.';
 /** Viewer copy for a create/edit the store refused `sign_in_required` (anonymous). */
-export const PUBLISH_SIGN_IN_MESSAGE = 'Sign in to publish — nothing was published.';
+export const PUBLISH_SIGN_IN_MESSAGE = 'Sign in to publish.';
+
+/**
+ * Viewer copy for a create/edit the store refused `content_rejected`.
+ *
+ * 🔴 A BEHAVIOUR CHANGE OF THE PORT, NOT A NEW EDGE CASE (PR #85, F3). The document
+ * store runs its text moderation in ENFORCE mode on every shared create and edit
+ * (`doc-store-api.ts`'s `moderate`), where the legacy shared store's moderation was
+ * ramped behind a flag. So an author can now be refused for the words in a title or
+ * description. The server's own message is not viewer copy, and does not say what to
+ * do; this does.
+ */
+export const PUBLISH_CONTENT_REJECTED_MESSAGE =
+  "This couldn't be published: the platform's content check rejected some of its text. Edit the name or description and try again.";
 
 /** A shared write the store refused for a reason the viewer can fix; `message` is viewer copy. */
 export class SharedWriteRefusal extends Error {
   override readonly name = 'SharedWriteRefusal';
   constructor(
     message: string,
-    readonly code: 'consent_required' | 'sign_in_required',
+    readonly code: 'consent_required' | 'sign_in_required' | 'content_rejected',
     cause: unknown,
   ) {
     super(message, { cause });
@@ -195,6 +208,9 @@ export function createRecordsStore(
       hooks.onSignInRequired?.();
       throw new SharedWriteRefusal(PUBLISH_SIGN_IN_MESSAGE, code, err);
     }
+    if (code === 'content_rejected') {
+      throw new SharedWriteRefusal(PUBLISH_CONTENT_REJECTED_MESSAGE, code, err);
+    }
     throw err;
   };
 
@@ -203,7 +219,6 @@ export function createRecordsStore(
       const page = await (await records()).list(
         {
           sort: BOARD_SORT,
-          ...(query.prefix !== undefined ? { keyPrefix: query.prefix } : {}),
           ...(query.limit !== undefined
             ? { limit: Math.min(Math.max(1, query.limit), RECORDS_LIST_LIMIT_MAX) }
             : {}),
@@ -243,7 +258,7 @@ export function createRecordsStore(
     },
     async withdraw(key) {
       const { deleted } = await (await records()).delete(key, callOpts());
-      return { ok: true, deleted };
+      return { ok: true as const, deleted };
     },
     async vote(key) {
       return requireCount(await (await records()).mark(key, VOTE_MARK, callOpts()), 'vote');

@@ -210,29 +210,10 @@ export interface ResultData {
   ecosystem: string;
   /** The bare scanned Image row ids the runner published (via the gated bridge). */
   imageIds: number[];
-  /**
-   * App-level attribution of the PROMPT submitter (the column author), recorded
-   * on the result so the prompt author is credited for the cell alongside the
-   * combination author.
-   *
-   * 🔴 WHY app-level, not host spend-attribution: the generation's Buzz spend is
-   * host-attributed to a SINGLE `sharedContentKey` (the combination — see
-   * `buildCellWorkflowBody`), because the host contract exposes exactly one
-   * shared-content key per workflow (`WorkflowBody.sharedContentKey: string`),
-   * which it resolves to ONE content author. A cell is co-authored (combo × prompt),
-   * so the prompt submitter gets app-level credit recorded here (derivable from
-   * `promptKey` too, but recorded explicitly so a consumer needn't re-resolve the
-   * prompt row). True dual SPEND attribution would require a host/platform change.
-   * Optional (a v1 result / a run against an anonymous-authored prompt omits it).
-   *
-   * 🔴 READ-ONLY SINCE THE DOCUMENT-STORE PORT (0.5.0): NOTHING WRITES IT ANY MORE.
-   * The document store never discloses an author's user id (a document's `author`
-   * is `{ kind, isViewer }`), so a new result row has no id to record — and writing
-   * it only on the runs where the viewer happens to own the prompt would make the
-   * field mean two different things. Rows published before 0.5.0 still carry it and
-   * still parse; the attribution remains derivable from `promptKey`.
-   */
-  promptAuthorUserId?: number;
+  // ⚠ NO `promptAuthorUserId` SINCE 0.5.0 (PR #85, round 0). It was app-level credit
+  // for the prompt submitter; nothing ever READ it, and the document store never
+  // discloses an author's id, so nothing can write it either. Rows published before
+  // 0.5.0 still carry it in `data` and still parse — the field is simply ignored.
 }
 
 // ---------------------------------------------------------------------------

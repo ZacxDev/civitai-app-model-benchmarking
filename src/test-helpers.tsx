@@ -203,24 +203,6 @@ export function fakeShared(
      */
     viewerUserId?: number | null | (() => number | null);
     /**
-     * Make `withdraw()` RESOLVE `{ok: false}` instead of removing the row.
-     *
-     * ⚠ WHAT THIS MODELS CHANGED WITH THE PORT, AND THE OLD CLAIM IS RETRACTED.
-     * It used to say `withdraw` is "the ONLY SDK write whose `ok` is `boolean`
-     * rather than the literal `true`", i.e. that the wire itself permits a
-     * resolving refusal. That is FALSE against `@civitai/sdk`, which declares
-     * `withdraw` as `{ ok: true; deleted: boolean }` — the literal — and hardcodes
-     * it. The `boolean` is `SharedStore`'s own widening (see `lib/sdk-runtime.ts`).
-     *
-     * So this option does NOT model a transport behaviour; it drives the INVARIANT
-     * GUARD in `App.tsx`'s `withdrawRow` from the only place that can reach it —
-     * the façade. It is kept because that guard protects an unrecoverable pointer
-     * delete and a guard no test can reach is worse than none; it is NOT evidence
-     * that a host can refuse this way. If the widening is ever narrowed, this
-     * option and its case in `withdraw.test.tsx` go with it.
-     */
-    withdrawRefuses?: boolean;
-    /**
      * Make `report()` REJECT. The host rejects a report for a missing key, a
      * trust/scope refusal, or an anonymous viewer — and a failed report that the
      * UI closes quietly reads to the viewer as a filed one, so this is the
@@ -262,7 +244,7 @@ export function fakeShared(
   const reports: Array<{ key: string }> = [];
   /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
    * to actually LAND before asserting the optimistic state survived it. */
-  const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
+  const listCalls: Array<{ limit?: number; cursor?: string } | undefined> = [];
   const shared: SharedStore = {
     async list(listOpts) {
       listCalls.push(listOpts);
@@ -305,9 +287,6 @@ export function fakeShared(
     },
     async withdraw(key) {
       withdraws.push(key);
-      // The host REFUSED, without throwing. The row is untouched and still on
-      // the public board — see `withdrawRefuses` above.
-      if (opts.withdrawRefuses) return { ok: false, deleted: false };
       const i = rows.findIndex((x) => x.key === key);
       // The HOST always removes the row; `reflect: false` models a list() that
       // hasn't caught up yet (read-after-write lag), so the row keeps coming back
@@ -324,8 +303,14 @@ export function fakeShared(
  * The fakes below reject with these so a caller branching on `code`/`status` is
  * exercised exactly as against the real store.
  */
-function refusal(status: number, code: string, message: string): StorageError {
-  return new StorageError(status, code, message, { code, message, error: message });
+function refusal(status: number, code: string, message: string, details?: Record<string, unknown>): StorageError {
+  return new StorageError(
+    status,
+    code,
+    message,
+    { code, message, error: message, ...(details ? { details } : {}) },
+    details,
+  );
 }
 
 /**
@@ -392,6 +377,12 @@ export function fakeAppStorage(
   opts: {
     failListTimes?: number;
     failListPrefix?: string;
+    /**
+     * Make the `failListTimes` refusals the store's READ RATE LIMIT — 429
+     * `rate_limited` with `details.retryAfter` (seconds) — instead of a 503.
+     * The store caps reads at 300/min per (app, viewer).
+     */
+    failListRateLimited?: { retryAfter: number };
     pageSize?: number;
     latencyMs?: number;
     /**
@@ -509,7 +500,9 @@ export function fakeAppStorage(
         opts.failListPrefix === undefined || (listOpts?.prefix ?? '').startsWith(opts.failListPrefix);
       if (listFailuresLeft > 0 && targeted) {
         listFailuresLeft -= 1;
-        throw refusal(503, 'service_unavailable', 'KV list unavailable');
+        throw opts.failListRateLimited
+          ? refusal(429, 'rate_limited', 'rate limit exceeded', { retryAfter: opts.failListRateLimited.retryAfter })
+          : refusal(503, 'service_unavailable', 'KV list unavailable');
       }
       // The store REFUSES a limit outside 1–100 rather than clamping it.
       if (listOpts?.limit !== undefined && (listOpts.limit < 1 || listOpts.limit > 100)) {
@@ -517,9 +510,11 @@ export function fakeAppStorage(
       }
       const prefix = listOpts?.prefix;
       const all = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
-      // Page size: the caller's own `limit` wins, else the fixture's, else one
-      // page for everything (the historical behaviour).
-      const size = listOpts?.limit ?? opts.pageSize ?? all.length;
+      // Page size: the SMALLER of the caller's `limit` and the fixture's `pageSize`
+      // (a store whose pages are capped below what the caller asks for — every
+      // scan now asks for 100, so a fixture that wants page 2 must be able to cap
+      // it), else one page for everything (the historical behaviour).
+      const size = Math.min(listOpts?.limit ?? Infinity, opts.pageSize ?? Infinity, Math.max(all.length, 1));
       // The cursor is "opaque, base64-encoded last key" per the SDK's own
       // docstring — modelled faithfully, so a caller that tries to interpret it
       // as an index breaks here rather than in production.
@@ -532,7 +527,8 @@ export function fakeAppStorage(
       // drift apart.
       const more = last !== undefined && hasMore(all.length - from, Math.max(size, 1));
       return {
-        keys: page.map((key) => ({ key, updatedAt: new Date() })),
+        // The value rides on the page, as a document-store list page carries data.
+        keys: page.map((key) => ({ key, value: store.get(key) ?? null, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),
       };
     },

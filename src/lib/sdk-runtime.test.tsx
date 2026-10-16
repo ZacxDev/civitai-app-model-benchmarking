@@ -669,20 +669,6 @@ describe('group 3 — the shared board (the `records` collection)', () => {
     expect(calls[0]).toMatchObject({ path: 'blocks/storage/records/mk-a/marks/vote', method: 'DELETE' });
   });
 
-  it('vote of a HIDDEN row is `not_found`, and the hidden row is absent from the list', async () => {
-    install({
-      shared: {
-        seed: [
-          { key: 'mk-a', value: { title: 'A' } },
-          { key: 'mk-h', value: { title: 'Hidden' }, hidden: true },
-        ],
-      },
-    });
-    const { result } = renderHook(() => useRecordsStore());
-    expect((await result.current.list()).items.map((i) => i.key)).toEqual(['mk-a']);
-    await expect(result.current.vote('mk-h')).rejects.toMatchObject({ code: 'not_found', status: 404 });
-  });
-
   it('vote REJECTS on a reply carrying no numeric count', async () => {
     configureSdkRuntime({
       transport: fakeTransport().transport,
@@ -720,25 +706,24 @@ describe('group 3 — the shared board (the `records` collection)', () => {
     expect(page.items[0]!.count).toBe(0);
   });
 
-  it('list pages with prefix + cursor, and the cursor CLEARS on the last page', async () => {
+  it('list pages with a cursor, and the cursor CLEARS on the last page', async () => {
     const { calls } = install({
       shared: {
         seed: [
           { key: 'mk-1', value: { title: 'A' } },
           { key: 'mk-2', value: { title: 'B' } },
           { key: 'mk-3', value: { title: 'C' } },
-          { key: 'other', value: { title: 'X' } },
         ],
       },
     });
     const { result } = renderHook(() => useRecordsStore());
 
     // 🔴 NEWEST-FIRST, i.e. `sort=-key` — the legacy board's order, and keys are ULIDs.
-    const p1 = await result.current.list({ prefix: 'mk-', limit: 2 });
+    const p1 = await result.current.list({ limit: 2 });
     expect(p1.items.map((i) => i.key)).toEqual(['mk-3', 'mk-2']);
     expect(p1.nextCursor).toBeTypeOf('string');
 
-    const p2 = await result.current.list({ prefix: 'mk-', limit: 2, cursor: p1.nextCursor });
+    const p2 = await result.current.list({ limit: 2, cursor: p1.nextCursor });
     expect(p2.items.map((i) => i.key)).toEqual(['mk-1']);
     expect(p2.nextCursor).toBeUndefined();
 

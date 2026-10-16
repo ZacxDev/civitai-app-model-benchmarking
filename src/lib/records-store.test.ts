@@ -4,11 +4,12 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createFakeStorage } from '@civitai/sdk/testing';
+import { FAKE_STORAGE_MODERATION, createFakeStorage } from '@civitai/sdk/testing';
 
 import manifest from '../../block.manifest.json';
 import {
   PUBLISH_CONSENT_MESSAGE,
+  PUBLISH_CONTENT_REJECTED_MESSAGE,
   PUBLISH_SIGN_IN_MESSAGE,
   RECORDS_COLLECTION,
   SharedWriteRefusal,
@@ -148,6 +149,22 @@ describe('viewer-fixable refusals of a shared write', () => {
     const err = await store.append(LEGACY_VALUE).catch((e: unknown) => e);
     expect((err as Error).message).toBe(PUBLISH_SIGN_IN_MESSAGE);
     expect(hooks.onSignInRequired).toHaveBeenCalledTimes(1);
+    expect(hooks.onConsentRequired).not.toHaveBeenCalled();
+  });
+
+  it('`content_rejected` (enforce-mode moderation) rejects with VIEWER copy, not the server’s string', async () => {
+    const { store, hooks } = setup();
+    const err = await store
+      .append({ ...LEGACY_VALUE, title: `My ${FAKE_STORAGE_MODERATION.blockedText} matchup` })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SharedWriteRefusal);
+    expect((err as SharedWriteRefusal).code).toBe('content_rejected');
+    expect((err as Error).message).toBe(PUBLISH_CONTENT_REJECTED_MESSAGE);
+    // An edit is moderated too.
+    const { key } = await store.append(LEGACY_VALUE);
+    await expect(
+      store.update(key, { ...LEGACY_VALUE, body: FAKE_STORAGE_MODERATION.blockedText }),
+    ).rejects.toThrow(PUBLISH_CONTENT_REJECTED_MESSAGE);
     expect(hooks.onConsentRequired).not.toHaveBeenCalled();
   });
 

@@ -1238,7 +1238,15 @@ function CellRunState({
   if (run.status === 'stalled') {
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-stalled">
-        <span style={metaText}>Still generating…</span>
+        {/* A stalled cell carries an `error` when the run FINISHED and was paid for
+            but its result could not be saved — same controls, truer words. */}
+        {run.error ? (
+          <span style={{ color: token.text }} data-testid="cell-stalled-message">
+            {run.error}
+          </span>
+        ) : (
+          <span style={metaText}>Still generating…</span>
+        )}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <Button size="sm" data-testid="cell-resume-run" onClick={onResume}>
             Check status

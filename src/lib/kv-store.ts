@@ -50,9 +50,11 @@ export interface KvDocument {
   value: unknown;
 }
 
-/** One row of a key listing. */
+/** One row of a key listing — the document's VALUE included, since the page carries it. */
 export interface KvKeyEntry {
   key: string;
+  /** The stored value, unwrapped exactly as {@link KvStore.get} unwraps it. */
+  value: unknown;
   updatedAt: Date;
 }
 
@@ -142,7 +144,7 @@ export function createKvStorage(
         callOpts(),
       );
       return {
-        keys: page.items.map((doc) => ({ key: doc.key, updatedAt: doc.updatedAt })),
+        keys: page.items.map((doc) => ({ key: doc.key, value: doc.data.value ?? null, updatedAt: doc.updatedAt })),
         ...(page.nextCursor !== null ? { nextCursor: page.nextCursor } : {}),
       };
     },

@@ -24,8 +24,11 @@
 # copy holding only package.json + lockfile + this file: both entries → rc 0;
 # app-sdk entry removed → rc 1 ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION naming exactly
 # `@civitai/app-sdk@0.71.0`; sdk entry removed → rc 1, naming exactly `@civitai/sdk@0.14.0`.
-# 🔴 REMOVE BOTH ENTRIES AFTER 2026-10-16T06:03Z — they then do nothing, and leaving
-# them is how a list like this grows past what any `package.json` line resolves to.
+# RE-MEASURED 2026-10-16T03:31Z (same cold copy, same command): WITHOUT the app-sdk
+# entry → rc 0, i.e. it had aged out at ~03:09Z, so it was REMOVED; without the sdk
+# entry as well → rc 1, naming exactly `@civitai/sdk@0.14.0`, so that one stays.
+# 🔴 REMOVE THE REMAINING ENTRY AFTER 2026-10-16T06:03Z — it then does nothing, and
+# leaving it is how a list like this grows past what any `package.json` line resolves to.
 # Already aged out at the bump, so deliberately ABSENT: `blocks-react@0.73.1` and
 # `components@0.10.0` (both 2026-10-15T00:58Z), `theme@0.5.2` (2026-10-03).
 #
@@ -47,5 +50,4 @@ packages:
   - '.'
 
 minimumReleaseAgeExclude:
-  - '@civitai/app-sdk@0.71.0'
   - '@civitai/sdk@0.14.0'
