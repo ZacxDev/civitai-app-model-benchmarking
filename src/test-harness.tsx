@@ -42,11 +42,78 @@
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 
+import { getTransport } from '@civitai/blocks-react';
 import { Harness as BridgeHarness } from '@civitai/blocks-react/testing';
 import type { HarnessProps } from '@civitai/blocks-react/testing';
+import type { BlockSnapshot, BlockTransport } from '@civitai/sdk';
 
 import { createRestFake, type RestFakeOptions } from './dev-rest.js';
 import { configureSdkRuntime } from './lib/sdk-runtime.js';
+import { createSdkTransportAdapter } from './lib/sdk-transport.js';
+import { AI_WRITE_BUDGETED, APPS_STORAGE_PUBLISH } from './scopes.js';
+
+/**
+ * This app's CONSENT-GATED scopes — what the real host's mint withholds from the
+ * first token and its consent dialog grants.
+ */
+export const CONSENT_GATED_SCOPES = [AI_WRITE_BUDGETED, APPS_STORAGE_PUBLISH] as const;
+
+/**
+ * The adapted bridge transport, with the token carrying the WHOLE consent-gated set
+ * whenever it carries any of it.
+ *
+ * 🔴 THIS MODELS THE REAL HOST, WHERE THE MOCK HOST DIVERGES FROM IT. On civitai the
+ * consent dialog grants "the missing set the MINT computed (`missingScopes` —
+ * server-known truth), NOT any scopes the block claims" (`IframeHost.tsx`'s
+ * REQUEST_CONSENT handler, civitai `origin/main`), so one grant brings
+ * `ai:write:budgeted` AND `apps:storage:publish` together. `@civitai/blocks-react`'s
+ * mock host instead grants only what the block's hint names, and `consentGranted`
+ * mints the money scope alone — so on the mock a run, which needs both
+ * (`RUN_SCOPES`), could never start. Folding the set together HERE, in the test/dev
+ * seam, keeps production free of a test-only branch and keeps every
+ * `consentGranted` fixture meaning what it meant: "the viewer has consented".
+ *
+ * ⚠️ A token carrying NONE of the set is passed through untouched, so the
+ * not-yet-consented path (and the REQUEST_CONSENT → TOKEN_REFRESH round trip that
+ * ends it) is exercised exactly as before. The snapshot is memoised on the bridge
+ * snapshot's identity because `useSyncExternalStore` re-renders forever on a fresh
+ * object per read.
+ */
+export function hostGrantsWholeConsentSet(): BlockTransport {
+  let bridge: unknown = null;
+  let inner: BlockTransport | null = null;
+  const current = (): BlockTransport => {
+    const b = getTransport();
+    if (inner === null || b !== bridge) {
+      bridge = b;
+      inner = createSdkTransportAdapter(b) as BlockTransport;
+    }
+    return inner;
+  };
+  let lastIn: BlockSnapshot | null = null;
+  let lastOut: BlockSnapshot | null = null;
+  return {
+    snapshot: {
+      get() {
+        const snap = current().snapshot.get();
+        if (snap === lastIn && lastOut !== null) return lastOut;
+        lastIn = snap;
+        const held = snap.token?.scopes ?? [];
+        const anyGranted = CONSENT_GATED_SCOPES.some((s) => held.includes(s));
+        const allGranted = CONSENT_GATED_SCOPES.every((s) => held.includes(s));
+        lastOut =
+          anyGranted && !allGranted
+            ? { ...snap, token: { ...snap.token, scopes: [...held, ...CONSENT_GATED_SCOPES.filter((s) => !held.includes(s))] } }
+            : snap;
+        return lastOut;
+      },
+      subscribe: (listener) => current().snapshot.subscribe(listener),
+    },
+    notify: (message) => current().notify(message),
+    request: (type, params, opts) => current().request(type, params, opts),
+    on: (type, handler) => current().on(type, handler),
+  };
+}
 
 /**
  * The props that moved to HTTP, plus everything `<Harness>` still owns.
@@ -63,6 +130,8 @@ export interface TestHarnessProps
   storage?: RestFakeOptions['storage'];
   buzz?: HarnessProps['buzz'];
   buzzBalance?: RestFakeOptions['buzz'];
+  /** The document store's own knobs: consent, rate limits, trust, … */
+  docStore?: RestFakeOptions['docStore'];
   /** Observe every REST call the app makes — the successor to `onOutbound` for
    * the three families that left the bridge. */
   onRequest?: RestFakeOptions['onRequest'];
@@ -72,7 +141,7 @@ export interface TestHarnessProps
  * Mount the mock host for a test or the dev harness.
  *
  * 🔴 `useMemo`, NOT `useEffect`. `configureSdkRuntime` must be installed BEFORE
- * the children render, because `useAppStorage`/`useBuzzBalance` fire on their own
+ * the children render, because `useKvStore`/`useBuzzBalance` fire on their own
  * mount effects and a `useEffect` here runs AFTER a child's — so the first
  * balance read would go out against the production `fetch` (a real network call
  * from jsdom, failing in a way that reads nothing like a missing fixture). A
@@ -85,11 +154,13 @@ export function Harness({
   shared,
   storage,
   buzzBalance,
+  docStore,
   onRequest,
   ...bridge
 }: TestHarnessProps) {
   useMemo(() => {
     configureSdkRuntime({
+      transport: hostGrantsWholeConsentSet(),
       fetch: createRestFake({
         // The seeded viewer owns the rows and casts the votes, so the two halves
         // of the split agree on who the viewer is. `-1` for an anonymous viewer:
@@ -98,6 +169,7 @@ export function Harness({
         ...(shared === undefined ? {} : { shared }),
         ...(storage === undefined ? {} : { storage }),
         ...(buzzBalance === undefined ? {} : { buzz: buzzBalance }),
+        ...(docStore === undefined ? {} : { docStore }),
         ...(onRequest === undefined ? {} : { onRequest }),
       }),
     });

@@ -104,8 +104,8 @@ vi.mock('./lib/sdk-runtime.js', async (importOriginal) => {
 
 const { App } = await import('./App.js');
 
-const GRANTED = () => ['apps:storage:shared:read', 'ai:write:budgeted'];
-const UNGRANTED = () => ['apps:storage:shared:read'];
+const GRANTED = () => ['apps:storage', 'ai:write:budgeted', 'apps:storage:publish'];
+const UNGRANTED = () => ['apps:storage'];
 
 beforeEach(() => {
   scopesBox.current = null;
@@ -238,13 +238,42 @@ describe('🔴 a grant resumes the action that asked for it, up to the Confirm g
 
     const [runBtn] = await runButtons();
     await userEvent.click(runBtn);
-    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted'] });
+    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted', 'apps:storage:publish'] });
     expect(estimate, 'estimated before the scope existed').not.toHaveBeenCalled();
 
     // The host grants: the next token carries the scope.
     scopesBox.current = GRANTED();
     view.rerender(block(deps, { consentGranted: false }));
 
+    await screen.findByTestId('cell-confirm-run');
+    expect(estimate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('🔴 the publish grant is part of the run gate (document-store port, 0.5.0)', () => {
+  it('a token with the MONEY scope but not `apps:storage:publish` does not price the run — it asks for publish', async () => {
+    // 🔴 THE HAZARD. The last step of a paid run is a SHARED create (the result row).
+    // A run that started with `ai:write:budgeted` alone would charge the viewer and
+    // then have its result refused `consent_required` — paid for, never on the
+    // board. So the gate holds the run until BOTH scopes are on the token, and asks
+    // for exactly the missing one.
+    scopesBox.current = ['apps:storage', 'ai:write:budgeted'];
+    const { shared } = fakeShared({ seed: seedOneCell() });
+    const { appStorage } = fakeAppStorage();
+    const estimate = vi.fn(async () => estimateSnap);
+    const requestConsent = vi.fn();
+    const deps = { shared, appStorage, estimate, requestConsent };
+    const view = render(block(deps, { consentGranted: false }));
+
+    const [runBtn] = await runButtons();
+    await userEvent.click(runBtn);
+    expect(requestConsent).toHaveBeenCalledTimes(1);
+    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['apps:storage:publish'] });
+    expect(estimate, 'priced a run whose result could not be published').not.toHaveBeenCalled();
+
+    // The grant lands: the held press resumes, to the Confirm gate and no further.
+    scopesBox.current = GRANTED();
+    view.rerender(block(deps, { consentGranted: false }));
     await screen.findByTestId('cell-confirm-run');
     expect(estimate).toHaveBeenCalledTimes(1);
   });

@@ -1,5 +1,5 @@
 // Withdraw (issue #10): a contributor removes their OWN row from the shared grid.
-// `useSharedStorage().withdraw` was implemented, scoped and documented — and
+// `useRecordsStore().withdraw` was implemented, scoped and documented — and
 // wired to nothing, so a submitted combo/prompt was permanent as far as the UI
 // was concerned. These drive the real App through the affordance:
 //   - the author CAN withdraw their own combination / prompt (and only after a
@@ -297,9 +297,10 @@ describe('withdraw: the author removes their OWN prompt', () => {
 //   that actually carried a cursor) so it cannot quietly stop paging again.
 //
 // Full mutant ladder at HEAD, each killed, each by its own assertion:
-//   M1 clear pointer before withdraw   -> 2 cases (REJECTS + REFUSES)
+//   M1 clear pointer before withdraw   -> the REJECTS case
 //   M2 drop the sharedKey match        -> "leaves ANOTHER combination's pointer alone"
-//   M3 drop the `!res.ok` branch       -> "REFUSES WITHOUT THROWING"
+//   (M3 — the `!res.ok` branch and its "REFUSES WITHOUT THROWING" case — were deleted
+//   in PR #85 round 0, when `withdraw` was narrowed to `ok: true`.)
 //   M4 drop refreshDrafts()            -> "is DELETED once the host confirms"
 //   M7 cursor = undefined              -> "sits on the SECOND page"
 //   M8 prompts scan again              -> "NEVER EVEN STARTS the pointer scan"
@@ -697,44 +698,6 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       sets.map((s) => s.key).filter((k) => k.startsWith(UNPUB_PROMPT_PREFIX)),
       'the direct prompt submit wrote a private prompt record it never created',
     ).toEqual([]);
-  });
-
-  it('🔴 SURVIVES a withdraw the host REFUSES WITHOUT THROWING ({ok: false})', async () => {
-    // 🔴 AN INVARIANT GUARD, LABELLED AS ONE — and the label is the correction.
-    // This case used to open "THE SECOND FAILURE CHANNEL", on the claim that
-    // `withdraw` is "the ONLY SDK write whose `ok` is `boolean` rather than the
-    // literal `true`". RETRACTED: `@civitai/sdk` declares it `{ ok: true; deleted:
-    // boolean }` and hardcodes the literal, so no transport this app speaks can
-    // resolve a refusal. The `boolean` is `SharedStore`'s own widening.
-    //
-    // What the case still pins, and why it is worth keeping: IF `res.ok` is ever
-    // false, `withdrawRow` must not proceed — because the line after it deletes the
-    // pointer, the viewer's only per-viewer handle on a host-minted key with no
-    // "mine" index (docs/matchups.md §4), against a row still on the public board.
-    // Unrecoverable, and silent. Reaching that branch requires the façade, which is
-    // what `withdrawRefuses` is for. This is NOT a regression test for an observed
-    // failure; it is the only thing that keeps the guard from being unreachable.
-    const { shared, withdraws } = fakeShared({
-      seed: [row(LIVE_KEY, 'Mine', VIEWER_ID, comboData)],
-      withdrawRefuses: true,
-    });
-    const { appStorage, deletes, store } = fakeAppStorage({ [draftKey(POINTER_LOCAL_ID)]: pointer });
-    await renderApp({ shared, appStorage });
-
-    expect(store.has(draftKey(POINTER_LOCAL_ID))).toBe(true);
-    const card = await screen.findByTestId('matchup-card');
-    await openRowMenu('matchup', card);
-    await userEvent.click(within(card).getByTestId('matchup-withdraw'));
-    await userEvent.click(within(card).getByTestId('withdraw-confirm'));
-
-    // The call DID happen and DID resolve (no throw) — so what follows is about
-    // the refusal being honoured, not about a click that never landed.
-    await waitFor(() => expect(withdraws).toEqual([LIVE_KEY]));
-
-    // 🔴 THE POINTER IS UNTOUCHED, and the row is still on the board.
-    expect(deletes).not.toContain(draftKey(POINTER_LOCAL_ID));
-    expect(store.get(draftKey(POINTER_LOCAL_ID))).toEqual(pointer);
-    expect(screen.getByTestId('matchup-card')).toBeInTheDocument();
   });
 
   it('is found IN THE STORE even when the per-viewer list never resolved', async () => {

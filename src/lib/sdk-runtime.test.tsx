@@ -34,22 +34,22 @@ import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createMockHost } from '@civitai/blocks-react/testing';
-import type { BlockSnapshot, BlockTransport, StorageClient } from '@civitai/sdk';
+import type { BlockSnapshot, BlockTransport } from '@civitai/sdk';
 
 import { createRestFake } from '../dev-rest.js';
 import { resetHarnessTransport } from '../dev-transport.js';
-import type { SharedStore } from './sdk-runtime.js';
+import type { KvStore, SharedStore } from './sdk-runtime.js';
 import {
   configureSdkRuntime,
   resetSdkRuntime,
-  useAppStorage,
+  useKvStore,
   useBlockContext,
   useBlockResize,
   useBlockToken,
   useBuzzBalance,
   useRequestConsent,
   useRequestSignIn,
-  useSharedStorage,
+  useRecordsStore,
 } from './sdk-runtime.js';
 
 /** A ready snapshot carrying a block token, which is what `initialize()` waits for. */
@@ -319,39 +319,43 @@ describe('group 2 — host UI', () => {
 // ---------------------------------------------------------------------------
 // Group 3 — REST
 // ---------------------------------------------------------------------------
-describe('group 3 — per-viewer app storage', () => {
-  it('get POSTs blocks/app-storage/get and resolves the stored value', async () => {
+describe('group 3 — per-viewer KV (the private `kv` collection)', () => {
+  it('get reads GET blocks/storage/kv/<key> and unwraps `{ value }`', async () => {
     const { calls } = install({ storage: { seed: { 'draft:v1:a': { title: 'x' } } } });
-    const { result } = renderHook(() => useAppStorage());
+    const { result } = renderHook(() => useKvStore());
 
     await expect(result.current.get('draft:v1:a')).resolves.toEqual({ title: 'x' });
-    expect(calls).toEqual([
-      { path: 'blocks/app-storage/get', method: 'POST', body: { key: 'draft:v1:a' } },
-    ]);
+    expect(calls).toEqual([{ path: 'blocks/storage/kv/draft%3Av1%3Aa', method: 'GET', body: {} }]);
   });
 
   it('get resolves null for an unset key — the answer the app branches on', async () => {
     install();
-    const { result } = renderHook(() => useAppStorage());
+    const { result } = renderHook(() => useKvStore());
     await expect(result.current.get('nope')).resolves.toBeNull();
   });
 
-  it('set POSTs the key and value, and round-trips through get', async () => {
+  it('set PUTs `{ data: { value } }` at the legacy key, and round-trips through get', async () => {
     const { calls } = install();
-    const { result } = renderHook(() => useAppStorage());
+    const { result } = renderHook(() => useKvStore());
 
-    await expect(result.current.set('inflight:v1:c|p', { workflowId: 'wf1' })).resolves.toMatchObject(
-      { ok: true },
-    );
-    expect(calls.map((c) => c.path)).toEqual(['blocks/app-storage/set']);
-    await expect(result.current.get('inflight:v1:c|p')).resolves.toEqual({ workflowId: 'wf1' });
+    await expect(result.current.set('inflight:v1:c::cfg::p', { workflowId: 'wf1' })).resolves.toEqual({ ok: true });
+    // 🔴 THE MAPPING THE PRODUCTION COPY DEPENDS ON, ON THE WIRE: the legacy key verbatim
+    // and the legacy value WRAPPED in `{ value }`.
+    expect(calls).toEqual([
+      {
+        path: 'blocks/storage/kv/inflight%3Av1%3Ac%3A%3Acfg%3A%3Ap',
+        method: 'PUT',
+        body: { data: { value: { workflowId: 'wf1' } } },
+      },
+    ]);
+    await expect(result.current.get('inflight:v1:c::cfg::p')).resolves.toEqual({ workflowId: 'wf1' });
   });
 
   it('list pages with a cursor and stops without one', async () => {
     install({
       storage: { seed: { 'd:1': 1, 'd:2': 2, 'd:3': 3 }, pageSize: 2 },
     });
-    const { result } = renderHook(() => useAppStorage());
+    const { result } = renderHook(() => useKvStore());
 
     const first = await result.current.list({ prefix: 'd:' });
     expect(first.keys.map((k) => k.key)).toEqual(['d:1', 'd:2']);
@@ -366,128 +370,105 @@ describe('group 3 — per-viewer app storage', () => {
     expect(second.nextCursor).toBeUndefined();
   });
 
-  // 🔴 THE EXACT-FIT BOUNDARY. The server emits a cursor whenever the page it
-  // returned was FULL, because it has not read row `limit + 1` and so cannot know it
-  // was the last. The fake used to answer `from + page.length < all.length` here —
-  // data the server cannot see — and said "that was the last page" on an exact fit.
-  //
-  // ⚠ WHAT THAT COSTS, STATED NARROWLY: this case pins the WIRE, and the money
-  // consequence is one page further on. A cursor makes `forEachStoredKey` follow it,
-  // so at an exact fit before the cap it reaches an empty page and reports
-  // `truncated: false` — as the second half of this case shows. Only on the
-  // `KV_MAX_PAGES`-th page does the walk end with a cursor still outstanding, and
-  // there `inflightScanTruncatedRef` arms and `confirmRun` refuses to spend. Both
-  // sides of THAT boundary are pinned in `lib/kv.test.ts`.
-  //
-  // ⚠ The bound OVERSHOOTS deliberately: 2 rows at `limit: 2` is the exact fit, and
-  // a fixture where the row count were a non-multiple of the page size would never
-  // reach it.
-  it('app-storage list emits a cursor on an EXACTLY FULL final page', async () => {
+  // 🔴 THE EXACT-FIT BOUNDARY, WHICH THE PORT MOVED. The legacy route emitted a cursor
+  // for any FULL page; the document store reads `limit + 1` and emits one only when
+  // another row exists. So an exactly-full final page is the LAST page, and the
+  // in-flight scan that reads it is complete. `lib/kv.test.ts` pins what that means
+  // for `forEachStoredKey`'s truncation report.
+  it('kv list carries NO cursor on an exactly-full final page', async () => {
     install({ storage: { seed: { 'inflight:v1:a': 1, 'inflight:v1:b': 2 } } });
-    const { result } = renderHook(() => useAppStorage());
+    const { result } = renderHook(() => useKvStore());
 
     const page = await result.current.list({ prefix: 'inflight:v1:', limit: 2 });
     expect(page.keys.map((k) => k.key)).toEqual(['inflight:v1:a', 'inflight:v1:b']);
-    // Full page ⇒ a cursor, even though nothing is actually left.
-    expect(page.nextCursor).toBeTypeOf('string');
-
-    // And the next page is empty and CLEARS it, so the loop terminates.
-    const next = await result.current.list({
-      prefix: 'inflight:v1:',
-      limit: 2,
-      cursor: page.nextCursor,
-    });
-    expect(next.keys).toEqual([]);
-    expect(next.nextCursor).toBeUndefined();
+    expect(page.nextCursor).toBeUndefined();
   });
 
-  // `ORDER BY key` ASCENDING, the opposite of shared storage's DESC — asserted
-  // because the two arms of the fake now model two different queries and a reader
-  // would otherwise assume one rule.
-  it('app-storage list is key-ASCENDING, and a stale cursor resumes rather than restarting', async () => {
-    install({ storage: { seed: { 'd:c': 3, 'd:a': 1, 'd:b': 2 } } });
-    const { result } = renderHook(() => useAppStorage());
+  it('a limit above 100 is CLAMPED by the adapter, which the store would otherwise refuse', async () => {
+    const { calls } = install({ storage: { seed: { 'd:a': 1 } } });
+    const { result } = renderHook(() => useKvStore());
+    await expect(result.current.list({ prefix: 'd:', limit: 500 })).resolves.toMatchObject({ keys: [{ key: 'd:a' }] });
+    expect(calls[0]!.path).toBe('blocks/storage/kv');
+  });
 
-    const p1 = await result.current.list({ prefix: 'd:', limit: 2 });
-    expect(p1.keys.map((k) => k.key)).toEqual(['d:a', 'd:b']);
+  it('getQuota reads the VIEWER’s usage and ceilings off info()', async () => {
+    const { calls } = install({ storage: { seed: { 'draft:v1:a': { t: 1 } }, limitBytes: 777_000, limitRows: 333 } });
+    const { result } = renderHook(() => useKvStore());
+    const q = await result.current.getQuota();
+    // Values a hard-coded default could not produce, so the read is the source.
+    expect(q).toMatchObject({ rowCount: 1, limitBytes: 777_000, limitRows: 333 });
+    expect(q.usedBytes).toBeGreaterThan(0);
+    expect(calls).toEqual([{ path: 'blocks/storage', method: 'GET', body: {} }]);
+  });
 
-    // A cursor naming a key that no longer exists — the concurrent-delete case. The
-    // route is a keyset bound (`key > cursor`), so it resumes PAST it; a
-    // `findIndex`-based fake returned page 1 again, forever.
-    const p2 = await result.current.list({ prefix: 'd:', limit: 2, cursor: btoa('d:aa') });
-    expect(p2.keys.map((k) => k.key)).toEqual(['d:b', 'd:c']);
+  it('an ANONYMOUS viewer is refused `sign_in_required`, never answered empty', async () => {
+    install({ viewerUserId: -1 });
+    const { result } = renderHook(() => useKvStore());
+    await expect(result.current.get('draft:v1:a')).rejects.toMatchObject({ code: 'sign_in_required', status: 401 });
+    await expect(result.current.list({ prefix: 'draft:v1:' })).rejects.toMatchObject({ code: 'sign_in_required' });
   });
 
   it('the façade is a stable object across renders — it goes into dependency arrays', () => {
     install();
-    const { result, rerender } = renderHook(() => useAppStorage());
+    const { result, rerender } = renderHook(() => useKvStore());
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
   });
 
   // 🔴 THE DEADLINE THE PORT HAD TO PUT BACK, PINNED AT EVERY CALL SITE. Every
-  // bridge message carried a 30s client timeout (`DEFAULT_REQUEST_TIMEOUT_MS`,
-  // applied by the iframe transport whenever the caller passed none);
-  // `@civitai/sdk` dropped them deliberately ("per-message client timeouts → none;
-  // pass an `AbortSignal`") and `fetch` has none, so a façade passing NO SIGNAL
-  // hangs forever. Money-adjacent: `confirmRun` adds the cell to `inFlightRef`
-  // BEFORE awaiting the claim write and every matching `delete` sits AFTER the
-  // await with no `finally`, so a never-settling `appStorage.set` leaves the cell
-  // permanently un-runnable AND un-resumable with no `CLAIM_FAILED_MESSAGE`.
+  // bridge message carried a 30s client timeout; `@civitai/sdk` dropped them
+  // deliberately and `fetch` has none, so a façade passing NO SIGNAL hangs forever.
+  // Money-adjacent: `confirmRun` adds the cell to `inFlightRef` BEFORE awaiting the
+  // claim write, so a never-settling `appStorage.set` leaves the cell permanently
+  // un-runnable AND un-resumable with no `CLAIM_FAILED_MESSAGE`.
   //
-  // 🔴 A LEDGER OVER ALL THIRTEEN OPERATIONS, NOT A SAMPLE — because three
-  // declarations covering thirteen instances is not coverage. MEASURED: with only
-  // `set`/`list`/balance pinned, a mutant removing the deadline from
-  // `sharedStorage.append` ALONE passed the entire suite, 685/685 green — and
-  // `append` is the publish-a-row write, so that is a permanently spinning publish
-  // with no refusal shown.
-  //
-  // ⚠ WHAT THIS ASSERTS IS THAT A DEADLINE EXISTS, NOT THAT IT IS 30s. Asserting
-  // the value needs either a 30s wall-clock wait or fake timers, and
-  // `AbortSignal.timeout()` is a platform primitive vitest's fake timers do not
-  // patch — an earlier draft tried it and hung to vitest's own 5s deadline, proving
-  // nothing. The defect is "no signal at all"; that is what this pins.
-  //
-  // 🔴 IT FAILS WHEN THE SET GROWS OR SHRINKS. A new façade method that forgets
-  // `withDeadline` is not merely unpinned — the count assertion below goes red, so
-  // the next author has to add it to this ledger deliberately.
+  // 🔴 A LEDGER OVER EVERY OPERATION, NOT A SAMPLE, and it fails when the set GROWS or
+  // SHRINKS. ⚠ It asserts a deadline EXISTS, not that it is 30s: `AbortSignal.timeout`
+  // is not patched by vitest's fake timers.
   describe('every REST call carries a default deadline', () => {
     /**
-     * One entry per operation the three façades expose. The names are the ledger:
-     * `SharedStore` has seven members and `StorageClient` five, plus the balance
-     * read, and all thirteen must reach `fetch` with a signal.
+     * One entry per operation the two storage façades expose, with how many requests
+     * it makes. `update` is TWO — it reads the document's version, then writes at it.
      */
-    const OPERATIONS: Array<[string, (r: never) => Promise<unknown>]> = [
-      ['storage.get', (r: never) => (r as unknown as StorageClient).get('k')],
-      ['storage.set', (r: never) => (r as unknown as StorageClient).set('k', 1)],
-      ['storage.delete', (r: never) => (r as unknown as StorageClient).delete('k')],
-      ['storage.list', (r: never) => (r as unknown as StorageClient).list({ prefix: 'k' })],
-      ['storage.getQuota', (r: never) => (r as unknown as StorageClient).getQuota()],
-      ['shared.list', (r: never) => (r as unknown as SharedStore).list()],
-      ['shared.append', (r: never) => (r as unknown as SharedStore).append({ title: 't' })],
-      ['shared.update', (r: never) => (r as unknown as SharedStore).update('k', { title: 't' })],
-      ['shared.withdraw', (r: never) => (r as unknown as SharedStore).withdraw('k')],
-      ['shared.vote', (r: never) => (r as unknown as SharedStore).vote('k')],
-      ['shared.unvote', (r: never) => (r as unknown as SharedStore).unvote('k')],
-      ['shared.report', (r: never) => (r as unknown as SharedStore).report('k')],
+    const OPERATIONS: Array<[string, number, (r: never) => Promise<unknown>]> = [
+      ['storage.get', 1, (r: never) => (r as unknown as KvStore).get('k')],
+      ['storage.set', 1, (r: never) => (r as unknown as KvStore).set('k', 1)],
+      ['storage.delete', 1, (r: never) => (r as unknown as KvStore).delete('k')],
+      ['storage.list', 1, (r: never) => (r as unknown as KvStore).list({ prefix: 'k' })],
+      ['storage.getQuota', 1, (r: never) => (r as unknown as KvStore).getQuota()],
+      ['shared.list', 1, (r: never) => (r as unknown as SharedStore).list()],
+      ['shared.append', 1, (r: never) => (r as unknown as SharedStore).append({ title: 't' })],
+      ['shared.update', 2, (r: never) => (r as unknown as SharedStore).update('k', { title: 't' })],
+      ['shared.withdraw', 1, (r: never) => (r as unknown as SharedStore).withdraw('k')],
+      ['shared.vote', 1, (r: never) => (r as unknown as SharedStore).vote('k')],
+      ['shared.unvote', 1, (r: never) => (r as unknown as SharedStore).unvote('k')],
+      ['shared.report', 1, (r: never) => (r as unknown as SharedStore).report('k')],
     ];
 
-    /** A reply valid for whichever family is under test — the SDK's clients throw on
-     *  a missing field, and a throw before the assertion would make a case pass or
-     *  fail for the wrong reason. */
-    const anyReply = () =>
+    /** One reply the SDK's parsers accept for every route under test — a document, a
+     *  page, a delete, a mark result, `info()` and the balance at once. Only `marked`
+     *  differs, by method, because a mark and an unmark must answer opposite values. */
+    const anyReply = (method: string) =>
       new Response(
         JSON.stringify({
-          value: null,
-          sizeBytes: 1,
-          deleted: false,
-          ok: true,
           key: 'k',
-          count: 1,
-          keys: [],
+          data: { value: null },
+          version: 1,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          author: { kind: 'user', isViewer: true },
+          counters: {},
+          marks: { vote: 1 },
+          viewer: { marks: [] },
+          deleted: false,
           items: [],
-          metadata: {},
+          nextCursor: null,
+          marked: method !== 'DELETE',
+          count: 1,
+          collections: {},
+          limits: { viewerBytes: 1, viewerDocs: 1 },
+          usage: { app: { bytes: 0, docs: 0 }, viewer: { bytes: 0, docs: 0 } },
           blue: 0,
           green: 0,
           yellow: 0,
@@ -498,27 +479,29 @@ describe('group 3 — per-viewer app storage', () => {
     function installCapturing(seen: Array<AbortSignal | undefined>) {
       configureSdkRuntime({
         transport: fakeTransport().transport,
-        fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
+        fetch: (async (_i: unknown, init?: { signal?: AbortSignal; method?: string }) => {
           seen.push(init?.signal);
-          return anyReply();
+          return anyReply((init?.method ?? 'GET').toUpperCase());
         }) as never,
       });
     }
 
-    it.each(OPERATIONS)('%s sends an unaborted AbortSignal', async (_name, call) => {
+    it.each(OPERATIONS)('%s sends an unaborted AbortSignal on every request', async (_name, requests, call) => {
       const seen: Array<AbortSignal | undefined> = [];
       installCapturing(seen);
       const isShared = _name.startsWith('shared.');
-      const { result } = renderHook(() => (isShared ? useSharedStorage() : useAppStorage()));
+      const { result } = renderHook(() => (isShared ? useRecordsStore() : useKvStore()));
 
       await call(result.current as never);
 
-      expect(seen).toHaveLength(1);
-      // A signal at all is the regression guard: `undefined` is the defect.
-      expect(seen[0]).toBeInstanceOf(AbortSignal);
-      // And NOT an already-aborted stub, which would satisfy the line above while
-      // making every request fail instantly.
-      expect(seen[0]?.aborted).toBe(false);
+      expect(seen).toHaveLength(requests);
+      for (const signal of seen) {
+        // A signal at all is the regression guard: `undefined` is the defect.
+        expect(signal).toBeInstanceOf(AbortSignal);
+        // And NOT an already-aborted stub, which would satisfy the line above while
+        // making every request fail instantly.
+        expect(signal?.aborted).toBe(false);
+      }
     });
 
     it('the Buzz balance read carries one too', async () => {
@@ -530,271 +513,229 @@ describe('group 3 — per-viewer app storage', () => {
       expect(seen[0]?.aborted).toBe(false);
     });
 
-    // 🔴 THE LEDGER'S OWN SIZE. `SharedStore` is declared with seven members and
-    // `StorageClient` with five; plus the balance read that is thirteen operations.
-    // If a façade gains one, this fails and the new op has to be added above rather
-    // than silently shipping without a deadline.
     it('covers EVERY façade operation — the set may not grow or shrink unnoticed', () => {
       resetSdkRuntime();
-      configureSdkRuntime({ transport: fakeTransport().transport, fetch: (async () => anyReply()) as never });
-      const { result: sharedResult } = renderHook(() => useSharedStorage());
-      const { result: storageResult } = renderHook(() => useAppStorage());
+      configureSdkRuntime({ transport: fakeTransport().transport, fetch: (async () => anyReply('GET')) as never });
+      const { result: sharedResult } = renderHook(() => useRecordsStore());
+      const { result: storageResult } = renderHook(() => useKvStore());
 
       const sharedOps = Object.keys(sharedResult.current).sort();
       const storageOps = Object.keys(storageResult.current).sort();
-      expect(sharedOps).toEqual(
-        ['append', 'list', 'report', 'unvote', 'update', 'vote', 'withdraw'].sort(),
-      );
+      expect(sharedOps).toEqual(['append', 'list', 'report', 'unvote', 'update', 'vote', 'withdraw'].sort());
       expect(storageOps).toEqual(['delete', 'get', 'getQuota', 'list', 'set'].sort());
-      // 🔴 DERIVED FROM THE TABLE'S OWN NAMES, NOT A COUNT. A count alone is
-      // satisfiable while a method goes unpinned: swapping the `shared.report` row
-      // for a duplicate `vote` keeps the length identical, and `report` then ships
-      // with no deadline and a green suite. Comparing the SETS makes a duplicate or a
-      // typo red instead.
+      // 🔴 DERIVED FROM THE TABLE'S OWN NAMES, NOT A COUNT — a duplicate row would keep
+      // a count equal while a method shipped unpinned.
       const tabled = OPERATIONS.map(([n]) => n.split('.')[1]).sort();
       expect(tabled).toEqual([...storageOps, ...sharedOps].sort());
       expect(OPERATIONS).toHaveLength(sharedOps.length + storageOps.length);
     });
   });
 
-  // 🔴 AND IT MUST NOT CLOBBER A CALLER'S OWN SIGNAL. `withDeadline` fills a gap; a
-  // caller that passes cancellation owns the deadline. Overwriting would silently
-  // discard the caller's abort — the same defect `sdk-transport.ts` refuses to
-  // introduce by casting.
-  it("honours a CALLER's signal rather than substituting the default deadline", async () => {
-    const seen: Array<AbortSignal | undefined> = [];
-    configureSdkRuntime({
-      transport: fakeTransport().transport,
-      fetch: (async (_i: unknown, init?: { signal?: AbortSignal }) => {
-        seen.push(init?.signal);
-        return new Response(JSON.stringify({ value: null }), { status: 200 });
-      }) as never,
+  it('a refused write REJECTS rather than resolving "not written"', async () => {
+    // The app persists its in-flight run claim through `set` and refuses the run when
+    // the claim cannot be written, so a resolving failure is a double-charge.
+    const { result } = (() => {
+      install({ storage: { limitRows: 1, seed: { 'draft:v1:a': 1 } } });
+      return renderHook(() => useKvStore());
+    })();
+    await expect(result.current.set('inflight:v1:x', { comboKey: 'c' })).rejects.toMatchObject({
+      code: 'quota_exceeded',
+      status: 413,
     });
-    const { result } = renderHook(() => useAppStorage());
-
-    const ac = new AbortController();
-    await result.current.get('k', { signal: ac.signal });
-
-    expect(seen).toHaveLength(1);
-    // The caller's own signal object, not a fresh timeout signal.
-    expect(seen[0]).toBe(ac.signal);
   });
 
-  it('a refused write REJECTS rather than resolving "not written"', async () => {
-    // An unknown route is the fake's 404, which is the shape of any refusal here:
-    // the SDK's contract is that every failure rejects and nothing resolves to mean
-    // "not written". The app persists its in-flight run claim through `set` and
-    // refuses the run when the claim cannot be written, so a resolving failure is a
-    // double-charge.
-    configureSdkRuntime({
-      transport: fakeTransport().transport,
-      fetch: (async () => new Response(JSON.stringify({ error: 'QUOTA' }), { status: 413 })) as never,
+  it('a document over 65,536 stored bytes is refused 413 `too_large`', async () => {
+    install();
+    const { result } = renderHook(() => useKvStore());
+    await expect(result.current.set('draft:v1:big', { blob: 'x'.repeat(70_000) })).rejects.toMatchObject({
+      code: 'too_large',
+      status: 413,
     });
-    const { result } = renderHook(() => useAppStorage());
-    await expect(result.current.set('k', 1)).rejects.toThrow(/QUOTA/);
   });
 });
 
-describe('group 3 — shared storage', () => {
-  it('list GETs blocks/shared-storage/list and lifts items out of the envelope', async () => {
+describe('group 3 — the shared board (the `records` collection)', () => {
+  it('list GETs blocks/storage/records newest-first and maps marks onto the row', async () => {
     const { calls } = install({
-      shared: { seed: [{ key: 'mk-a', value: { title: 'Matchup A' }, voters: [1, 2] }] },
+      shared: { seed: [{ key: 'mk-a', value: { title: 'Matchup A' }, voters: [1, 2], authorUserId: 7 }] },
     });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     const page = await result.current.list({ limit: 50 });
     expect(page.items).toHaveLength(1);
-    expect(page.items[0]).toMatchObject({ key: 'mk-a', count: 2, viewerVoted: false });
-    // 🔴 GET, not POST. The two reads on this surface are GET with a query string
-    // and the writes are POST; a read sent as POST is a 405 on the real route.
-    expect(calls).toEqual([{ path: 'blocks/shared-storage/list', method: 'GET', body: {} }]);
+    // `count` is `marks.vote`; the viewer (99) did not vote and did not write it.
+    expect(page.items[0]).toMatchObject({ key: 'mk-a', count: 2, viewerVoted: false, authoredByViewer: false });
+    expect(calls).toEqual([{ path: 'blocks/storage/records', method: 'GET', body: {} }]);
   });
 
-  it('append POSTs { value } and resolves the SERVER-minted key', async () => {
+  it('`viewerVoted` and `authoredByViewer` are the STORE’s answers about the reader', async () => {
+    install({
+      shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, voters: [99, 3], authorUserId: 99 }] },
+    });
+    const { result } = renderHook(() => useRecordsStore());
+    const [row] = (await result.current.list()).items;
+    expect(row).toMatchObject({ count: 2, viewerVoted: true, authoredByViewer: true });
+    // 🔴 No author id crosses the wire: the row carries only whether the READER wrote it.
+    expect(Object.keys(row!).sort()).toEqual(
+      ['authoredByViewer', 'count', 'createdAt', 'key', 'updatedAt', 'value', 'viewerVoted'].sort(),
+    );
+  });
+
+  it('append POSTs `{ data: <value verbatim> }` and resolves the SERVER-minted key', async () => {
     const { calls } = install({ shared: { seed: [] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     const { key } = await result.current.append({ title: 'New matchup', body: '', data: { v: 2 } });
-    // The key is the server's — this method takes none, because a client-chosen key
-    // would let one viewer overwrite another's row.
-    expect(key).toHaveLength(26);
+    expect(key).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
+    // 🔴 NOT wrapped — a shared document's data IS the legacy value. The copy writes
+    // exactly this shape.
     expect(calls[0]).toEqual({
-      path: 'blocks/shared-storage/append',
+      path: 'blocks/storage/records',
       method: 'POST',
-      body: { value: { title: 'New matchup', body: '', data: { v: 2 } } },
+      body: { data: { title: 'New matchup', body: '', data: { v: 2 } } },
     });
   });
 
-  it('update POSTs { key, value } and resolves void', async () => {
+  it('update reads the version, then PUTs at it — and resolves void', async () => {
     const { calls } = install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     await expect(result.current.update('mk-a', { title: 'A2' })).resolves.toBeUndefined();
-    expect(calls[0]).toEqual({
-      path: 'blocks/shared-storage/update',
-      method: 'POST',
-      body: { key: 'mk-a', value: { title: 'A2' } },
-    });
+    expect(calls).toEqual([
+      { path: 'blocks/storage/records/mk-a', method: 'GET', body: {} },
+      { path: 'blocks/storage/records/mk-a', method: 'PUT', body: { data: { title: 'A2' }, ifVersion: 1 } },
+    ]);
   });
 
-  it('withdraw POSTs { key } and reports whether a row was deleted', async () => {
+  it('update of a row that is GONE rejects `not_found` rather than resurrecting it', async () => {
+    const { calls } = install({ shared: { seed: [] } });
+    const { result } = renderHook(() => useRecordsStore());
+    await expect(result.current.update('gone', { title: 'X' })).rejects.toMatchObject({ code: 'not_found' });
+    // No write went out — `put` would have CREATED the key.
+    expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0);
+  });
+
+  it('update of ANOTHER author’s row is refused `not_author` (the `own` policy)', async () => {
+    install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, authorUserId: 7 }] } });
+    const { result } = renderHook(() => useRecordsStore());
+    await expect(result.current.update('mk-a', { title: 'mine now' })).rejects.toMatchObject({ code: 'not_author' });
+  });
+
+  it('withdraw DELETEs and reports whether a row was deleted', async () => {
     const { calls } = install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     await expect(result.current.withdraw('mk-a')).resolves.toEqual({ ok: true, deleted: true });
-    expect(calls[0]).toEqual({
-      path: 'blocks/shared-storage/withdraw',
-      method: 'POST',
-      body: { key: 'mk-a' },
-    });
-    // `deleted: false` is a SUCCESS and deliberately ambiguous on the real route —
-    // another author's key, an already-withdrawn row and one that never existed all
-    // answer identically, so this cannot probe for other viewers' rows.
+    expect(calls[0]).toEqual({ path: 'blocks/storage/records/mk-a', method: 'DELETE', body: {} });
+    // Idempotent: a second delete is `deleted: false`, a success.
     await expect(result.current.withdraw('mk-a')).resolves.toEqual({ ok: true, deleted: false });
   });
 
-  it('vote POSTs { key } to the vote route and returns the new tally', async () => {
+  it('withdraw of ANOTHER author’s row REJECTS `not_author` — it does not resolve a no-op', async () => {
+    install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, authorUserId: 7 }] } });
+    const { result } = renderHook(() => useRecordsStore());
+    await expect(result.current.withdraw('mk-a')).rejects.toMatchObject({ code: 'not_author', status: 403 });
+  });
+
+  it('vote PUTs the `vote` mark and returns the new tally', async () => {
     const { calls } = install({
       shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, voters: [1, 2] }] },
     });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     await expect(result.current.vote('mk-a')).resolves.toBe(3);
-    expect(calls[0]).toEqual({
-      path: 'blocks/shared-storage/vote',
-      method: 'POST',
-      body: { key: 'mk-a' },
-    });
+    expect(calls[0]).toEqual({ path: 'blocks/storage/records/mk-a/marks/vote', method: 'PUT', body: {} });
   });
 
-  // 🔴 IDEMPOTENT, because the platform's route is: "an atomic insert-gated counter
-  // — a double vote is a no-op and the tally never inflates". The app writes this
-  // number into the row's displayed count, and the Top Grid's membership is ranked
-  // on it, so a client that assumed +1 per call would inflate a public ranking.
+  // 🔴 IDEMPOTENT, because a mark is: the app writes this number into the row's
+  // displayed count and the Top Grid is ranked on it.
   it('a repeated vote does not inflate the tally', async () => {
     install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, voters: [] }] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     await expect(result.current.vote('mk-a')).resolves.toBe(1);
     await expect(result.current.vote('mk-a')).resolves.toBe(1);
   });
 
-  it('unvote POSTs to the UNVOTE route and returns the decremented tally', async () => {
+  it('unvote DELETEs the `vote` mark and returns the decremented tally', async () => {
     const { calls } = install({
       shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, voters: [99] }] },
     });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
     await expect(result.current.unvote('mk-a')).resolves.toBe(0);
-    // 🔴 A DISTINCT ROUTE, asserted by name. `vote` and `unvote` take the same body
-    // and return the same shape, so a binding that sent an unvote to the vote route
-    // would still resolve a plausible number — and would ADD a vote where the
-    // viewer asked to remove one.
-    expect(calls[0]!.path).toBe('blocks/shared-storage/unvote');
+    // 🔴 A DISTINCT METHOD, asserted: a binding that sent an unvote as a PUT would
+    // still resolve a plausible number — and would ADD a vote.
+    expect(calls[0]).toMatchObject({ path: 'blocks/storage/records/mk-a/marks/vote', method: 'DELETE' });
   });
 
-  // 🔴 ASSERTED, NOT COERCED. `Number(undefined)` is NaN and a `?? 0` would report
-  // a vote that did not land as a tally of ZERO — which the app renders and ranks
-  // on. A malformed reply is a failure, not a count.
   it('vote REJECTS on a reply carrying no numeric count', async () => {
     configureSdkRuntime({
       transport: fakeTransport().transport,
-      fetch: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as never,
+      fetch: (async () => new Response(JSON.stringify({ marked: true }), { status: 200 })) as never,
     });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
     await expect(result.current.vote('mk-a')).rejects.toThrow(/no numeric `count`/);
   });
 
   it('unvote REJECTS on a reply carrying no numeric count, and names itself', async () => {
     configureSdkRuntime({
       transport: fakeTransport().transport,
-      fetch: (async () => new Response(JSON.stringify({ count: 'three' }), { status: 200 })) as never,
+      fetch: (async () => new Response(JSON.stringify({ marked: false }), { status: 200 })) as never,
     });
-    const { result } = renderHook(() => useSharedStorage());
-    // The operation name is in the message so a failure says WHICH call produced
-    // it; both routes answer `{ count }` and a shared message would not.
+    const { result } = renderHook(() => useRecordsStore());
     await expect(result.current.unvote('mk-a')).rejects.toThrow(/unvote/);
   });
 
-  it('report POSTs { key } and OMITS reason when the caller passes none', async () => {
-    const { calls } = install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+  it('report PUTs the BUILT-IN `report` mark', async () => {
+    const { calls } = install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, authorUserId: 7 }] } });
+    const { result } = renderHook(() => useRecordsStore());
 
     await result.current.report('mk-a');
-    // 🔴 `reason` ABSENT, not `undefined` and not `''`. The route's schema is
-    // `z.string().max(N).optional()`, so an empty string is a 400 where an absent
-    // key takes the router's own `'user-report'` default.
-    expect(calls[0]).toEqual({
-      path: 'blocks/shared-storage/report',
-      method: 'POST',
-      body: { key: 'mk-a' },
-    });
+    expect(calls[0]).toEqual({ path: 'blocks/storage/records/mk-a/marks/report', method: 'PUT', body: {} });
   });
 
-  it('report carries reason when one is given', async () => {
-    const { calls } = install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
-
-    await result.current.report('mk-a', 'spam');
-    expect(calls[0]!.body).toEqual({ key: 'mk-a', reason: 'spam' });
-  });
-
-  it('report leaves the row on the board — it files, it does not hide', async () => {
-    install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+  it('report leaves the row on the board, and its count is never exposed', async () => {
+    install({ shared: { seed: [{ key: 'mk-a', value: { title: 'A' }, authorUserId: 7 }] } });
+    const { result } = renderHook(() => useRecordsStore());
 
     await result.current.report('mk-a');
     const page = await result.current.list();
     expect(page.items.map((i) => i.key)).toEqual(['mk-a']);
+    // The vote tally is untouched by a report.
+    expect(page.items[0]!.count).toBe(0);
   });
 
-  // 🔴 PAGING OVER THE NEW WIRE, which nothing exercised until the fake learned to
-  // emit a cursor. `App.tsx`'s `listAll` pages the WHOLE board and reports
-  // `truncated: true` when it exhausts its page budget with a cursor still in hand —
-  // and that flag is what stops the vote ranking and the Top Grid being computed over
-  // a silent PREFIX of the board. Before this, the fake ignored `prefix`/`cursor` and
-  // never sent `metadata.nextCursor`, so the loop was driven only through
-  // `deps.shared` overrides and never over the transport it now uses.
-  it('list pages with prefix + cursor, and the cursor CLEARS on the last page', async () => {
+  it('list pages with a cursor, and the cursor CLEARS on the last page', async () => {
     const { calls } = install({
       shared: {
         seed: [
           { key: 'mk-1', value: { title: 'A' } },
           { key: 'mk-2', value: { title: 'B' } },
           { key: 'mk-3', value: { title: 'C' } },
-          { key: 'other', value: { title: 'X' } },
         ],
       },
     });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
 
-    // 🔴 NEWEST-FIRST, i.e. `ORDER BY key DESC` — this route's own order, and the
-    // OPPOSITE of `app-storage/list`'s ascending one. Asserted rather than assumed:
-    // an earlier version of this case expected ascending, which is what the fake
-    // did before it was made to match the query, and the ordering is the thing a
-    // "newest first" board is built on.
-    const p1 = await result.current.list({ prefix: 'mk-', limit: 2 });
+    // 🔴 NEWEST-FIRST, i.e. `sort=-key` — the legacy board's order, and keys are ULIDs.
+    const p1 = await result.current.list({ limit: 2 });
     expect(p1.items.map((i) => i.key)).toEqual(['mk-3', 'mk-2']);
     expect(p1.nextCursor).toBeTypeOf('string');
 
-    const p2 = await result.current.list({ prefix: 'mk-', limit: 2, cursor: p1.nextCursor });
-    // `prefix` is honoured across the page boundary — `other` must not appear.
+    const p2 = await result.current.list({ limit: 2, cursor: p1.nextCursor });
     expect(p2.items.map((i) => i.key)).toEqual(['mk-1']);
-    // 🔴 THE ABSENCE IS THE PROOF A SCAN COMPLETED. A cursor that never clears makes
-    // `listAll` report `truncated` forever; one that never appears makes it report a
-    // partial board as the whole one.
     expect(p2.nextCursor).toBeUndefined();
 
-    // Both pages went out as GET with the query on the URL, not as a POST body.
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-      'GET blocks/shared-storage/list',
-      'GET blocks/shared-storage/list',
+      'GET blocks/storage/records',
+      'GET blocks/storage/records',
     ]);
   });
 
   it('the façade is a stable object across renders', () => {
     install();
-    const { result, rerender } = renderHook(() => useSharedStorage());
+    const { result, rerender } = renderHook(() => useRecordsStore());
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
@@ -899,7 +840,7 @@ describe('runtime lifecycle', () => {
   // fixture's board to the second case and pass for the wrong reason.
   it('a second configure swaps the fetch the REST clients use', async () => {
     install({ buzz: { blue: 1, green: 1, yellow: 1 } });
-    const { result, rerender } = renderHook(() => useSharedStorage());
+    const { result, rerender } = renderHook(() => useRecordsStore());
     await expect(result.current.list()).resolves.toMatchObject({ items: [] });
 
     install({ shared: { seed: [{ key: 'after', value: { title: 'After' } }] } });
@@ -912,7 +853,7 @@ describe('runtime lifecycle', () => {
 
   it('resetSdkRuntime clears the options, so nothing carries into the next case', async () => {
     install({ shared: { seed: [{ key: 'gone', value: { title: 'Gone' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
     await expect(result.current.list()).resolves.toMatchObject({
       items: [expect.objectContaining({ key: 'gone' })],
     });
@@ -942,7 +883,7 @@ describe('runtime lifecycle', () => {
   // and `leak-B` must stay the case that installs NOTHING.
   it('leak-A: installs a board fixture and deliberately leaves it installed', async () => {
     install({ shared: { seed: [{ key: 'leaked', value: { title: 'Leaked' } }] } });
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
     await expect(result.current.list()).resolves.toMatchObject({
       items: [expect.objectContaining({ key: 'leaked' })],
     });
@@ -952,7 +893,7 @@ describe('runtime lifecycle', () => {
     // No `install()` at all. If the previous case's `fetch` were still in place this
     // would answer with its row; the global reset leaves the runtime on the bridge
     // singleton, which is un-initialised, so the call cannot answer at all.
-    const { result } = renderHook(() => useSharedStorage());
+    const { result } = renderHook(() => useRecordsStore());
     const settled = await Promise.race([
       result.current.list().then((page) => page.items.map((i) => i.key)),
       new Promise<'pending'>((r) => setTimeout(() => r('pending'), 50)),
@@ -1056,7 +997,7 @@ describe('runtime lifecycle', () => {
           shared: { seed: [{ key: 'before', value: { title: 'B' } }] },
         }),
       });
-      const { result } = renderHook(() => useSharedStorage());
+      const { result } = renderHook(() => useRecordsStore());
       // Prime the AppClient — and deliberately do NOT render anything that reads the
       // snapshot, so `app()` is the only thing that can notice the swap.
       await expect(result.current.list()).resolves.toMatchObject({

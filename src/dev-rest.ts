@@ -1,35 +1,40 @@
-// An in-memory stand-in for the three REST families this app reaches after the
-// port off the bridge: per-viewer app storage, cross-user shared storage, and the
-// Buzz balance. Used by the dev harness (`main.tsx`) and by the tests that used
-// to seed those stores through the mock host.
+// An in-memory stand-in for the REST families this app reaches: the App Blocks
+// DOCUMENT STORE (`/api/v1/blocks/storage/*` — the private `kv` and shared `records`
+// collections) and the Buzz balance. Used by the dev harness (`main.tsx`) and by the
+// tests that seed those stores through `src/test-harness.tsx`.
 //
-// 🔴 WHY THIS IS A `fetch` FAKE AND NOT A MOCK HOST, which is the whole point.
-// Before the port, `useAppStorage`/`useSharedStorage`/`useBuzzBalance` were
-// postMessage conversations and `@civitai/blocks-react/testing`'s mock host
-// answered them. After it, they are HTTP. A transport-level fake would therefore
-// "answer a conversation nobody is having" — the suite would pass while
-// exercising none of the code that now carries the traffic. The app's real
-// boundary for these three is `fetch`, so the fake belongs there.
+// 🔴 WHY THIS IS A `fetch` FAKE AND NOT A MOCK HOST, which is the whole point. These
+// families are HTTP, not postMessage, so a transport-level fake would "answer a
+// conversation nobody is having" — the suite would pass while exercising none of the
+// code that now carries the traffic. The app's real boundary for them is `fetch`, so
+// the fake belongs there, and the app's REAL clients (`initialize()`'s
+// `app.storage.collection(…)`) are what talk to it.
 //
-// 🔴 WHAT IT IS NOT. It is not a second implementation of the platform's policy:
-// no scope checks, no min-trust gate, no rate limits, no moderation. Those are
-// the server's and they are NOT re-asserted here, because a fake that
-// reimplemented them would drift and start certifying its own behaviour. What it
-// does own is the ROUTE SHAPES — path, method, body, reply envelope — and those
-// are taken from two places that agree: the route files in civitai
-// `origin/main` @ `329c89a23e` (`src/pages/api/v1/blocks/{buzz,app-storage,
-// shared-storage}`), and `@civitai/sdk`'s own clients (installed 0.10.0; this read
-// `0.8.0` until the `scope: 'site'` bump), which are what
-// actually parse these replies (`dist/{storage,shared-storage}/index.js`) and
-// throw rather than default on a field they cannot find.
+// 🔴 THE DOCUMENT STORE IS ANSWERED BY THE SDK's OWN CONTRACT FAKE, NOT RE-IMPLEMENTED
+// HERE. `createFakeStorage` (`@civitai/sdk/testing`) is the server half of the store —
+// this repo's `block.manifest.json` declarations, scopes and consent, the `own` write
+// policy (`not_author`), marks and `viewer.marks`, the min-trust gate, key rules, the
+// list `limit` ceiling (1–100) and its exact-rule cursors, size and quota ceilings
+// (413), rate limits (429, opt-in) and the error envelope — and the SDK runs the
+// platform's own storage contract against it. This file only converts between `fetch`
+// and its `Http` seam and maps this repo's numeric test viewer ids onto its viewers.
+// (It does not model moderator-hidden documents; neither does this file — no code
+// path here branches on one, so a fake for it would pin the fake.)
 //
-// 🔴 KEYS ARE ULID-SHAPED, NOT `shared_<n>`. The real server GENERATES a ULID
-// (`apps-shared.router.ts`), so a seed may pin its own key but the mint must not
-// look like an index — a test that hard-codes a fake's counter convention is
-// asserting the fake rather than the platform. The mint is deliberately
-// DETERMINISTIC so a test can predict it without a clock.
+// The Buzz balance route is still hand-modelled: one bare `{ blue, green, yellow }`.
 
 import type { SharedStorageValue } from '@civitai/app-sdk/blocks';
+import { ApiError } from '@civitai/sdk';
+import {
+  createFakeStorage,
+  type FakeStorage,
+  type FakeStorageOptions,
+  type FakeStorageViewer,
+} from '@civitai/sdk/testing';
+
+import manifest from '../block.manifest.json';
+import { createKvStorage } from './lib/kv-store.js';
+import { RECORDS_COLLECTION, VOTE_MARK } from './lib/records-store.js';
 
 /** The viewer's per-pool balance, as `GET blocks/buzz` returns it. */
 export interface RestBuzzPools {
@@ -38,120 +43,94 @@ export interface RestBuzzPools {
   yellow: number;
 }
 
-/** One seeded shared row. A superset of the mock host's `MockSharedSeed`. */
+/** One seeded `records` document. */
 export interface RestSharedSeed {
+  /** The document's data — the legacy shared value, verbatim. */
   value: SharedStorageValue;
-  /** Defaults to the configured viewer, i.e. "the viewer wrote this". */
+  /**
+   * WHICH FAKE USER WROTE IT. Defaults to the configured viewer, i.e. "the viewer
+   * wrote this". A fixture-side identity only: the store never discloses it, and the
+   * app learns nothing but `author.isViewer`.
+   */
   authorUserId?: number;
-  /** Viewer ids holding an up-vote. The row's `count` is this list's length. */
+  /** Fake user ids holding a `vote` mark. The row's `marks.vote` is this list's length. */
   voters?: number[];
-  /** Pin the row's key instead of minting one. */
+  /** Pin the document's key instead of minting one. */
   key?: string;
 }
 
 export interface RestFakeOptions {
-  /** The signed-in viewer's id — decides `viewerVoted` and default authorship. */
+  /**
+   * The signed-in viewer's id — who the app's requests are made AS. `<= 0` (the test
+   * harness passes `-1`) is an ANONYMOUS viewer: the store refuses them every private
+   * call (`sign_in_required`) and every shared write, and serves shared reads.
+   */
   viewerUserId?: number;
-  /** Per-viewer KV seed (key → JSON value). Mirrors `MockStorageScenario.seed`. */
+  /** The viewer's private `kv` collection. */
   storage?: {
+    /** Legacy-shaped seed (key → the value the app stores), written through `lib/kv-store.ts`. */
     seed?: Record<string, unknown>;
+    /** The viewer's byte ceiling (`limits.viewerBytes`). */
     limitBytes?: number;
+    /** The viewer's document ceiling (`limits.viewerDocs`). */
     limitRows?: number;
-    /** Page size for `list`; one page for everything when omitted. */
+    /**
+     * A cap on every `kv` list page (the smaller of this and the caller's
+     * `limit`). Smaller values make a fixture span pages.
+     */
     pageSize?: number;
   };
-  /** Shared-store seed, listed newest-first in the order given. */
+  /** The shared `records` collection, seeded in the order given. */
   shared?: { seed?: RestSharedSeed[] };
+  /** Passed straight to `createFakeStorage`: consent, rate limits, clock, trust, … */
+  docStore?: Pick<FakeStorageOptions, 'consent' | 'enforceRateLimits' | 'now' | 'disabled' | 'moderate'> & {
+    /** The viewer fails the min-trust gate on shared writes (`not_eligible`). */
+    untrusted?: boolean;
+  };
   /**
    * The viewer's per-pool balance. Omit for {@link DEFAULT_BUZZ_BALANCE}; pass
    * `null` to make the balance route REFUSE (403), which is how a missing
    * `buzz:read:self` grant or an anonymous viewer reads.
    *
-   * 🔴 A FUNCTION IS ACCEPTED, and that is not a convenience: the mock host it
-   * replaces had `setScenario({ buzzBalanceError })`, and `buzzBalance.test.tsx`
-   * needs exactly that — a read that FAILS on mount and SUCCEEDS on the viewer's
-   * retry press. A plain value is snapshotted at construction and cannot express
-   * it, so the recovery case would have had nothing to recover from.
+   * 🔴 A FUNCTION IS ACCEPTED, and that is not a convenience: `buzzBalance.test.tsx`
+   * needs a read that FAILS on mount and SUCCEEDS on the viewer's retry press. A plain
+   * value is snapshotted at construction and cannot express it.
    */
   buzz?: RestBuzzPools | null | (() => RestBuzzPools | null);
   /**
-   * Called for every request this fake answers. The observation seam a test needs
-   * now that these three families are HTTP: a guard that used to count
-   * `GET_BUZZ_BALANCE` postMessages through the mock host's `onOutbound` counts
-   * `GET blocks/buzz` calls here.
+   * Called for every request this fake answers — the observation seam a test needs
+   * now that these families are HTTP. `path` is relative to `/api/v1/`.
    */
   onRequest?: (call: { path: string; method: string; body: Record<string, unknown> }) => void;
 }
 
-interface SharedRow {
-  key: string;
-  authorUserId: number;
-  value: unknown;
-  voters: Set<number>;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** A fixed instant, so nothing here reads a clock a test cannot control. */
-const EPOCH = '2026-01-01T00:00:00.000Z';
-
 /**
- * The page size both `list` routes apply when the caller sends none.
+ * Whether a list page should carry a cursor, under the DOCUMENT STORE's rule.
  *
- * 🔴 MODELLED, NOT IGNORED, AND THAT MATTERS FOR THE MONEY GUARD. `lib/kv.ts`'s
- * `forEachStoredKey` calls `list({ prefix, cursor })` with NO `limit`, so a fake that
- * defaulted to "every matching row" would return the whole store in one page and
- * the cursor rule below could never fire — which is how the in-flight-run scan's
- * paging loop and its truncation report came to be unexercised over this wire.
- * Both routes default to 50 (`SHARED_LIST_LIMIT_DEFAULT`, and `limit`'s
- * `.default(50)` on `appStorageListInput`).
+ * 🔴 EXPORTED, AND EVERY HAND-ROLLED PAGING FAKE IN THE REPO MUST USE IT —
+ * `test-helpers.tsx`'s `fakeAppStorage` and `lib/kv.test.ts`'s `store`. Several
+ * copies of one predicate is several chances to be wrong in the same direction.
+ *
+ * 🔴 THE RULE CHANGED WITH THE PORT. The legacy routes emitted a cursor whenever a
+ * page came back FULL (`rows.length === limit`), because they never read row
+ * `limit + 1`. The document store reads `limit + 1` (`doc-store.ts`'s list SQL) and
+ * emits a cursor EXACTLY when another row exists — `nextCursor` is `null` exactly on
+ * the last page, and the SDK fake (`ordered.length > limit`) agrees. So "a full final
+ * page" is no longer "there may be more": it is a complete read, and `forEachStoredKey`
+ * reports it untruncated. Pass the number of matching rows from the cursor ON —
+ * including this page's.
  */
-const LIST_LIMIT_DEFAULT = 50;
-
-/**
- * Whether a page that came back FULL should carry a cursor.
- *
- * 🔴 EXPORTED, AND EVERY PAGING FAKE IN THE REPO MUST USE IT — `dev-rest`'s two
- * arms, `test-helpers.tsx`'s `fakeAppStorage` and `lib/kv.test.ts`'s `store`. Four
- * copies of one predicate is four chances to be wrong in the same direction, and
- * they WERE: the drift this constant was extracted to end had already produced two
- * optimistic copies, and a mutant flipping `test-helpers.tsx`'s copy alone passed
- * the entire suite because nothing reaches that boundary through it. Consolidating
- * is what makes that mutant impossible rather than merely unobserved — one
- * predicate, one guard (`lib/kv.test.ts`'s two boundary cases), and a flip anywhere
- * is a flip everywhere.
- *
- * 🔴 ONE RULE, ONE PLACE, BECAUSE THE TWO ARMS HAD DRIFTED. Both real routes use
- * exactly this — `rows.length === limit ? base64(lastKey) : undefined`
- * (`app-storage.service.ts` and `apps-shared.router.ts`, independently) — and the
- * server cannot do better: it has not read row `limit + 1`, so a full page always
- * means "there may be more".
- *
- * The app-storage arm used to say `from + page.length < all.length` instead, which
- * is the fake looking at data the server cannot see, and it is OPTIMISTIC in the
- * direction that stands the money guard down.
- *
- * ⚠ BE EXACT ABOUT WHERE IT BITES, because an earlier draft of this paragraph was
- * wider than the code. A full page yields a cursor, so `forEachStoredKey` follows it
- * — and at any exact fit BEFORE the cap it reaches an empty page, gets no cursor,
- * and reports `truncated: false`. The rule only changes the money decision on the
- * `KV_MAX_PAGES`-th page, where the walk runs out of budget with a cursor still
- * outstanding: there the server arms `inflightScanTruncatedRef` and the old fake
- * disarmed it. One page, and it is the page a double-charge hole would live on —
- * `lib/kv.test.ts` pins both sides of it.
- */
-export const hasMore = (pageLength: number, limit: number): boolean => pageLength === limit;
+export const hasMore = (matchingFromCursor: number, limit: number): boolean =>
+  matchingFromCursor > limit;
 
 /**
  * The balance reported when none is seeded.
  *
  * 🔴 COPIED FROM THE MOCK HOST ON PURPOSE (`@civitai/blocks-react`'s own default
  * balance), because this fake INHERITS the job of answering the tests that never
- * seeded one. Defaulting to zeros instead would make every un-seeded case read as
- * a viewer who cannot afford anything, and this app DISABLES Confirm when the
- * balance is below the estimate — so a zero default turns "nobody seeded a
- * balance" into "the money path is broken", three steps from the thing that
- * changed.
+ * seeded one. Defaulting to zeros instead would make every un-seeded case read as a
+ * viewer who cannot afford anything, and this app DISABLES Confirm when the balance
+ * is below the estimate.
  */
 const DEFAULT_BUZZ_BALANCE: RestBuzzPools = { blue: 1000, green: 0, yellow: 5000 };
 
@@ -159,11 +138,12 @@ const DEFAULT_BUZZ_BALANCE: RestBuzzPools = { blue: 1000, green: 0, yellow: 5000
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
 /**
- * A 26-character ULID-SHAPED key, derived from a counter.
+ * A 26-character ULID-SHAPED key for a seed, derived from a counter.
  *
- * Not a real ULID — it is not time-ordered and carries no entropy — and it does
- * not pretend to be. What matters at this seam is that it looks nothing like an
- * index, so a test cannot accidentally hard-code `shared_2` and pass.
+ * Not a real ULID — not time-ordered, no entropy — and it does not pretend to be.
+ * What matters at this seam is that it looks nothing like an index, so a test cannot
+ * accidentally hard-code `shared_2` and pass. Documents the APP creates get the SDK
+ * fake's own server-minted keys.
  */
 function mintKey(n: number): string {
   let rest = n;
@@ -175,8 +155,10 @@ function mintKey(n: number): string {
   return tail.reverse().join('');
 }
 
-function bytesOf(value: unknown): number {
-  return new TextEncoder().encode(JSON.stringify(value) ?? '').length;
+/** This repo's numeric test viewer id → the SDK fake's viewer. `<= 0` is anonymous. */
+export function fakeViewer(id: number, untrusted = false): FakeStorageViewer | null {
+  if (id <= 0) return null;
+  return { username: `user${id}`, id, ...(untrusted ? { trusted: false } : {}) };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -186,49 +168,78 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/** `blocks/storage/<collection>/<key>[/<op>/<name>]` → its parts, or null. */
+function storageRoute(path: string): { coll: string; key?: string } | null {
+  const parts = path.split('/').map((p) => decodeURIComponent(p));
+  if (parts[0] !== 'blocks' || parts[1] !== 'storage' || parts.length < 3) return null;
+  return { coll: parts[2] as string, ...(parts[3] !== undefined ? { key: parts[3] } : {}) };
+}
+
 /**
  * Build a `fetch` that answers the app's REST surface from memory.
  *
- * Anything it does not recognise gets a 404 carrying the method and path — LOUD
- * on purpose. A fake that answered `{}` to an unknown route would turn a wrong
- * path into a quietly empty screen, which is the failure this whole port is most
- * able to introduce.
+ * Anything it does not recognise gets a 404 carrying the method and path — LOUD on
+ * purpose. A fake that answered `{}` to an unknown route would turn a wrong path into a
+ * quietly empty screen.
  */
 export function createRestFake(options: RestFakeOptions = {}): typeof globalThis.fetch {
   const viewerUserId = options.viewerUserId ?? 99;
-  const kv = new Map<string, { value: unknown; updatedAt: string }>(
-    Object.entries(options.storage?.seed ?? {}).map(([k, v]) => [k, { value: v, updatedAt: EPOCH }]),
-  );
-  const limitBytes = options.storage?.limitBytes ?? 50 * 1024 * 1024;
-  const limitRows = options.storage?.limitRows ?? 1_000_000;
-
-  let minted = 0;
-  const rows: SharedRow[] = (options.shared?.seed ?? []).map((seed) => {
-    minted += 1;
-    return {
-      key: seed.key ?? mintKey(minted),
-      authorUserId: seed.authorUserId ?? viewerUserId,
-      value: seed.value,
-      voters: new Set(seed.voters ?? []),
-      createdAt: EPOCH,
-      updatedAt: EPOCH,
-    };
+  const untrusted = options.docStore?.untrusted ?? false;
+  const { untrusted: _untrusted, now: callerNow, ...docStoreOptions } = options.docStore ?? {};
+  // 🔴 SEEDS ARE NOT TRAFFIC, SO THEY MUST NOT SPEND THE RATE LIMITS. With
+  // `enforceRateLimits` on, seeding a few hundred documents would exhaust the
+  // per-minute windows before the app made a single request, and the case would be
+  // measuring its fixture. While seeding, the store's clock jumps a full window per
+  // reading, far in the past, so every seed write lands in a fresh, expired window;
+  // the app's requests then run on the caller's clock (or `Date.now`).
+  let seeding = true;
+  let seedClock = 0;
+  const realNow = callerNow ?? Date.now;
+  const docStore: FakeStorage = createFakeStorage({
+    manifest,
+    viewer: fakeViewer(viewerUserId, untrusted),
+    ...docStoreOptions,
+    ...(docStoreOptions.enforceRateLimits || callerNow
+      ? { now: () => (seeding ? (seedClock += 61_000) : realNow()) }
+      : {}),
+    ...(options.storage?.limitBytes !== undefined || options.storage?.limitRows !== undefined
+      ? {
+          limits: {
+            ...(options.storage?.limitBytes !== undefined ? { viewerBytes: options.storage.limitBytes } : {}),
+            ...(options.storage?.limitRows !== undefined ? { viewerDocs: options.storage.limitRows } : {}),
+          },
+        }
+      : {}),
   });
 
-  const project = (row: SharedRow) => ({
-    key: row.key,
-    authorUserId: row.authorUserId,
-    value: row.value,
-    count: row.voters.size,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    viewerVoted: row.voters.has(viewerUserId),
+  // Seeds are FIXTURE, not traffic: written as each seed's own author with a full,
+  // consented token, before the first request is answered.
+  const seeded = (async () => {
+    const seedViewer = fakeViewer(viewerUserId > 0 ? viewerUserId : 99) as FakeStorageViewer;
+    const kv = createKvStorage(() => docStore.as({ viewer: seedViewer }).storage);
+    for (const [k, v] of Object.entries(options.storage?.seed ?? {})) await kv.set(k, v);
+    let minted = 0;
+    for (const seed of options.shared?.seed ?? []) {
+      minted += 1;
+      const key = seed.key ?? mintKey(minted);
+      const author = fakeViewer(seed.authorUserId ?? (viewerUserId > 0 ? viewerUserId : 99)) as FakeStorageViewer;
+      await docStore
+        .as({ viewer: author })
+        .storage.collection(RECORDS_COLLECTION)
+        .put(key, seed.value as unknown as Record<string, unknown>);
+      for (const voter of seed.voters ?? []) {
+        const who = fakeViewer(voter);
+        if (who) await docStore.as({ viewer: who }).storage.collection(RECORDS_COLLECTION).mark(key, VOTE_MARK);
+      }
+    }
+  })().finally(() => {
+    seeding = false;
   });
 
   const balanceNow = (): RestBuzzPools | null => {
-    const seeded = options.buzz;
-    if (seeded === undefined) return DEFAULT_BUZZ_BALANCE;
-    return typeof seeded === 'function' ? seeded() : seeded;
+    const seededBalance = options.buzz;
+    if (seededBalance === undefined) return DEFAULT_BUZZ_BALANCE;
+    return typeof seededBalance === 'function' ? seededBalance() : seededBalance;
   };
 
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -246,173 +257,36 @@ export function createRestFake(options: RestFakeOptions = {}): typeof globalThis
       return json(balance);
     }
 
-    // --- per-viewer KV: POST blocks/app-storage/* ------------------------------
-    // Shapes from src/pages/api/v1/blocks/app-storage/{get,set,delete,list,quota}.ts,
-    // cross-checked against what `@civitai/sdk`'s StorageClient parses.
-    if (path.startsWith('blocks/app-storage/')) {
-      const op = path.slice('blocks/app-storage/'.length);
-      const key = String(body.key ?? '');
-      if (op === 'get') return json({ value: kv.get(key)?.value ?? null });
-      if (op === 'set') {
-        const size = bytesOf(body.value);
-        kv.set(key, { value: body.value, updatedAt: EPOCH });
-        // `{ ok: true, sizeBytes }`, and `sizeBytes` is REQUIRED — the SDK's
-        // client throws without it, and the route's docblock says there is "no
-        // 2xx path that means not written".
-        return json({ ok: true, sizeBytes: size });
+    // --- the document store: blocks/storage/* ---------------------------------
+    if (path === 'blocks/storage' || path.startsWith('blocks/storage/')) {
+      await seeded;
+      const route = storageRoute(path);
+      const query: Record<string, string | string[]> = {};
+      for (const name of new Set(url.searchParams.keys())) {
+        const all = url.searchParams.getAll(name);
+        query[name] = all.length === 1 ? (all[0] as string) : all;
       }
-      if (op === 'delete') return json({ ok: true, deleted: kv.delete(key) });
-      if (op === 'list') {
-        const prefix = body.prefix === undefined ? '' : String(body.prefix);
-        // 🔴 `ORDER BY key` ASCENDING, plus a KEYSET bound (`key > cursor`) — the
-        // route's own query, not the insertion order of a Map. A cursor whose row
-        // was deleted between pages therefore yields the rows AFTER it rather than
-        // restarting at page 1, which is what the server does and what a test of
-        // paging-under-concurrent-delete needs in order to conclude anything true.
-        const after = body.cursor === undefined ? null : atob(String(body.cursor));
-        const all = [...kv.entries()]
-          .filter(([k]) => k.startsWith(prefix) && (after === null || k > after))
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-        const size = Math.max(
-          Number(body.limit ?? options.storage?.pageSize ?? LIST_LIMIT_DEFAULT) ||
-            LIST_LIMIT_DEFAULT,
-          1,
-        );
-        const page = all.slice(0, size);
-        const last = page[page.length - 1];
-        return json({
-          keys: page.map(([k, v]) => ({ key: k, updatedAt: v.updatedAt })),
-          // The cursor is "opaque, base64-encoded last key" per the route's own
-          // docstring — modelled faithfully, so a caller that tries to read it as
-          // an index breaks here rather than in production.
-          ...(hasMore(page.length, size) && last ? { nextCursor: btoa(last[0]) } : {}),
+      // A page CAP below what the caller asks for, modelled for the private
+      // collection only — every scan asks for 100, so a fixture that wants a second
+      // page must be able to make pages smaller.
+      if (
+        options.storage?.pageSize !== undefined &&
+        method === 'GET' &&
+        route?.coll === 'kv' &&
+        route.key === undefined
+      ) {
+        const asked = query.limit === undefined ? Infinity : Number(query.limit);
+        query.limit = String(Math.min(asked, options.storage.pageSize));
+      }
+      try {
+        const reply = await docStore.http<unknown>(method, path, {
+          query,
+          ...(init?.body == null ? {} : { body }),
         });
-      }
-      if (op === 'quota') {
-        let usedBytes = 0;
-        for (const [, v] of kv) usedBytes += bytesOf(v.value);
-        return json({ usedBytes, rowCount: kv.size, limitBytes, limitRows });
-      }
-    }
-
-    // --- shared store: blocks/shared-storage/* ---------------------------------
-    // Shapes from src/pages/api/v1/blocks/shared-storage/*.ts. Reads are GET with
-    // a query string, writes are POST with a body — the route table's own split;
-    // a read sent as POST is a 405 on the real surface.
-    if (path.startsWith('blocks/shared-storage/')) {
-      const op = path.slice('blocks/shared-storage/'.length);
-      if (op === 'list' && method === 'GET') {
-        // 🔴 REAL `prefix` + `cursor` PAGING, and its absence was a coverage hole
-        // rather than a simplification. This fake used to ignore both and never emit
-        // `metadata.nextCursor`, so `App.tsx`'s `listAll` — which pages the whole
-        // board and reports `truncated: true` when it runs out of pages — was
-        // exercised only through `deps.shared` overrides and NEVER over the wire it
-        // now actually uses. That `truncated` flag is what stops the vote ranking and
-        // the Top Grid being computed over a silent prefix of the board.
-        //
-        // The real route emits a cursor exactly when the page it returned was FULL
-        // (`apps-shared.router.ts`: `rows.length === limit ? base64(lastKey) :
-        // undefined`), and the cursor is the base64 of the last key — modelled here,
-        // so a caller that tries to read it as an index breaks here rather than in
-        // production.
-        const prefix = url.searchParams.get('prefix') ?? '';
-        const cursorParam = url.searchParams.get('cursor');
-        const limitParam = url.searchParams.get('limit');
-        // 🔴 `ORDER BY key DESC` plus the keyset bound `key < cursor` — this route's
-        // own query, and the OPPOSITE direction to app-storage's. Paging the seed
-        // array's insertion order instead happened to look right for an
-        // append-ordered fixture and would diverge for any other, and an unknown or
-        // withdrawn cursor must return the rows PAST it rather than restarting the
-        // scan.
-        const after = cursorParam ? atob(cursorParam) : null;
-        const matching = rows
-          .filter((r) => r.key.startsWith(prefix) && (after === null || r.key < after))
-          .sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
-        const limit = Math.max(
-          limitParam === null ? LIST_LIMIT_DEFAULT : Number(limitParam) || LIST_LIMIT_DEFAULT,
-          1,
-        );
-        const page = matching.slice(0, limit);
-        const last = page[page.length - 1];
-        const more = hasMore(page.length, limit) && last !== undefined;
-        // `metadata` is where `nextCursor` lives, and the SDK guards its presence as
-        // strictly as `items` — so it is always sent, even when empty.
-        return json({
-          items: page.map(project),
-          metadata: more && last ? { nextCursor: btoa(last.key) } : {},
-        });
-      }
-      if (op === 'item' && method === 'GET') {
-        const found = rows.find((r) => r.key === url.searchParams.get('key'));
-        return json({ item: found ? project(found) : null });
-      }
-      if (op === 'append' && method === 'POST') {
-        minted += 1;
-        const row: SharedRow = {
-          key: mintKey(minted),
-          authorUserId: viewerUserId,
-          value: body.value,
-          voters: new Set(),
-          createdAt: EPOCH,
-          updatedAt: EPOCH,
-        };
-        // Newest-first, which is the order `list` documents.
-        rows.unshift(row);
-        return json({ key: row.key });
-      }
-      if (op === 'update' && method === 'POST') {
-        const row = rows.find((r) => r.key === body.key);
-        if (!row) return json({ error: 'NOT_FOUND' }, 404);
-        row.value = body.value;
-        return json({ ok: true });
-      }
-      if (op === 'withdraw' && method === 'POST') {
-        const at = rows.findIndex((r) => r.key === body.key);
-        // `{ ok: true, deleted }` — the route's documented shape. The SDK's client
-        // reads only `deleted` and hardcodes `ok`, so omitting `ok` here changed no
-        // test; it is sent because this fake's whole job is the WIRE, and a shape
-        // that differs from the server's is the thing a reader would trust.
-        // `deleted: false` is a legitimate SUCCESS: another author's key, an
-        // already-withdrawn row and one that never existed all answer identically,
-        // so this cannot probe for other viewers' rows.
-        if (at < 0) return json({ ok: true, deleted: false });
-        rows.splice(at, 1);
-        return json({ ok: true, deleted: true });
-      }
-      if (op === 'vote' && method === 'POST') {
-        const row = rows.find((r) => r.key === body.key);
-        // The real route pre-checks existence and answers 404 for a missing or
-        // hidden row, so it is not an oracle for withdrawn rows.
-        if (!row) return json({ error: 'NOT_FOUND' }, 404);
-        // 🔴 IDEMPOTENT, because the platform's is: a `Set` reproduces the real
-        // route's "atomic insert-gated counter — a double vote is a no-op and the
-        // tally never inflates". A fake that incremented per call would make an
-        // inflating count look correct.
-        row.voters.add(viewerUserId);
-        return json({ count: row.voters.size });
-      }
-      if (op === 'unvote' && method === 'POST') {
-        const row = rows.find((r) => r.key === body.key);
-        if (!row) return json({ error: 'NOT_FOUND' }, 404);
-        // The counter drops by exactly the number of vote rows deleted (0 or 1),
-        // with the real route's `CHECK(count >= 0)` making underflow impossible —
-        // which a `Set.delete` reproduces exactly.
-        row.voters.delete(viewerUserId);
-        return json({ count: row.voters.size });
-      }
-      if (op === 'report' && method === 'POST') {
-        const row = rows.find((r) => r.key === body.key);
-        if (!row) return json({ error: 'NOT_FOUND' }, 404);
-        // 🔴 THE ROW IS NOT TOUCHED. The real route files a row for moderator
-        // review and explicitly does NOT hide the reported row, and it answers
-        // identically whether the report was newly filed or deduped, so it cannot
-        // be used to probe who has already reported what. A fake that spliced the
-        // row here would make this app's honest behaviour (the board is left
-        // exactly as it was) look like a bug.
-        return json({ ok: true });
-      }
-      if (method !== 'GET' && method !== 'POST') {
-        return json({ error: 'Method not allowed' }, 405);
+        return json(reply ?? {});
+      } catch (err) {
+        if (err instanceof ApiError) return json(err.body, err.status);
+        throw err;
       }
     }
 

@@ -411,7 +411,20 @@ export function recordKind(value: SharedStorageValue): RecordKind | null {
 export interface RawSharedItem {
   key: string;
   count: number;
-  authorUserId: number;
+  /**
+   * The CURRENT viewer's id when the store reports them as this row's author, else
+   * `null`.
+   *
+   * 🔴 IT IS NOT THE AUTHOR'S ID, AND SINCE THE DOCUMENT-STORE PORT NOTHING CAN BE.
+   * The store discloses only `author.isViewer` — whether the reader wrote it — and
+   * never a user id. `App.tsx`'s `listAll` stamps the id of the viewer the read was
+   * made FOR onto the rows that viewer authored, which is exactly the one comparison
+   * this field still serves ({@link isOwnRow}) — and stamping the READ's viewer, not
+   * a bare boolean, keeps a row read for viewer A from reading as owned by viewer B
+   * after a sign-in switch, before the board re-reads. Every other author is `null`,
+   * so any other use of this field fails closed.
+   */
+  authorUserId: number | null;
   value: SharedStorageValue;
   /**
    * Whether the CURRENT viewer has an active up-vote on this row, as reported by
@@ -632,9 +645,6 @@ export function parseResult(item: RawSharedItem): ResultRow | null {
       promptKey: d.promptKey,
       ecosystem: typeof d.ecosystem === 'string' ? d.ecosystem : '',
       imageIds,
-      // App-level prompt-submitter attribution (optional; absent on v1 rows and
-      // on runs against an anonymous-authored prompt). Parsed defensively.
-      ...(isNum(d.promptAuthorUserId) ? { promptAuthorUserId: d.promptAuthorUserId } : {}),
     },
   };
 }
@@ -721,7 +731,7 @@ export function reconcileOptimistic(
  * `0`; the host re-derives the same check server-side, so this governs the
  * AFFORDANCE, and the host governs the write.
  */
-export function isOwnRow(row: { authorUserId: number }, viewerId: number | null): boolean {
+export function isOwnRow(row: { authorUserId: number | null }, viewerId: number | null): boolean {
   return viewerId != null && row.authorUserId === viewerId;
 }
 
