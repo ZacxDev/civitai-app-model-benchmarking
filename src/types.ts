@@ -427,6 +427,13 @@ export type CellRunStatus =
    */
   | 'unknown'
   | 'publishing'
+  /**
+   * Saving the shared result row of a run that is already paid for AND published —
+   * the retry path, which opens no host dialog. Its own state so it does not borrow
+   * `publishing`'s "confirm the Publish prompt" copy and preview strip (PR #85
+   * round-3 audit, 🟢3).
+   */
+  | 'saving'
   | 'succeeded'
   | 'failed'
   | 'canceled';

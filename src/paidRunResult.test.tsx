@@ -30,8 +30,10 @@ import {
   RESULT_PENDING_MESSAGE,
   RESULT_SAVE_CONSENT_MESSAGE,
   RESULT_SAVE_FAILED_MESSAGE,
+  RESULT_SAVE_QUOTA_MESSAGE,
   RESULT_SAVE_REFUSED_MESSAGE,
   STALLED_MESSAGE,
+  resultSaveBlockedMessage,
 } from './lib/resultSave.js';
 import { PUBLISH_CONSENT_MESSAGE, SharedWriteRefusal } from './lib/records-store.js';
 import { Harness } from './test-harness.js';
@@ -208,8 +210,11 @@ describe('🔴 a retry neither publishes twice nor writes a second result row', 
     const shared = {
       ...base.shared,
       append: async () => {
-        const message = 'account too new';
-        throw new StorageError(403, 'not_eligible', message, { code: 'not_eligible', message, error: message });
+        // A BANNED account (`details.reason: 'ineligible'`) — permanent. A new account
+        // is NOT: see the `account_too_new` case below.
+        const message = 'Your account is not eligible for this action';
+        const details = { reason: 'ineligible' };
+        throw new StorageError(403, 'not_eligible', message, { code: 'not_eligible', message, error: message, details }, details);
       },
     };
     renderApp({ shared, appStorage, poll: vi.fn(async () => succeeded), publish: vi.fn(async () => [9001]) }, true);
@@ -254,13 +259,99 @@ describe('what a stalled cell says, and what its Dismiss promises', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('a stalled cell with no published ids names both possibilities, and its Dismiss is the plain one', async () => {
+  it('a stalled cell with no published ids names both possibilities — and its Dismiss STILL says it charges again', async () => {
+    // 🔴 A stalled cell has a workflowId, so it was charged: its Dismiss permits a
+    // second charge whatever the message says (round-3 audit, 🟡2).
     const { appStorage } = fakeAppStorage({
       [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
     });
     renderApp({ shared: fakeShared({ seed: seedRows() }).shared, appStorage }, true);
     const grid = await stalledCell();
     expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(STALLED_MESSAGE);
-    expect(within(grid).getByTestId('cell-cancel-run')).toHaveTextContent(/^Dismiss$/);
+    expect(within(grid).getByTestId('cell-cancel-run')).toHaveTextContent(PAID_DISMISS_LABEL);
+  });
+});
+
+describe('🔴 a refusal the viewer can fix, or that clears with time, KEEPS Check status', () => {
+  function refusingWith(status: number, code: string, details?: Record<string, unknown>) {
+    const base = fakeShared({ seed: seedRows() });
+    const shared = {
+      ...base.shared,
+      append: async () => {
+        const message = `refused: ${code}`;
+        throw new StorageError(status, code, message, { code, message, error: message, ...(details ? { details } : {}) }, details);
+      },
+    };
+    return { base, shared };
+  }
+
+  it.each([
+    ['429 rate_limited (retryable)', 429, 'rate_limited', { retryAfter: 1 }, RESULT_SAVE_FAILED_MESSAGE],
+    ['not_eligible / account_too_new (clears with time)', 403, 'not_eligible', { reason: 'account_too_new' }, resultSaveBlockedMessage('your account is too new to add to the shared grid — this clears once it is old enough')],
+    ['not_eligible / email_unverified (viewer-fixable)', 403, 'not_eligible', { reason: 'email_unverified' }, resultSaveBlockedMessage('your email address is not verified')],
+    ['quota_exceeded at the AUTHOR ceiling (free your own rows)', 413, 'quota_exceeded', { ceiling: 'author' }, RESULT_SAVE_QUOTA_MESSAGE],
+  ] as const)('%s → its own copy, Check status still offered, record kept', async (_name, status, code, details, expected) => {
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const { shared } = refusingWith(status, code, details);
+    renderApp({ shared, appStorage, poll: vi.fn(async () => succeeded), publish: vi.fn(async () => [9001]) }, true);
+
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() => expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(expected));
+    expect(within(grid).getByTestId('cell-resume-run')).toBeInTheDocument();
+    expect(within(grid).getByTestId('cell-stalled-message')).not.toHaveTextContent(RESULT_SAVE_REFUSED_MESSAGE);
+    expect(store.has(INFLIGHT_KEY)).toBe(true);
+  });
+
+  it('quota_exceeded at the APP ceiling is permanent for the viewer — no Check status', async () => {
+    const { appStorage } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const { shared } = refusingWith(413, 'quota_exceeded', { ceiling: 'app' });
+    renderApp({ shared, appStorage, poll: vi.fn(async () => succeeded), publish: vi.fn(async () => [9001]) }, true);
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() =>
+      expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(RESULT_SAVE_REFUSED_MESSAGE),
+    );
+    expect(within(grid).queryByTestId('cell-resume-run')).toBeNull();
+  });
+
+  it('a retry shows a SAVING state with true copy — not the publish dialog prompt or preview strip', async () => {
+    const { appStorage } = fakeAppStorage({
+      [INFLIGHT_KEY]: {
+        workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL', imageIds: [9001],
+      },
+    });
+    const base = fakeShared({ seed: seedRows() });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const shared = {
+      ...base.shared,
+      list: async (q?: Parameters<typeof base.shared.list>[0]) => {
+        await gate;
+        return base.shared.list(q);
+      },
+    };
+    renderApp({ shared, appStorage, publish: vi.fn(async () => [9001]) }, true);
+    // The mount's own board read waits on the gate too; release it once so the grid paints.
+    release();
+    const grid = await stalledCell();
+    let releaseRecheck!: () => void;
+    const recheckGate = new Promise<void>((r) => (releaseRecheck = r));
+    shared.list = async (q?: Parameters<typeof base.shared.list>[0]) => {
+      await recheckGate;
+      return base.shared.list(q);
+    };
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    const progress = await within(grid).findByTestId('cell-progress');
+    expect(progress).toHaveAttribute('data-status', 'saving');
+    expect(progress).toHaveTextContent('Adding your images to the grid…');
+    expect(within(grid).queryByTestId('cell-publish-notice')).toBeNull();
+    expect(within(grid).queryByTestId('cell-publish-preview')).toBeNull();
+    releaseRecheck();
+    await waitFor(() => expect(within(grid).queryByTestId('cell-progress')).toBeNull());
   });
 });

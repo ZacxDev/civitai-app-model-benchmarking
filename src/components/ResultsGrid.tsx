@@ -1237,14 +1237,16 @@ function CellRunState({
   // (that would re-charge). "Check status" re-polls the SAME workflow; "Dismiss"
   // is an explicit user abandon.
   if (run.status === 'stalled') {
-    // 🔴 A PAID cell — one whose run finished (`imageIds`) or failed after the spend
-    // (`error`) — says so, and its Dismiss says it allows a NEW, CHARGED run
-    // (`lib/resultSave.ts`). A plain stalled cell may still be generating.
-    const paid = run.error !== undefined || run.imageIds !== undefined;
+    // 🔴 EVERY STALLED CELL IS A PAID ONE (PR #85 round-3 audit, 🟡2). `stalled` exists
+    // only with a `workflowId`, and a workflowId exists only after `submit` charged the
+    // viewer — so Dismiss here ALWAYS permits a second charge, and always says so
+    // (`lib/resultSave.ts`). Round 2 derived "paid" from `error`/`imageIds`, which a
+    // reloaded still-generating cell has neither of, so it showed a plain Dismiss.
+    // What differs between stalled cells is only the message.
     const message = run.error ?? (run.imageIds ? RESULT_PENDING_MESSAGE : STALLED_MESSAGE);
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-stalled">
-        <span style={paid ? { color: token.text } : metaText} data-testid="cell-stalled-message">
+        <span style={run.error || run.imageIds ? { color: token.text } : metaText} data-testid="cell-stalled-message">
           {message}
         </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1254,7 +1256,7 @@ function CellRunState({
             </Button>
           )}
           <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
-            {paid ? PAID_DISMISS_LABEL : 'Dismiss'}
+            {PAID_DISMISS_LABEL}
           </Button>
         </div>
       </div>
@@ -1375,6 +1377,7 @@ function CellRunState({
     estimating: 'Estimating…',
     submitting: 'Submitting…',
     processing: 'Generating…',
+    saving: 'Adding your images to the grid…',
     succeeded: 'Done',
     canceled: 'Canceled',
   };

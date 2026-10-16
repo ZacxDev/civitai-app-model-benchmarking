@@ -2235,7 +2235,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       try {
         let board = results;
         if (recheck) {
-          setRun(ck, { status: 'publishing' });
+          setRun(ck, { status: 'saving' });
           board = splitRows((await listAll(depsRef.current.shared, null)).items).results;
         }
         if (!cellHasResult(board, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
@@ -2347,6 +2347,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           console.debug('[model-benchmarking] could not record published image ids:', e);
         });
       }
+      // The host dialog has been answered; what remains is the shared write.
+      setRun(ck, { status: 'saving', imageIds });
       await saveResult(ck, row, prompt, terminal.workflowId, imageIds, false);
     },
     [results, reload, setRun, clearInflight, saveResult, viewer],
