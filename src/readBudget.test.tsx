@@ -113,4 +113,23 @@ describe('🔴 a read rate limit heals itself instead of wedging My Benchmarks',
     // Exactly one refused listing and one retry of it — bounded, not a loop.
     expect(listCalls.filter((c) => c?.prefix === 'draft:v1:')).toHaveLength(2);
   });
+
+  it('a PERSISTENT 429 stops after the cap — exactly 1 + 3 listings, then no more', async () => {
+    // 🔴 The re-scan is BOUNDED. A mutant replacing the cap check with `true` retried
+    // forever and survived the suite until this case (round-2 audit, 🟢3).
+    const [key, value] = draft(1);
+    const { appStorage, listCalls } = fakeAppStorage(
+      { [key]: value },
+      {},
+      { failListTimes: 1_000, failListPrefix: 'draft:v1:', failListRateLimited: { retryAfter: 0.01 } },
+    );
+    mount({ shared: fakeShared().shared, appStorage });
+    await openMyList('matchup');
+    const draftListings = () => listCalls.filter((c) => c?.prefix === 'draft:v1:').length;
+    await waitFor(() => expect(draftListings()).toBe(4), { timeout: 3000 });
+    // Positive control on the wait: give an over-eager loop ten more retry windows.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(draftListings()).toBe(4);
+    expect(screen.queryByTestId('unpublished-card')).toBeNull();
+  });
 });

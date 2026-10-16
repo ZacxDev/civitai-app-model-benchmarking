@@ -155,9 +155,15 @@ export const PUBLISH_SIGN_IN_MESSAGE = 'Sign in to publish.';
  * ramped behind a flag. So an author can now be refused for the words in a title or
  * description. The server's own message is not viewer copy, and does not say what to
  * do; this does.
+ *
+ * 🔴 IT DOES NOT SAY "THE NAME OR DESCRIPTION" (round-2 audit, 🟡3). The server scans
+ * EVERY string leaf of the document (`doc-store-api.ts` → `scanSharedData`), including
+ * a prompt's prompt text inside `data`, which is the likeliest trigger. Its refusal
+ * carries only a coarse `details.category` (`blocked`/…); the offending field is logged
+ * server-side, not returned — so the copy names every place the text can be.
  */
 export const PUBLISH_CONTENT_REJECTED_MESSAGE =
-  "This couldn't be published: the platform's content check rejected some of its text. Edit the name or description and try again.";
+  "This couldn't be published: the platform's content check rejected some of its text — the name, the description, or the prompt itself. Edit the text and try again.";
 
 /** A shared write the store refused for a reason the viewer can fix; `message` is viewer copy. */
 export class SharedWriteRefusal extends Error {

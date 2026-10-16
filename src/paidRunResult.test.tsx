@@ -22,7 +22,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
 
-import { App, RESULT_SAVE_CONSENT_MESSAGE, type AppDeps } from './App.js';
+import { App, type AppDeps } from './App.js';
+import { StorageError } from '@civitai/sdk';
+
+import {
+  PAID_DISMISS_LABEL,
+  RESULT_PENDING_MESSAGE,
+  RESULT_SAVE_CONSENT_MESSAGE,
+  RESULT_SAVE_FAILED_MESSAGE,
+  RESULT_SAVE_REFUSED_MESSAGE,
+  STALLED_MESSAGE,
+} from './lib/resultSave.js';
 import { PUBLISH_CONSENT_MESSAGE, SharedWriteRefusal } from './lib/records-store.js';
 import { Harness } from './test-harness.js';
 import { fakeAppStorage, fakeGatedCell, fakeShared, immediateSleep } from './test-helpers.js';
@@ -133,11 +143,13 @@ describe('🔴 the in-flight record outlives the result write', () => {
     const grid = await stalledCell();
     await userEvent.click(within(grid).getByTestId('cell-resume-run'));
 
-    const message = await within(grid).findByTestId('cell-stalled-message');
-    expect(message).toHaveTextContent(RESULT_SAVE_CONSENT_MESSAGE);
+    const message = within(grid).getByTestId('cell-stalled-message');
+    await waitFor(() => expect(message).toHaveTextContent(RESULT_SAVE_CONSENT_MESSAGE));
     // 🔴 Not the publish-form copy: the images WERE published here.
     expect(message).not.toHaveTextContent(/nothing was published/i);
     expect(store.has(INFLIGHT_KEY), 'the paid run’s record was deleted before its result landed').toBe(true);
+    // PHASE 3: the published ids are on the record BEFORE the create was attempted.
+    expect((store.get(INFLIGHT_KEY) as { imageIds?: number[] }).imageIds).toEqual([9001]);
     expect(within(grid).queryByTestId('cell-failed')).toBeNull();
     expect(within(grid).queryByTestId('run-cell')).toBeNull();
 
@@ -147,5 +159,108 @@ describe('🔴 the in-flight record outlives the result write', () => {
     await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
     expect(base.appends).toHaveLength(1);
     expect(poll).toHaveBeenCalledWith('wf-prior');
+    // 🔴 ONE PUBLISH ACROSS BOTH PRESSES (round-2 audit, 🟡1): every publish mints fresh
+    // public Image rows, so the retry must save the row from the recorded ids.
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(poll).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('🔴 a retry neither publishes twice nor writes a second result row', () => {
+  it('a create that LANDED with its reply lost is found on the board, not created again', async () => {
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const base = fakeShared({ seed: seedRows() });
+    let loseReply = true;
+    const shared = {
+      ...base.shared,
+      append: async (value: Parameters<typeof base.shared.append>[0]) => {
+        const res = await base.shared.append(value); // the row LANDS…
+        if (loseReply) {
+          loseReply = false;
+          throw new DOMException('The operation timed out.', 'TimeoutError'); // …the reply does not
+        }
+        return res;
+      },
+    };
+    const publish = vi.fn(async () => [9001]);
+    renderApp({ shared, appStorage, poll: vi.fn(async () => succeeded), publish }, true);
+
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() =>
+      expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(RESULT_SAVE_FAILED_MESSAGE),
+    );
+    expect(base.appends).toHaveLength(1);
+
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
+    expect(base.appends, 'a duplicate result row was created for one paid run').toHaveLength(1);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refusal a retry cannot change says so and offers NO Check status — only an honest Dismiss', async () => {
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    const base = fakeShared({ seed: seedRows() });
+    const shared = {
+      ...base.shared,
+      append: async () => {
+        const message = 'account too new';
+        throw new StorageError(403, 'not_eligible', message, { code: 'not_eligible', message, error: message });
+      },
+    };
+    renderApp({ shared, appStorage, poll: vi.fn(async () => succeeded), publish: vi.fn(async () => [9001]) }, true);
+
+    const grid = await stalledCell();
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() =>
+      expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(RESULT_SAVE_REFUSED_MESSAGE),
+    );
+    expect(within(grid).getByTestId('cell-stalled-message')).not.toHaveTextContent(/try again/i);
+    expect(within(grid).queryByTestId('cell-resume-run')).toBeNull();
+    expect(within(grid).getByTestId('cell-cancel-run')).toHaveTextContent(PAID_DISMISS_LABEL);
+    expect(store.has(INFLIGHT_KEY)).toBe(true);
+  });
+});
+
+describe('what a stalled cell says, and what its Dismiss promises', () => {
+  it('a rehydrated record WITH published ids says “generated, not on the grid yet”, and Check status saves without polling or publishing', async () => {
+    const { appStorage, store } = fakeAppStorage({
+      [INFLIGHT_KEY]: {
+        workflowId: 'wf-prior',
+        comboKey: 'c1',
+        configId: 'cfgSeed',
+        promptKey: 'p1',
+        ecosystem: 'SDXL',
+        imageIds: [9001],
+      },
+    });
+    const base = fakeShared({ seed: seedRows() });
+    const poll = vi.fn(async () => succeeded);
+    const publish = vi.fn(async () => [9001]);
+    renderApp({ shared: base.shared, appStorage, poll, publish }, true);
+
+    const grid = await stalledCell();
+    expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(RESULT_PENDING_MESSAGE);
+    expect(within(grid).getByTestId('cell-cancel-run')).toHaveTextContent(PAID_DISMISS_LABEL);
+
+    await userEvent.click(within(grid).getByTestId('cell-resume-run'));
+    await waitFor(() => expect(store.has(INFLIGHT_KEY)).toBe(false));
+    expect(base.appends).toHaveLength(1);
+    expect(poll).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('a stalled cell with no published ids names both possibilities, and its Dismiss is the plain one', async () => {
+    const { appStorage } = fakeAppStorage({
+      [INFLIGHT_KEY]: { workflowId: 'wf-prior', comboKey: 'c1', configId: 'cfgSeed', promptKey: 'p1', ecosystem: 'SDXL' },
+    });
+    renderApp({ shared: fakeShared({ seed: seedRows() }).shared, appStorage }, true);
+    const grid = await stalledCell();
+    expect(within(grid).getByTestId('cell-stalled-message')).toHaveTextContent(STALLED_MESSAGE);
+    expect(within(grid).getByTestId('cell-cancel-run')).toHaveTextContent(/^Dismiss$/);
   });
 });

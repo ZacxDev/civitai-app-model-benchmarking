@@ -441,6 +441,10 @@ export interface CellRun {
   estimatedCost?: number;
   workflowId?: string;
   error?: string;
+  /** The published `Image` ids of a paid run whose result row is not saved yet (see `InflightRun.imageIds`). */
+  imageIds?: number[];
+  /** The result row was refused for a reason a retry will not change: no Check status (`lib/resultSave.ts`). */
+  resultRefused?: boolean;
   /**
    * The host-provided urls of THIS viewer's own just-finished outputs
    * (`BlockWorkflowSnapshot.imageUrls`), carried only for the `publishing`
@@ -502,6 +506,13 @@ export interface InflightRun {
   configId: string;
   promptKey: string;
   ecosystem: string;
+  /**
+   * PHASE 3 (0.5.0): the `Image` ids `publish()` minted for this workflow, written the
+   * moment it resolves and BEFORE the shared result row is created. A resume that finds
+   * them never publishes again — each publish mints fresh public rows and orphans the
+   * last (`lib/resultSave.ts`).
+   */
+  imageIds?: number[];
 }
 
 /**

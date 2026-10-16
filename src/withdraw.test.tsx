@@ -297,9 +297,10 @@ describe('withdraw: the author removes their OWN prompt', () => {
 //   that actually carried a cursor) so it cannot quietly stop paging again.
 //
 // Full mutant ladder at HEAD, each killed, each by its own assertion:
-//   M1 clear pointer before withdraw   -> 2 cases (REJECTS + REFUSES)
+//   M1 clear pointer before withdraw   -> the REJECTS case
 //   M2 drop the sharedKey match        -> "leaves ANOTHER combination's pointer alone"
-//   M3 drop the `!res.ok` branch       -> "REFUSES WITHOUT THROWING"
+//   (M3 — the `!res.ok` branch and its "REFUSES WITHOUT THROWING" case — were deleted
+//   in PR #85 round 0, when `withdraw` was narrowed to `ok: true`.)
 //   M4 drop refreshDrafts()            -> "is DELETED once the host confirms"
 //   M7 cursor = undefined              -> "sits on the SECOND page"
 //   M8 prompts scan again              -> "NEVER EVEN STARTS the pointer scan"

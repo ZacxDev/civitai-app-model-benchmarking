@@ -119,6 +119,7 @@ import {
 } from '@civitai/blocks-react/ui';
 
 import { hasGenerateScope, missingRunScopes } from './scopes.js';
+import { isNonRetryableSaveError, resultSaveFailedMessage } from './lib/resultSave.js';
 import { COMPACT_ATTR, LAYOUT_ATTR, compactTapTargetCss, layoutCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import {
@@ -403,26 +404,6 @@ function rateLimitRetryAfterSeconds(e: unknown): number | null {
   return typeof wait === 'number' && Number.isFinite(wait) && wait >= 0 ? wait : 5;
 }
 
-/**
- * Viewer copy for a run that WAS charged and generated, but whose outputs could not
- * be published or whose result row could not be saved to the grid.
- *
- * 🔴 IT MUST NOT SAY "NOTHING WAS PUBLISHED" — the images may well be published (the
- * publish step comes first) — and it must not invite a re-RUN. The cell stays
- * `stalled` on the same workflow, so the true next step is "Check status", which
- * re-polls and never charges again. The consent variant names the permission because
- * that is the one refusal the viewer can fix themselves.
- */
-export const RESULT_SAVE_FAILED_MESSAGE =
-  "Your images were generated, but they couldn't be added to the grid yet. Press Check status to try again — you won't be charged again.";
-export const RESULT_SAVE_CONSENT_MESSAGE =
-  "Your images were generated, but adding them to the grid needs your permission to publish. Approve it, then press Check status — you won't be charged again.";
-function resultSaveFailedMessage(e: unknown): string {
-  return (e as { code?: unknown } | null)?.code === 'consent_required'
-    ? RESULT_SAVE_CONSENT_MESSAGE
-    : RESULT_SAVE_FAILED_MESSAGE;
-}
-
 export const CLAIM_FAILED_MESSAGE =
   "Couldn't start this run: the app's storage is full or unavailable, so the run couldn't be tracked. Nothing was generated and no Buzz was spent. Please try again later.";
 export const CLAIM_NO_VIEWER_MESSAGE =
@@ -518,12 +499,21 @@ function validInflight(entry: unknown): entry is InflightRun {
  */
 function inflightToRun(entry: InflightRun): CellRun {
   const wf = nonEmptyString(entry.workflowId) ? entry.workflowId : undefined;
+  // PHASE 3: published outputs whose result row is not saved yet. Carried so the cell
+  // says "generated, not on the grid yet" rather than "still generating", and so a
+  // resume saves the row WITHOUT publishing again.
+  const imageIds =
+    wf && Array.isArray(entry.imageIds) && entry.imageIds.every((n) => typeof n === 'number')
+      ? entry.imageIds
+      : undefined;
   return {
     comboKey: entry.comboKey,
     configId: entry.configId,
     promptKey: entry.promptKey,
     ecosystem: entry.ecosystem,
-    ...(wf ? { status: 'stalled' as const, workflowId: wf } : { status: 'unknown' as const }),
+    ...(wf
+      ? { status: 'stalled' as const, workflowId: wf, ...(imageIds ? { imageIds } : {}) }
+      : { status: 'unknown' as const }),
   };
 }
 
@@ -2219,6 +2209,64 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     [viewer],
   );
 
+  /**
+   * Save the shared RESULT ROW of a run that is paid for and published, then finish.
+   *
+   * 🔴 `recheck` RE-READS THE BOARD BEFORE CREATING (round-2 audit, 🟡1). It is set on
+   * every RETRY — a resume that found published ids on the record — because the
+   * previous create may have LANDED with its reply lost (a 30s deadline, a dropped
+   * connection): the catch below never learns it succeeded, and `results` in this
+   * closure is the board as it was before. Creating again would publish a duplicate
+   * result row. The first attempt skips the re-read: nothing can have been written yet.
+   *
+   * Any failure leaves the cell `stalled` with the ids in hand (so the next attempt
+   * cannot publish again) and copy chosen by `resultSaveFailedMessage`; a refusal a
+   * retry cannot change sets `resultRefused`, which removes Check status.
+   */
+  const saveResult = useCallback(
+    async (
+      ck: string,
+      row: BenchConfig,
+      prompt: PromptRow,
+      workflowId: string,
+      imageIds: number[],
+      recheck: boolean,
+    ) => {
+      try {
+        let board = results;
+        if (recheck) {
+          setRun(ck, { status: 'publishing' });
+          board = splitRows((await listAll(depsRef.current.shared, null)).items).results;
+        }
+        if (!cellHasResult(board, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
+          const payload = buildResultPayload({
+            comboKey: row.comboKey,
+            configId: row.config.id,
+            promptKey: prompt.key,
+            ecosystem: resolveCell(row.config, prompt).ecosystem,
+            imageIds,
+          }) as SharedStorageValue;
+          const { key } = await depsRef.current.shared.append(payload);
+          optimisticInsert(key, payload);
+        }
+      } catch (e) {
+        console.debug('[model-benchmarking] result could not be saved after a paid run:', e);
+        setRun(ck, {
+          status: 'stalled',
+          workflowId,
+          imageIds,
+          error: resultSaveFailedMessage(e),
+          resultRefused: isNonRetryableSaveError(e),
+        });
+        return;
+      }
+      clearInflight(ck); // the result row is written (or already was) — the run is finished
+      setRun(ck, null);
+      reload();
+    },
+    [results, reload, setRun, optimisticInsert, clearInflight],
+  );
+
   // Shared tail of the money path: poll a submitted workflow to terminal, then —
   // on success — publish its scanned outputs and append the result row. Used by
   // BOTH the initial confirm AND the stalled-cell resume-poll. Clears the
@@ -2251,16 +2299,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         return;
       }
       // 🔴 THE IN-FLIGHT RECORD OUTLIVES THE RESULT WRITE (document-store port, F1).
-      // It used to be cleared HERE, on reaching `succeeded` — before the publish and
-      // before the shared create. Either can still fail after the viewer has paid:
-      // the create in particular is refused `consent_required` on a token without
-      // `apps:storage:publish`, `rate_limited` past the shared write budget, or
-      // `content_rejected`. With the record already gone the cell fell to `failed`,
-      // whose only control is Dismiss → empty and RUNNABLE: a second charge for a
-      // generation that already happened. Now the record is cleared only after the
-      // create resolves, and any failure past this point leaves the cell `stalled`
-      // on the SAME workflow — Check status re-polls it (never re-submits) and
-      // finishes the job.
+      // It used to be cleared on reaching `succeeded` — before the publish and before
+      // the shared create, either of which can still fail after the viewer has paid.
+      // With the record gone the cell fell to `failed` → Dismiss → RUNNABLE: a second
+      // charge for a generation that already happened. Now the record is cleared only
+      // once the result row is written, and any failure past this point leaves the
+      // cell `stalled` on the SAME workflow.
+      let imageIds: number[];
       try {
         // 🔴 CARRY THE OUTPUTS INTO THE PUBLISHING WINDOW. `publish()` opens the
         // HOST's "Publish to the shared grid?" confirm and does not resolve until
@@ -2275,34 +2320,36 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // why it will not render block-supplied thumbnails). See the field docs on
         // `CellRun.previewUrls` and the header of `src/publishPreview.test.tsx`.
         setRun(ck, { status: 'publishing', previewUrls: terminal.imageUrls });
-        const imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
-        depsRef.current.track('publish', { imageCount: imageIds.length });
-        const matched = resolveCell(row.config, prompt);
-        if (!cellHasResult(results, row.comboKey, row.config.id, prompt.key) && imageIds.length > 0) {
-          const payload = buildResultPayload({
-            comboKey: row.comboKey,
-            configId: row.config.id,
-            promptKey: prompt.key,
-            ecosystem: matched.ecosystem,
-            imageIds,
-          }) as SharedStorageValue;
-          const { key } = await depsRef.current.shared.append(payload);
-          optimisticInsert(key, payload);
-        }
+        imageIds = await depsRef.current.publish({ workflowId: terminal.workflowId });
       } catch (e) {
-        console.debug('[model-benchmarking] result could not be saved after a paid run:', e);
-        setRun(ck, {
-          status: 'stalled',
-          workflowId: terminal.workflowId,
-          error: resultSaveFailedMessage(e),
-        });
+        console.debug('[model-benchmarking] outputs could not be published after a paid run:', e);
+        setRun(ck, { status: 'stalled', workflowId: terminal.workflowId, error: resultSaveFailedMessage(e) });
         return;
       }
-      clearInflight(ck); // the result row is written — the run is finished
-      setRun(ck, null);
-      reload();
+      depsRef.current.track('publish', { imageCount: imageIds.length });
+      // 🔴 PHASE 3 — RECORD THE PUBLISHED IDS BEFORE THE CREATE (round-2 audit, 🟡1).
+      // `publish()` has no per-workflow dedupe on the host: every call mints fresh
+      // public `Image` rows and orphans the previous ones. With the ids on the record a
+      // resume saves the row from them and NEVER publishes again. Awaited, so the ids
+      // are durable before the create can fail; a refused write only costs the
+      // guarantee (a later resume would publish once more), never the run.
+      const matched = resolveCell(row.config, prompt);
+      const entry: InflightRun = {
+        workflowId: terminal.workflowId,
+        comboKey: row.comboKey,
+        configId: row.config.id,
+        promptKey: prompt.key,
+        ecosystem: matched.ecosystem,
+        imageIds,
+      };
+      if (viewer) {
+        await depsRef.current.appStorage.set(inflightKey(ck), entry).catch((e: unknown) => {
+          console.debug('[model-benchmarking] could not record published image ids:', e);
+        });
+      }
+      await saveResult(ck, row, prompt, terminal.workflowId, imageIds, false);
     },
-    [results, reload, setRun, optimisticInsert, clearInflight],
+    [results, reload, setRun, clearInflight, saveResult, viewer],
   );
 
   const beginRun = useCallback(
@@ -2663,6 +2710,18 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         return;
       }
       inFlightRef.current.add(ck);
+      // 🔴 ALREADY PUBLISHED → NEVER PUBLISH AGAIN (round-2 audit, 🟡1). The ids are on
+      // the record (PHASE 3), so only the result row is missing: re-read the board for
+      // it and create it if absent. No poll, no publish.
+      const known = runsRef.current[ck]?.imageIds;
+      if (known) {
+        try {
+          await saveResult(ck, row, prompt, wfId, known, true);
+        } finally {
+          inFlightRef.current.delete(ck);
+        }
+        return;
+      }
       setRun(ck, { status: 'processing', workflowId: wfId });
       try {
         const first = await depsRef.current.poll(wfId);
@@ -2673,7 +2732,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         inFlightRef.current.delete(ck);
       }
     },
-    [setRun, clearInflight, driveToResult, token.scopes],
+    [setRun, clearInflight, driveToResult, saveResult, token.scopes],
   );
 
   const cancelRun = useCallback(

@@ -38,6 +38,7 @@ import {
   sameWindow,
   type RowWindow,
 } from '../lib/virtualRows.js';
+import { PAID_DISMISS_LABEL, RESULT_PENDING_MESSAGE, STALLED_MESSAGE } from '../lib/resultSave.js';
 import { EmptyState } from './EmptyState.js';
 import type { GatedCellComponent } from './GatedCell.js';
 
@@ -1236,23 +1237,24 @@ function CellRunState({
   // (that would re-charge). "Check status" re-polls the SAME workflow; "Dismiss"
   // is an explicit user abandon.
   if (run.status === 'stalled') {
+    // 🔴 A PAID cell — one whose run finished (`imageIds`) or failed after the spend
+    // (`error`) — says so, and its Dismiss says it allows a NEW, CHARGED run
+    // (`lib/resultSave.ts`). A plain stalled cell may still be generating.
+    const paid = run.error !== undefined || run.imageIds !== undefined;
+    const message = run.error ?? (run.imageIds ? RESULT_PENDING_MESSAGE : STALLED_MESSAGE);
     return (
       <div style={{ display: 'grid', gap: 8, fontSize: 12 }} data-testid="cell-stalled">
-        {/* A stalled cell carries an `error` when the run FINISHED and was paid for
-            but its result could not be saved — same controls, truer words. */}
-        {run.error ? (
-          <span style={{ color: token.text }} data-testid="cell-stalled-message">
-            {run.error}
-          </span>
-        ) : (
-          <span style={metaText}>Still generating…</span>
-        )}
+        <span style={paid ? { color: token.text } : metaText} data-testid="cell-stalled-message">
+          {message}
+        </span>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <Button size="sm" data-testid="cell-resume-run" onClick={onResume}>
-            Check status
-          </Button>
+          {!run.resultRefused && (
+            <Button size="sm" data-testid="cell-resume-run" onClick={onResume}>
+              Check status
+            </Button>
+          )}
           <Button size="sm" variant="subtle" data-testid="cell-cancel-run" onClick={onCancel}>
-            Dismiss
+            {paid ? PAID_DISMISS_LABEL : 'Dismiss'}
           </Button>
         </div>
       </div>

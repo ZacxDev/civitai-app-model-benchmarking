@@ -160,6 +160,13 @@ describe('viewer-fixable refusals of a shared write', () => {
     expect(err).toBeInstanceOf(SharedWriteRefusal);
     expect((err as SharedWriteRefusal).code).toBe('content_rejected');
     expect((err as Error).message).toBe(PUBLISH_CONTENT_REJECTED_MESSAGE);
+    // 🔴 THE WHOLE STRING, LITERALLY (round-2 audit, 🟡3): the server scans every text
+    // leaf — a prompt's own text included — so copy naming only "the name or
+    // description" sent authors to edit the wrong field. Pinned whole so a reword
+    // that narrows it again fails here rather than passing on the constant.
+    expect(PUBLISH_CONTENT_REJECTED_MESSAGE).toBe(
+      "This couldn't be published: the platform's content check rejected some of its text — the name, the description, or the prompt itself. Edit the text and try again.",
+    );
     // An edit is moderated too.
     const { key } = await store.append(LEGACY_VALUE);
     await expect(

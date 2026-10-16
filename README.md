@@ -312,7 +312,9 @@ its three per-object callers [`drafts.ts`](src/lib/drafts.ts),
 [`unpubPrompts.ts`](src/lib/unpubPrompts.ts) and
 [`unpubGrids.ts`](src/lib/unpubGrids.ts) — `App.tsx` also imports the boundary
 directly, for the one publish path all three share — and
-[`archive.ts`](src/lib/archive.ts) (the author-side hide) and
+[`archive.ts`](src/lib/archive.ts) (the author-side hide),
+[`resultSave.ts`](src/lib/resultSave.ts) (what a paid-but-unsaved cell says and offers,
+and which result-save refusals a retry cannot change) and
 [`roving.ts`](src/lib/roving.ts) (the arrow-key index arithmetic the sidebar and the
 row menu share — it was open-coded in both and wrong in both the same way) and
 [`virtualRows.ts`](src/lib/virtualRows.ts) (the results matrix's row-windowing
@@ -350,7 +352,7 @@ and an **opaque** half:
 |---|---|---|---|
 | `combination` | **2** | name / description + resource display names | `{ v: 2, kind, configs: [{ id, label?, checkpoint:{versionId,modelId,baseModel,…}, loras:[{versionId,weight,…}] }] }` |
 | `prompt` | **3** | name / description + the default prompt + **every** override prompt + negatives | `{ v: 3, kind, default:{prompt, params}, overrides?:{[ecosystem]:{prompt?, params?}} }` |
-| `result` | **2** | terse machine label | `{ v: 2, kind, comboKey, configId, promptKey, ecosystem, imageIds:number[], promptAuthorUserId? }` |
+| `result` | **2** | terse machine label | `{ v: 2, kind, comboKey, configId, promptKey, ecosystem, imageIds:number[] }` (pre-0.5.0 rows may also carry `promptAuthorUserId`, which is ignored) |
 | `grid` | **1** | name / description | `{ v: 1, kind, matchupKeys:string[], promptKeys:string[] }` |
 
 Two of those versions carry a data-model reframe worth knowing before you write a
