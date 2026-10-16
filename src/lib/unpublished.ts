@@ -3,9 +3,9 @@
 // SDK hooks, no network.
 //
 // 🔴 THE BOUNDARY THIS FILE EXISTS TO HOLD: an unpublished record lives in the
-// PER-VIEWER KV (`useAppStorage`, keys chosen by the app, quota-bounded,
+// PER-VIEWER KV (`useKvStore`, keys chosen by the app, quota-bounded,
 // anonymous writes rejected), and PUBLISH is the copy of that record into the
-// app-scoped PUBLIC board (`useSharedStorage.append`). Those are two different
+// app-scoped PUBLIC board (`useRecordsStore.append`). Those are two different
 // stores, and which store a record is in is the ONLY thing that makes it
 // private. There is no `visibility` field to set: a shared row is world-readable
 // the instant it is appended, and its `data` blob is not even moderated. So
@@ -20,7 +20,7 @@
 // two sites is typically wrong at one of them, so the rule lives here once and
 // each object contributes only its own body parser.
 
-import type { StorageQuota } from '@civitai/sdk';
+import type { KvQuota } from './kv-store.js';
 
 import type { PublishedPointer } from '../types.js';
 import { newId } from './benchmark.js';
@@ -307,59 +307,38 @@ export function formatBytes(bytes: number): string {
 /**
  * The storage line shown above a viewer's unpublished items.
  *
- * 🔴 EVERY NUMBER IN IT COMES FROM `getQuota()` — the ceilings are host-enforced
- * and host-reported, so a hard-coded "50 MB" is a claim this block is not
- * entitled to make and would go silently stale the day the host moves it
+ * 🔴 EVERY NUMBER IN IT COMES FROM THE STORE — `info()`'s `usage.viewer` against
+ * `limits.viewerBytes` / `limits.viewerDocs` (`lib/kv-store.ts`'s `getQuota`). The
+ * ceilings are host-enforced and host-reported, so a hard-coded "2 MB" is a claim this
+ * block is not entitled to make and would go silently stale the day the host moves it
  * (acceptance criterion 6). `null` means the quota has not been read yet (or the
  * viewer is anonymous), and the caller renders nothing rather than a guess.
  *
- * 🔴 THE PRIVACY CLAIM AND THE NUMBERS ARE DELIBERATELY IN SEPARATE CLAUSES,
- * and that separation is the whole point of this string:
+ * 🔴 THE PRIVACY CLAIM AND THE NUMBERS ARE STILL IN SEPARATE CLAUSES, and the
+ * second clause CHANGED MEANING WITH THE DOCUMENT-STORE PORT (0.5.0):
  *
- *   - the DATA is per-viewer — `get()` reads the current (block instance, viewer)
- *     tuple, so an unpublished item really is invisible to everyone else;
- *   - the QUOTA was APP-WIDE, i.e. `usedBytes`/`rowCount` were totals summed over
- *     every viewer. This line used to open `Private to you — ${usedBytes} of
- *     ${limitBytes} used…`, which fused the two and told the viewer those were
- *     their own figures. It was measured false on 2026-08-31: two different
- *     viewers (ids 8753561 and 11025902) saw byte-identical quota lines, including
- *     a row count that had just moved 27 -> 28 because of the FIRST viewer's
- *     record. Never re-fuse them.
+ *   - the DATA is per-viewer — an unpublished item is a document in the PRIVATE `kv`
+ *     collection, which no other viewer can read;
+ *   - the NUMBERS are the VIEWER'S OWN, and they cover EVERY document the viewer wrote
+ *     in this app — their private items AND their published rows — because the store
+ *     charges each write to the calling viewer. The copy says both halves.
  *
- * 🔴 BUT THE SECOND CLAUSE IS NOW SUSPECTED STALE, AND THE RENDERED COPY BELOW
- * WITH IT — recorded here rather than silently corrected, because a viewer-facing
- * string is not something a transport port is entitled to rewrite on ground it
- * cannot verify. The authority moved twice. It was the bridge hook's own doc; that
- * package is no longer the transport for this call (this module is typed against
- * `@civitai/sdk`'s `StorageQuota` now), and `@civitai/sdk@0.8.0`'s README § App
- * (the version dates the document read, not the installed pin, which is 0.10.0)
- * storage does not restate the per-app claim at all. Reading the server instead —
- * civitai `origin/main` @ `329c89a23e` — `getAppStorageQuota`
- * (`server/services/apps/app-storage.service.ts`) returns
- * `AppStorageProvisioner.getUserQuota({ slug, appBlockId, userId })` against
- * `USER_QUOTA_BYTES`/`USER_ROW_LIMIT`, and the REST route's docblock
- * (`api/v1/blocks/app-storage/quota.ts`) says in terms: "The CALLER'S OWN usage
- * against their own caps … Note what that function deliberately does NOT return:
- * the APP-WIDE aggregate. It used to", dropped because it was a cross-user
- * readout. ONE body, BOTH transports (`APP STORAGE: ONE BODY, TWO TRANSPORTS`) —
- * so this is NOT a port delta: it is an upstream change that landed after
- * 2026-08-31 and made the app's copy wrong on the bridge too.
+ * ⚠️ THE OLD COPY SAID "Storage is app-wide, shared with every other viewer", which
+ * was measured TRUE on the legacy store on 2026-08-31 (two viewers saw byte-identical
+ * figures) and was already suspected stale before the port, when the legacy quota
+ * route changed to the caller's own usage. On the document store it is definitively
+ * false — `info()` names the app figure and the viewer figure separately and this
+ * reads the viewer's — so the clause is replaced rather than carried over. Never
+ * re-fuse the privacy claim with the numbers.
  *
- * ⚠ NOT FIXED HERE, ON PURPOSE. The fix is a rendered-copy change with its own
- * verification — the mirror image of the 2026-08-31 measurement, two live viewers,
- * which nothing local can perform — and a test asserts this exact string. Filed as
- * a follow-up; do not "tidy" it in passing, and do not read the clause above as
- * current truth.
- *
- * ⚠️ The leading noun changed from "Drafts" to "Unpublished items" in 527: the
- * word "draft" left the rendered vocabulary (§11.1) while the `draft:v1:` STORAGE
- * prefix kept its historical name. The two clauses and their scopes are unchanged.
+ * ⚠️ The leading noun is "Unpublished items" (527): the word "draft" left the rendered
+ * vocabulary (§11.1) while the `draft:v1:` STORAGE key prefix kept its historical name.
  */
-export function formatQuota(quota: StorageQuota | null): string | null {
+export function formatQuota(quota: KvQuota | null): string | null {
   if (!quota) return null;
   return (
-    'Unpublished items are private to you. Storage is app-wide, shared with every other viewer: ' +
+    'Unpublished items are private to you. Your storage in this app, published and unpublished together: ' +
     `${formatBytes(quota.usedBytes)} of ${formatBytes(quota.limitBytes)} used, ` +
-    `${quota.rowCount.toLocaleString('en-US')} of ${quota.limitRows.toLocaleString('en-US')} rows.`
+    `${quota.rowCount.toLocaleString('en-US')} of ${quota.limitRows.toLocaleString('en-US')} items.`
   );
 }

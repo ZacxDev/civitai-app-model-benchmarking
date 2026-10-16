@@ -1,4 +1,5 @@
-// The per-viewer KV (`useAppStorage`) PAGING RULE, in one place.
+// The per-viewer KV (`useKvStore` — the document store's private `kv`
+// collection since 0.5.0, `lib/kv-store.ts`) PAGING RULE, in one place.
 //
 // 🔴 WHY THIS FILE EXISTS — a predicate open-coded at N sites is typically wrong
 // at N−1 of them, and this one was wrong at exactly one. The app had THREE
@@ -15,7 +16,7 @@
 //   - the defensive `key.startsWith(prefix)` filter (the host or a fake may
 //     over-return, and every call site had its own copy of this line).
 
-import type { StorageClient } from '@civitai/sdk';
+import type { KvStore } from './kv-store.js';
 
 /**
  * Safety cap on pages per listing. Shared by every caller so the bound is one
@@ -56,7 +57,7 @@ export interface ScanResult {
  * centrally would flatten three deliberate behaviours into one.
  */
 export async function forEachStoredKey(
-  store: StorageClient,
+  store: KvStore,
   prefix: string,
   onKey: (key: string) => Promise<'stop' | void> | 'stop' | void,
   opts: {

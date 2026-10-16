@@ -87,23 +87,26 @@ import {
   WorkflowEstimateError,
 } from '@civitai/blocks-react';
 // 🔴 THE PORTED HALF. Snapshot (context/token), host UI (resize/sign-in/consent)
-// and the three REST families (per-viewer KV, shared storage, Buzz balance) now
-// come from `@civitai/sdk` through ONE adapted transport. See
+// and the REST families (the document store's private `kv` and shared `records`
+// collections, and the Buzz balance) now come from `@civitai/sdk` through ONE
+// adapted transport. See
 // `src/lib/sdk-runtime.ts` for the three-group split, and `src/lib/sdk-transport.ts`
 // for why there is exactly one transport rather than two.
 import {
-  useAppStorage,
+  useKvStore,
   useBlockContext,
   useBlockResize,
   useBlockToken,
   useBuzzBalance,
   useRequestConsent,
   useRequestSignIn,
-  useSharedStorage,
+  useRecordsStore,
+  type KvStore,
   type SharedStore,
 } from './lib/sdk-runtime.js';
+import type { KvQuota } from './lib/kv-store.js';
 import type { SharedStorageValue } from '@civitai/app-sdk/blocks';
-import type { Scope, StorageClient, StorageQuota } from '@civitai/sdk';
+import type { Scope } from '@civitai/sdk';
 import {
   Alert,
   Badge,
@@ -115,7 +118,7 @@ import {
   Stack,
 } from '@civitai/blocks-react/ui';
 
-import { AI_WRITE_BUDGETED, hasGenerateScope } from './scopes.js';
+import { hasGenerateScope, missingRunScopes } from './scopes.js';
 import { COMPACT_ATTR, LAYOUT_ATTR, compactTapTargetCss, layoutCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import {
@@ -275,7 +278,7 @@ export interface AppDeps {
    * 🔴 It does NOT hold vote state. It used to, because the shared list once
    * carried only the aggregate `count`; the list now reports `viewerVoted` per
    * row, which is host-derived and therefore correct across devices. */
-  appStorage: StorageClient;
+  appStorage: KvStore;
   /**
    * Fire-and-forget analytics.
    *
@@ -384,7 +387,7 @@ export const ESTIMATE_NO_COST_MESSAGE =
  * "make sure". Contrast the `'unknown'` copy below, which says the opposite
  * because the opposite is true there.
  *
- * 🔴 The host's own error string is deliberately NOT shown. `useAppStorage.set`
+ * 🔴 The host's own error string is deliberately NOT shown. `useKvStore.set`
  * rejects with the host's `error` — server-authored, unsanitised, and a storage
  * engine's vocabulary ("PAYLOAD_TOO_LARGE", "QUOTA_EXCEEDED") is not viewer copy.
  * It goes to the developer console instead, the same split the estimate errors
@@ -515,12 +518,12 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   const picker = useResourcePicker();
   const genResources = useGenerationResources();
   const workflow = useBuzzWorkflow();
-  const sharedHook = useSharedStorage();
+  const sharedHook = useRecordsStore();
   const buzz = useBuzzBalance();
   const { requestConsent } = useRequestConsent();
   const { requestSignIn } = useRequestSignIn();
   const { publish } = usePublishGenerationOutputs();
-  const appStorage = useAppStorage();
+  const appStorage = useKvStore();
   const { track } = useBlockAnalytics();
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -770,24 +773,21 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    * idempotent (unlike `vote`), so that is a duplicate report rather than a no-op.
    * `ReportButtonProps.reported`'s own JSDoc advises exactly this hoist.
    *
-   * 🔴 THE SET IS THE OPPOSITE OF `votedKeys` IN ONE IMPORTANT WAY, and it is worth
-   * saying because the two sit next to each other: a vote is DERIVED from the row
-   * (`viewerVoted` arrives on every `list()`), so nothing is held in parallel. A report
-   * has no such field, so the only possible source is the app's own record and holding
-   * it is not a second copy of anything. VERIFIED on the installed pin rather than taken
-   * from upstream's wording: `@civitai/sdk`'s `SharedItem` (re-measured at the
-   * installed 0.10.0, after the `scope: 'site'` bump moved it off 0.8.0 — the field
-   * set is unchanged and `viewerReported` appears nowhere in the package)
-   * (`dist/shared-storage/index.d.ts:28`) declares exactly `key`, `authorUserId`,
-   * `value`, `count`, `createdAt`, `updatedAt`, `viewerVoted` — no `viewerReported` and
-   * nothing like it. (`ReportButtonProps.reported`'s JSDoc makes the same point about a
-   * type it calls `SharedListItem`; that is `@civitai/blocks-react`'s name for the same
-   * row, and this app reads the `@civitai/sdk` one.)
+   * 🔴 THE SET WAS THE OPPOSITE OF `votedKeys` ON THE LEGACY STORE, AND THE DOCUMENT
+   * STORE REMOVED THE REASON. A vote is DERIVED from the row (`viewerVoted`, i.e. the
+   * store's `viewer.marks`), so nothing is held in parallel. The legacy shared row had
+   * no report field at all, so this record was the only possible source. On the
+   * document store a report is the built-in `report` MARK, and the server's
+   * `viewer.marks` lists EVERY mark the viewer holds on the document — `report`
+   * included (`doc-store.ts`'s `viewer_marks` subquery filters by viewer, not by mark
+   * name). So "already reported" is now derivable and would survive a reload. It is NOT
+   * switched over in the storage port (0.5.0): this record still drives the UI, and the
+   * derivation is a separate, UI-visible change. Filing it, not claiming it.
    *
    * ⚠️ IT IS SESSION STATE, NOT PERSISTED, AND THAT IS THE HONEST SCOPE OF THE FIX. A
-   * reload still offers Report again on a row this viewer already reported; closing
-   * that needs a per-viewer `appStorage` record and is a write-path change with its own
-   * verification. What this DOES close is every in-session loss: a menu close, a
+   * reload still offers Report again on a row this viewer already reported (re-filing
+   * is a harmless no-op on the store — a mark is idempotent); closing that is the
+   * `viewer.marks` derivation above. What this DOES close is every in-session loss: a menu close, a
    * re-open, a board switch, a sidebar navigation and a `list()` refresh.
    */
   const [reportedRecord, setReportedRecord] = useState<{
@@ -880,14 +880,15 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // 🔴 AND THE SDK PORT MADE THAT WINDOW WIDER — this comment used to say "a
   // macrotask over the real host's cross-origin `postMessage` bridge", and that
   // transport is gone from this path: these are cross-origin HTTPS requests to
-  // civitai.com now, and `withBlockScope` sets its CORS headers with NO
-  // `Access-Control-Max-Age`, so each POST can carry its own preflight.
+  // civitai.com now (the document store since 0.5.0), and `withBlockScope` sets its
+  // CORS headers with NO `Access-Control-Max-Age`, so each request can carry its own
+  // preflight.
   //
   // ⚠ THE SIZE OF THAT WIDENING WAS OVERSTATED ONCE, AND THE FIGURE IS RETRACTED. An
   // earlier draft of this paragraph said "up to 2N round trips where there were N
   // in-process messages". The bridge's messages were NOT in-process work: the host
   // answered `APP_STORAGE_*` by calling the very same server function the REST route
-  // calls (`api/v1/blocks/app-storage/get.ts`: "the SAME function
+  // calls (the legacy KV's REST `get` route: "the SAME function
   // `trpc.apps.storage.get` calls"), so each one was ALREADY a network round trip,
   // made from the host page. The real delta is +1 preflight leg and −2 postMessage
   // hops per call, not 0 → 2.
@@ -916,6 +917,13 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // never wiped by a read-after-write-lagged list.
   const pendingRef = useRef<Map<string, PendingOptimistic>>(new Map());
 
+  // 🔴 THE BOARD RE-READS ON A VIEWER CHANGE, and that is new with the document store.
+  // Two fields of every row are answers ABOUT THE READER — `viewerVoted` (the store's
+  // `viewer.marks`) and ownership (`author.isViewer`, stamped by `listAll`) — so a row
+  // read for viewer A says nothing true about viewer B. Ownership fails closed in the
+  // meantime (A's id is stamped, B's never matches it); the re-read is what gives B
+  // their own rows and votes back.
+  const viewerId = viewer?.id ?? null;
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -923,7 +931,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       setLoading(true);
       setError(null);
       try {
-        const all = await listAll(depsRef.current.shared);
+        const all = await listAll(depsRef.current.shared, viewerId);
         if (cancelled) return;
         const { items: merged, pending } = reconcileOptimistic(all.items, pendingRef.current);
         pendingRef.current = pending;
@@ -950,7 +958,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [ready, reloadKey]);
+  }, [ready, reloadKey, viewerId]);
 
   // (No vote-state hydration effect: `viewerVoted` arrives on each row of the
   // list() above, so the highlight is already correct on first paint — including
@@ -1091,7 +1099,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   /** Shared keys this viewer archived — an AUTHOR-SIDE HIDE of their own My list
    * and nothing more (§11.3). Never sent to the shared board. */
   const [archived, setArchived] = useState<string[]>([]);
-  const [quota, setQuota] = useState<StorageQuota | null>(null);
+  const [quota, setQuota] = useState<KvQuota | null>(null);
   const [draftsVersion, setDraftsVersion] = useState(0);
   const refreshDrafts = useCallback(() => setDraftsVersion((v) => v + 1), []);
 
@@ -1503,7 +1511,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // ⚠️ THREE CLAIMS THAT USED TO BE HERE ARE RETRACTED, not reworded, because
       // this port falsified them: this branch no longer routes through
       // `@civitai/blocks-react` AT ALL, so "the pinned 0.43.0", "the 0.43.0
-      // RUNTIME", and `useSharedStorage.js:115-121` were describing a code path
+      // RUNTIME", and the bridge shared-store hook's own lines 115-121 were describing a code path
       // that is not on this line any more — and the pin was `^0.51.0` even before
       // that. The claim that `withdraw` is "the only SDK write typed `ok: boolean`"
       // is also false against the installed SDK, where it is `ok: true` like the
@@ -1511,8 +1519,9 @@ export function App({ deps: depsOverride }: AppProps = {}) {
       // what is true is stated above and nothing more.
       //
       // Either way the viewer keeps the only per-viewer handle on a row that is
-      // still live. Shared keys are host-minted and the shared list has no
-      // "mine" index (docs/matchups.md §4), so deleting that pointer against a
+      // still live. Shared keys are host-minted, and while the document store can list
+      // the viewer's own rows (`author: 'me'`), nothing on a row names the private
+      // record it came from (docs/matchups.md §4), so deleting that pointer against a
       // surviving row is UNRECOVERABLE. Dropping the `ok` check, or clearing the
       // pointer before this line, each turn this fix into a data-loss bug.
       const res = await depsRef.current.shared.withdraw(key);
@@ -1910,7 +1919,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
    *
    * The draft is then KEPT, rewritten to `{localId, sharedKey, submittedAt}`: it
    * is the only per-viewer handle on the row, since shared keys are host-minted
-   * and the shared list has no "mine" index. `publishRecord` owns everything
+   * and no shared row names the private record it was published from. `publishRecord` owns everything
    * about WHEN that write happens and what a refusal means.
    */
   const submitDraft = useCallback(
@@ -2113,7 +2122,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   //
   // 🔴 THE HAZARD THIS REPLACES, because the shape it had was the bug. Persisting
   // the run used to be ONE fire-and-forget write with a SWALLOWED rejection,
-  // issued AFTER `submit` — i.e. after the money. `useAppStorage.set` rejects
+  // issued AFTER `submit` — i.e. after the money. `useKvStore.set` rejects
   // when the value exceeds 64 KB, when the per-app quota would be crossed, or for
   // an anonymous viewer; on a rejection NOTHING was written, so neither the
   // rehydrate scan nor the pre-spend read could find anything, and the next load
@@ -2226,7 +2235,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           promptKey: prompt.key,
           ecosystem: matched.ecosystem,
           imageIds,
-          ...(prompt.authorUserId ? { promptAuthorUserId: prompt.authorUserId } : {}),
+          // No `promptAuthorUserId` since 0.5.0: the document store never discloses
+          // an author's id (see `ResultData.promptAuthorUserId`).
         }) as SharedStorageValue;
         const { key } = await depsRef.current.shared.append(payload);
         optimisticInsert(key, payload);
@@ -2279,7 +2289,10 @@ export function App({ deps: depsOverride }: AppProps = {}) {
         // the token merely hydrating — see `consentAskedRef`. Deliberately NOT
         // cleared on supersede: a second press is still a session that asked.
         consentAskedRef.current = true;
-        depsRef.current.requestConsent({ scopes: [AI_WRITE_BUDGETED] });
+        // 🔴 EVERY MISSING RUN SCOPE, not just the money one: the last step of a paid
+        // run is a SHARED write (`apps:storage:publish`), and asking for it here keeps
+        // that consent in front of the spend instead of behind it (`RUN_SCOPES`).
+        depsRef.current.requestConsent({ scopes: missingRunScopes(token.scopes) });
         return;
       }
       setRun(ck, { comboKey: row.comboKey, configId: row.config.id, promptKey: prompt.key, ecosystem: matched.ecosystem, status: 'estimating', error: undefined });
@@ -4090,8 +4103,8 @@ export function App({ deps: depsOverride }: AppProps = {}) {
  * Page the WHOLE shared list (newest-first) into a flat RawSharedItem[].
  *
  * 🔴 THIS IS THE ONE PLACE A SHARED ROW'S `value` IS NARROWED, and it is a
- * deliberate cast rather than a validation. `@civitai/sdk` types `SharedItem.value`
- * as `unknown` on purpose — the row was written by some OTHER viewer's copy of
+ * deliberate cast rather than a validation. A `records` document's `data` is
+ * whatever its author's client wrote — the row was written by some OTHER viewer's copy of
  * this app, possibly an older or newer one, so its shape is a fact about stored
  * data and not a promise a client can keep — and it instructs callers to narrow at
  * the call site. This app has exactly one read funnel, so "the call site" is here.
@@ -4107,6 +4120,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
  */
 async function listAll(
   shared: SharedStore,
+  viewerId: number | null,
 ): Promise<{ items: RawSharedItem[]; truncated: boolean }> {
   const out: RawSharedItem[] = [];
   let cursor: string | undefined;
@@ -4116,7 +4130,10 @@ async function listAll(
       out.push({
         key: it.key,
         count: it.count,
-        authorUserId: it.authorUserId,
+        // 🔴 THE STORE SAYS "THE READER WROTE THIS", NEVER WHO DID. Stamp the id of the
+        // viewer this read was made for onto exactly those rows; every other row is
+        // `null`. See `RawSharedItem.authorUserId`.
+        authorUserId: it.authoredByViewer && viewerId !== null ? viewerId : null,
         value: it.value as SharedStorageValue,
         viewerVoted: it.viewerVoted,
       });
@@ -4127,9 +4144,11 @@ async function listAll(
   // 🔴 Fell out of the loop with a cursor still in hand: there are MORE rows on
   // the board than this scan read. Everything downstream — the vote ranking, the
   // "top N" that becomes the grid, the included counts — is therefore computed
-  // over a PREFIX of the board, and there is no server-side sort to fall back on
-  // (`list` is newest-first only). Reporting it is what lets the UI say so
-  // instead of presenting a partial order as the whole one.
+  // over a PREFIX of the board. (The document store CAN sort by `mark:vote`
+  // server-side, which the legacy list could not; this scan still reads newest-first
+  // because every kind shares one collection and the ranking is per kind — changing
+  // that is its own decision, not part of the storage port.) Reporting it is what
+  // lets the UI say so instead of presenting a partial order as the whole one.
   //
   // The same distinction is already drawn carefully for the per-viewer KV scan
   // (`inflightScanTruncatedRef`); this is the public half, which used to return

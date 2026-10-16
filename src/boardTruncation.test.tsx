@@ -18,7 +18,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from './test-harness.js';
-import type { SharedItem } from '@civitai/sdk';
+import type { SharedRecord } from './lib/records-store.js';
 import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
@@ -38,10 +38,10 @@ const comboData: CombinationData = {
   ],
 };
 
-function row(key: string): SharedItem {
+function row(key: string): SharedRecord {
   return {
     key,
-    authorUserId: 7,
+    authoredByViewer: false,
     count: 1,
     viewerVoted: false,
     value: { title: `Combo ${key}`, body: '', data: comboData },
@@ -58,8 +58,9 @@ function row(key: string): SharedItem {
  * does. It is aimed at a MATCHUP rather than at the grid so the card carrying that
  * case's second assertion survives its own optimistic delete.
  */
-function ownMatchupRow(): SharedItem {
-  return { ...row('mk-mine'), authorUserId: 99 };
+function ownMatchupRow(): SharedRecord {
+  // The store's `author.isViewer`, as the façade reports it — there is no author id.
+  return { ...row('mk-mine'), authoredByViewer: true };
 }
 
 /**
@@ -293,10 +294,10 @@ const gridData: GridData = {
   promptKeys: ['qk-never-read'],
 };
 
-function gridRow(): SharedItem {
+function gridRow(): SharedRecord {
   return {
     key: GRID_KEY,
-    authorUserId: 7,
+    authoredByViewer: false,
     count: 5,
     viewerVoted: false,
     value: { title: 'Dangling grid', body: '', data: gridData },

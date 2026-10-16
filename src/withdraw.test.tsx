@@ -1,5 +1,5 @@
 // Withdraw (issue #10): a contributor removes their OWN row from the shared grid.
-// `useSharedStorage().withdraw` was implemented, scoped and documented — and
+// `useRecordsStore().withdraw` was implemented, scoped and documented — and
 // wired to nothing, so a submitted combo/prompt was permanent as far as the UI
 // was concerned. These drive the real App through the affordance:
 //   - the author CAN withdraw their own combination / prompt (and only after a

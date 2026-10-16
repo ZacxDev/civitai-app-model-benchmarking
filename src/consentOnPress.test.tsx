@@ -123,7 +123,7 @@ describe('🔴 consent is asked at PRESS time, and the press must be able to LAN
     await userEvent.click(btn);
 
     expect(requestConsent).toHaveBeenCalledTimes(1);
-    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted'] });
+    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted', 'apps:storage:publish'] });
     // …and it asked for consent INSTEAD of starting to spend.
     expect(estimate).not.toHaveBeenCalled();
   });

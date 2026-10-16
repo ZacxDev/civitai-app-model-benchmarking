@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { StorageClient } from '@civitai/sdk';
+import type { KvStore } from './kv-store.js';
 
 import { hasMore } from '../dev-rest.js';
 
@@ -20,7 +20,7 @@ import { KV_MAX_PAGES, forEachStoredKey } from './kv.js';
  * A minimal paging store: `keys` served `pageSize` at a time, cursor = the last
  * key of the page (the SDK documents it as an opaque base64 last-key).
  */
-function store(keys: string[], pageSize: number): StorageClient & { listCalls: number } {
+function store(keys: string[], pageSize: number): KvStore & { listCalls: number } {
   const api = {
     listCalls: 0,
     async get() {
@@ -41,21 +41,20 @@ function store(keys: string[], pageSize: number): StorageClient & { listCalls: n
       const from = opts?.cursor ? all.indexOf(atob(opts.cursor)) + 1 : 0;
       const page = all.slice(from, from + pageSize);
       const last = page[page.length - 1];
-      // 🔴 THE SERVER'S RULE, FROM THE ONE PLACE THAT STATES IT. `hasMore` is
-      // `dev-rest.ts`'s, shared by every paging fake in the repo: a cursor iff the
-      // page came back FULL (`app-storage.service.ts`: `rows.length === limit`),
-      // because the server has not read row `limit + 1`. This used to be
-      // `all.indexOf(last) < all.length - 1` — the fake reading data the server never
-      // fetched — which is OPTIMISTIC at exactly the boundary `forEachStoredKey`'s
-      // truncation report turns on, i.e. the pre-spend double-charge backstop.
-      const more = last !== undefined && hasMore(page.length, pageSize);
+      // 🔴 THE STORE'S RULE, FROM THE ONE PLACE THAT STATES IT. `hasMore` is
+      // `dev-rest.ts`'s, shared by every paging fake in the repo. The DOCUMENT STORE
+      // reads `limit + 1` and emits a cursor exactly when another row exists — unlike
+      // the legacy KV route, which emitted one whenever a page came back FULL. This
+      // fake used the legacy rule until the 0.5.0 port; the two cases at the bottom
+      // of this file are the boundary where the rules differ.
+      const more = last !== undefined && hasMore(all.length - from, pageSize);
       return {
         keys: page.map((key) => ({ key, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),
       };
     },
   };
-  return api as unknown as StorageClient & { listCalls: number };
+  return api as unknown as KvStore & { listCalls: number };
 }
 
 const kv = (n: number): string[] => Array.from({ length: n }, (_, i) => `p:${i}`);
@@ -151,36 +150,36 @@ describe('forEachStoredKey — `truncated` is a MONEY signal, so it is pinned bo
     expect(s.listCalls).toBe(KV_MAX_PAGES);
   });
 
-  it('🔴 a FULL final page still carries a cursor, so the cap reports truncated: TRUE', async () => {
-    // 🔴 THIS CASE ASSERTED `false` UNTIL THE FAKE WAS PUT ON THE SERVER'S RULE, and
-    // it was pinning the PERMISSIVE side of a money boundary. `KV_MAX_PAGES` keys at
-    // one per page means the last allowed page comes back FULL — and a full page is
-    // exactly when the real route emits a cursor, because it has not read the row
-    // after it. `forEachStoredKey` therefore falls out of its `for` still holding a
-    // cursor and reports `truncated: true`, which is what makes `confirmRun` refuse
-    // to spend. The old fake said "that was the last page" and stood the backstop
-    // down. Nothing about `forEachStoredKey` changed; the fake had been lying.
-    //
-    // ⚠ "Budget spent, nothing left behind" is still a real state and still pinned —
-    // by the case below, whose final page is genuinely PARTIAL. That is the only
-    // shape that reaches it against a server-faithful store.
+  it('a scan whose LAST ALLOWED page holds the last key is NOT truncated (document-store cursor rule)', async () => {
+    // 🔴 THIS CASE FLIPPED WITH THE DOCUMENT-STORE PORT, AND THE FLIP IS THE STORE'S,
+    // NOT `forEachStoredKey`'s. `KV_MAX_PAGES` keys at one per page puts the last key
+    // on the last allowed page. The LEGACY KV route emitted a cursor for any FULL page
+    // (it had not read row `limit + 1`), so the walk fell out of its loop still holding
+    // one and reported `truncated: true` — the conservative answer to "may there be
+    // more?". The document store reads `limit + 1` and answers `nextCursor: null`
+    // exactly on the last page, so there is no "may": this walk saw every key, and
+    // reporting it truncated would only make `confirmRun` pay a needless read before
+    // every spend. The under-reporting direction stays pinned by the case above
+    // (more keys than the cap → `truncated: true`).
     const res = await forEachStoredKey(store(kv(KV_MAX_PAGES), 1), 'p:', () => {});
-    expect(res.truncated).toBe(true);
+    expect(res.truncated).toBe(false);
     expect(res.pages).toBe(KV_MAX_PAGES);
   });
 
-  it('a scan whose last allowed page comes back EMPTY is NOT truncated', async () => {
-    // The other side of the boundary, reachable under the server's rule: one fewer
-    // key than the cap, so page 20 lists and returns nothing. An empty page is not a
-    // full page, so no cursor, so the walk ends deliberately rather than on budget —
-    // and the backstop stands down, correctly.
-    //
-    // ⚠ The bound OVERSHOOTS the page size deliberately (`KV_MAX_PAGES - 1` keys at
-    // one per page, not a round multiple): a fixture that can only land mid-range
-    // cannot see an off-by-one at the edge, which is why the original case chose
-    // this shape even though its arithmetic was wrong about the store.
+  it('one key PAST the cap is truncated — the boundary, from the other side', async () => {
+    // ⚠ The bound OVERSHOOTS by exactly one (`KV_MAX_PAGES + 1` keys at one per page):
+    // the 20th page then carries a cursor for the single key the walk never reached,
+    // which is the smallest store that can hide an in-flight run from the scan.
+    const s = store(kv(KV_MAX_PAGES + 1), 1);
+    const res = await forEachStoredKey(s, 'p:', () => {});
+    expect(res.truncated).toBe(true);
+    expect(res.pages).toBe(KV_MAX_PAGES);
+    expect(s.listCalls).toBe(KV_MAX_PAGES);
+  });
+
+  it('a scan that ends BEFORE the cap is NOT truncated', async () => {
     const res = await forEachStoredKey(store(kv(KV_MAX_PAGES - 1), 1), 'p:', () => {});
     expect(res.truncated).toBe(false);
-    expect(res.pages).toBe(KV_MAX_PAGES);
+    expect(res.pages).toBe(KV_MAX_PAGES - 1);
   });
 });

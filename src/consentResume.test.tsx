@@ -104,8 +104,8 @@ vi.mock('./lib/sdk-runtime.js', async (importOriginal) => {
 
 const { App } = await import('./App.js');
 
-const GRANTED = () => ['apps:storage:shared:read', 'ai:write:budgeted'];
-const UNGRANTED = () => ['apps:storage:shared:read'];
+const GRANTED = () => ['apps:storage', 'ai:write:budgeted', 'apps:storage:publish'];
+const UNGRANTED = () => ['apps:storage'];
 
 beforeEach(() => {
   scopesBox.current = null;
@@ -238,7 +238,7 @@ describe('🔴 a grant resumes the action that asked for it, up to the Confirm g
 
     const [runBtn] = await runButtons();
     await userEvent.click(runBtn);
-    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted'] });
+    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['ai:write:budgeted', 'apps:storage:publish'] });
     expect(estimate, 'estimated before the scope existed').not.toHaveBeenCalled();
 
     // The host grants: the next token carries the scope.

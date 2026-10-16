@@ -15,7 +15,8 @@
 //      paints its boot skeleton off `ready`/`theme` (`src/bootTheme.ts`).
 //   2. HOST-MEDIATED (resize, sign-in, consent) — still postMessage, and
 //      `createHost(transport)` is synchronous, so these need no await either.
-//   3. REST (app storage, shared storage, Buzz balance) — these moved off the
+//   3. REST (the App Blocks document store — private `kv` and shared `records`
+//      collections — and the Buzz balance) — these moved off the
 //      bridge onto `/api/v1`, and they are the only group that must wait for
 //      `initialize({ transport })` to resolve, because only the AppClient carries
 //      the http clients bound to the token session.
@@ -113,7 +114,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import type { RefObject } from 'react';
 
 import { getTransport } from '@civitai/blocks-react';
-import type { SharedStorageValue } from '@civitai/app-sdk/blocks';
 import { createHost, initialize } from '@civitai/sdk';
 import type {
   AppClient,
@@ -122,13 +122,17 @@ import type {
   BlockTransport,
   Host,
   Scope,
-  SharedItem,
-  StorageClient,
   Theme,
   ViewerInfo,
 } from '@civitai/sdk';
 
+import { APPS_STORAGE_PUBLISH } from '../scopes.js';
+import { createKvStorage, type KvStore } from './kv-store.js';
+import { createRecordsStore, type SharedStore } from './records-store.js';
 import { createSdkTransportAdapter } from './sdk-transport.js';
+
+export type { KvStore } from './kv-store.js';
+export type { SharedRecord, SharedStore } from './records-store.js';
 
 /** What the viewer's per-pool balance looks like — the shape `blocks/buzz` returns. */
 export interface BuzzPools {
@@ -269,19 +273,20 @@ function transport(): BlockTransport {
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
- * The caller's own options if they carry a signal, else a default deadline.
+ * A fresh default deadline for one REST call.
  *
- * 🔴 IT MUST NOT CLOBBER A CALLER'S SIGNAL. Every façade method forwards the `opts`
- * its `StorageClient`/`SharedStorageClient` signature accepts, so a caller passing
- * its own cancellation owns the deadline; this only fills the gap where none was
- * given. Overwriting would silently discard a caller's abort — the same defect
- * `sdk-transport.ts` refuses to introduce by casting.
+ * ⚠ IT TOOK THE CALLER'S OPTIONS UNTIL THE DOCUMENT-STORE PORT, and honoured a signal a
+ * caller passed in. No caller passes one any more — the storage façades
+ * (`lib/kv-store.ts`, `lib/records-store.ts`) take no per-call options, and the balance
+ * read never did — so the "don't clobber a caller's signal" branch had no caller and no
+ * test, and is gone rather than kept as dead code. A future caller that needs its own
+ * cancellation should combine it with this one (`AbortSignal.any`), not replace it.
+ *
+ * 🔴 CALLED PER REQUEST, NEVER HOISTED: `AbortSignal.timeout` starts its clock at
+ * creation, so one shared signal would abort every call made 30s after the first.
  */
-function withDeadline<T extends { signal?: AbortSignal }>(
-  opts: T | undefined,
-): T | (T & { signal: AbortSignal }) | { signal: AbortSignal } {
-  if (opts?.signal) return opts;
-  return { ...(opts ?? ({} as T)), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) };
+function deadline(): { signal: AbortSignal } {
+  return { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) };
 }
 
 /**
@@ -293,8 +298,8 @@ function withDeadline<T extends { signal?: AbortSignal }>(
  * children immediately — `useDirectLoad` starts false, it is not a ready gate — so
  * `<App>` mounts on frame 1 and `useBuzzBalance`'s mount effect calls `app()`
  * before a slow host has answered. With a plain `??=` that rejection became the
- * permanent value of `appPromise`: every later `useSharedStorage.list`,
- * `useAppStorage.get/set` and even `refetch()` reused it, so the board never loaded
+ * permanent value of `appPromise`: every later `useRecordsStore.list`,
+ * `useKvStore.get/set` and even `refetch()` reused it, so the board never loaded
  * and the balance's Retry button could not work — for the life of the page,
  * recoverable only by a full reload.
  *
@@ -493,187 +498,78 @@ export function useRequestConsent(): {
 // ---------------------------------------------------------------------------
 
 /**
- * Per-(block instance, viewer) KV.
+ * Per-viewer KV — the private `kv` collection of the App Blocks document store.
  *
- * Returns a STABLE façade whose methods await the AppClient internally, rather
- * than `StorageClient | null`. Two reasons, both load-bearing:
- *   - the object goes into `deps` and thence into `useEffect`/`useMemo`
- *     dependency arrays, and the bridge hook documented itself as stable;
+ * Returns a STABLE façade whose methods await the AppClient internally, rather than
+ * `KvStore | null`. Two reasons, both load-bearing:
+ *   - the object goes into `deps` and thence into `useEffect`/`useMemo` dependency
+ *     arrays;
  *   - a `null` would make every call site grow a branch for a state that lasts
  *     milliseconds and that the app already gates on `ready`.
  *
- * 🔴 ONE MIGRATION DELTA THE PORT INHERITS, and it is REAL — verified against the
- * platform, not taken from `BREAKING.md`. An ANONYMOUS viewer gets **403** on every
- * one of these five routes, where the bridge resolved an anonymous read to `null`.
- * The refusal is `enforceContextBinding`'s `case 'apps:storage:read': case
- * 'apps:storage:write':` — `if (claims.sub === ANON_SUBJECT) throw
- * forbidden(\`\${scope} requires authenticated subject\`)`
- * (`server/middleware/block-scope.middleware.ts`) — and `get.ts`'s own docblock
- * states the divergence in terms: "🔴 AN ANONYMOUS VIEWER GETS 403 HERE, NOT THE
- * BRIDGE'S CLEAN `{ value: null }`, AND THAT DIVERGENCE IS DELIBERATE."
+ * The mapping onto documents (`{ value }`-wrapped, legacy keys verbatim) lives in
+ * `lib/kv-store.ts`, which the production data copy depends on.
  *
- * ⚠ DO NOT "CORRECT" THIS BY READING THE SERVICE — a round-1 audit did, and
- * concluded the opposite. `app-storage.service.ts` is ONE BODY FOR BOTH TRANSPORTS
- * and its anon arms are clean: `get` returns `{ value: null }`, `list` returns
- * `{ keys: [] }`, `quota` returns zeros, and only `set`/`delete` throw (as 401, not
- * 403). All true, and all UNREACHABLE on the REST transport, because
- * `withBlockScope` refuses the anon subject BEFORE the handler runs. The middleware
- * in front of the shared body is the whole delta; the service alone cannot show it.
- *
- * This app already gates every KV path on `viewer` (the per-viewer stores are
- * drafts, in-flight claims and the explainer flag, all signed-in-only), so no call
- * site reads an empty result as "nothing stored" — but a new one must not start,
- * and the hazard it must not walk into is the SILENT one: a 403 is loud, an empty
- * page that means "you are anonymous" is not.
+ * 🔴 AN ANONYMOUS VIEWER IS REFUSED, NOT ANSWERED EMPTY. A private collection has no
+ * anonymous reader or writer: every call rejects `sign_in_required` (401). The
+ * legacy KV refused the anon subject too (403), so this is not a new hazard — this
+ * app gates every KV path on `viewer` (drafts, in-flight claims, archive and the
+ * explainer flag are all signed-in-only), and no call site may start reading an
+ * empty result as "nothing stored": a refusal is loud, an empty page that means "you
+ * are anonymous" is not.
  */
-export function useAppStorage(): StorageClient {
-  return useMemo<StorageClient>(
-    () => ({
-      get: async (key, opts) => (await app()).storage.get(key, withDeadline(opts)),
-      set: async (key, value, opts) => (await app()).storage.set(key, value, withDeadline(opts)),
-      delete: async (key, opts) => (await app()).storage.delete(key, withDeadline(opts)),
-      list: async (query, opts) => (await app()).storage.list(query, withDeadline(opts)),
-      getQuota: async (opts) => (await app()).storage.getQuota(withDeadline(opts)),
-    }),
+export function useKvStore(): KvStore {
+  return useMemo<KvStore>(
+    () =>
+      createKvStorage(
+        async () => (await app()).storage,
+        deadline,
+      ),
     [],
   );
 }
 
 /**
- * Where the three app-layer shared-storage routes live, relative to the site base
- * URL.
+ * The shared board — the `records` collection of the App Blocks document store.
+ * Stable identity, for the same reason as {@link useKvStore}.
  *
- * 🔴 SPELLED OUT HERE BECAUSE THE SDK DELIBERATELY DOES NOT CARRY THEM.
- * `starters#479` decided `AppClient.sharedStorage` is GENERIC KEY-VALUE ONLY —
- * `list`/`get`/`append`/`update`/`withdraw`. `vote`, `unvote`, `counts`, `top`,
- * `increment` and `report` are app-layer by that decision, so the eleven routes
- * existing is not a gap the SDK is expected to close, and adding a method there
- * is explicitly refused by its own module note.
+ * The seven operations and their mapping onto documents and marks live in
+ * `lib/records-store.ts`. What THIS layer adds is the two viewer-fixable refusals of
+ * a shared create/edit:
  *
- * Verified against the route files rather than guessed (civitai `origin/main` @
- * `329c89a23e`, `src/pages/api/v1/blocks/shared-storage/{vote,unvote,report}.ts`),
- * all three POST under scope `apps:storage:shared:write`:
+ *   - `consent_required` — the token lacks `apps:storage:publish`, which is
+ *     consent-gated and absent from the first token the host mints. The host's
+ *     consent dialog is opened here (fire-and-forget, exactly like the run's consent
+ *     gate), and the write rejects with viewer copy saying to try again once approved.
+ *     🔴 The real host grants the WHOLE missing set its mint computed, not just the
+ *     scopes a block names (`IframeHost.tsx`'s REQUEST_CONSENT handler), so the scope
+ *     named here is a hint; the run gate asks for the same set before any spend.
+ *   - `sign_in_required` — an anonymous viewer pressed Publish; the host's sign-in
+ *     flow is opened.
  *
- *   - `vote`   body `{ key }`          → `{ count }` — the row's new aggregate
- *     tally. Its docblock records an "atomic insert-gated counter — a double vote
- *     is a no-op and the tally never inflates", which is what makes the app's
- *     optimistic vote safe to re-issue.
- *   - `unvote` body `{ key }`          → `{ count }`, on the SAME per-minute
- *     bucket as `vote` so a toggle-spam loop is one budget rather than two.
- *   - `report` body `{ key, reason? }` → `{ ok: true }`, identical whether the
- *     report was newly filed or deduped, and it does NOT hide the row.
+ * Votes and reports are marks, which need only `apps:storage` — no consent prompt.
  */
-const SHARED_VOTE_ROUTE = 'blocks/shared-storage/vote';
-const SHARED_UNVOTE_ROUTE = 'blocks/shared-storage/unvote';
-const SHARED_REPORT_ROUTE = 'blocks/shared-storage/report';
-
-/**
- * The seven shared-storage operations this app performs.
- *
- * Four come from `AppClient.sharedStorage`; `vote`, `unvote` and `report` are
- * app-layer over `app.site`, per {@link SHARED_VOTE_ROUTE}. `get`, `getCount`
- * and `getCounts` are absent because no call site in this app used them — the
- * board is always read as a full paged `list` (`App.tsx`'s `listAll`).
- */
-export interface SharedStore {
-  list(query?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
-    items: SharedItem[];
-    nextCursor?: string;
-  }>;
-  append(value: SharedStorageValue): Promise<{ key: string }>;
-  update(key: string, value: SharedStorageValue): Promise<void>;
-  /**
-   * Delete a row the viewer authored.
-   *
-   * 🔴 `ok` IS DECLARED `boolean`, THE TRANSPORT CAN ONLY PRODUCE `true`, AND
-   * THE WIDENING IS THIS PORT'S OWN — not, as an earlier draft of this comment
-   * claimed, a gap inherited unchanged from the bridge. That claim was FALSE and
-   * is retracted: `@civitai/sdk`'s `SharedStorageClient.withdraw` is declared
-   * `Promise<{ ok: true; deleted: boolean }>` — the LITERAL `true` — and
-   * `dist/shared-storage/index.js` hardcodes `return { ok: true, … }`, throwing on
-   * anything else. So `boolean` here is a widening introduced BY this façade, and
-   * it is the only reason `App.tsx`'s `!res.ok` branch is type-reachable at all.
-   *
-   * ⚠ SO THE BRANCH IS AN INVARIANT GUARD, AND MUST BE LABELLED ONE. It guards
-   * the step that clears the viewer's only per-viewer pointer at a host-minted
-   * key — a loss that is unrecoverable, because the shared list has no "mine"
-   * index — but over REST the thing it guards against cannot happen: every
-   * failure REJECTS, so the `await` already skips every line below. The live
-   * guard is the ORDER, exactly as `withdrawRow` says; this is belt.
-   *
-   * ⚠ WHY THE WIDENING WAS KEPT RATHER THAN NARROWED, stated so the next reader
-   * can overturn it on better grounds than mine. Narrowing to `ok: true` is the
-   * simpler code and has a real advantage: the day the SDK starts resolving a
-   * refusal, the façade would stop compiling — a LOUD signal, where a widened
-   * type absorbs the change in silence. It was not taken here because it deletes
-   * a guard installed against unrecoverable data loss, on a path this port has
-   * NOT exercised against the real platform, and because it also deletes
-   * `test-helpers.tsx`'s `withdrawRefuses` fake and the `withdraw.test.tsx` case
-   * that drives it. That is a deletion worth making deliberately, in its own
-   * change, with a live read behind it — not as a side effect of a transport port.
-   * Filed as a follow-up; do not describe the channel as observed either way.
-   */
-  withdraw(key: string): Promise<{ ok: boolean; deleted: boolean }>;
-  vote(key: string): Promise<number>;
-  unvote(key: string): Promise<number>;
-  report(key: string, reason?: string): Promise<void>;
-}
-
-/**
- * Assert a vote/unvote reply's `count`.
- *
- * 🔴 ASSERTED, NOT COERCED. `Number(undefined)` is NaN and `?? 0` would report a
- * vote that did not land as a tally of zero — and this app writes that number
- * straight into the row's displayed count, which is what the Top Grid's
- * membership is ranked on. A malformed reply is a failure, not a count.
- */
-function requireCount(reply: { count?: unknown } | null, op: string): number {
-  if (typeof reply?.count !== 'number' || !Number.isFinite(reply.count)) {
-    throw new Error(`shared-storage ${op}: reply carried no numeric \`count\``);
-  }
-  return reply.count;
-}
-
-/**
- * Cross-user shared storage. Stable identity, for the same reason as
- * {@link useAppStorage}.
- */
-export function useSharedStorage(): SharedStore {
+export function useRecordsStore(): SharedStore {
   return useMemo<SharedStore>(
-    () => ({
-      list: async (query) => (await app()).sharedStorage.list(query, withDeadline(undefined)),
-      append: async (value) => (await app()).sharedStorage.append(value, withDeadline(undefined)),
-      update: async (key, value) => {
-        // The SDK resolves `{ ok: true }`; the bridge hook resolved `void` and
-        // every call site discards it. Discarded here so the façade keeps the
-        // narrower promise rather than exporting a value nobody reads.
-        await (await app()).sharedStorage.update(key, value, withDeadline(undefined));
-      },
-      withdraw: async (key) => (await app()).sharedStorage.withdraw(key, withDeadline(undefined)),
-      vote: async (key) => {
-        const reply = await (await app()).site.post<{ count?: unknown }>(SHARED_VOTE_ROUTE, { key }, withDeadline(undefined));
-        return requireCount(reply, 'vote');
-      },
-      unvote: async (key) => {
-        const reply = await (await app()).site.post<{ count?: unknown }>(
-          SHARED_UNVOTE_ROUTE,
-          { key },
-          withDeadline(undefined),
-        );
-        return requireCount(reply, 'unvote');
-      },
-      report: async (key, reason) => {
-        await (await app()).site.post(
-          SHARED_REPORT_ROUTE,
-          // 🔴 `reason` OMITTED WHEN ABSENT, never sent as `undefined` or `''`:
-          // the route's zod schema is `z.string().max(N).optional()`, so an
-          // empty string is a 400 where an absent key takes the router's
-          // `'user-report'` default. This app never passes one today.
-          reason === undefined ? { key } : { key, reason },
-          withDeadline(undefined),
-        );
-      },
-    }),
+    () =>
+      createRecordsStore(
+        async () => (await app()).storage,
+        deadline,
+        {
+          onConsentRequired: () => {
+            void app()
+              .then((client) =>
+                client.requestGrants([APPS_STORAGE_PUBLISH], {
+                  signal: AbortSignal.timeout(CONSENT_WAIT_MS),
+                }),
+              )
+              .catch(() => {
+                /* declined, abandoned, or aborted — the write already said so */
+              });
+          },
+          onSignInRequired: () => host().requestSignIn(),
+        },
+      ),
     [],
   );
 }
@@ -741,7 +637,7 @@ export function useBuzzBalance(): BuzzBalanceValue {
     setError(null);
     void (async () => {
       try {
-        const pools = await (await app()).site.get<BuzzPools>(BUZZ_ROUTE, withDeadline(undefined));
+        const pools = await (await app()).site.get<BuzzPools>(BUZZ_ROUTE, deadline());
         if (!current || !live.current) return;
         setBalance(pools);
       } catch (cause) {
