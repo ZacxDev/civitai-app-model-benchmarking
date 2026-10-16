@@ -107,14 +107,14 @@ straight to the file:
 |---|---|---|
 | **Publish a generation's own outputs** (the G1 seam) — a completed run's scanned images → bare, app-scoped `Image` rows | `usePublishGenerationOutputs()` | [`App.tsx`](src/App.tsx) (`publish` in `deps`, called on run completion) |
 | **Gated cross-user image read** — the per-viewer moderation boundary for grid cells | `useGatedImages()` | [`GatedCell.tsx`](src/components/GatedCell.tsx) (`getImages` → per-viewer display data) |
-| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useSharedStorage()` — local, over the App Blocks **document store**'s shared `records` collection (`@civitai/sdk`'s `app.storage.collection`) | [`lib/records-store.ts`](src/lib/records-store.ts) (the mapping), [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
+| **Cross-user shared storage + voting** — the community list of matchups, prompts, grids, and published results | `useRecordsStore()` — local, over the App Blocks **document store**'s shared `records` collection (`@civitai/sdk`'s `app.storage.collection`) | [`lib/records-store.ts`](src/lib/records-store.ts) (the mapping), [`App.tsx`](src/App.tsx) (`list`/`append`/`update`/`vote`/`unvote`/`withdraw`), [`MatchupsView`](src/components/MatchupsView.tsx) / [`PromptsView`](src/components/PromptsView.tsx) (vote + the author-only Edit / Remove controls), [`WithdrawButton`](src/components/WithdrawButton.tsx) (the confirm handshake) |
 | **Buzz generation-workflow bridge** — the money path | `useBuzzWorkflow()` | [`App.tsx`](src/App.tsx) (estimate → submit → poll), [`lib/workflow.ts`](src/lib/workflow.ts) (poll loop) |
 | **Resource picker** — the checkpoint / LoRA modal, LoRAs family-scoped | `useResourcePicker()` | [`MatchupForm.tsx`](src/components/MatchupForm.tsx) (via the `pickResource` prop, `baseModelGroup`-scoped) |
 | **Generation-resource rehydrate** — resource metadata by id | `useGenerationResources()` | [`App.tsx`](src/App.tsx) (`resolveResources`) |
 | **Buzz balance** — show the wallet / gate cost | `useBuzzBalance()` — local, `GET /api/v1/blocks/buzz` | [`App.tsx`](src/App.tsx) |
 | **Consent + sign-in gating** for the generation scope | `useRequestConsent()` / `useRequestSignIn()` — local, over `@civitai/sdk`'s `app.host` | [`scopes.ts`](src/scopes.ts), [`App.tsx`](src/App.tsx) |
 | **Context / token / auto-resize** | `useBlockContext()`, `useBlockToken()`, `useBlockResize()` — local, over `@civitai/sdk` | [`App.tsx`](src/App.tsx) |
-| **Per-viewer KV** — unpublished items, in-flight run claims, the archive, the explainer flag | `useAppStorage()` — local, over the document store's private `kv` collection | [`lib/kv-store.ts`](src/lib/kv-store.ts) (the mapping), [`App.tsx`](src/App.tsx), [`lib/kv.ts`](src/lib/kv.ts), [`lib/unpublished.ts`](src/lib/unpublished.ts) |
+| **Per-viewer KV** — unpublished items, in-flight run claims, the archive, the explainer flag | `useKvStore()` — local, over the document store's private `kv` collection | [`lib/kv-store.ts`](src/lib/kv-store.ts) (the mapping), [`App.tsx`](src/App.tsx), [`lib/kv.ts`](src/lib/kv.ts), [`lib/unpublished.ts`](src/lib/unpublished.ts) |
 | **Component pack** — every input/layout primitive | `@civitai/blocks-react/ui` | throughout `src/components/` |
 
 A few notes worth calling out:
@@ -127,7 +127,7 @@ A few notes worth calling out:
   **per-viewer** display data respecting that viewer's moderation settings. The
   block never sees a raw cross-user image URL; the gate is enforced host-side.
 - **Shared storage is votable and author-scoped** (a `write: "own"` collection).
-  `useSharedStorage()` exposes `list` / `append` / `update` / `vote` / `unvote` /
+  `useRecordsStore()` exposes `list` / `append` / `update` / `vote` / `unvote` /
   `withdraw` / `report`. **Submit** = `create({ title, body, data })` (server-minted
   key, needs the consent-gated `apps:storage:publish`); **upvote** = the `vote` mark
   (idempotent; the row's tally is `marks.vote` and "did I vote" is `viewer.marks`);

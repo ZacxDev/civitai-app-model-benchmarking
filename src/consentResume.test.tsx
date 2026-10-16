@@ -250,6 +250,35 @@ describe('🔴 a grant resumes the action that asked for it, up to the Confirm g
   });
 });
 
+describe('🔴 the publish grant is part of the run gate (document-store port, 0.5.0)', () => {
+  it('a token with the MONEY scope but not `apps:storage:publish` does not price the run — it asks for publish', async () => {
+    // 🔴 THE HAZARD. The last step of a paid run is a SHARED create (the result row).
+    // A run that started with `ai:write:budgeted` alone would charge the viewer and
+    // then have its result refused `consent_required` — paid for, never on the
+    // board. So the gate holds the run until BOTH scopes are on the token, and asks
+    // for exactly the missing one.
+    scopesBox.current = ['apps:storage', 'ai:write:budgeted'];
+    const { shared } = fakeShared({ seed: seedOneCell() });
+    const { appStorage } = fakeAppStorage();
+    const estimate = vi.fn(async () => estimateSnap);
+    const requestConsent = vi.fn();
+    const deps = { shared, appStorage, estimate, requestConsent };
+    const view = render(block(deps, { consentGranted: false }));
+
+    const [runBtn] = await runButtons();
+    await userEvent.click(runBtn);
+    expect(requestConsent).toHaveBeenCalledTimes(1);
+    expect(requestConsent).toHaveBeenCalledWith({ scopes: ['apps:storage:publish'] });
+    expect(estimate, 'priced a run whose result could not be published').not.toHaveBeenCalled();
+
+    // The grant lands: the held press resumes, to the Confirm gate and no further.
+    scopesBox.current = GRANTED();
+    view.rerender(block(deps, { consentGranted: false }));
+    await screen.findByTestId('cell-confirm-run');
+    expect(estimate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('🔴 at most ONE run per grant', () => {
   it('2. a token refresh DURING the replay does not start a second run', async () => {
     // 🔴 THE SHAPE THIS CATCHES. The token re-mints roughly every two minutes and
