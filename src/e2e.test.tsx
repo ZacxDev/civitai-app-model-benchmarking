@@ -9,7 +9,7 @@
 // REST fake, not the host — which is why it is typed against the fake. Only the
 // poll clock and the resource resolve are injected via `deps`; unlike almost every
 // other file in this suite, per-viewer app storage is NOT injected here either, so
-// this is the case that drives the real `blocks/app-storage/*` round-trips.
+// this is the case that drives the real document-store `blocks/storage/*` round-trips.
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -17,8 +17,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Harness, type TestHarnessProps } from './test-harness.js';
 import type { RestSharedSeed } from './dev-rest.js';
-import type { SharedItem } from '@civitai/sdk';
-import type { SharedStore } from './lib/sdk-runtime.js';
+import type { SharedRecord, SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
 import type { CombinationData, PromptData } from './types.js';
@@ -371,9 +370,9 @@ describe('run a cell → publish → grid-append (real publish + gated hooks via
     // optimistic insert in confirmRun is what makes the just-published result
     // render immediately; without it the cell falls back to "not generated yet"
     // until a later refetch/manual reload catches up (the reported bug).
-    const seedItems: SharedItem[] = [
-      { key: 'c1', authorUserId: 7, count: 2, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
-      { key: 'p1', authorUserId: 8, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+    const seedItems: SharedRecord[] = [
+      { key: 'c1', authoredByViewer: false, count: 2, viewerVoted: false, value: { title: 'Grid Combo', body: '', data: comboSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
+      { key: 'p1', authoredByViewer: false, count: 3, viewerVoted: false, value: { title: 'Grid Prompt', body: '[SDXL] cyberpunk portrait', data: promptSeed }, createdAt: new Date(0), updatedAt: new Date(0) },
     ];
     // 🔴 EXACTLY THE SEVEN OPERATIONS `SharedStore` DECLARES — `get`, `getCount`
     // and `getCounts` are gone because the port's façade does not carry them (no

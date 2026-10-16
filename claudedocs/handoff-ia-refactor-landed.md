@@ -21,68 +21,64 @@ An unknown session id answers 200 with an empty array, so that zero cannot disti
 "touched no task" from "wrong id". It is not a clean bill of health.
 
 ## State now
-- **`main` = `7866674` (+ handoff commits), both version files at 0.4.17, 0 open PRs, clean tree.**
-- ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`). 🔴 This
-  line has been dropped by FIVE successive `State now` replaces and restored each time by the
-  durable-drop warning — carry it forward.
-- ✅ **0.4.17 IS LIVE, verified by served CONTENT 2026-10-02.** rc 0 `approved/live` (UNPIPED);
-  bundle `index-DNXhSFHU.js` (**523,571 B**, from 0.4.16's `index-hgkhos1A.js` / 523,270). PR **#82**
-  (squash `7866674`), `pubreq_01M3ZBBF2Z35JW012Y3DQZEC50`, 166 files, skipping only `.envrc`/`.git`.
-  Ships #81's `blocks-react` ^0.63.0 / `app-sdk` ^0.55.0, which #81 merged with **no release
-  carrying it**. Gates re-measured independently of #81: typecheck/test/build rc 0, **69 files /
-  1027 tests**, 69 == tracked test-file count. Lockstep guard controlled: manifest `0.4.18` vs
-  package `0.4.17` → `1 failed | 5 passed` on its OWN named assertion.
-- ✅ **RANK 1'S UNANSWERABLE HALF IS ANSWERED — a private-grid run DOES reach the shared board.**
-  One cell, **−27 Buzz from Blue**, charged exactly once, visible to a SECOND non-moderator account.
-- 🔵 **IN FLIGHT: a custom-theme + design/UX pass agent**, dispatched 2026-10-02 in its own worktree
-  off `7866674`: token-layer theme (light AND dark) plus the `GatedCell` `auto-fill` defect and F2
-  first. It owes a PR; told not to merge, not to release, not to touch the money path. 🔴 Its results
-  were NOT known when this was written — read the PR, do not assume it landed.
-- 🔴 **0.4.9 is STILL `approved/building`** — across EIGHT releases now, still the rank-3 rollback
-  hazard. `building` is QUEUED; a `failed` is TERMINAL and harmless.
-- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR MORE THAN ONE VERSION AT ONCE**, and one version can
-  hold several submissions which it collapses. Pair it with the served-bundle grep; read one by
-  `--id <pubreq>`.
+- **`main` = `56f4c1d`, both version files at 0.4.18, 0 open PRs, clean tree.**
+- ✅ **THE ORIGINAL ARC'S CLOSING-CONDITION IS MET AND THAT ARC IS CLOSED** (see `## Goal`). 🔴 Dropped
+  by SEVEN successive `State now` replaces and restored each time by the durable-drop warning — carry it.
+- ✅ **0.4.18 IS LIVE AND VERIFIED BY CONTENT.** `pubreq_01M41AF9MCQGBTSMCG91PAEA6P` approved by the
+  operator 2026-10-03 12:04 CDT, deployed 12:06. Served bundle `index-DBPpadGD.js` (527,027 B) greps
+  `theme-styles` **1** and `data-mb-skin` **1**, against 0.4.17's still-fetchable `index-DNXhSFHU.js`
+  (523,571 B — exactly the recorded size) at **0** for both, with `board-nav`=1 on the OLD bundle as
+  the positive control proving the grep reaches it. `checkpoint-name` 0/0.
+- ✅ **THE THEME IS JUDGED — the first visual read any session has taken of it.** Both original
+  operator asks are now ruled on, and neither is fully met: the **matchup section band** is NOT
+  intuitive (hierarchy is INVERTED — the parent band is dimmer and smaller than the child model names
+  beneath it), and the **inline grid previews** are only PARTIALLY improved (six ~50px thumbs,
+  near-duplicates adjacent, dominated by the description paragraph above them). The predicted
+  gray-ramp/`--civitai-font` half-applied look is **CONFIRMED** — body copy and the Grids/Matchups/
+  Prompts strip stay stock against the new palette. Strip-nav collapse **DOES** fire at 390px.
+- 🔴 **LIGHT THEME REMAINS UNJUDGED AND IS NOT REACHABLE FROM HERE.** `prefers-color-scheme: light`
+  is a measured NO-OP (pixel-identical capture) because Civitai reads its theme from `localStorage`;
+  navigating to the block's own origin REDIRECTS to the host page. The only remaining route is the
+  host toggle, which writes `localStorage` for the whole origin and would change the operator's other
+  Civitai tabs — still forbidden. Half the skin has never been seen.
+- ✅ **UPSTREAM FILED: `civitai/civitai`#5354** — "App Block storage has exactly two audiences".
+  Verdict **(A) host gap, NOT an SDK gap**. Full mechanism is in the cairn entry; do not restate it
+  here. SHAs read: civitai `5e59ee7e8e`, starters `a560b3d`, here `56f4c1d`.
+- 🔴 **0.4.9 is STILL `approved/building`** — across TEN releases now, still the rank-3 hazard.
+- 🔴 **`app_state.py <version>` rc 0 IS TRUE FOR MORE THAN ONE VERSION AT ONCE.** Pair it with the
+  served-bundle grep; read a submission by `--id <pubreq>`.
 - 🔴 **THE HOST CAPS SHARED WRITES THREE WAYS AND THIS APP SURFACES NONE — the binding one is a
-  LIFETIME per-user row cap of 50 COUNTING RESULT ROWS** (~45 cells ever). Constants are in the
-  **cairn entry `model-benchmarking-block`**, deliberately not here: this doc ships inside the
-  submitted bundle and the repo is public. ⚠️ The board read `7 of 1,000 rows` app-wide 2026-10-02,
-  so the app-wide cap is not what binds.
-- ⚠️ **No `clawgate-task:` field.** `clawgate_handoff.sh resolve` exited **5** again; an unknown id
-  answers 200 with an empty array, so that zero cannot distinguish "touched no task" from "wrong
-  id". Not a clean bill of health. ⚠️ Also `leakscan: NO SCANNER FOUND` — deltas here are a PASS BY
-  ABSENCE, never a clean scan.
-- ⚠️ **`.claude/` is UNTRACKED and NOT gitignored**; agent worktrees live under it. Harmless while
-  `git add -A` stays banned.
+  LIFETIME per-user row cap COUNTING RESULT ROWS.** Constants are in the **cairn entry
+  `model-benchmarking-block`**, deliberately not here: this doc ships in the bundle and the repo is
+  public. ⚠️ The platform's own constant is `SHARED_KV_PER_USER_ROW_CAP` (`apps-shared.router.ts:79`).
+- ⚠️ **No `clawgate-task:` field** (`resolve` exited **5** again — 0 tasks, which CANNOT distinguish
+  "touched no task" from "wrong id") and **no leak scanner in this repo** — both passes BY ABSENCE.
+- ⚠️ **`.claude/` is UNTRACKED and NOT gitignored.** Harmless while `git add -A` stays banned.
 
 ## Next steps (ranked)
 🔴 **Ranks keep their numbers. Do not re-rank.** All arc claims are RELEASED — claim before working.
-1. **The operator judges the live app — VISUAL/TASTE ONLY now.** 🔴 **The mechanical half is
-   DISCHARGED**: the private-grid → shared-board claim the confirm notice makes was settled live
-   2026-10-02. What remains is what no instrument here can do — whether 0.4.17 READS well: the two
-   standing visual asks ("update styling so it's intuitive" on the matchup band, "improve their
-   display" on the inline previews), and whether the in-flight theme PR helps or harms.
-   forcing: user — no automated check here can judge appearance.
-2. **Repair the store listing.** The recipe half is merged (`civitai/civitai` #5247) but is now
-   **five releases stale** (#66, #67, batch 2, #78 all changed the measured layout). 🔴 **Do not
-   re-shoot until the in-flight design PR lands or is abandoned** — screenshots would be stale on
-   arrival. Still blocked on the two content problems in `## Defects`.
-   forcing: regression — the live listing depicts a UI six generations old.
-3. **Watch 0.4.9, or get the platform to cancel it.** `app_state.py model-benchmarking 0.4.9` read
-   UNPIPED. 🔵 `building` vs `deploying` is the discriminator.
+1. **Fix what the theme judgement found, and get light theme seen.** 🔴 The approval and the judgement
+   are both DONE (`State now`); what is left is ACTING on the verdict. Two shippable fixes: raise the
+   matchup band above its child rows, and give the preview strip larger tiles with the description
+   subordinated. Light theme still needs a human on a host whose own theme is light.
+   forcing: user — no automated check here can judge appearance, and half the skin is unseen.
+2. **Repair the store listing.** Recipe half merged (`civitai/civitai` #5247) but now **six releases
+   stale**, and #83 changed the layout again. 🔴 Re-shoot only AFTER rank 1's fixes land.
+   forcing: regression — the live listing depicts a UI seven generations old.
+3. **Watch 0.4.9, or get the platform to cancel it.** `app_state.py model-benchmarking 0.4.9` UNPIPED.
    forcing: regression — a queued build that would revert a live, verified deployment.
-4. **The upstream overlay decision.** `civitai-app-starters` **#485** is fixed by merged PR #493 but
-   left OPEN; **#496** and **#497** (blocked on #496) re-checked 2026-10-02, both still OPEN. Check
-   live state before quoting any of this.
-   forcing: gate — a maintainer decision on #496; #497 is explicitly blocked on it.
-5. ✅ **CLOSED — the five-package bump landed inside PR #75.** `components-react` HELD at `^0.4.1`.
-   forcing: none — closed.
-6. ✅ **CLOSED — every release through 0.4.17 is live.** Do not re-open.
-   forcing: none — closed.
+4. **The upstream overlay decision.** `civitai-app-starters` **#485** fixed by merged PR #493 but left
+   OPEN; **#496** and **#497** (blocked on #496) still OPEN as of 2026-10-03. ⚠️ **#427 also looks
+   stale** — open since 2026-09-22 claiming shared storage "has no v1 route", while ELEVEN routes
+   exist at `5e59ee7e8e`. Check live state first.
+   forcing: gate — a maintainer decision on #496.
 
 ## 🔴 What the one-page IA cost the listing, and the one way back
 
-Two of the three sections (`section-matchups`, `section-prompts`) are **unphotographable** by the capture pipeline: the host sizes the iframe to the VIEWPORT inside an `overflow: hidden` parent, and both sit below the edge at every height measured (900/1100/1400). 🔴 **The app DOES scroll inside its own iframe** — the single route back is adding a `scroll` verb to `KNOWN_ACTIONS` (`plan.py` + `capture.sh` + the bridge op + the mutation battery). Recorded as a real option, **not** licence to build it unasked. Measurements EVICTED 2026-10-01 to the ARCHIVE.
+✅ **SOLVED 2026-10-03 — THE OLD ANSWER HERE WAS WRONG.** It said the below-fold sections were
+unphotographable and that the only route back was a `scroll` verb in `KNOWN_ACTIONS`. **No scroll verb
+is needed: emulate a TALLER VIEWPORT.** The host sizes the iframe to the viewport, so 1440x1600 renders
+the whole app in one frame. Measured on live 0.4.18. 🔴 **Do NOT build the `scroll` verb.**
 
 ## What the capture states are now
 
@@ -576,45 +572,86 @@ live state before quoting any of this; a filed-and-open issue can be fixed-but-u
   cost real Buzz and an irreversible shared row, so this is no capture route — but "only
   `fakeGatedCell()` reaches them" is now too strong.
 
+- 🔴 **`/apps/review` (the moderator queue LIST) can hang on `Loading…` indefinitely in a background
+  tab** — measured at `bodyLen 466` across five polls over 40 s, shell rendered, tRPC rows never
+  arriving. **Go straight to `/apps/review/<pubreq_id>`**, which rendered in one poll. That is also
+  strictly safer: the URL names the submission, so the eight-for-eight wrong-app hazard cannot apply
+  rather than being mitigated by content assertions.
+- 🔴 **A "PROSE-ONLY" CLAIM MUST EXCLUDE `src/compact.ts`, WHOSE COMMENTS ARE TEMPLATE-LITERAL STRING
+  CONTENT THAT SHIPS.** Measured: a comment-stripping comparison (`ts.transpileModule`
+  `removeComments`) reported every other touched file IDENTICAL and `compact.ts` **DIFFERS**, because
+  its "comments" are inside the injected CSS string — so they reach the bundle, reach
+  `document.body.textContent`, and are read by `myCommunity.test.tsx`'s viewer-facing-word guard
+  (mutation-proven: seeding a banned word reds that guard with its own message). Consequence for
+  judgement, not just accuracy: **prose added there costs every viewer bytes**, so write a pointer, not
+  an account. One such note was rewritten from +172 B to −95 B for exactly this reason.
+- 🔵 **The audit ladder's attribution gate cannot fire on an *alternating* payload pattern** — it needs
+  two CONSECUTIVE payload-free rounds, and this ladder went non-zero → zero → non-zero → zero. It
+  converged instead. ⚠️ A **devrc/audit-pr** lesson, not a fact about this app: it belongs upstream and
+  must not re-accrete here.
+- 🔴 **A SINGLE-PATTERN SWEEP ZERO IS NOT AN ANSWER, AND A FILE-WALK CONTROL DOES NOT VALIDATE A
+  REGEX.** Sweeping for a retracted claim, a normalised whole-tree pattern returned a confident ZERO
+  while a second, differently-shaped raw per-file pattern found four live sites. The `elevate(`
+  positive control proved only that the walk reached files. **Two differently-shaped patterns, and a
+  control you have watched HIT a known file.**
+- **Decided (this session):** the theme/design work was dispatched as a subagent with a PR as its
+  deliverable, forbidden from merging, releasing or touching the money path — because nothing in this
+  repo can verify appearance, so an operator has to look at it. The audit was run to a clean round
+  before merge rather than on the release bump, which is a two-line diff.
+
+- 🔴 **#83'S AUDIT LADDER: FIVE CORRECTNESS ROUNDS, FINDINGS 10 → 7 → 4 → 2 → 0, AND ONLY ROUND 1
+  FOUND ANYTHING BEHAVIOURAL.** Rounds 2–4 each found PROSE introduced by the previous round's own
+  fix. Carried out of `State now` before that replace dropped it — the generalisable half is that a
+  fix round manufactures its own next finding, so the ladder's length measures the FIXES, not the code.
+- 🔴 **A RANK'S PREMISE ROTS WHILE IT SITS IN THE QUEUE, AND THIS SESSION OPENED ON A ROTTED ONE.**
+  Rank 1 read "blocked on the operator: restart Brave, then approve" — the approval had ALREADY
+  happened before the session started. The whole mechanical half was done, and the doc could not say
+  so. **Read live state before working a rank, not just the claim it makes** — one `civitai app
+  status --id <pubreq>` collapsed it.
+- 🔴 **`extension_connected: false` DOES NOT MEAN "the extension dropped its long-poll" — IT HAS AT
+  LEAST TWO CAUSES AND THE DOC ASSERTED THE WRONG ONE.** Measured 2026-10-03: the browser was not
+  RUNNING AT ALL, so the prescribed "FULLY RESTART Brave" was a category error — it needed a START.
+  Discriminate by counting real-profile processes BEFORE prescribing a restart; an empty result cannot
+  tell a dropped long-poll from an absent browser. ⚠️ Host-side detail deliberately NOT recorded here:
+  this is a devrc/browser-bridge matter, not a fact about this app.
+- 🔴 **THE OPERATOR'S "unpublished prompts are missing from my grid" IS INTENDED BEHAVIOUR, NOT A
+  REGRESSION — and the answer is one layer down.** `resolveGridRows` (`lib/gridEntries.ts:199`) is
+  handed ONLY board rows, so a member living solely in per-viewer KV lands in `missingPrompts`, gets
+  no column, and therefore has no cell to run. The way out is to publish the prompt, or publish the
+  grid (`gridCascade` publishes members FIRST and rewrites their local ids). The shortfall sentence
+  that explains this renders as `grid-missing-notice` (`GridOpenPanel.tsx:357`). 🔴 **The underlying
+  cause is the platform gap now filed as `civitai/civitai`#5354** — there is no visibility tier
+  between per-viewer-private and world-readable, so "visible in my own grid but not yet public" is
+  NOT REPRESENTABLE. Do not re-diagnose this in the block.
+
 ## How to verify
 - Gates, in a worktree WITH `node_modules`: `pnpm run typecheck && pnpm test && pnpm build` —
-  **69 files / 1027 tests** on `main` @ `7866674`, and 69 must equal
-  `git ls-files | grep -cE '\.test\.tsx?$'`. Read BOTH vitest projects; exit codes from files, never
-  through a pipe. ⚠️ A fresh worktree has neither `.envrc` nor `node_modules` — copy `.envrc`,
-  `direnv allow`, `pnpm install --frozen-lockfile`. 🔴 **LSP/editor diagnostics here have been wrong
-  FOURTEEN+ times; `tsc --noEmit` in an installed tree is the only arbiter.**
-- Release state: `app_state.py model-benchmarking 0.4.17` — **`approved/live` rc 0**; next is 0.4.18.
-  Read UNPIPED. 🔴 **rc 0 alone proves NOTHING about what is serving.**
-- 🔴 **Served-bundle check — KEEP THE PREVIOUS RELEASE'S BUNDLE; it is the control that works when
-  the testid delta is empty.** For a release touching `src/`, derive markers mechanically:
+  **70 files / 1066 tests** on `main` @ `56f4c1d`, re-measured 2026-10-03 (typecheck rc 0). 70 must
+  equal `git ls-files | grep -cE '\.test\.tsx?$'`, and 70 = **22 `.test.ts` (node) + 48 `.test.tsx`
+  (dom)** — that split is what proves BOTH vitest projects ran, since the aggregate alone cannot.
+  ⚠️ A fresh worktree has neither `.envrc` nor `node_modules`. 🔴 **LSP diagnostics here have been
+  wrong FOURTEEN+ times; `tsc --noEmit` in an installed tree is the only arbiter.**
+- Release state: `app_state.py model-benchmarking 0.4.18` — read UNPIPED. 🔴 **rc 0 alone proves
+  NOTHING about what is serving**; the served-bundle grep below is the real check.
+- 🔴 **Served-bundle check.** For a release touching `src/`, derive markers mechanically:
   ```bash
   for r in <old-release-sha> <new-release-sha>; do git grep -ho 'data-testid="[a-z0-9-]*"' $r -- 'src/*' \
     | sed 's/.*"\(.*\)"/\1/' | sort -u > /tmp/t-$r.txt; done
   comm -13 /tmp/t-<old>.txt /tmp/t-<new>.txt   # ADDED — the only valid positive markers
   ```
-  Each ADDED marker must be >0 in the new bundle and **0 in the saved old one**. At 0.4.17:
-  `index-DNXhSFHU.js`, 523,571 B.
-  🔴 **A VERSION-ONLY RELEASE HAS NO TESTID DELTA — DERIVE THE MARKER FROM THE DEPENDENCY.** 0.4.17
-  changed no `src/` file, so `comm -13` returns EMPTY and a check built from carried markers passes
-  against the OLD bundle. What discriminated 0.4.17 came from `blocks-react@0.63.0`:
-  `InvalidIdempotencyKeyError` and the literal regex `[A-Za-z0-9_-]{1,64}`, each **1 in the new
-  bundle, 0 in the saved 0.4.16 one**, with `side-nav` 4/4 · `board-nav` 1/1 · `grid-open-members`
-  1/1 carried as controls and `checkpoint-name` 0/0 negative. **When a release's payload is a
-  dependency, the positive marker lives in the dependency's code, not in your diff.**
-- Approving a submission: 🔴 **go straight to `/apps/review/<pubreq_id>`, NOT the queue list.** The
-  URL names the submission, so the eight-for-eight wrong-app hazard cannot apply — and measured
-  2026-10-02 the queue LIST hung on `Loading…` at `bodyLen 466` for 40 s+ over five polls in a
-  background tab while the per-submission route rendered in one. Then still assert the page names no
-  other app, stamp a marker on the single `Approve + build` (neighbour: `Reject…`), **hit-test every
-  time** (covered on 0.4.9 and 0.4.16, NOT covered on 0.4.17 — 3-for-3 earned), click, and verify
-  the EFFECT on an independent surface: `civitai app status --id <pubreq>`.
-  🔵 Resource links are live and render as `<button data-testid="resource-name" aria-label="Open
-  <name> on Civitai">` — **not** anchors, so a `querySelectorAll("a")` sweep returns `[]` and reads
-  as "links missing". Deliberate: route (c) `<a target="_blank">` is shut.
-- 🔴 **What CANNOT be verified here, ever:** anything about LAYOUT or colour (jsdom resolves
-  neither), and the three publish branches ending with nothing on the board. ✅ **No longer on this
-  list:** whether a private-grid run's outputs reach the shared board — settled live 2026-10-02 at a
-  cost of 27 Buzz and one permanent shared row.
+  🔴 **Filter the ADDED set to PRODUCTION markers before trusting it** — 0.4.18's delta was `probe`
+  and `theme-styles`, and `probe` is test-only (`sideNav.test.tsx:732`), so quoting it as a bundle
+  marker would have produced a false zero. 🔴 **An OLD bundle stays fetchable at its hashed path**,
+  which is what makes a real 1-vs-0 control possible — keep `index-DNXhSFHU.js` (0.4.17, 523,571 B).
+- 🔴 **CAPTURING THE WHOLE APP NEEDS NO SCROLL VERB — EMULATE A TALLER VIEWPORT.** At 1440x1600 the
+  entire app fits in one frame, Top Grid through the Grids card. This SUPERSEDES the evicted
+  "the single route back is adding a `scroll` verb to `KNOWN_ACTIONS`" instruction, which was wrong.
+- 🔴 **The support widget IS present at `h=1040`** (measured 2026-10-03 at 1040, 1600 and 2600), so
+  the old "use `h=1040`" avoidance no longer works. Budget for it or crop it.
+- 🔴 **What CANNOT be verified here, ever:** anything about LAYOUT or colour (jsdom resolves neither),
+  the three publish branches that end with nothing on the board, and the real Buzz spend.
+  ✅ **Not on this list:** whether a private-grid run reaches the shared board — settled live
+  2026-10-02 at 27 Buzz and one permanent shared row.
 ## Goal
 Ship the operator's second and third rounds of IA feedback — a sidebar nav with My
 Benchmarks, a one-board-at-a-time subnav, community-only boards, a ⋮ row menu, an SVG
@@ -686,32 +723,7 @@ DISCHARGED — read the archive before re-running any of them.
   🔴 **Every emulated measurement is structurally incapable of deciding this**, confirmed again by
   the 2026-10-02 taste pass. Full measurements EVICTED 2026-10-02 to the ARCHIVE.
 
-### The Qwen-Image cell can never be filled, and this account cannot remove it
-- as-of: 2026-10-02 — **re-confirmed LIVE this session**: still renders `not generated yet` /
-  `Run this cell` with the button **enabled**, so the app does not know the checkpoint is gone
-  and would attempt a spend.
-- **Why it is stuck:** the empty cell is in the SYSTEM Top Grid (`topByVotes(...)`,
-  `App.tsx:1001`), which renders above every board and is what the captures photograph at boot,
-  so editing the operator's own grid changes nothing. They do not own the matchup holding it
-  ⚠️ Full ruled-out evidence EVICTED 2026-10-02 to the ARCHIVE.
 
-### Do private-grid outputs actually reach the shared board in production?
-- as-of: 2026-10-02
-- **Symptom + exact repro:** open an unpublished grid under My Benchmarks > Grids, press Run on an
-  empty cell, confirm. The new notice tells the viewer the images go to the shared board for every
-  viewer. **Nobody has watched that happen on a real host.**
-- **Observed (with values):** the claim is DERIVED from two readings, both exercised only against
-  the SDK mock host — `src/lib/benchmark.ts` builds `result:${comboKey}·${configId}×${promptKey}`,
-  which names no grid; and `src/App.tsx`'s run flow calls `publish({ workflowId })` on the success
-  path. `via: code`
-- **Ruled out:** *"the press itself settles it"* — `publish()` is **host-consent-gated**: it opens
-  the host's "Publish to the shared grid?" dialog and rejects on refusal or consent timeout, landing
-  the cell in `failed`. Two further host paths (`!req` drop, `no block token`) reply without ever
-  opening a dialog. Read in a local checkout of `civitai/civitai` at `15cfe259df`, **never compared
-  against deployed host code**. `via: code`
-- **Leading hypothesis:** the notice is correct for the ordinary success-plus-consent path and
-  silent about three branches that end with nothing on the board. The shipped sentence now hedges
-  with "If the run succeeds you will be asked to confirm publishing them there."
 
 ### ✅ RESOLVED 2026-10-02 — private-grid outputs DO reach the shared board, and a second viewer sees them
 - as-of: 2026-10-02 — **ANSWERED BY LIVE OBSERVATION; supersedes the open block of the same question
@@ -735,44 +747,36 @@ DISCHARGED — read the archive before re-running any of them.
 - **Next probe:** none. 🔴 Do not re-derive a removal strategy for that cell; it is filled.
 
 ## Defects (batched)
-🔵 **BEING WORKED by the in-flight theme/design agent (2026-10-02, PR not yet known)** — the
-`GatedCell` `auto-fill` defect, F2's clipping half, a subset of F4/F5/F7/F8/F10/F11/F12, #59 and
-#60. 🔴 Read its PR before re-deriving any of them; its brief excludes the money path, so
-`money-path.test.tsx` staying green says nothing about whether the visual fixes work.
 🔴 Re-verify before acting. Fix as batches, never one rank per finding.
-⚠️ **ONE-LINE POINTERS.** The 16 taste findings' full text is in the Contact Sheet artifact linked
-in this doc's history and in the revision at `5a83f89`.
 
-**CLOSED by #78** — F3 (card action row jumps with description length) and the two-corner variant of
-it measured live on 0.4.14; F13's grid-card instance (actions now sit below the content on all five
-card shapes plus `GridPicker`).
+**CLOSED by #83** — the `GatedCell` `auto-fill` empty-tracks defect (now per-surface: matrix capped at
+`TILE_MAX_PX = 200`, preview strip keeps its long-shipped `minmax(72px, 1fr)`) · F2's clipping half ·
+F4 · F5 · F8 · F10 · F11 · F12 · #59's focus dump · #60's nested `role="list"`.
+**CLOSED by #78** — F3 and F13's grid-card instance.
 
-**🔴 OPEN, and the sharpest one — filed 2026-10-02, NOT fixed:** `GatedCell.tsx:203` lays each cell
-out as `repeat(auto-fill, minmax(72px, 1fr))` and every cell holds exactly ONE image, so `auto-fill`
-turns the matrix's extra column width into EMPTY TRACKS. Measured live: a 3014px viewport gives a
-403px cell with **5 tracks × 77px → 19% fill**; 1440px gives 184px with 2 × 90px → **49%**. ✅ #66's
-`minmax(200px, 420px)` IS working — the gain is absorbed downstream, which is why "make cells
-larger" never visibly landed. 🔴 `auto-fit` alone is NOT the fix: one image with `object-fit: cover`
-in a 403px track makes the row ~403px tall, so it needs a max (`minmax(72px, ~200px)`) — a sizing
-decision, not a typo.
+**🔴 STILL OPEN** — **F7** (365px dead band: capping-and-centring the matrix vs letting columns absorb
+the slack pull opposite ways and interact with the tile cap just chosen — needs a live width read) ·
+**F14** (`docs/screenshots/` stale to 2026-07-27) · **F16** (720px reports `innerWidth: 721`;
+**unanswerable by emulation BY CONSTRUCTION**) · #61 `document.location.href` escapes the
+no-navigation guard · `optimisticUpdate` unguarded on all three mutations · `flexDirection:
+'column-reverse'` survives mutation · the `row-actions` structural ledger will rot on any edit adding
+or removing a nested generic · `src/theme.test.ts`'s `git diff origin/main..HEAD -- src/theme.ts | …`
+instruction prints nothing **for the wrong reason** off a non-PR-head tree — a vacuous pass; name the
+required tree.
 
-**🔴 OPEN — F2's clipping half, measured FAILING on 0.4.14 and unchanged:** at 390px on Home with no
-interaction, `side-nav-list.scrollWidth` **411** vs `clientWidth` **345** — 66px over, so "Grids"
-is off-screen on first paint with a visible horizontal scrollbar. `useState(true)` expanding My
-Benchmarks is what puts five items in a 345px strip.
-
-**Still open from the taste pass** — F4 (⋮ affordance) · F5 (Edit left-aligned, Remove centred) ·
-F7 (365px dead band beside a 3-column matrix) · F8 (`unpublished-empty` bare sentence — re-derive
-against `MyList.tsx`) · F10 (`▸` promises expand, opens a modal) · F11 (four forms disagree on
-required markers) · F12 (GridPicker focus ring reads as selection) · F14 (`docs/screenshots/` stale
-to 2026-07-27) · F16 (720px reports `innerWidth: 721`; **unanswerable by emulation BY
-CONSTRUCTION** — its discriminator is a non-emulated width).
-
-**Carried forward** — #59 focus dumped on `<body>` after `grid-open` · #60 `nav-my-group` is a
-`role="list"` inside a `role="list"` · #61 `document.location.href` escapes the no-navigation guard ·
-`optimisticUpdate` unguarded on all three mutations · `flexDirection: 'column-reverse'` on the
-merged list survives mutation.
-
-**NEW, deliberately left by #78's ladder** — the `row-actions` structural ledger pins its scanner's
-dropped-start set (today ten, all TypeScript generics) and **will rot on any edit that adds or
-removes a nested generic**; a name that is not a type constructor is the signal.
+**NEW 2026-10-03 — three COMMENT defects, filed not fixed. Each currently misinforms the next reader.**
+- 🔴 **`src/lib/sdk-runtime.ts:599` "the shared list has no 'mine' index" is LITERALLY FALSE.** The
+  index EXISTS — `shared_kv_author_idx ON shared_kv (author_user_id)`
+  (`storage-provision.service.ts:126`) — and the server already queries `WHERE author_user_id = $1`
+  (`apps-shared.router.ts:558`) for the per-author cap. Both lines verified directly. The true claim
+  is "no author FILTER exposed on `list`". As written it would stop a reader noticing the ask is
+  nearly free server-side.
+- 🔴 **`src/lib/gridEntries.ts:186` understates the dangling-reference cause set.** It blames only
+  another author's `withdraw`; a **MODERATOR HIDE** (`apps-shared.router.ts:1179-1186`, verified) is a
+  second independent cause. That also makes `missingMembersNotice`'s "their authors removed them" a
+  FALSE attribution for a mod-hidden row — 🔴 **and this session first called that wording defect
+  unreachable because `gridCascade` publishes members first. It IS reachable, by this other route.**
+- ⚠️ **`src/lib/sdk-runtime.ts:546` cites `starters#479` as an issue; it is a MERGED PR.** Its content
+  is paraphrased accurately and the refusal is live in the installed artifact, but #479 settled a
+  METHOD-COUNT question and is SILENT on visibility tiers — it must not be cited as having decided the
+  audience model. That conflation is what made this look like an SDK gap before #5354 was filed.

@@ -532,3 +532,44 @@ From `Open investigations — live diagnosis state`:
   rendered promise was observed end to end by a different, non-moderator account. `via: measurement`
 - **Next probe:** none. 🔴 Three branches stay unexercised and the notice is silent on all three —
   consent REFUSAL, the host `!req` drop, no block token. Each needs a forced failure in a real host.
+
+## Evicted from `claudedocs/handoff-ia-refactor-landed.md` — 2026-10-03
+
+Evicted 2026-10-03: the REFUTED Qwen-Image unfillable-cell block, the private-grid-outputs OPEN block (superseded by its own RESOLVED successor), and the browser-bridge long-poll bullet (host-infra — belongs in devrc, not this public repo).
+
+From `Open investigations — live diagnosis state`:
+
+- as-of: 2026-10-02 — **re-confirmed LIVE this session**: still renders `not generated yet` /
+  `Run this cell` with the button **enabled**, so the app does not know the checkpoint is gone
+  and would attempt a spend.
+- **Why it is stuck:** the empty cell is in the SYSTEM Top Grid (`topByVotes(...)`,
+  `App.tsx:1001`), which renders above every board and is what the captures photograph at boot,
+  so editing the operator's own grid changes nothing. They do not own the matchup holding it
+  ⚠️ Full ruled-out evidence EVICTED 2026-10-02 to the ARCHIVE.
+### Do private-grid outputs actually reach the shared board in production?
+- as-of: 2026-10-02
+- **Symptom + exact repro:** open an unpublished grid under My Benchmarks > Grids, press Run on an
+  empty cell, confirm. The new notice tells the viewer the images go to the shared board for every
+  viewer. **Nobody has watched that happen on a real host.**
+- **Observed (with values):** the claim is DERIVED from two readings, both exercised only against
+  the SDK mock host — `src/lib/benchmark.ts` builds `result:${comboKey}·${configId}×${promptKey}`,
+  which names no grid; and `src/App.tsx`'s run flow calls `publish({ workflowId })` on the success
+  path. `via: code`
+- **Ruled out:** *"the press itself settles it"* — `publish()` is **host-consent-gated**: it opens
+  the host's "Publish to the shared grid?" dialog and rejects on refusal or consent timeout, landing
+  the cell in `failed`. Two further host paths (`!req` drop, `no block token`) reply without ever
+  opening a dialog. Read in a local checkout of `civitai/civitai` at `15cfe259df`, **never compared
+  against deployed host code**. `via: code`
+- **Leading hypothesis:** the notice is correct for the ordinary success-plus-consent path and
+  silent about three branches that end with nothing on the board. The shipped sentence now hedges
+  with "If the run succeeds you will be asked to confirm publishing them there."
+
+From `Gotchas / decisions`:
+
+- 🔴 **THE BROWSER BRIDGE DROPS ITS LONG-POLL AND EVERY OP THEN FAILS IDENTICALLY — IT IS AN OPERATOR
+  FIX, NOT A RETRY.** Measured 2026-10-03 mid-release: `open` returned `no extension connected` while
+  the server reported having seen the `work` profile ~9.9 h earlier, and `health` gave
+  `extension_connected: false, count: 0`. The bridge's own instruction is a **FULL Brave restart** — a
+  `brave://extensions` reload "often no-ops" — and it says explicitly not to retry until it is back.
+  🔴 **Do not restart the operator's browser to unblock yourself**; it takes their tabs with it. Hand
+  the step over. This is the one thing that can strand a release between `submit` and `approve`.

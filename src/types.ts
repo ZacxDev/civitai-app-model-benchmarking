@@ -210,22 +210,10 @@ export interface ResultData {
   ecosystem: string;
   /** The bare scanned Image row ids the runner published (via the gated bridge). */
   imageIds: number[];
-  /**
-   * App-level attribution of the PROMPT submitter (the column author), recorded
-   * on the result so the prompt author is credited for the cell alongside the
-   * combination author.
-   *
-   * 🔴 WHY app-level, not host spend-attribution: the generation's Buzz spend is
-   * host-attributed to a SINGLE `sharedContentKey` (the combination — see
-   * `buildCellWorkflowBody`), because the host contract exposes exactly one
-   * shared-content key per workflow (`WorkflowBody.sharedContentKey: string`),
-   * which it resolves to ONE content author. A cell is co-authored (combo × prompt),
-   * so the prompt submitter gets app-level credit recorded here (derivable from
-   * `promptKey` too, but recorded explicitly so a consumer needn't re-resolve the
-   * prompt row). True dual SPEND attribution would require a host/platform change.
-   * Optional (a v1 result / a run against an anonymous-authored prompt omits it).
-   */
-  promptAuthorUserId?: number;
+  // ⚠ NO `promptAuthorUserId` SINCE 0.5.0 (PR #85, round 0). It was app-level credit
+  // for the prompt submitter; nothing ever READ it, and the document store never
+  // discloses an author's id, so nothing can write it either. Rows published before
+  // 0.5.0 still carry it in `data` and still parse — the field is simply ignored.
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +246,8 @@ export interface GridData {
 export interface CombinationRow {
   key: string;
   count: number;
-  authorUserId: number;
+  /** The CURRENT viewer's id when they authored the row, else `null` — see `RawSharedItem.authorUserId`. */
+  authorUserId: number | null;
   name: string;
   description: string;
   data: CombinationData;
@@ -268,7 +257,8 @@ export interface CombinationRow {
 export interface PromptRow {
   key: string;
   count: number;
-  authorUserId: number;
+  /** The CURRENT viewer's id when they authored the row, else `null` — see `RawSharedItem.authorUserId`. */
+  authorUserId: number | null;
   name: string;
   description: string;
   data: PromptData;
@@ -279,7 +269,8 @@ export interface PromptRow {
 export interface GridRow {
   key: string;
   count: number;
-  authorUserId: number;
+  /** The CURRENT viewer's id when they authored the row, else `null` — see `RawSharedItem.authorUserId`. */
+  authorUserId: number | null;
   name: string;
   description: string;
   data: GridData;
@@ -288,7 +279,8 @@ export interface GridRow {
 /** A parsed result row (key/author + typed payload). */
 export interface ResultRow {
   key: string;
-  authorUserId: number;
+  /** The CURRENT viewer's id when they authored the row, else `null` — see `RawSharedItem.authorUserId`. */
+  authorUserId: number | null;
   data: ResultData;
 }
 
@@ -296,7 +288,7 @@ export interface ResultRow {
 // Unpublished records — an object being built PRIVATELY, before (and after) it
 // is published.
 //
-// 🔴 An unpublished record lives in the PER-VIEWER KV (`useAppStorage`, prefix
+// 🔴 An unpublished record lives in the PER-VIEWER KV (`useKvStore`, prefix
 // `draft:v1:` for matchups and `unpub:prompt:v1:` for prompts), which is the only
 // store in the platform with a real per-viewer boundary. It is NOT a shared row
 // with a flag on it: a `visibility` field inside a shared row's `data` would be
@@ -324,9 +316,10 @@ export interface DraftUnsubmitted {
 
 /**
  * A record that HAS been published, rewritten to a pointer at its shared row.
- * Kept rather than deleted: it is the only per-viewer handle on that row (the
- * shared list has no "mine" index and its keys are host-minted, so they can
- * neither be predicted nor prefix-filtered). The editable body is dropped —
+ * Kept rather than deleted: it is the only per-viewer handle on that row (its key
+ * is host-minted, so it can be neither predicted nor prefix-filtered, and although
+ * the document store can list the viewer's own rows — `author: 'me'`, since 0.5.0 —
+ * nothing on a shared row names the PRIVATE record it was published from). The editable body is dropped —
  * once public, `shared.update` owns the record.
  *
  * 🔴 ONE shape for every publishable object. Matchups and prompts write the
@@ -434,6 +427,13 @@ export type CellRunStatus =
    */
   | 'unknown'
   | 'publishing'
+  /**
+   * Saving the shared result row of a run that is already paid for AND published —
+   * the retry path, which opens no host dialog. Its own state so it does not borrow
+   * `publishing`'s "confirm the Publish prompt" copy and preview strip (PR #85
+   * round-3 audit, 🟢3).
+   */
+  | 'saving'
   | 'succeeded'
   | 'failed'
   | 'canceled';
@@ -448,6 +448,10 @@ export interface CellRun {
   estimatedCost?: number;
   workflowId?: string;
   error?: string;
+  /** The published `Image` ids of a paid run whose result row is not saved yet (see `InflightRun.imageIds`). */
+  imageIds?: number[];
+  /** The result row was refused for a reason a retry will not change: no Check status (`lib/resultSave.ts`). */
+  resultRefused?: boolean;
   /**
    * The host-provided urls of THIS viewer's own just-finished outputs
    * (`BlockWorkflowSnapshot.imageUrls`), carried only for the `publishing`
@@ -482,7 +486,7 @@ export interface CellRun {
  *
  * 🔴 WRITTEN IN TWO PHASES, WHICH IS WHY `workflowId` IS OPTIONAL. It used to be
  * required, and the record was written only AFTER `submit` resolved — i.e. after
- * the money was spent. `useAppStorage.set` rejects when the value exceeds 64 KB,
+ * the money was spent. `useKvStore.set` rejects when the value exceeds 64 KB,
  * when the per-app quota would be crossed, or for an anonymous viewer, and that
  * rejection was swallowed: nothing was written, so neither the rehydrate scan nor
  * the pre-spend read could find anything, and the next load rendered the cell
@@ -509,6 +513,13 @@ export interface InflightRun {
   configId: string;
   promptKey: string;
   ecosystem: string;
+  /**
+   * PHASE 3 (0.5.0): the `Image` ids `publish()` minted for this workflow, written the
+   * moment it resolves and BEFORE the shared result row is created. A resume that finds
+   * them never publishes again — each publish mints fresh public rows and orphans the
+   * last (`lib/resultSave.ts`).
+   */
+  imageIds?: number[];
 }
 
 /**

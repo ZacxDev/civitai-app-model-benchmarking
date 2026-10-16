@@ -32,7 +32,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { Harness } from './test-harness.js';
-import type { SharedItem, StorageClient } from '@civitai/sdk';
+import type { SharedItem } from '@civitai/sdk';
+import type { KvStore } from './lib/kv-store.js';
 import type { SharedStore } from './lib/sdk-runtime.js';
 
 import { App, type AppDeps } from './App.js';
@@ -479,7 +480,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
   it('renders the WHOLE line, and does not call the app-wide figures the viewer’s own', async () => {
     // 🔴 THE DEFECT: this line used to open "Private to you — 3.0 MB of 12 MB
     // used, …", fusing a TRUE per-viewer privacy claim onto APP-WIDE totals.
-    // `useAppStorage`'s contract keeps those scopes apart — `get()` reads "the
+    // `useKvStore`'s contract keeps those scopes apart — `get()` reads "the
     // current (block instance, viewer) tuple", but `set()` rejects "when the
     // per-app 50MB quota would be crossed" — and it was confirmed live on
     // 2026-08-31: viewers 8753561 and 11025902 saw byte-identical quota lines,
@@ -499,15 +500,15 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
     const line = await screen.findByTestId('storage-quota');
     const normalised = (line.textContent ?? '').replace(/\s+/g, ' ').trim();
     expect(normalised).toBe(
-      'Unpublished items are private to you. Storage is app-wide, shared with every other viewer: ' +
-        '3.0 MB of 12 MB used, 0 of 4,321 rows.',
+      'Unpublished items are private to you. Your storage in this app, published and unpublished together: ' +
+        '3.0 MB of 12 MB used, 0 of 4,321 items.',
     );
   });
 
   it('shows no quota line at all when the host has not answered', async () => {
     // A refusing getQuota() must leave the number OFF, never fall back to a guess.
     const base = fakeAppStorage();
-    const refusing: StorageClient = {
+    const refusing: KvStore = {
       ...base.appStorage,
       getQuota: async () => {
         throw new Error('host declined');
@@ -529,7 +530,7 @@ describe('criterion 6: the storage ceiling is read from getQuota(), not hard-cod
 describe('the My tab degrades rather than breaking the public board', () => {
   it('still renders the public list when the per-viewer store cannot be listed', async () => {
     const base = fakeAppStorage();
-    const broken: StorageClient = {
+    const broken: KvStore = {
       ...base.appStorage,
       list: async () => {
         throw new Error('KV unavailable');

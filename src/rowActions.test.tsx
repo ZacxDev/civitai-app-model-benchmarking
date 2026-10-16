@@ -604,6 +604,9 @@ const EXPECTED_DROPPED_STARTS: Readonly<Record<string, readonly string[]>> = {
   'App.tsx': ['Map', 'Record', 'ReturnType', 'Set', 'Set'],
   'components/PromptForm.tsx': ['Array'],
   'lib/benchmark.ts': ['Partial', 'Partial', 'Record'],
+  // The document-store adapters' `Promise<StorageCollection<…>>` return types (0.5.0).
+  'lib/kv-store.ts': ['StorageCollection'],
+  'lib/records-store.ts': ['StorageCollection'],
   'lib/sdk-transport.ts': ['Record'],
 };
 

@@ -129,7 +129,7 @@ function renderApp(viewport: 'mobile' | 'desktop' = 'desktop') {
   // MOBILE `matchMedia`, so a case that does not say which shape it wants gets the
   // compact one by accident — and the nav's own default now depends on it.
   setViewport(viewport);
-  const { shared } = fakeShared({ seed: seed() });
+  const { shared } = fakeShared({ seed: seed(), viewerUserId: VIEWER_ID });
   render(
     <Harness
       viewer={{ id: VIEWER_ID, username: 'me' }}

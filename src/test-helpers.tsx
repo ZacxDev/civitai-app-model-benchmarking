@@ -3,21 +3,23 @@
 // picks/publish/gated, alongside `src/test-harness.tsx` for the base protocol.
 // NOT a *.test file, so it isn't collected as a suite.
 //
-// ⚠ THE MOCK HOST NO LONGER SERVES SHARED STORAGE OR THE BUZZ BALANCE, and this
-// header used to say it did. After the port those two are HTTP and come from
-// `src/dev-rest.ts`; the mock host keeps viewer, consent, the token, the resource
-// picker, the workflow money path, publish and gated reads. The `fakeShared` and
-// `fakeAppStorage` doubles below sit at the `deps` seam and are unaffected either
-// way — which is why most cases in this suite never touch the split at all.
+// ⚠ THE MOCK HOST DOES NOT SERVE STORAGE OR THE BUZZ BALANCE. Those are HTTP — the
+// App Blocks document store and `blocks/buzz` — and come from `src/dev-rest.ts`,
+// which answers the document store with the SDK's own contract fake. The mock host
+// keeps viewer, consent, the token, the resource picker, the workflow money path,
+// publish and gated reads. The `fakeShared` and `fakeAppStorage` doubles below sit
+// one layer UP, at the `deps` seam (the `SharedStore` / `KvStore` façades), and model
+// the document store's observable rules at that layer.
 
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import type { BlockResourceInfo, SharedStorageValue } from '@civitai/app-sdk/blocks';
-import type { SharedItem, StorageClient } from '@civitai/sdk';
+import { StorageError } from '@civitai/sdk';
 
 import { hasMore } from './dev-rest.js';
-import type { SharedStore } from './lib/sdk-runtime.js';
+import type { KvQuota, KvStore } from './lib/kv-store.js';
+import type { SharedRecord, SharedStore } from './lib/records-store.js';
 
 import type { GatedCellComponent } from './components/GatedCell.js';
 
@@ -174,28 +176,32 @@ export const immediateSleep = () => Promise.resolve();
  * to prove the App's optimistic reconcile makes a new row appear WITHOUT the
  * list() re-fetch returning it (item 1, read-after-write lag).
  */
+/**
+ * A seeded board row for {@link fakeShared}. `authorUserId` is FIXTURE identity — which
+ * fake user wrote it; the façade only ever reports whether that is the viewer
+ * (`authoredByViewer`), exactly as the document store reports `author.isViewer`.
+ * `value` is `unknown` so the legacy `SharedItem`-typed fixtures still type-check.
+ */
+export interface FakeSharedSeed {
+  key: string;
+  value: unknown;
+  count: number;
+  viewerVoted: boolean;
+  authorUserId: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export function fakeShared(
   opts: {
     reflectMutations?: boolean;
-    seed?: SharedItem[];
+    seed?: FakeSharedSeed[];
     /**
-     * Make `withdraw()` RESOLVE `{ok: false}` instead of removing the row.
-     *
-     * ⚠ WHAT THIS MODELS CHANGED WITH THE PORT, AND THE OLD CLAIM IS RETRACTED.
-     * It used to say `withdraw` is "the ONLY SDK write whose `ok` is `boolean`
-     * rather than the literal `true`", i.e. that the wire itself permits a
-     * resolving refusal. That is FALSE against `@civitai/sdk`, which declares
-     * `withdraw` as `{ ok: true; deleted: boolean }` — the literal — and hardcodes
-     * it. The `boolean` is `SharedStore`'s own widening (see `lib/sdk-runtime.ts`).
-     *
-     * So this option does NOT model a transport behaviour; it drives the INVARIANT
-     * GUARD in `App.tsx`'s `withdrawRow` from the only place that can reach it —
-     * the façade. It is kept because that guard protects an unrecoverable pointer
-     * delete and a guard no test can reach is worse than none; it is NOT evidence
-     * that a host can refuse this way. If the widening is ever narrowed, this
-     * option and its case in `withdraw.test.tsx` go with it.
+     * Who the façade answers AS — decides `authoredByViewer`. Default 99, the id
+     * every Harness-mounted case uses; a function follows a viewer that changes
+     * mid-test. Rows the app APPENDS are authored by this viewer, as on the store.
      */
-    withdrawRefuses?: boolean;
+    viewerUserId?: number | null | (() => number | null);
     /**
      * Make `report()` REJECT. The host rejects a report for a missing key, a
      * trust/scope refusal, or an anonymous viewer — and a failed report that the
@@ -206,7 +212,21 @@ export function fakeShared(
   } = {},
 ) {
   const reflect = opts.reflectMutations ?? true;
-  const rows: SharedItem[] = [...(opts.seed ?? [])];
+  const rows: FakeSharedSeed[] = [...(opts.seed ?? [])];
+  const viewerNow = (): number | null =>
+    typeof opts.viewerUserId === 'function' ? opts.viewerUserId() : opts.viewerUserId === undefined ? 99 : opts.viewerUserId;
+  const present = (row: FakeSharedSeed): SharedRecord => {
+    const viewer = viewerNow();
+    return {
+      key: row.key,
+      value: row.value as SharedRecord['value'],
+      count: row.count,
+      viewerVoted: viewer !== null && row.viewerVoted,
+      authoredByViewer: viewer !== null && row.authorUserId === viewer,
+      createdAt: row.createdAt ?? new Date(0),
+      updatedAt: row.updatedAt ?? new Date(0),
+    };
+  };
   let n = 0;
   const appends: SharedStorageValue[] = [];
   /** Every key passed to `withdraw()`, in call order (a test asserts what the app
@@ -221,14 +241,14 @@ export function fakeShared(
    * control for the rejecting path, where nothing is filed and only the attempt
    * distinguishes "the app tried and the host refused" from "the app never
    * tried". */
-  const reports: Array<{ key: string; reason?: string }> = [];
+  const reports: Array<{ key: string }> = [];
   /** One entry per `list()` call — lets a test wait for the post-mutation re-fetch
    * to actually LAND before asserting the optimistic state survived it. */
-  const listCalls: Array<{ prefix?: string; limit?: number; cursor?: string } | undefined> = [];
+  const listCalls: Array<{ limit?: number; cursor?: string } | undefined> = [];
   const shared: SharedStore = {
     async list(listOpts) {
       listCalls.push(listOpts);
-      return { items: [...rows] };
+      return { items: rows.map(present) };
     },
     // 🔴 NO `get`/`getCount`/`getCounts`, and their absence is the port's, not a
     // trim for tidiness. `SharedStore` (`lib/sdk-runtime.ts`) declares the SEVEN
@@ -236,8 +256,8 @@ export function fakeShared(
     // `@civitai/sdk`'s client carries no counter ops at all — `counts` is one of
     // the six routes `starters#479` deliberately left app-layer. A fake offering
     // a method the app cannot call is a fixture nothing can exercise.
-    async report(key, reason) {
-      reports.push({ key, reason });
+    async report(key) {
+      reports.push({ key });
       // 🔴 The host does NOT remove or hide the row on a report — a moderator
       // decides later. Modelling that faithfully is what lets a test prove the
       // app leaves the board untouched; a fake that spliced the row here would
@@ -247,8 +267,9 @@ export function fakeShared(
     async append(value) {
       appends.push(value);
       const key = `fk_${(n += 1)}`;
+      // Authored by the VIEWER, as a document `create`d by them is on the store.
       if (reflect)
-        rows.unshift({ key, authorUserId: 0, value, count: 0, viewerVoted: false, createdAt: new Date(), updatedAt: new Date() });
+        rows.unshift({ key, authorUserId: viewerNow() ?? 0, value, count: 0, viewerVoted: false, createdAt: new Date(), updatedAt: new Date() });
       return { key };
     },
     async update(key, value) {
@@ -266,9 +287,6 @@ export function fakeShared(
     },
     async withdraw(key) {
       withdraws.push(key);
-      // The host REFUSED, without throwing. The row is untouched and still on
-      // the public board — see `withdrawRefuses` above.
-      if (opts.withdrawRefuses) return { ok: false, deleted: false };
       const i = rows.findIndex((x) => x.key === key);
       // The HOST always removes the row; `reflect: false` models a list() that
       // hasn't caught up yet (read-after-write lag), so the row keeps coming back
@@ -281,10 +299,29 @@ export function fakeShared(
 }
 
 /**
- * An in-memory fake {@link StorageClient} (per-viewer KV) seeded from a plain
- * object. Records every `set` so a test can assert what the app persisted (used
- * for the durable voted-set). Mirrors the host contract: `get` resolves the
- * stored value or `null`; `set`/`delete` resolve ok.
+ * A document-store refusal in the store's own envelope — what the SDK client throws.
+ * The fakes below reject with these so a caller branching on `code`/`status` is
+ * exercised exactly as against the real store.
+ */
+function refusal(status: number, code: string, message: string, details?: Record<string, unknown>): StorageError {
+  return new StorageError(
+    status,
+    code,
+    message,
+    { code, message, error: message, ...(details ? { details } : {}) },
+    details,
+  );
+}
+
+/**
+ * An in-memory fake {@link KvStore} (the per-viewer `kv` collection, at the façade)
+ * seeded from a plain object. Records every `set` so a test can assert what the app
+ * persisted. Mirrors the store's observable rules at this layer: `get` resolves the
+ * stored value or `null`; `set`/`delete` resolve ok; `list` pages with the store's
+ * exact-rule cursor and refuses a `limit` above 100; every refusal is a
+ * `StorageError` with the store's code and status (413 `quota_exceeded` for a write,
+ * 429 `rate_limited` for a delete — deletes count against the private-write bucket —
+ * 503 `service_unavailable` for a listing).
  */
 export function fakeAppStorage(
   seed: Record<string, unknown> = {},
@@ -324,9 +361,9 @@ export function fakeAppStorage(
    * page 2.
    *
    * 🔴 `latencyMs` PUTS EVERY KV CALL ON A MACROTASK, and without it this fake is
-   * STRUCTURALLY UNABLE to see an ordering bug. The real `useAppStorage` is a
-   * cross-origin HTTP call — `POST /api/v1/blocks/app-storage/*` since the SDK
-   * port, and before it a `postMessage` the host served with the SAME server
+   * STRUCTURALLY UNABLE to see an ordering bug. The real `useKvStore` is a
+   * cross-origin HTTP call — the document store's `/api/v1/blocks/storage/kv/*`
+   * since 0.5.0, and before the SDK port a `postMessage` the host served with the SAME server
    * function, so never in-process on either transport — meaning every call is at
    * minimum a macrotask and in practice a network round trip, now possibly plus a
    * CORS preflight. This fake resolves in a MICROTASK, which makes a long serial
@@ -340,6 +377,12 @@ export function fakeAppStorage(
   opts: {
     failListTimes?: number;
     failListPrefix?: string;
+    /**
+     * Make the `failListTimes` refusals the store's READ RATE LIMIT — 429
+     * `rate_limited` with `details.retryAfter` (seconds) — instead of a 503.
+     * The store caps reads at 300/min per (app, viewer).
+     */
+    failListRateLimited?: { retryAfter: number };
     pageSize?: number;
     latencyMs?: number;
     /**
@@ -412,7 +455,7 @@ export function fakeAppStorage(
     opts.latencyMs === undefined
       ? Promise.resolve()
       : new Promise((r) => setTimeout(r, opts.latencyMs));
-  const appStorage: StorageClient = {
+  const appStorage: KvStore = {
     async get<T = unknown>(key: string) {
       gets.push(key);
       await hop();
@@ -428,20 +471,11 @@ export function fakeAppStorage(
         // 🔴 REJECT BEFORE WRITING — the host stores nothing when it refuses, and
         // a fake that stored anyway would leave the downstream reads finding a
         // row that does not exist in production.
-        throw new Error(opts.failSetError ?? 'QUOTA_EXCEEDED');
+        throw refusal(413, 'quota_exceeded', opts.failSetError ?? 'QUOTA_EXCEEDED');
       }
       store.set(key, value);
       sets.push({ key, value });
-      // `sizeBytes` is REQUIRED by `StorageClient` where the bridge hook made it
-      // optional, and the SDK's own client THROWS on a reply without it — so a
-      // fake that omitted it would be modelling a response the real transport
-      // rejects. The wire unit, i.e. `JSON.stringify`'s byte length, which is what
-      // the route returns (it is NOT `getQuota`'s stored unit — the two are not a
-      // fixed multiple).
-      return {
-        ok: true as const,
-        sizeBytes: new TextEncoder().encode(JSON.stringify(value) ?? '').length,
-      };
+      return { ok: true as const };
     },
     async delete(key: string) {
       deleteAttempts.push(key);
@@ -453,7 +487,7 @@ export function fakeAppStorage(
         // 🔴 REJECT BEFORE REMOVING — a fake that removed anyway would leave the
         // record gone from the store while the app believed it had failed, i.e.
         // the exact disagreement the branching copy exists to state.
-        throw new Error(opts.failDeleteError ?? 'STORAGE_UNAVAILABLE');
+        throw refusal(429, 'rate_limited', opts.failDeleteError ?? 'STORAGE_UNAVAILABLE');
       }
       deletes.push(key);
       const deleted = store.delete(key);
@@ -466,33 +500,39 @@ export function fakeAppStorage(
         opts.failListPrefix === undefined || (listOpts?.prefix ?? '').startsWith(opts.failListPrefix);
       if (listFailuresLeft > 0 && targeted) {
         listFailuresLeft -= 1;
-        throw new Error('KV list unavailable');
+        throw opts.failListRateLimited
+          ? refusal(429, 'rate_limited', 'rate limit exceeded', { retryAfter: opts.failListRateLimited.retryAfter })
+          : refusal(503, 'service_unavailable', 'KV list unavailable');
+      }
+      // The store REFUSES a limit outside 1–100 rather than clamping it.
+      if (listOpts?.limit !== undefined && (listOpts.limit < 1 || listOpts.limit > 100)) {
+        throw refusal(400, 'invalid_request', 'limit must be 1–100');
       }
       const prefix = listOpts?.prefix;
       const all = [...store.keys()].filter((k) => !prefix || k.startsWith(prefix));
-      // Page size: the caller's own `limit` wins, else the fixture's, else one
-      // page for everything (the historical behaviour).
-      const size = listOpts?.limit ?? opts.pageSize ?? all.length;
+      // Page size: the SMALLER of the caller's `limit` and the fixture's `pageSize`
+      // (a store whose pages are capped below what the caller asks for — every
+      // scan now asks for 100, so a fixture that wants page 2 must be able to cap
+      // it), else one page for everything (the historical behaviour).
+      const size = Math.min(listOpts?.limit ?? Infinity, opts.pageSize ?? Infinity, Math.max(all.length, 1));
       // The cursor is "opaque, base64-encoded last key" per the SDK's own
       // docstring — modelled faithfully, so a caller that tries to interpret it
       // as an index breaks here rather than in production.
       const from = listOpts?.cursor ? all.indexOf(atob(listOpts.cursor)) + 1 : 0;
       const page = all.slice(from, from + Math.max(size, 1));
       const last = page[page.length - 1];
-      // 🔴 THE SERVER'S RULE, FROM THE ONE PLACE THAT STATES IT — see `hasMore` in
-      // `dev-rest.ts`. A cursor iff the page came back FULL, not `indexOf(last) <
-      // all.length - 1`, which is the fake reading rows the server never fetched; the
-      // optimistic form stands the pre-spend double-charge backstop DOWN at the page
-      // cap. This copy is not independently pinned — nothing reaches that boundary
-      // through `deps`-injected storage — which is exactly why it shares the
-      // predicate instead of restating it.
-      const more = last !== undefined && hasMore(page.length, Math.max(size, 1));
+      // 🔴 THE STORE'S RULE, FROM THE ONE PLACE THAT STATES IT — see `hasMore` in
+      // `dev-rest.ts`: a cursor iff another row exists past this page (the document
+      // store reads `limit + 1`). Shared rather than restated, so the copies cannot
+      // drift apart.
+      const more = last !== undefined && hasMore(all.length - from, Math.max(size, 1));
       return {
-        keys: page.map((key) => ({ key, updatedAt: new Date() })),
+        // The value rides on the page, as a document-store list page carries data.
+        keys: page.map((key) => ({ key, value: store.get(key) ?? null, updatedAt: new Date() })),
         ...(more ? { nextCursor: btoa(last) } : {}),
       };
     },
-    async getQuota() {
+    async getQuota(): Promise<KvQuota> {
       return {
         usedBytes: quota.usedBytes ?? 0,
         rowCount: store.size,

@@ -42,7 +42,7 @@ import { createMockHost } from '@civitai/blocks-react/testing';
 import type { BlockWorkflowSnapshot } from '@civitai/app-sdk/blocks';
 import type { SharedItem } from '@civitai/sdk';
 
-import { Harness } from './test-harness.js';
+import { Harness, hostGrantsWholeConsentSet } from './test-harness.js';
 import { createRestFake } from './dev-rest.js';
 import { configureSdkRuntime } from './lib/sdk-runtime.js';
 import { BALANCE_UNKNOWN_MESSAGE, BALANCE_LOADING_MESSAGE } from './components/ResultsGrid.js';
@@ -77,8 +77,8 @@ vi.mock('./lib/sdk-runtime.js', async (importOriginal) => {
 
 const { App } = await import('./App.js');
 
-const GRANTED = () => ['apps:storage:shared:read', 'ai:write:budgeted'];
-const UNGRANTED = () => ['apps:storage:shared:read'];
+const GRANTED = () => ['apps:storage', 'ai:write:budgeted', 'apps:storage:publish'];
+const UNGRANTED = () => ['apps:storage'];
 
 beforeEach(() => {
   scopesBox.current = null;
@@ -360,6 +360,9 @@ describe('🔴 a failed initial balance read is recoverable without a page reloa
       shared: { seed: [] },
     });
     configureSdkRuntime({
+      // The real host's consent grant brings the whole consent-gated set — see
+      // `hostGrantsWholeConsentSet`; the mock's `consentGranted` mints the money scope alone.
+      transport: hostGrantsWholeConsentSet(),
       fetch: createRestFake({ viewerUserId: 99, buzz: () => balance.current, onRequest }),
     });
     return { balance, uninstall: host.install() };

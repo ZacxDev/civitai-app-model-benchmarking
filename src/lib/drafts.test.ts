@@ -184,7 +184,7 @@ describe('formatQuota — the privacy claim is NOT fused to the app-wide figures
   // 🔴 THE DEFECT THIS PINS. The line used to read
   //   "Private to you — 3.0 MB of 12 MB used, 12 of 4,321 rows."
   // which attaches "Private to you" to numbers that are NOT this viewer's.
-  // `useAppStorage`'s own contract splits the two scopes: `get()` reads "the
+  // `useKvStore`'s own contract splits the two scopes: `get()` reads "the
   // current (block instance, viewer) tuple" (per-viewer DATA) while `set()`
   // rejects "when the per-app 50MB quota would be crossed" and the hook doc
   // reads "50 MB + ~1M rows per app" (per-app QUOTA). Confirmed live on
@@ -207,11 +207,13 @@ describe('formatQuota — the privacy claim is NOT fused to the app-wide figures
     // ⚠️ The leading noun moved from "Drafts" to "Unpublished items" in 527, when
     // the word "draft" left the rendered vocabulary (§11.1) while the STORAGE
     // prefix kept it. That is a deliberate reword, and this literal is exactly the
-    // price the pin exists to charge; the two clauses, their order and their
-    // scopes are unchanged.
+    // price the pin exists to charge; the two clauses and their order are unchanged.
+    // 🔴 The SECOND clause's scope changed in 0.5.0 (the document-store port): the
+    // figures are the VIEWER's own `info()` usage — private and published documents
+    // together — not an app-wide total, and the copy now says so (see `formatQuota`).
     expect(line).toBe(
-      'Unpublished items are private to you. Storage is app-wide, shared with every other viewer: ' +
-        '3.0 MB of 12 MB used, 12 of 4,321 rows.',
+      'Unpublished items are private to you. Your storage in this app, published and unpublished together: ' +
+        '3.0 MB of 12 MB used, 12 of 4,321 items.',
     );
   });
 
