@@ -251,6 +251,38 @@ describe('🔴 the two-step CREATE flow', () => {
     ).toBeNull();
     expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
 
+    // 🔴 NEXT IS GATED ON STEP 1'S AXES (2026-10-17): with nothing picked on
+    // either axis it is disabled — advancing anyway used to strand the failure
+    // at Submit on step 2. Pick one member per axis and it enables.
+    expect(
+      screen.getByTestId('form-next'),
+      'Next is enabled with no axes picked — the step-1 gate is gone',
+    ).toBeDisabled();
+    await userEvent.click(screen.getByTestId('grid-form-pick-rows'));
+    const rowPicker = await screen.findByTestId('grid-pick-rows');
+    await userEvent.click(
+      within(rowPicker)
+        .getAllByTestId('grid-pick-rows-option')
+        .find((el) => el.getAttribute('data-key') === 'mk-echo')!,
+    );
+    await userEvent.click(within(rowPicker).getByTestId('grid-pick-rows-confirm'));
+    expect(
+      screen.getByTestId('form-next'),
+      'Next enabled with only one axis picked — the gate reads one axis only',
+    ).toBeDisabled();
+    await userEvent.click(screen.getByTestId('grid-form-pick-cols'));
+    const colPicker = await screen.findByTestId('grid-pick-cols');
+    await userEvent.click(
+      within(colPicker)
+        .getAllByTestId('grid-pick-cols-option')
+        .find((el) => el.getAttribute('data-key') === 'qk-whisky')!,
+    );
+    await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+    expect(
+      screen.getByTestId('form-next'),
+      'Next stayed disabled once both axes had a member',
+    ).not.toBeDisabled();
+
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2: name + description, no axes.
@@ -315,28 +347,32 @@ describe('🔴 the two-step CREATE flow', () => {
     });
   });
 
-  it('🔴 shows a step-1 validation failure on step 2, where the Submit is', async () => {
+  it('🔴 shows a validation failure on step 2, where the Submit is', async () => {
+    // ⚠️ THIS CASE USED TO ADVANCE WITH NO AXES PICKED AND FAIL ON "the grid
+    // needs a row / a column" — that route closed on 2026-10-17 when Next
+    // gained its step-1 gate, so an axes failure can no longer reach step 2 at
+    // all. What remains reachable, and what this case now drives, is the
+    // step-2 half of the same validator: submit with no name.
     const onSubmit = vi.fn<(input: GridInput) => void>();
     render(
       <GridForm
         matchupItems={MATCHUPS}
         promptItems={PROMPTS}
+        initial={{ name: '', description: '', matchupKeys: ['mk-echo'], promptKeys: ['qk-whisky'] }}
         onSubmit={onSubmit}
         onCancel={vi.fn()}
         multiStep
       />,
     );
 
-    // Advance with NO axes picked, name it, submit.
+    // Advance WITH both axes picked (the gate requires them), no name, submit.
     await userEvent.click(screen.getByTestId('form-next'));
-    await userEvent.type(screen.getByTestId('grid-form-name'), 'Empty axes');
     await userEvent.click(screen.getByTestId('grid-form-submit'));
 
     expect(onSubmit).not.toHaveBeenCalled();
     const errs = screen.queryByTestId('grid-form-errors');
-    expect(errs, 'the step-1 failure was not reported on step 2').not.toBeNull();
-    expect(errs).toHaveTextContent('the grid needs a row');
-    expect(errs).toHaveTextContent('the grid needs a column');
+    expect(errs, 'the validation failure was not reported on step 2').not.toBeNull();
+    expect(errs).toHaveTextContent('Give the grid a name');
     // …and it is readable from step 2, not stranded on the page the viewer left.
     expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
   });
