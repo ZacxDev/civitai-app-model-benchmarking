@@ -144,6 +144,14 @@ export function GridForm({
   const input: GridInput = { name, description, matchupKeys, promptKeys };
 
   /**
+   * 🔴 STEP 1'S GATE FOR `StepNav` — the REAL validator, not a re-derivation:
+   * the name is a step-2 field, so it is satisfied with a placeholder here and
+   * every error left is a step-1 (axes) error. `validateGrid` stays the one
+   * place the rules live; Submit still validates the whole input.
+   */
+  const contentValid = validateGrid({ ...input, name: 'placeholder' }).length === 0;
+
+  /**
    * 🔴 THE `catch` IS THE SAME ONE `MatchupForm` AND `PromptForm` HAVE HAD SINCE
    * THEY SHIPPED, and this form went out without it. `onSubmit` is
    * `saveUnpubGrid`, i.e. `appStorage.set` — which REJECTS on the per-APP 50MB
@@ -262,8 +270,10 @@ export function GridForm({
         </Stack>
       </ContentStep>
 
-      {/* 🔴 OUTSIDE BOTH STEPS — `validateGrid` runs over the whole input, so an error
-          raised on step 2 can be about step 1's axes ("Pick at least one matchup"). */}
+      {/* 🔴 OUTSIDE BOTH STEPS — Submit runs `validateGrid` over the whole input
+          and `onSubmit` failures land in the same alert, so it has to be reachable
+          from whichever step (or single page) raised it. Step 1's own errors no
+          longer travel here: `StepNav`'s gate stops them at Next. */}
       {errors.length > 0 && (
         <Alert color="error" data-testid="grid-form-errors">
           <Stack gap={2}>
@@ -279,7 +289,12 @@ export function GridForm({
           Cancel
         </Button>
         {multiStep && (
-          <StepNav step={step} onNext={() => setStep('meta')} onBack={() => setStep('content')} />
+          <StepNav
+            step={step}
+            onNext={() => setStep('meta')}
+            onBack={() => setStep('content')}
+            nextDisabled={!contentValid}
+          />
         )}
         {(!multiStep || step === 'meta') && (
           <Button size="sm" loading={busy} onClick={handleSubmit} data-testid="grid-form-submit">

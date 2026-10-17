@@ -264,6 +264,15 @@ export function MatchupForm({
       ),
     );
 
+  /**
+   * 🔴 STEP 1'S GATE FOR `StepNav` — the REAL validator, not a re-derivation:
+   * the name is a step-2 field, so it is satisfied with a placeholder here and
+   * every error left is a step-1 (content) error. `validateCombination` stays
+   * the one place the rules live; Submit still validates the whole input.
+   */
+  const contentValid =
+    validateCombination({ name: 'placeholder', description, configs }).length === 0;
+
   const submit = async () => {
     const input: CombinationInput = { name, description, configs };
     const errs = validateCombination(input);
@@ -538,9 +547,10 @@ export function MatchupForm({
       </ContentStep>
 
       {/* 🔴 OUTSIDE BOTH STEPS. Submit runs `validateCombination` over the WHOLE
-          input, so an error raised on step 2 can be about step 1's content ("Add at
-          least one model…") — rendering the alert inside a step would hide exactly
-          the message that tells the viewer to press Back. */}
+          input and `onSubmit` failures land in the same alert, so it has to be
+          reachable from whichever step (or single page) raised it — rendering it
+          inside a step would hide it from the other one. Step 1's own errors no
+          longer travel here: `StepNav`'s gate stops them at Next. */}
       {errors.length > 0 && (
         <Alert color="error" data-testid="matchup-errors">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -556,7 +566,12 @@ export function MatchupForm({
           Cancel
         </Button>
         {multiStep && (
-          <StepNav step={step} onNext={() => setStep('meta')} onBack={() => setStep('content')} />
+          <StepNav
+            step={step}
+            onNext={() => setStep('meta')}
+            onBack={() => setStep('content')}
+            nextDisabled={!contentValid}
+          />
         )}
         {(!multiStep || step === 'meta') && (
           <Button onClick={submit} loading={busy} data-testid="matchup-submit">
