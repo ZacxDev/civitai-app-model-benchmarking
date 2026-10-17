@@ -341,6 +341,21 @@ describe('🔴 the two-step CREATE flow', () => {
     ).toBeNull();
     expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
 
+    // 🔴 NEXT IS GATED ON STEP 1'S CONTENT (2026-10-17): with the required
+    // default prompt still empty it is disabled — advancing anyway used to
+    // strand the failure at Submit on step 2, away from the field.
+    expect(
+      screen.getByTestId('form-next'),
+      'Next is enabled with no default prompt — the step-1 gate is gone',
+    ).toBeDisabled();
+    fireEvent.change(screen.getByTestId('prompt-default-text'), {
+      target: { value: 'a cat in a hat' },
+    });
+    expect(
+      screen.getByTestId('form-next'),
+      'Next stayed disabled once the default prompt was filled',
+    ).not.toBeDisabled();
+
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2: the name + description, no prompt section.

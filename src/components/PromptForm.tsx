@@ -229,10 +229,22 @@ export function PromptForm({
 
   const removeOverride = (eco: string) => setOverrides((prev) => prev.filter((o) => o.eco !== eco));
 
-  const submit = async () => {
+  const buildInput = (): PromptInput => {
     const overrideMap: Record<string, PromptOverride> = {};
     for (const o of overrides) overrideMap[o.eco] = o.value;
-    const input: PromptInput = { name, description, default: def, overrides: overrideMap };
+    return { name, description, default: def, overrides: overrideMap };
+  };
+
+  /**
+   * 🔴 STEP 1'S GATE FOR `StepNav` — the REAL validator, not a re-derivation:
+   * the name is a step-2 field, so it is satisfied with a placeholder here and
+   * every error left is a step-1 (content) error. `validatePrompt` stays the
+   * one place the rules live; Submit still validates the whole input.
+   */
+  const contentValid = validatePrompt({ ...buildInput(), name: 'placeholder' }).length === 0;
+
+  const submit = async () => {
+    const input = buildInput();
     const errs = validatePrompt(input);
     if (errs.length) {
       setErrors(errs);
@@ -377,8 +389,10 @@ export function PromptForm({
         </Stack>
       </ContentStep>
 
-      {/* 🔴 OUTSIDE BOTH STEPS — `validatePrompt` runs over the whole input, so an
-          error raised on step 2 can be about step 1's prompt text. */}
+      {/* 🔴 OUTSIDE BOTH STEPS — Submit runs `validatePrompt` over the whole
+          input and `onSubmit` failures land in the same alert, so it has to be
+          reachable from whichever step (or single page) raised it. Step 1's own
+          errors no longer travel here: `StepNav`'s gate stops them at Next. */}
       {errors.length > 0 && (
         <Alert color="error" data-testid="prompt-errors">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -394,7 +408,12 @@ export function PromptForm({
           Cancel
         </Button>
         {multiStep && (
-          <StepNav step={step} onNext={() => setStep('meta')} onBack={() => setStep('content')} />
+          <StepNav
+            step={step}
+            onNext={() => setStep('meta')}
+            onBack={() => setStep('content')}
+            nextDisabled={!contentValid}
+          />
         )}
         {(!multiStep || step === 'meta') && (
           <Button onClick={submit} loading={busy} data-testid="prompt-submit">

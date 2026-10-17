@@ -85,6 +85,12 @@ export interface StepNavProps {
   onNext: () => void;
   /** Return to step 1. */
   onBack: () => void;
+  /**
+   * Step 1's content is not yet valid, so there is nothing to advance TO.
+   * Each form derives this from its own imported validator (see the call
+   * sites) — this component only renders the verdict.
+   */
+  nextDisabled?: boolean;
 }
 
 /**
@@ -94,10 +100,22 @@ export interface StepNavProps {
  * submit button is the form's own and is rendered only on step 2, so step 1 can
  * never submit a record with no name; that split lives at the call site because
  * each form owns its own submit label and testid.
+ *
+ * 🔴 NEXT IS THE FILLED PRIMARY AND IS DISABLED UNTIL STEP 1 IS VALID (UX
+ * audit 2026-10-17, operator-approved). It shipped as `variant="light"` and
+ * always enabled: a dim button that advanced even with step 1's required
+ * content missing (an empty default prompt; a grid with no rows or columns),
+ * so the failure only surfaced at Submit on step 2, away from the field that
+ * caused it, and a viewer could not tell at a glance whether Next was
+ * available at all. Now the disabled state IS the validation signal — muted
+ * while the content is missing, the one filled primary in the footer once it
+ * is not — the same affordance the cell Confirm uses (disabled until the
+ * estimate fits). The whole-input submit validation is unchanged and still
+ * runs on step 2; it is now the backstop, not the first report.
  */
-export function StepNav({ step, onNext, onBack }: StepNavProps): React.JSX.Element {
+export function StepNav({ step, onNext, onBack, nextDisabled = false }: StepNavProps): React.JSX.Element {
   return step === 'content' ? (
-    <Button variant="light" onClick={onNext} data-testid="form-next">
+    <Button onClick={onNext} disabled={nextDisabled} data-testid="form-next">
       Next
     </Button>
   ) : (

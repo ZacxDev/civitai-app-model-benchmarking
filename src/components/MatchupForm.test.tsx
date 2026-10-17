@@ -546,6 +546,20 @@ describe('🔴 the two-step CREATE flow', () => {
     expect(screen.queryByTestId('form-next'), 'step 1 offers no way forward').not.toBeNull();
     expect(screen.queryByTestId('form-back'), 'step 1 offers Back to nowhere').toBeNull();
 
+    // 🔴 NEXT IS GATED ON STEP 1'S CONTENT (2026-10-17): with no checkpoint
+    // picked it is disabled — advancing anyway used to strand the failure at
+    // Submit on step 2, away from the model list.
+    expect(
+      screen.getByTestId('form-next'),
+      'Next is enabled with no model picked — the step-1 gate is gone',
+    ).toBeDisabled();
+    await userEvent.click(screen.getByTestId('pick-checkpoint'));
+    await waitFor(() => expect(screen.getByTestId('checkpoint-card')).toBeInTheDocument());
+    expect(
+      screen.getByTestId('form-next'),
+      'Next stayed disabled once a checkpoint was picked',
+    ).not.toBeDisabled();
+
     await userEvent.click(screen.getByTestId('form-next'));
 
     // Step 2 holds the name + description and NOT the models.
@@ -619,25 +633,32 @@ describe('🔴 the two-step CREATE flow', () => {
     expect(input.configs[0]!.checkpoint?.versionId).toBe(1001);
   });
 
-  it('🔴 shows a step-1 validation failure on step 2, where the Submit is', async () => {
+  it('🔴 shows a validation failure on step 2, where the Submit is', async () => {
     // The error alert sits OUTSIDE both steps on purpose: submit validates the whole
-    // input, so a failure raised on step 2 can be about step 1's content. Rendering
-    // it inside a step would hide exactly the message that says to press Back.
+    // input, so a failure raised by that Submit is reported where the Submit is.
+    // Rendering it inside a step would hide it from the other one.
+    //
+    // ⚠️ THIS CASE USED TO ADVANCE WITH NO CHECKPOINT AND FAIL ON "Add at least
+    // one model" — that route closed on 2026-10-17 when Next gained its step-1
+    // gate, so a step-1 failure can no longer reach step 2 at all. What remains
+    // reachable, and what this case now drives, is the step-2 half of the same
+    // validator: submit with no name.
     const onSubmit = vi.fn<(input: CombinationInput) => Promise<void>>();
     const { pickResource } = fakePicker();
     render(
       <MatchupForm pickResource={pickResource} onSubmit={onSubmit} onCancel={vi.fn()} multiStep />,
     );
 
-    // Advance WITHOUT picking a checkpoint, name it, submit.
+    // Advance WITH a checkpoint (the gate requires one), leave the name blank, submit.
+    await userEvent.click(screen.getByTestId('pick-checkpoint'));
+    await waitFor(() => expect(screen.getByTestId('checkpoint-card')).toBeInTheDocument());
     await userEvent.click(screen.getByTestId('form-next'));
-    await userEvent.type(screen.getByTestId('matchup-name'), 'Nameless models');
     await userEvent.click(screen.getByTestId('matchup-submit'));
 
     expect(onSubmit).not.toHaveBeenCalled();
     const errs = screen.queryByTestId('matchup-errors');
-    expect(errs, 'the step-1 failure was not reported on step 2').not.toBeNull();
-    expect(errs).toHaveTextContent('Add at least one model');
+    expect(errs, 'the validation failure was not reported on step 2').not.toBeNull();
+    expect(errs).toHaveTextContent('Give the matchup a name');
     // …and it is readable from step 2, not stranded on the page the viewer left.
     expect(screen.queryByTestId('form-step-meta')).not.toBeNull();
 

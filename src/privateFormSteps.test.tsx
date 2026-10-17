@@ -43,7 +43,15 @@ import { describe, expect, it } from 'vitest';
 import { Harness } from './test-harness.js';
 
 import { App, type AppDeps } from './App.js';
-import { CKPT_SDXL, fakeAppStorage, fakeShared, immediateSleep, openMyList } from './test-helpers.js';
+import {
+  CKPT_SDXL,
+  fakeAppStorage,
+  fakeShared,
+  immediateSleep,
+  openMyList,
+  type FakeSharedSeed,
+} from './test-helpers.js';
+import type { CombinationData, PromptData } from './types.js';
 import { draftKey } from './lib/drafts.js';
 import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
@@ -100,6 +108,46 @@ const STORED_GRID = {
   updatedAt: STAMP,
 };
 
+/**
+ * One board matchup + one board prompt, so the NEW private grid's step 1 has
+ * something to pick (2026-10-17: Next is gated on both axes being non-empty,
+ * so an empty board would leave this case pressing a correctly-disabled Next).
+ */
+const BOARD_SEED: FakeSharedSeed[] = [
+  {
+    key: 'mk-board',
+    count: 5,
+    viewerVoted: false,
+    authorUserId: 7,
+    value: {
+      title: 'Board matchup',
+      body: '',
+      data: {
+        v: 2,
+        kind: 'combination',
+        configs: [
+          {
+            id: 'cfg-board',
+            checkpoint: { versionId: 1001, modelId: 500, baseModel: 'SDXL 1.0', modelName: 'JuggernautXL' },
+            loras: [],
+          },
+        ],
+      } satisfies CombinationData,
+    },
+  },
+  {
+    key: 'qk-board',
+    count: 5,
+    viewerVoted: false,
+    authorUserId: 7,
+    value: {
+      title: 'Board prompt',
+      body: '',
+      data: { v: 3, kind: 'prompt', default: { prompt: 'a portrait', params: {} } } satisfies PromptData,
+    },
+  },
+];
+
 function mountApp(deps: Partial<AppDeps>) {
   return render(
     <Harness
@@ -129,8 +177,18 @@ function mountApp(deps: Partial<AppDeps>) {
  *
  * 🔴 NO `if`. The point of this file is that the shape is asserted, never sniffed —
  * the helpers that sniffed it are what let four mutants through.
+ *
+ * ⚠️ `fillStep1` IS NOT OPTIONAL PLUMBING (2026-10-17): Next is gated on step
+ * 1's content being valid, so a bare press on an empty form now goes nowhere
+ * BY DESIGN and this helper would report a wiring failure that is really the
+ * gate working. Each case supplies the minimal fill for its noun; the shape
+ * assertions above the fill are unchanged and still run against the empty form.
  */
-async function expectPagedCreate(form: HTMLElement, nameTestId: string) {
+async function expectPagedCreate(
+  form: HTMLElement,
+  nameTestId: string,
+  fillStep1: (form: HTMLElement) => Promise<void>,
+) {
   expect(
     within(form).queryByTestId('form-step-content'),
     'a NEW private record did not open on step 1 — `multiStep` is wired false for this path',
@@ -145,6 +203,7 @@ async function expectPagedCreate(form: HTMLElement, nameTestId: string) {
     'the name input is on step 1 — this path is not paged',
   ).toBeNull();
 
+  await fillStep1(form);
   await userEvent.click(within(form).getByTestId('form-next'));
 
   expect(
@@ -190,7 +249,11 @@ describe('🔴 the PRIVATE matchup path (`draft`) — step shape, both direction
     const { unmount } = mountApp({ shared: fakeShared({ seed: [] }).shared, appStorage: fresh.appStorage });
     await openMyList('matchup');
     await userEvent.click(await screen.findByTestId('new-unpublished'));
-    await expectPagedCreate(await screen.findByTestId('matchup-form'), 'matchup-name');
+    await expectPagedCreate(await screen.findByTestId('matchup-form'), 'matchup-name', async (form) => {
+      // The harness's canned Checkpoint pick — the minimal valid step 1.
+      await userEvent.click(within(form).getByTestId('pick-checkpoint'));
+      await waitFor(() => expect(within(form).getByTestId('checkpoint-card')).toBeInTheDocument());
+    });
     unmount();
 
     // ---- RESUMED ----
@@ -221,7 +284,9 @@ describe('🔴 the PRIVATE prompt path (`unpub-prompt`) — step shape, both dir
     const { unmount } = mountApp({ shared: fakeShared({ seed: [] }).shared, appStorage: fresh.appStorage });
     await openMyList('prompt');
     await userEvent.click(await screen.findByTestId('new-unpublished'));
-    await expectPagedCreate(await screen.findByTestId('prompt-form'), 'prompt-name');
+    await expectPagedCreate(await screen.findByTestId('prompt-form'), 'prompt-name', async (form) => {
+      await userEvent.type(within(form).getByTestId('prompt-default-text'), 'a quiet street at dawn');
+    });
     unmount();
 
     const stored = fakeAppStorage({ [unpubPromptKey('up1')]: STORED_PROMPT });
@@ -241,10 +306,24 @@ describe('🔴 the PRIVATE prompt path (`unpub-prompt`) — step shape, both dir
 describe('🔴 the PRIVATE grid path (`unpub-grid`) — step shape, both directions', () => {
   it('🔴 pages a NEW private grid and pages a RESUMED one not at all', async () => {
     const fresh = fakeAppStorage();
-    const { unmount } = mountApp({ shared: fakeShared({ seed: [] }).shared, appStorage: fresh.appStorage });
+    const { unmount } = mountApp({
+      shared: fakeShared({ seed: BOARD_SEED }).shared,
+      appStorage: fresh.appStorage,
+    });
     await openMyList('grid');
     await userEvent.click(await screen.findByTestId('new-unpublished'));
-    await expectPagedCreate(await screen.findByTestId('grid-form'), 'grid-form-name');
+    await expectPagedCreate(await screen.findByTestId('grid-form'), 'grid-form-name', async (form) => {
+      // Pick the one board member on each axis. The picker dialogs portal out
+      // of the form element, so their insides are read at screen level.
+      await userEvent.click(within(form).getByTestId('grid-form-pick-rows'));
+      const rowPicker = await screen.findByTestId('grid-pick-rows');
+      await userEvent.click(within(rowPicker).getAllByTestId('grid-pick-rows-option')[0]!);
+      await userEvent.click(within(rowPicker).getByTestId('grid-pick-rows-confirm'));
+      await userEvent.click(within(form).getByTestId('grid-form-pick-cols'));
+      const colPicker = await screen.findByTestId('grid-pick-cols');
+      await userEvent.click(within(colPicker).getAllByTestId('grid-pick-cols-option')[0]!);
+      await userEvent.click(within(colPicker).getByTestId('grid-pick-cols-confirm'));
+    });
     unmount();
 
     const stored = fakeAppStorage({ [unpubGridKey('ug1')]: STORED_GRID });

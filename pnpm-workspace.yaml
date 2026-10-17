@@ -27,8 +27,9 @@
 # RE-MEASURED 2026-10-16T03:31Z (same cold copy, same command): WITHOUT the app-sdk
 # entry → rc 0, i.e. it had aged out at ~03:09Z, so it was REMOVED; without the sdk
 # entry as well → rc 1, naming exactly `@civitai/sdk@0.14.0`, so that one stays.
-# 🔴 REMOVE THE REMAINING ENTRY AFTER 2026-10-16T06:03Z — it then does nothing, and
-# leaving it is how a list like this grows past what any `package.json` line resolves to.
+# The sdk entry was REMOVED after it aged out: MEASURED 2026-10-16T15:26Z, the same cold
+# `pnpm install --frozen-lockfile` with no `minimumReleaseAgeExclude` at all → rc 0.
+# The list is now empty; add an entry again only for a version inside the window.
 # Already aged out at the bump, so deliberately ABSENT: `blocks-react@0.73.1` and
 # `components@0.10.0` (both 2026-10-15T00:58Z), `theme@0.5.2` (2026-10-03).
 #
@@ -48,6 +49,3 @@
 # because the exclusions went inert.
 packages:
   - '.'
-
-minimumReleaseAgeExclude:
-  - '@civitai/sdk@0.14.0'
