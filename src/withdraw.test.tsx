@@ -526,7 +526,8 @@ describe('withdraw: the pointer at the withdrawn row', () => {
       },
     });
     mountApp({ shared, appStorage });
-    await screen.findByTestId('grid-view'); // Grids is the DEFAULT view (§11.5)
+    await screen.findByTestId('grid-view');
+    await openView('Grids');
 
     // Baseline AFTER mount: the load lists all three prefixes once legitimately,
     // so the claim is that the WITHDRAW adds none to the other two — not that
@@ -595,6 +596,7 @@ describe('withdraw: the pointer at the withdrawn row', () => {
     });
     mountApp({ shared, appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     expect(store.has(unpubGridKey('gl1'))).toBe(true);
 
     const card = await waitFor(() => {

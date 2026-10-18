@@ -13,13 +13,18 @@
 //      `ContributeMenu` dropdown where the strip had been. That page rendered 2166 CSS
 //      px and the host's iframe — sized to the VIEWPORT inside an `overflow: hidden`
 //      parent — clipped two of the three sections out of every store screenshot;
-//   3. now: a SIDEBAR (`SideNav`) choosing Home vs My Benchmarks, and on Home a BOARD
+//   3. a SIDEBAR (`SideNav`) choosing Home vs My Benchmarks, and on Home a BOARD
 //      SUBNAV (`BoardNav`) mounting exactly ONE community board. There is a `view`
 //      state again and it is NOT the one that was deleted: Home always renders the grid
 //      and its runnable matrix, so nothing the block is for is behind a click.
+//   4. now (operator, 2026-10-17): the sidebar is a SLIDE-OUT drawer on the upstream
+//      `civitai-nav-list`/`civitai-nav-item` elements, and the boards are PAGES in
+//      it — Home (the open grid), Grids, Matchups, Prompts, and the My Benchmarks
+//      group. `BoardNav` is deleted; `view` names the page, and Home still renders
+//      the grid and its runnable matrix on first paint.
 //
 // 🔴 THE UNSELECTED SURFACES ARE UNMOUNTED, NOT HIDDEN, and every absence that creates
-// is asserted as an absence (`boardNav.test.tsx`, `sideNav.test.tsx`,
+// is asserted as an absence (`sideNav.test.tsx`,
 // `myBenchmarks.test.tsx`). `data-mb-section` is still the ledger marker, and
 // `capture-landmarks.test.tsx` now pins the SET per destination rather than one list.
 //
@@ -120,7 +125,7 @@ import {
 
 import { hasGenerateScope, missingRunScopes } from './scopes.js';
 import { isNonRetryableSaveError, resultSaveFailedMessage } from './lib/resultSave.js';
-import { COMPACT_ATTR, LAYOUT_ATTR, compactTapTargetCss, layoutCss } from './compact.js';
+import { COMPACT_ATTR, compactTapTargetCss } from './compact.js';
 import { useIsMobile } from './useMediaQuery.js';
 import {
   palette,
@@ -240,7 +245,6 @@ import {
 import { ARCHIVE_KEY, parseArchive, withArchived, withoutArchived } from './lib/archive.js';
 import { forEachStoredKey } from './lib/kv.js';
 import { pollToTerminal, mapSnapshotStatus, isTerminalSnapshot } from './lib/workflow.js';
-import { BoardNav, type Board } from './components/BoardNav.js';
 import { GridOpenPanel } from './components/GridOpenPanel.js';
 import { MatchupBody } from './components/MatchupBody.js';
 import { MyGridsView } from './components/MyGridsView.js';
@@ -625,12 +629,14 @@ export function App({ deps: depsOverride }: AppProps = {}) {
   // which put the thing the block is FOR behind a click; §11.5 and criterion 9 are
   // what killed it. This one selects between HOME — which always renders the grid and
   // its runnable matrix — and MY BENCHMARKS, the viewer's own work. The grid is still
-  // not behind a click, and the lists that feed it are still on Home.
+  // not behind a click; the lists that feed it are pages in the sidebar now.
   //
-  // 🔴 NEITHER VALUE IS PERSISTED. No KV write, no URL, no deep-linking (operator
-  // decision, YAGNI): a reload opens on Home ▸ Grids.
+  // 🔴 THE VALUE IS NOT PERSISTED. No KV write, no URL, no deep-linking (operator
+  // decision, YAGNI): a reload opens on Home.
   const [view, setView] = useState<MainView>({ kind: 'home' });
-  const [board, setBoard] = useState<Board>('grids');
+  /** Whether the slide-out sidebar is open. `App`'s because the toggle lives
+   * in the header below; `SideNav` itself holds no state at all. */
+  const [navOpen, setNavOpen] = useState(false);
 
   /**
    * Which grid is OPEN, as a three-way REFERENCE rather than a key.
@@ -3439,14 +3445,6 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           desktop rendering is byte-for-byte what it was. Scoped to this root by
           the COMPACT_ATTR selector, so it can never leak into the host page. */}
       {isMobile && <style data-testid="compact-styles">{compactTapTargetCss()}</style>}
-      {/* 🔴 THE LAYOUT SHEET IS UNCONDITIONAL, and that is not an inconsistency with
-          the line above. It carries the WIDE case — sidebar beside content — and the
-          compact sheet OVERRIDES it to a single column. A sheet mounted only on narrow
-          viewports could not express the wide case at all, and putting the wide case in
-          an inline `style` would make it unbeatable: an inline declaration outranks
-          every author rule that is not `!important`. Two rules in two sheets, no
-          `!important` anywhere. */}
-      <style data-testid="layout-styles">{layoutCss()}</style>
       <div style={contentStyle} data-testid="app-content">
         <Group
           justify="space-between"
@@ -3455,6 +3453,22 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           style={{ paddingBottom: 14, borderBottom: `1px solid ${c.border}` }}
         >
           <Group gap={12} align="center" wrap={false}>
+            {/* 🔴 THE SIDEBAR TOGGLE — the only way into the primary navigation,
+                which is a slide-out drawer at every width (operator, 2026-10-17).
+                It lives here, in the header, because the drawer itself is a
+                fixed overlay: it cannot carry its own opener. */}
+            <Button
+              size="sm"
+              variant="subtle"
+              data-testid="nav-toggle"
+              aria-label="Open menu"
+              aria-expanded={navOpen}
+              aria-controls="mb-sidebar"
+              onClick={() => setNavOpen(true)}
+              style={{ fontSize: 17, lineHeight: 1, padding: '4px 8px' }}
+            >
+              ☰
+            </Button>
             <span aria-hidden="true" style={brandMarkStyle(c)}>
               <ChartBarIcon />
             </span>
@@ -3535,44 +3549,45 @@ export function App({ deps: depsOverride }: AppProps = {}) {
           </Alert>
         )}
 
-        {/* ================= THE PAGE BODY: SIDEBAR + ONE SURFACE =================
+        {/* ================= THE PAGE BODY: ONE PAGE AT A TIME =================
 
              🔴 WHAT REPLACED WHAT, IN ORDER, BECAUSE THE HISTORY IS THE ARGUMENT:
              a three-tab `SegmentedControl` strip (one view mounted) → one page with
-             three simultaneous sections and a `ContributeMenu` dropdown → this: a
-             SIDEBAR choosing Home vs the viewer's own work, and on Home a BOARD
-             SUBNAV choosing which single community board is mounted.
+             three simultaneous sections and a `ContributeMenu` dropdown → a sidebar
+             rail choosing Home vs the viewer's own work with a BOARD SUBNAV on
+             Home → THIS (operator, 2026-10-17): a SLIDE-OUT sidebar whose items
+             ARE the pages — Home, Grids, Matchups, Prompts, My Benchmarks — so
+             the open grid no longer shares its page with a board list, and the
+             nav no longer occupies a column (wide) or a strip (compact) in the
+             page flow at all. The drawer is a fixed overlay, out of flow; the
+             surface below is the whole width at every viewport.
 
              🔴 THE UNSELECTED SURFACES ARE UNMOUNTED, NOT HIDDEN. Every absence this
-             layout creates is asserted as an absence (`boardNav.test.tsx`,
-             `sideNav.test.tsx`): a `display: none` would satisfy a visibility check,
-             keep every hidden section's testids resolving, and keep its gated image
-             reads running — the read budget the preview suites defend is a claim about
-             what is MOUNTED.
+             layout creates is asserted as an absence (`sideNav.test.tsx`): a
+             `display: none` would satisfy a visibility check, keep every hidden
+             section's testids resolving, and keep its gated image reads running —
+             the read budget the preview suites defend is a claim about what is
+             MOUNTED.
 
              🔴 AND THE ONE-PAGE LAYOUT COST THE STORE LISTING SOMETHING MEASURABLE,
-             which is part of why this is worth doing: the host sizes the iframe to the
-             VIEWPORT inside an `overflow: hidden` parent, the three-section page came
-             to 2166 CSS px, and `section-matchups` (y 1175..1482) and `section-prompts`
-             (y 1500..2142) sat below the iframe edge at EVERY tested viewport height
-             (900/1100/1400 → iframe 752/952/1253). Mounting one board at a time is the
-             only change that can put them back in frame. ⚠️ NOT YET RE-MEASURED —
-             that needs a released artifact, and it is owed. ================== */}
-        <div
-          {...{ [LAYOUT_ATTR]: 'true' }}
-          data-testid="app-layout"
-        >
+             which is part of why this line of work exists: the host sizes the
+             iframe to the VIEWPORT inside an `overflow: hidden` parent, and the
+             three-section page came to 2166 CSS px with two sections below the
+             iframe edge at EVERY tested viewport height. Mounting one page at a
+             time is the only change that can put them back in frame. ⚠️ NOT YET
+             RE-MEASURED — that needs a released artifact, and it is owed. ====== */}
+        <div data-testid="app-layout">
           {/* 🔴 THE SIDEBAR HOLDS NO VIEW STATE — `view` is App's, which is what makes
               an in-flight run survive a trip to My Benchmarks and back. See
               `openGridRef` and `SideNav`'s own header. */}
-          <SideNav view={view} onSelect={setView} />
+          <SideNav view={view} open={navOpen} onClose={() => setNavOpen(false)} onSelect={setView} />
 
           <div style={{ minWidth: 0, display: 'grid', gap: 14 }} data-testid="app-surface">
             {view.kind === 'home' ? (
               <>
-                {/* ---- THE OPEN GRID: always on Home, whichever board is selected.
-                     It is the app's primary object and the boards below it are what
-                     feed it, so it does not belong to any one of them.
+                {/* ---- THE OPEN GRID: the Home page's whole content. It is the
+                     app's primary object; the boards that feed it are their own
+                     pages in the sidebar now, not sections under it.
 
                      `minWidth: 0` for the same reason `contentStyle` carries it: this
                      box is a grid item holding the wide results matrix, and its
@@ -3660,11 +3675,16 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   </Stack>
                 </section>
 
-                {/* 🔴 THE BOARD SUBNAV, WHERE THE "All grids" HEADING USED TO BE. One
-                    board is mounted; the other two are gone from the DOM. */}
-                <BoardNav value={board} onChange={setBoard} />
-
-                {board === 'grids' && (
+              </>
+            ) : view.kind === 'board' ? (
+              /* ================= THE COMMUNITY BOARDS, ONE PAGE EACH =================
+                 Each board is a dedicated page reached from the sidebar; the
+                 other two are gone from the DOM, and so is the open grid —
+                 opening a grid from the Grids page navigates Home to it (see
+                 `onOpen` there), the same shape `openOwnPrivateGrid` already
+                 used for private grids. */
+              <>
+                {view.board === 'grids' && (
                   <section
                     data-mb-section="grids"
                     data-testid="section-grids"
@@ -3692,12 +3712,17 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                       /* 🔴 RESOLVED, not raw — see the prop's own docblock for the
                          same-grid-twice bug a second resolution would create. */
                       openKey={openKeyResolved}
-                      /* 🔴 THE SETTER, DIRECTLY. `GridsView` hands up an `OpenGridRef`
-                         (built by `entryOpenRef`), so there is nothing left to adapt —
-                         the `string | null` callback this replaced needed a translation
-                         step that read the same `null` the open-filter uses for
-                         "nothing in this list is open". */
-                      onOpen={setOpenGridRef}
+                      /* 🔴 THE SETTER, PLUS THE PAGE SWITCH. `GridsView` hands up an
+                         `OpenGridRef` (built by `entryOpenRef`), so there is nothing
+                         to adapt — but the boards are their own pages now, and the
+                         open panel lives on Home, so setting the reference without
+                         switching the view would leave the press looking inert.
+                         The same shape `openOwnPrivateGrid` uses, for the same
+                         reason. */
+                      onOpen={(ref) => {
+                        setOpenGridRef(ref);
+                        setView({ kind: 'home' });
+                      }}
                       onVote={onVote}
                       onUnvote={onUnvote}
                       onRequireAuth={requireAuth}
@@ -3707,7 +3732,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   </section>
                 )}
 
-                {board === 'matchups' && (
+                {view.board === 'matchups' && (
                   <section
                     data-mb-section="matchups"
                     data-testid="section-matchups"
@@ -3733,7 +3758,7 @@ export function App({ deps: depsOverride }: AppProps = {}) {
                   </section>
                 )}
 
-                {board === 'prompts' && (
+                {view.board === 'prompts' && (
                   <section
                     data-mb-section="prompts"
                     data-testid="section-prompts"

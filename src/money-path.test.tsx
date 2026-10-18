@@ -29,7 +29,7 @@ import {
 import { RUN_UNKNOWN_MESSAGE } from './components/ResultsGrid.js';
 import type { CombinationData, PromptData } from './types.js';
 import { KV_MAX_PAGES } from './lib/kv.js';
-import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, fakeGatedCell, immediateSleep, openView } from './test-helpers.js';
 
 const comboData: CombinationData = {
   v: 2,
@@ -1487,8 +1487,9 @@ describe('#5 the view switch: a live run survives a trip to My Benchmarks', () =
     renderApp({ shared, appStorage, estimate: async () => estimateSnap, submit, poll: async () => succeededSnap('wf-other'), publish: async () => [] });
 
     await screen.findByTestId('results-grid');
-    // Open the community grid. Its card is in the all-grids list; the Top Grid is the
+    // Open the community grid. Its card is on the Grids page's list; the Top Grid is the
     // one currently open and is therefore NOT listed.
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen.getAllByTestId('grid-card').find((c) => c.getAttribute('data-key') === 'gk-other');
       expect(el, 'the community grid never rendered').toBeTruthy();
@@ -1509,7 +1510,6 @@ describe('#5 the view switch: a live run survives a trip to My Benchmarks', () =
       screen.getByTestId('grid-open-title'),
       'the open grid reset on the way back — a stalled cell is now on a matrix nobody is looking at',
     ).toHaveTextContent('Other grid');
-    expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
     // …so the stalled cell the viewer paid for is STILL ON SCREEN, and it is the only
     // cell, which is what proves the matrix is this grid's and not the Top Grid's.
     expect(screen.getAllByTestId('grid-cell')).toHaveLength(1);

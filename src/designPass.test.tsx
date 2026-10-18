@@ -393,27 +393,30 @@ describe('SELECTOR REACHABILITY: the skin rules match the nodes they were writte
       expect(hits(sel), `scrollbar rule: no live node on Home for ${sel}`).toBeGreaterThan(0);
     }
 
-    // 🔴 THE RING RULE'S SELECTOR SET, AS A LEDGER. Without it, a FOURTH selector
+    // 🔴 THE RING RULE'S SELECTOR SET, AS A LEDGER. Without it, a THIRD selector
     // added to that rule would never be reachability-checked by anything — the loops
     // below walk the set they were written for, and a silently-dead new selector is
     // exactly the failure `compact.ts`'s header records three rounds of.
+    //
+    // 🔴 THE SET SHRANK (2026-10-17): `[data-mb-nav-item]` is GONE from the rule
+    // because the hand-built nav rows it targeted are gone — `<civitai-nav-item>`
+    // draws its own `:focus-visible` ring inside its shadow, and a document rule
+    // cannot reach it anyway. The orphan spelling is pinned absent below.
     const ring = selectorsOf('outline-offset');
     expect(ring).toEqual([
-      `[${SKIN_ATTR}='true'] [data-mb-nav-item]`,
       `[${SKIN_ATTR}='true'] [role='menuitem']`,
       `[${SKIN_ATTR}='true'] [data-testid='grid-group-matchup']`,
     ]);
-    // On Home: the nav items (a literal 5 — the nav's item count is a ledgered
-    // decision, `SIDE_NAV_ITEMS`) and the group band.
-    expect(hits(ring[0]!)).toBe(5);
-    expect(hits(ring[2]!), 'no group band, so the band half of the ring is dead').toBeGreaterThan(
+    expect(skinCss()).not.toContain('data-mb-nav-item');
+    // On Home: the group band.
+    expect(hits(ring[1]!), 'no group band, so the band half of the ring is dead').toBeGreaterThan(
       0,
     );
     // The menuitem half needs a panel open, so it gets its own surface.
-    expect(hits(ring[1]!), 'a menuitem exists with no menu open').toBe(0);
+    expect(hits(ring[0]!), 'a menuitem exists with no menu open').toBe(0);
     const section = await openMyList('matchup');
     await openRowMenu('matchup', section);
-    expect(hits(ring[1]!), 'the ring rule reaches no live menuitem').toBeGreaterThan(0);
+    expect(hits(ring[0]!), 'the ring rule reaches no live menuitem').toBeGreaterThan(0);
   });
 });
 
