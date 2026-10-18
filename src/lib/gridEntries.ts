@@ -45,14 +45,17 @@ export interface PublishedGridEntry {
 export type GridEntry = SystemGridEntry | PublishedGridEntry;
 
 /**
- * The Top Grid's user-visible name and the words that say it is system-owned.
- * Both live here so a test can pin the WHOLE string: a keyword guard on
- * "system" would be walkable by a reword that quietly re-implies ownership.
+ * The Top Grid's user-visible name.
+ *
+ * 🔴 THE EXPLAINER SENTENCE THAT USED TO SIT UNDER IT IS GONE (operator,
+ * 2026-10-17): "System grid — the top-voted matchups and prompts, recomputed
+ * from the board. Nobody owns it, so it cannot be voted on…" rendered under
+ * the open panel's title and on the Grids board card. The name alone is the
+ * marker now; the absence of a vote control beside the title is what says it
+ * cannot be voted on. Do not re-add explainer copy here — the removal was
+ * the ask, not a rewording.
  */
 export const TOP_GRID_NAME = 'Top Grid';
-export const TOP_GRID_NOTE =
-  'System grid — the top-voted matchups and prompts, recomputed from the board. ' +
-  'Nobody owns it, so it cannot be voted on and it is not part of the vote order below.';
 
 /**
  * Build the Top Grid: the `n` top-voted matchups × the `n` top-voted prompts

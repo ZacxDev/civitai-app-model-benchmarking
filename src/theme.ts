@@ -556,18 +556,21 @@ function skinBlock(skin: Skin): string {
  *     rather than on `MenuItem`, because the pack buttons are the ones out of step and
  *     the wrapper is the only handle this app has on them.
  *
- * ⚠️ FOUR SELECTORS HERE ARE SPELLED AS LITERALS THAT ANOTHER MODULE OWNS, AND THAT IS
- * A SEAM. `data-mb-icon-button` and `data-mb-nav-item` are `compact.ts`'s
- * (`ICON_BUTTON_SELECTOR`, `NAV_ITEM_SELECTOR`), `data-mb-menu-control` is `Menu.tsx`'s
+ * ⚠️ THREE SELECTORS HERE ARE SPELLED AS LITERALS THAT ANOTHER MODULE OWNS, AND THAT IS
+ * A SEAM. `data-mb-icon-button` is `compact.ts`'s
+ * (`ICON_BUTTON_SELECTOR`), `data-mb-menu-control` is `Menu.tsx`'s
  * (`MENU_CONTROL_ATTR`), and `grid-group-matchup` is `ResultsGrid.tsx`'s testid. They
  * are NOT imported, because `compact.ts` already imports THIS module and `Menu.tsx` is
  * a React component this React-free module must not pull in. So the lockstep is a
- * TEST instead, the way `navIndentVar`'s two ends are pinned: `theme.test.ts` (the
+ * TEST instead: `theme.test.ts` (the
  * `compact.ts` constants) and `designPass.test.tsx` (`MENU_CONTROL_ATTR`, and the
  * reachability of each selector against live nodes) assert each owner's constant
  * appears in this sheet, so a rename on either side is red rather than a silently dead
  * rule. ⚠️ This used to name `skin.test.tsx`, which does not exist anywhere in the
  * tree — a pointer to a nonexistent guard reads as coverage while providing none.
+ * (A fourth, `data-mb-nav-item`, left with the hand-built nav: the upstream
+ * `<civitai-nav-item>` draws its own `:focus-visible` ring inside its shadow,
+ * so this sheet no longer rings it — and could not reach it if it tried.)
  *
  * ⚠️ NO COMMENTS INSIDE THE TEMPLATE LITERAL, DELIBERATELY, AND BOTH REASONS HAVE
  * COST THIS REPO A ROUND. This string is rendered as a `<style>` ELEMENT, so anything
@@ -591,12 +594,10 @@ ${skinBlock(SKIN_DARK)}
 ${skinBlock(SKIN_LIGHT)}
 }
 
-[${SKIN_ATTR}='true'] [data-testid='results-grid'],
-[${SKIN_ATTR}='true'] [data-testid='side-nav-list'] {
+[${SKIN_ATTR}='true'] [data-testid='results-grid'] {
   scrollbar-color: var(--civitai-color-border) transparent;
 }
 
-[${SKIN_ATTR}='true'] [data-mb-nav-item]:focus-visible,
 [${SKIN_ATTR}='true'] [role='menuitem']:focus-visible,
 [${SKIN_ATTR}='true'] [data-testid='grid-group-matchup']:focus-visible {
   outline: 2px solid var(--civitai-color-primary);

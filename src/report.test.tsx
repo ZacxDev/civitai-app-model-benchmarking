@@ -354,6 +354,7 @@ describe('report — the settled outcome outlives the menu', () => {
 
     // Open the published grid, so the panel is showing a row that CAN be reported (the
     // default open entry is the system Top Grid, which offers no Report at all).
+    await openView('Grids');
     const openGrid = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-theirs')!,
     );
@@ -370,7 +371,10 @@ describe('report — the settled outcome outlives the menu', () => {
     // PREMISE, not decoration: the panel really did leave the DOM, so the assertion
     // below is about a fresh mount rather than a node that never went away.
     expect(screen.queryByTestId('grid-open-panel')).toBeNull();
-    await openView('Grids');
+    // Back to HOME, where the panel lives. (This leg used to select the Grids
+    // BOARD, back when the board and the panel shared one page; the panel is
+    // Home's alone now, 2026-10-17.)
+    await userEvent.click(await screen.findByTestId('nav-home'));
 
     const back = await screen.findByTestId('grid-open-panel');
     expect(within(back).getByTestId('grid-open-report-done')).toBeInTheDocument();

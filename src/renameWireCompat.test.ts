@@ -429,6 +429,13 @@ const RENAMED_TESTIDS = [
   //   - `section-my-matchup`      the viewer's own matchup surface;
   //   - `my-published-matchup`    that surface's own published-rows list.
   //
+  // 🔴 THE PAGES PASS (2026-10-17) THEN DELETED THE SUBNAV ITSELF: the boards
+  // are pages reached from the sidebar, `board-nav-matchups` has NO RENDERER,
+  // and it leaves this ledger. (Its sidebar replacement, `nav-matchups`, is
+  // not matchup-spelled in the §11.4 sense this ledger counts — it names a
+  // destination, and it is reached through the indirect `testid` table, which
+  // the case at the end of this file ledgers separately.)
+  //
   // 🔴 AND THE MY-BENCHMARKS CONSOLIDATION RENAMED THE LAST OF THOSE. `MyPublished`
   // and `UnpublishedList` are merged into ONE `MyList` holding both storage layers,
   // so the list is no longer "the published ones" — a draft row sits in it, badged.
@@ -436,7 +443,6 @@ const RENAMED_TESTIDS = [
   // name out, one in; the length below is unchanged and that is a coincidence, not a
   // rule. (`my-list-panel`, `my-list-empty` and `draft-badge` are the merge's other
   // new ids and are not matchup-spelled, so they are outside this particular set.)
-  'board-nav-matchups',
   'matchup-detail',
   'matchup-detail-config',
   'matchup-detail-configs',
@@ -647,9 +653,15 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     expect(TEMPLATED_TESTIDS.length, 'the templated-testid scan matched nothing').toBeGreaterThan(
       0,
     );
-    // Two live examples, one per union, so a mapping that lost either half fails here.
+    // Two live examples, so a mapping that lost a template family fails here.
+    // 🔴 BOTH ARE NOUN-UNION NOW (2026-10-17): this line used to pin
+    // `board-nav-matchups` as the BOARD union's example, but the pages pass
+    // deleted the subnav and with it every board-templated testid — the board
+    // sections are literals in `App.tsx` and the sidebar items come from
+    // `SideNav`'s table. `section-my-matchup` is the second noun family
+    // (`section-my-${view.noun}`, a member-access template).
     expect(TEMPLATED_TESTIDS).toContain('my-signed-out-matchup');
-    expect(TEMPLATED_TESTIDS).toContain('board-nav-matchups');
+    expect(TEMPLATED_TESTIDS).toContain('section-my-matchup');
     // 🔴 POSITIVE CONTROL ON THE THIRD PATTERN, for the same reason as the second:
     // a `panelTestId=` regex that matched nothing would silently drop both ⋮ panels
     // out of `ALL_TESTIDS`, and the ledger assertion below would pass while covering
@@ -739,8 +751,8 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
     }
   });
 
-  it('renders exactly the 33 matchup-spelled testids of the §11.4 map, as extended', () => {
-    expect(RENAMED_TESTIDS).toHaveLength(33);
+  it('renders exactly the 32 matchup-spelled testids of the §11.4 map, as extended', () => {
+    expect(RENAMED_TESTIDS).toHaveLength(32);
     const found = new Set(ALL_TESTIDS.filter((t) => /matchup/.test(t)));
     expect([...found].sort()).toEqual([...RENAMED_TESTIDS].sort());
   });
@@ -821,6 +833,11 @@ describe('527 Phase 1 — the renamed testid ledger', () => {
       'testId',
       'testId',
       'testId',
+      'testid',
+      // 🔴 A SECOND `testid` SITE (2026-10-17): the rewritten `SideNav` renders
+      // its item table at two JSX sites — the top-level items and the My
+      // group's children — both as `data-testid={item.testid}`. Same shape of
+      // gap (a table local to the component), one more site.
       'testid',
     ]);
 

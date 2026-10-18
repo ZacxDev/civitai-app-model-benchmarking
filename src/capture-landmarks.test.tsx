@@ -19,8 +19,14 @@
 //
 // 🔴 AND THE SIDEBAR CHANGE HAS NOW DELETED THE CONTRIBUTE MENU TOO. `contribute-trigger`
 // and `contribute-menu-items` are GONE; the page's primary navigation is a SIDEBAR
-// (`side-nav`) and its community boards are behind a BOARD SUBNAV (`board-nav`), one
-// board mounted at a time.
+// (`side-nav`).
+//
+// 🔴 THE PAGES CHANGE (operator, 2026-10-17) DELETED THE BOARD SUBNAV TOO.
+// `board-nav` and its `board-nav-*` segments are GONE, and so is
+// `grids-all-section`: the three boards are PAGES now, reached from the
+// sidebar's upstream `civitai-nav-item`s (`nav-grids` / `nav-matchups` /
+// `nav-prompts`), one page mounted at a time, and the open grid lives on
+// Home alone. The recipe must be re-pointed a THIRD time, from this file.
 //
 //   ⚠️ THE CAPTURE RECIPE MUST BE RE-POINTED, FOR THE SECOND TIME, AND IT IS NOT OURS
 //   TO EDIT. It lives in `civitai/civitai` at
@@ -71,15 +77,12 @@
 // talos recipe must be added to `LANDMARKS` by whoever writes that step, and this
 // file cannot make them.
 //
-// ⚠ ROLES HAVE CHANGED TWICE. The original strip's controls exposed `role="tab"`;
-// the one-page landmarks did not (the Contribute trigger and the matchup band were
-// `button`s, the sections `<section>` elements with no role), so `getAllByRole('tab')`
-// found only the per-section My/Community sub-tabs. Those sub-tabs are now deleted and
-// the BOARD SUBNAV is a `SegmentedControl`, so `role="tab"` is back — and it names
-// `Grids` / `Matchups` / `Prompts`, which is exactly what the retired-strip case used
-// to forbid. That case is rewritten below to assert the STRUCTURE (every tab on the
-// page belongs to `board-nav`) rather than the WORDS, because a word-based guard on a
-// legitimate board name is a guard that has to be deleted the first time it is right.
+// ⚠ ROLES HAVE CHANGED THREE TIMES. The original strip's controls exposed
+// `role="tab"`; the one-page landmarks did not; the board subnav brought tabs
+// back as a `SegmentedControl`. The pages change deleted the subnav, so
+// `role="tab"` is GONE AGAIN — the retired case below now pins the literal
+// count ZERO. (The sidebar items expose no tab role either: the upstream
+// elements render links and disclosure buttons in their shadow trees.)
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -104,41 +107,40 @@ import { setViewport } from './test-setup.js';
  *
  * Literals on BOTH sides — this table IS the contract the recipe buys. `contains`
  * means "this landmark is a container, and the named testid must be inside it";
- * `click` means "pressing it must make the named testid appear"; `toggles` means
- * "the named testid is ALREADY on screen, and pressing hides it and shows it again".
+ * `click` means "pressing it must make the named testid appear"; `page` means
+ * "this landmark lives on its own page: press the sidebar item of the same
+ * name first, then the named testid must be inside it".
  *
- * 🔴 `toggles` EXISTS BECAUSE A DEFAULT CHANGED, AND THAT IS A CONTRACT CHANGE THE
- * RECIPE HAS TO SEE. `nav-my` was a `click` landmark: press it to reveal the My
- * Benchmarks group. The group now opens by DEFAULT (operator feedback #1), so a
- * recipe step that presses `nav-my` to expose the sub-items HIDES them instead —
- * silently, and in a screenshot rather than in an error. Re-labelling the row is what
- * makes that visible to whoever maintains the recipe; deleting it, or quietly turning
- * it into a `contains` on the parent, would have let the stale step stand.
+ * 🔴 THE `toggles` KIND IS RETIRED (2026-10-17). It existed for the hand-built
+ * My Benchmarks group, whose children unmounted when shut. The upstream group
+ * never unmounts its children — it collapses them internally — so there is no
+ * `nav-my-group` node to toggle any more. The group's disclosure behaviour is
+ * asserted by a hand-written case in criterion 3, against the element's own
+ * `expanded` property.
  *
- * ⚠️ ONE ROW PER LANDMARK TESTID. The distinct-node case in criterion 2 maps this
- * table's FIRST column to elements and asserts the set size equals the row count, so
- * a second row about an existing landmark fails it — which is why "the group needs no
- * press at all" is asserted INSIDE the `toggles` case rather than added here as a
- * `['side-nav', 'contains', 'nav-my-group']` row.
+ * ⚠️ ONE ROW PER LANDMARK TESTID. The distinct-node case in criterion 2 maps
+ * this table's FIRST column to elements and asserts the set size equals the
+ * row count, so a second row about an existing landmark fails it.
  */
 const LANDMARKS = [
-  // 🔴 THE NAV LANDMARKS THAT REPLACED `contribute-trigger`. A recipe needs a way to
-  // reach each community board and the viewer's own surface; these are it.
+  // 🔴 THE NAV LANDMARKS. The sidebar's item hosts are in the DOM at all times
+  // (the drawer is an overlay, not a mount gate), so every one of these
+  // addresses resolves on the default surface — a recipe's first step stays
+  // order-independent, which is the property criterion 1 exists to keep.
   ['side-nav', 'contains', 'nav-home'],
-  ['board-nav', 'contains', 'board-nav-grids'],
-  ['nav-my', 'toggles', 'nav-my-group'],
-  // The OPEN grid and its matrix, which are on Home whichever board is selected.
+  ['nav-grids', 'click', 'section-grids'],
+  ['nav-matchups', 'click', 'section-matchups'],
+  ['nav-prompts', 'click', 'section-prompts'],
+  // The OPEN grid and its matrix, on Home.
   ['section-open-grid', 'contains', 'results-grid'],
-  ['section-grids', 'contains', 'grids-list'],
-  ['grids-all-section', 'contains', 'grids-list'],
-  ['board-nav-matchups', 'click', 'section-matchups'],
-  ['board-nav-prompts', 'click', 'section-prompts'],
+  // The Grids PAGE's list, behind its sidebar item.
+  ['section-grids', 'page', 'grids-list'],
   ['grid-group-matchup', 'click', 'matchup-detail'],
   // 🔴 ADDED EARLIER: it had a behavioural case at the bottom of this file and was
   // ABSENT from the table, so a recipe step using it was outside the contract —
   // nothing stopped it being renamed or re-pointed, and the ledger did not count it.
   ['grid-col-header', 'click', 'prompt-detail'],
-] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains' | 'toggles', string]>;
+] as const satisfies ReadonlyArray<readonly [string, 'click' | 'contains' | 'page', string]>;
 
 /**
  * Landmarks the recipe USED to address and which must not silently come back.
@@ -176,6 +178,15 @@ const RETIRED_TESTIDS = [
   'view-switch-matchups',
   'view-switch-prompts',
   'view-switch-grid',
+  // 🔴 THE PAGES PASS (2026-10-17): the board subnav, the section the boards
+  // used to share a page with, and the hand-built nav's group container.
+  'board-nav',
+  'board-nav-grids',
+  'board-nav-matchups',
+  'board-nav-prompts',
+  'grids-all-section',
+  'nav-my-group',
+  'side-nav-list',
 ] as const;
 
 const VIEWER_ID = 99;
@@ -227,22 +238,12 @@ function seed() {
 /**
  * Mount the whole app for a landmark walk, AT A NAMED VIEWPORT.
  *
- * 🔴 THE VIEWPORT IS PINNED NOW, AND ONE ROW OF {@link LANDMARKS} DEPENDS ON IT.
- * `['nav-my', 'toggles', 'nav-my-group']` says the My Benchmarks group is ALREADY on
- * screen and a press hides it. That is true on the wide RAIL and false on the ≤720px
- * strip, where the group now starts shut so the same press REVEALS it — `SideNav`'s
- * `expanded` docblock has the measured 390px overflow that made it so.
- *
- * 🔴 AND THE DEFAULT WAS NOT THE ONE THIS FILE MEANT. `test-setup.ts` installs a
- * MOBILE `matchMedia` for the whole `dom` project, so every case here was walking the
- * COMPACT app while describing a contract written for the wide one. It agreed only
- * because nothing in the nav read the viewport. `'desktop'` is what the table
- * describes, so that is what is mounted.
- *
- * ⚠️ WHICH VIEWPORT THE REAL CAPTURE RECIPE USES IS NOT KNOWN FROM HERE, and this is
- * not a claim about it. If a recipe captures at a narrow width, its `nav-my` step is
- * a `click` (press to reveal), not a `toggles` — and that is the step to change, not
- * this mount.
+ * 🔴 THE VIEWPORT IS PINNED, THOUGH NOTHING IN THE NAV READS IT ANY MORE.
+ * `test-setup.ts` installs a MOBILE `matchMedia` for the whole `dom` project;
+ * earlier shapes of this app rendered a different nav per viewport (rail vs
+ * strip, group open vs shut), so the cases here pin `'desktop'` to walk the
+ * shape the table was written against. The drawer is the same at every width
+ * now; the pin stays so the walk cannot silently change shape again.
  */
 function renderApp() {
   setViewport('desktop');
@@ -278,14 +279,17 @@ describe('capture landmarks — criterion 1: each one resolves by name', () => {
 
     // 🔴 EVERY LANDMARK IN THE TABLE RESOLVES ON THE DEFAULT SURFACE, with nothing
     // pressed — and that is a property of the table rather than an accident. The
-    // OUTCOMES some of them promise do not (`section-matchups` is behind a board click,
-    // `nav-my-group` behind the sidebar group); this case is about the ADDRESSES a
-    // recipe selects, and criterion 3 is where each address is driven to its outcome.
+    // OUTCOMES some of them promise do not (`section-matchups` is behind a sidebar
+    // press); this case is about the ADDRESSES a recipe selects, and criterion 3 is
+    // where each address is driven to its outcome. The one exception is the
+    // `page` row: `section-grids` is a page, so its ADDRESS only exists once
+    // the page is open — criterion 3's generated case is its existence proof.
     //
     // Stated because it is the thing to preserve: a landmark that needs navigation
     // before it can even be FOUND makes a recipe's first step order-dependent, which is
     // precisely the fragility the positional `nth-of-type` selectors had.
-    for (const [testid] of LANDMARKS) {
+    for (const [testid, kind] of LANDMARKS) {
+      if (kind === 'page') continue;
       // `getAllBy` + a length assertion rather than `getBy`: a landmark that resolved
       // TWICE would make the recipe's single-node selector ambiguous, and `getBy`'s own
       // error would report it as a different problem.
@@ -329,28 +333,13 @@ describe('capture landmarks — criterion 1: each one resolves by name', () => {
       expect(screen.queryAllByTestId(testid), `${testid} is still rendered`).toEqual([]);
     }
 
-    // 🔴 THE TAB CLAIM IS STRUCTURAL NOW, AND IT USED TO BE A WORD CHECK. It asserted
-    // that no `role="tab"` element's text matched `/^(Matchups|Prompts|Grids)\b/`, on
-    // the reasoning that such a tab could only be a resurrected top-level view switch.
-    // The BOARD SUBNAV's three segments are legitimately named exactly that, so the
-    // word check would have to be deleted the first time it fired — which is the
-    // definition of a guard that pins a word rather than a state.
-    //
-    // What replaces it is the relationship: EVERY tab on the page belongs to
-    // `board-nav`. A resurrected top-level strip would be a second tablist and fails
-    // here; a rename of the boards does not.
-    const tabs = screen.getAllByRole('tab');
-    expect(tabs.length, 'no tabs at all — the board subnav should be here').toBe(3);
-    const boardNav = screen.getByTestId('board-nav');
-    for (const tab of tabs) {
-      expect(
-        boardNav.contains(tab),
-        `a tab outside the board subnav: ${tab.textContent ?? ''}`,
-      ).toBe(true);
-    }
-    // …and it really is the boards it names, by literal, so the structural check above
-    // cannot pass against a tablist of three unrelated things.
-    expect(tabs.map((t) => t.textContent ?? '')).toEqual(['Grids', 'Matchups', 'Prompts']);
+    // 🔴 THE TAB CLAIM IS A LITERAL ZERO NOW. It used to be a word check (no
+    // tab named Grids/Matchups/Prompts), then a structural one (every tab
+    // belongs to `board-nav`, whose segments legitimately carried those
+    // names). The subnav is deleted and nothing on the page exposes
+    // `role="tab"` — the sidebar's upstream items render links and disclosure
+    // buttons — so a tab reappearing in ANY shape is a resurrected switcher.
+    expect(screen.queryAllByRole('tab')).toEqual([]);
   });
 });
 
@@ -367,9 +356,10 @@ describe('capture landmarks — criterion 1: each one resolves by name', () => {
  * Literals on both sides. Derived from nothing.
  */
 const SECTION_LEDGER = [
-  ['home / grids', ['open-grid', 'grids']],
-  ['home / matchups', ['open-grid', 'matchups']],
-  ['home / prompts', ['open-grid', 'prompts']],
+  ['home', ['open-grid']],
+  ['grids', ['grids']],
+  ['matchups', ['matchups']],
+  ['prompts', ['prompts']],
   ['my / grids', ['my-grid']],
   ['my / matchups', ['my-matchup']],
   ['my / prompts', ['my-prompt']],
@@ -378,15 +368,17 @@ const SECTION_LEDGER = [
 describe('capture landmarks — criterion 2: the LEDGER', () => {
   /** Drive the app to one ledgered destination. */
   async function goTo(where: string): Promise<void> {
-    if (where.startsWith('home')) {
+    if (where === 'home') {
       await userEvent.click(screen.getByTestId('nav-home'));
-      const board = where.split(' / ')[1]!;
-      await userEvent.click(screen.getByTestId(`board-nav-${board}`));
+      return;
+    }
+    if (!where.startsWith('my')) {
+      await userEvent.click(screen.getByTestId(`nav-${where}`));
       return;
     }
     const noun = { grids: 'grid', matchups: 'matchup', prompts: 'prompt' }[where.split(' / ')[1]!]!;
-    const trigger = screen.getByTestId('nav-my');
-    if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+    // The group's children are always in the DOM (the upstream element
+    // collapses them internally), so no expansion press is needed first.
     await userEvent.click(screen.getByTestId(`nav-my-${noun}`));
   }
 
@@ -422,26 +414,30 @@ describe('capture landmarks — criterion 2: the LEDGER', () => {
     }
   });
 
-  it('🔴 the UNSELECTED boards are ABSENT from the DOM, not hidden', async () => {
+  it('🔴 the UNSELECTED pages are ABSENT from the DOM, not hidden', async () => {
     // 🔴 THE ASSERTION THAT A VISIBILITY CHECK CANNOT MAKE, and the reason this is its
-    // own case. `display: none` would satisfy "the viewer sees one board", keep every
+    // own case. `display: none` would satisfy "the viewer sees one page", keep every
     // hidden section's testids resolving for a capture recipe to address by accident,
     // and keep its gated image reads running — the read budget the preview suites
     // defend is a claim about what is MOUNTED, not about what is painted.
     renderApp();
     await screen.findByTestId('results-grid');
 
-    expect(screen.getByTestId('section-grids')).toBeInTheDocument();
+    // Home: the open grid alone; all three board pages absent.
+    expect(screen.getByTestId('section-open-grid')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-grids')).toBeNull();
     expect(screen.queryByTestId('section-matchups')).toBeNull();
     expect(screen.queryByTestId('section-prompts')).toBeNull();
 
-    await userEvent.click(screen.getByTestId('board-nav-matchups'));
+    await userEvent.click(screen.getByTestId('nav-matchups'));
     expect(await screen.findByTestId('section-matchups')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-open-grid')).toBeNull();
     expect(screen.queryByTestId('section-grids')).toBeNull();
     expect(screen.queryByTestId('section-prompts')).toBeNull();
 
-    await userEvent.click(screen.getByTestId('board-nav-prompts'));
+    await userEvent.click(screen.getByTestId('nav-prompts'));
     expect(await screen.findByTestId('section-prompts')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-open-grid')).toBeNull();
     expect(screen.queryByTestId('section-grids')).toBeNull();
     expect(screen.queryByTestId('section-matchups')).toBeNull();
   });
@@ -472,20 +468,17 @@ describe('capture landmarks — criterion 3: the name→surface mapping', () => 
         const host = screen.getByTestId(testid);
         expect(within(host).getByTestId(expected)).toBeInTheDocument();
       });
-    } else if (kind === 'toggles') {
-      it(`[data-testid='${testid}'] toggles ${expected}, which starts VISIBLE`, async () => {
+    } else if (kind === 'page') {
+      it(`[data-testid='${testid}'] is on its own page and contains ${expected}`, async () => {
         renderApp();
         await screen.findByTestId('results-grid');
-        // The default state IS the contract's first clause — a recipe that assumes a
-        // press is needed is wrong from the first step.
-        expect(screen.getByTestId(expected), `${expected} did not start open`).toBeInTheDocument();
+        // Absent on Home — the page is the only place this address exists.
+        expect(screen.queryByTestId(testid), `${testid} was already mounted`).toBeNull();
 
-        await userEvent.click(screen.getByTestId(testid));
-        expect(screen.queryByTestId(expected), `${expected} survived the press`).toBeNull();
+        await userEvent.click(screen.getByTestId(`nav-${testid.replace('section-', '')}`));
 
-        // …and back, so the landmark is a toggle rather than a one-way dismissal.
-        await userEvent.click(screen.getByTestId(testid));
-        expect(await screen.findByTestId(expected)).toBeInTheDocument();
+        const host = await screen.findByTestId(testid);
+        expect(within(host).getByTestId(expected)).toBeInTheDocument();
       });
     } else {
       it(`clicking [data-testid='${testid}'] opens ${expected}`, async () => {
@@ -499,6 +492,35 @@ describe('capture landmarks — criterion 3: the name→surface mapping', () => 
       });
     }
   }
+
+  it('[data-testid=\'nav-my\'] is a disclosure on the upstream element, not a mount gate', async () => {
+    renderApp();
+    await screen.findByTestId('results-grid');
+    const group = screen.getByTestId('nav-my') as unknown as HTMLElement & { expanded: boolean };
+    const wasExpanded = group.expanded;
+
+    // 🔴 THE PRESS LANDS ON THE SHADOW BUTTON, because that is where a real
+    // press lands: the element binds its toggle to its internal button's
+    // click, and the button fills the row. Clicking the HOST in jsdom
+    // dispatches to the host alone and toggles nothing (measured) — which
+    // is a jsdom fact, not an app one.
+    const press = () =>
+      userEvent.click(group.shadowRoot!.querySelector('button')!);
+    await press();
+    expect(group.expanded).toBe(!wasExpanded);
+
+    // 🔴 THE CHILDREN NEVER UNMOUNT — the element collapses them internally.
+    // That is the contract change from the hand-built group, whose
+    // `nav-my-group` container (and this file's old `toggles` row) assumed a
+    // press could make the sub-items unfindable. A recipe can address them
+    // in either state.
+    expect(screen.getByTestId('nav-my-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-my-matchup')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-my-prompt')).toBeInTheDocument();
+
+    await press();
+    expect(group.expanded).toBe(wasExpanded);
+  });
 
   it('the matchup band names its matchup in its accessible name', async () => {
     renderApp();

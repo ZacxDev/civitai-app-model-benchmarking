@@ -73,7 +73,6 @@ import {
   missingMembersNotice,
   resolveGridRows,
   TOP_GRID_NAME,
-  TOP_GRID_NOTE,
   type GridEntry,
   type OpenGridRef,
   type ResolvedGridRows,
@@ -251,13 +250,12 @@ export function GridsView({
           <Stack gap={4} style={{ minWidth: 0 }}>
             <Group gap={8} align="center">
               <strong data-testid="grid-card-name">{name}</strong>
-              {/* 🔴 NO "System grid" BADGE. It was removed on operator feedback: the
-                  card already carries `grid-system-note` — a full sentence saying
-                  what the system entry IS and why it cannot be voted on — so the
-                  badge restated the note's first two words in a pill and pushed the
-                  member summary along the row for nothing. The NOTE is the label;
-                  every test that used the badge as "this is the system entry" reads
-                  the note instead. Do not re-add it without deleting the note. */}
+              {/* 🔴 NO "System grid" BADGE AND NO SYSTEM NOTE. The badge went on
+                  operator feedback; the note — a full sentence saying what the
+                  system entry IS and why it cannot be voted on — went on the
+                  same feedback (2026-10-17). The name "Top Grid" in
+                  `grid-card-name` is the whole label now; tests that used the
+                  note as "this is the system entry" read the name instead. */}
               {/* 🔴 OWNERSHIP AS A BADGE, which is what replaced the My tab on this
                   surface. It is derived from the SAME `isOwnRow` predicate that gates
                   the owner-only controls beside it, so the label and the affordances
@@ -271,12 +269,8 @@ export function GridsView({
                 {gridMemberSummary(resolved)}
               </Badge>
             </Group>
-            {entry.system ? (
-              <span style={mutedText} data-testid="grid-system-note">
-                {TOP_GRID_NOTE}
-              </span>
-            ) : (
-              entry.row.description && <span style={mutedText}>{entry.row.description}</span>
+            {!entry.system && entry.row.description && (
+              <span style={mutedText}>{entry.row.description}</span>
             )}
             {/* 🔴 Criterion 8, on the CARD: a grid whose members were withdrawn
                 says so where it is listed, not only once it is opened. */}
@@ -427,8 +421,11 @@ export function GridsView({
             gate change bought. `listed.length === 0` requires BOTH that nothing is
             published AND that the open grid is the Top Grid (it is entry 0 of
             `communityGridEntries` by construction, so the only way the list is empty is
-            that the filter removed it) — so "the grid open above is all there is" is
-            literally the case, every time this renders.
+            that the filter removed it) — so "the Top Grid is all there is" is
+            literally the case, every time this renders. (It used to say "the
+            grid open ABOVE" — true while the panel sat over this list; the
+            boards are their own pages now, so the spatial word went with the
+            layout, 2026-10-17.)
 
             ⚠️ THE PARAGRAPH THIS REPLACES SAID THE COPY HAD NO ESTABLISHED REASON, and
             that was honest at the time and is recorded rather than dropped: an earlier
@@ -444,7 +441,7 @@ export function GridsView({
           <EmptyState
             data-testid="grids-empty"
             title="No published grids yet"
-            body="The grid open above is all there is for now. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
+            body="The Top Grid is all there is for now. Build your own from any matchups and prompts on the board, then publish it for the community to vote on."
           />
         )}
 

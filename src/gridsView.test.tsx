@@ -210,27 +210,30 @@ describe('🔴 criterion 9: the grid is FIRST on the page, and the top-N slider 
     expect(await screen.findByTestId('grid-view')).toBeInTheDocument();
     expect(await screen.findByTestId('results-grid')).toBeInTheDocument();
 
-    // …and it is FIRST. Asserted by DOM order over the section markers, not by a
-    // testid that a reorder would leave untouched. The default Home surface is the
-    // open grid followed by the GRIDS board.
+    // …and it is the ONLY section on the page. Asserted by DOM order over the
+    // section markers, not by a testid that a reorder would leave untouched.
+    // The default Home surface is the open grid, alone: the boards are pages
+    // in the sidebar now, not sections under the grid.
     const order = Array.from(
       screen.getByTestId('app-content').querySelectorAll('[data-mb-section]'),
     ).map((el) => el.getAttribute('data-mb-section'));
-    expect(order).toEqual(['open-grid', 'grids']);
+    expect(order).toEqual(['open-grid']);
 
-    // ⚠️ AND THIS IS WHERE THE CLAIM WEAKENED, DELIBERATELY. The previous generation
-    // asserted `['grids','matchups','prompts']` — all three community boards mounted
-    // at once, nothing behind a click at all. One board is mounted now, so the other
-    // two are ABSENT from the DOM rather than below the fold. That is the trade the
-    // board subnav buys (the three-section page came to 2166 CSS px and the host
-    // iframe clipped two of them out of every screenshot); it is a real reduction in
-    // what one frame shows, and it is asserted as an absence rather than glossed.
+    // ⚠️ AND THIS IS WHERE THE CLAIM WEAKENED, DELIBERATELY, FOR THE SECOND
+    // TIME. An earlier generation asserted `['grids','matchups','prompts']` —
+    // all three community boards mounted at once; the next asserted the Grids
+    // board under the open grid with the other two ABSENT. Now ALL THREE are
+    // absent from Home: each is a page of its own. That is the trade the
+    // sidebar-pages IA buys (the grid gets the whole first frame, and no
+    // board list pushes it down); it is a real reduction in what one frame
+    // shows, and it is asserted as an absence rather than glossed.
+    expect(screen.queryByTestId('section-grids')).toBeNull();
     expect(screen.queryByTestId('section-matchups')).toBeNull();
     expect(screen.queryByTestId('section-prompts')).toBeNull();
-    // Both are ONE press away, and the press is a named landmark rather than a tab
-    // whose position matters.
-    expect(screen.getByTestId('board-nav-matchups')).toBeInTheDocument();
-    expect(screen.getByTestId('board-nav-prompts')).toBeInTheDocument();
+    // All three are ONE press away, and the press is a named landmark in the
+    // sidebar rather than a tab whose position matters.
+    expect(screen.getByTestId('nav-matchups')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-prompts')).toBeInTheDocument();
 
     // 🔴 AND THE OLD TOP-LEVEL STRIP IS STILL GONE — not merely unused. A shim tab
     // left in the DOM would satisfy every assertion above.
@@ -261,11 +264,11 @@ describe('🔴 criterion 9: the grid is FIRST on the page, and the top-N slider 
     // the control moves to landmarks that are unconditional on this surface.
     expect(html.length).toBeGreaterThan(2000);
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    expect(screen.getByTestId('grids-list')).toBeInTheDocument();
     expect(screen.getAllByTestId('grid-group-matchup').length).toBeGreaterThan(0);
 
-    // The other two sections carry no such control either — and they are already
-    // mounted, so this is one frame rather than two navigations.
+    // The other pages carry no such control either. Each is its own page now,
+    // so this is one navigation apiece rather than one frame.
+    expect(within(await openView('Grids')).getByTestId('grids-list')).toBeInTheDocument();
     expect(within(await openView('Matchups')).queryByTestId('top-n')).toBeNull();
     expect(within(await openView('Prompts')).queryByTestId('top-n')).toBeNull();
     expect(document.body.innerHTML).not.toContain('Show top N');
@@ -292,7 +295,12 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     // `getAllByTestId('grid-card')[0]`, which is exactly the coupling the change
     // under test breaks: the open grid is no longer listed.
     expect(await screen.findByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
-    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
+    // 🔴 AND NO EXPLAINER UNDER IT (operator, 2026-10-17): the "System grid —
+    // the top-voted matchups and prompts…" paragraph that used to render here
+    // is deleted, not reworded. The absence is pinned so it cannot creep back
+    // as a "helpful" caption; the title asserted above is the whole marker.
+    expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
+    expect(document.body.textContent).not.toContain('Nobody owns it');
 
     // The OPEN matrix renders exactly those rows — the top five by votes
     // (91, 68, 55, 47, 22), not the seven on the board and not the seed order.
@@ -321,20 +329,24 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     // …and the CARD still carries it once the Top Grid is listed, which is a second
     // surface and not a duplicate assertion: open the published grid so the Top Grid
     // takes its place in the list. Kept rather than replaced — the panel assertion
-    // above cannot see a card that stopped rendering the badge.
+    // above cannot see a card that stopped rendering the badge. The list is its
+    // own page now, so both halves start with a trip to it.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
     await openListed('gk-yank');
+    // 🔴 AND THE PANEL NOW SHOWS THE *OTHER* GRID'S COUNT, not a frozen Top Grid one.
+    // `gk-yank` is 1 × 1, so a `members` prop wired to a constant — or to the Top Grid
+    // regardless of what is open — fails here. Without this the assertion below is
+    // satisfiable by a hardcoded string. (Opening landed us on Home, where the
+    // panel lives — this half is read before going back for the card.)
+    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('1 matchup × 1 prompt');
+    await openView('Grids');
     const top = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === '__system__')!,
     );
     expect(within(top).getByTestId('grid-card-members')).toHaveTextContent(
       `${DEFAULT_TOP_N} matchups × ${DEFAULT_TOP_N} prompts`,
     );
-    // 🔴 AND THE PANEL NOW SHOWS THE *OTHER* GRID'S COUNT, not a frozen Top Grid one.
-    // `gk-yank` is 1 × 1, so a `members` prop wired to a constant — or to the Top Grid
-    // regardless of what is open — fails here. Without this the assertion above is
-    // satisfiable by a hardcoded string.
-    expect(screen.getByTestId('grid-open-members')).toHaveTextContent('1 matchup × 1 prompt');
   });
 
   it('🔴 SEAM: the App feeds the boards the SAME included count the Top Grid is built from', async () => {
@@ -371,7 +383,8 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
 
     // …and back on Home the matrix really is that many rows, which is what makes the two
     // numbers a RELATIONSHIP rather than two independent readings of the same constant.
-    await openView('Grids');
+    // (Home is a sidebar press, like everywhere else now.)
+    await userEvent.click(await screen.findByTestId('nav-home'));
     const matrix = await screen.findByTestId('results-grid');
     expect(within(matrix).getAllByTestId('grid-group-matchup')).toHaveLength(DEFAULT_TOP_N);
     expect(within(matrix).getAllByTestId('grid-col-header')).toHaveLength(DEFAULT_TOP_N);
@@ -463,17 +476,23 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     renderApp({ shared: fakeShared({ seed }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
 
-    // Default load: the Top Grid is OPEN, so it is not listed at all.
+    // Default load: the Top Grid is OPEN, so it is not listed at all. The list
+    // is its own page now — every card read below starts with the trip.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-zulu', 'gk-yank']));
     await openListed('gk-zulu');
 
     // 🔴 THE EXCLUSION SWAP, which is the claim the list makes: the newly-opened
     // grid LEFT the list and the previously-open one JOINED it, first.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-yank']));
     const [first, second] = screen.getAllByTestId('grid-card');
 
-    expect(within(first).getByTestId('grid-system-note')).toBeInTheDocument();
+    // 🔴 THE NAME IS THE MARKER (operator, 2026-10-17): the note that used to
+    // sit under it is deleted, so "this is the system entry" is read from
+    // `grid-card-name` — and the note's ABSENCE is pinned beside it.
     expect(within(first).getByTestId('grid-card-name')).toHaveTextContent(TOP_GRID_NAME);
+    expect(within(first).queryByTestId('grid-system-note')).toBeNull();
     expect(second.getAttribute('data-key')).toBe('gk-yank');
 
     // 🔴 NO vote control at all — not a disabled one. A greyed button would imply
@@ -483,18 +502,18 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
     // of the system entry and not of the card template.
     expect(within(second).getByTestId('grid-vote')).toBeInTheDocument();
 
-    // …and it says so in words, next to the card.
-    expect(within(first).getByTestId('grid-system-note')).toHaveTextContent(
-      /cannot be voted on and it is not part of the vote order/i,
-    );
+    // …and it no longer says so in words either: the explainer sentence was
+    // deleted outright, so the card carries no such copy (2026-10-17).
+    expect(first.textContent).not.toMatch(/cannot be voted on/i);
   });
 
-  // 🔴 OPERATOR FEEDBACK #2 — the "System grid" BADGE is gone from both surfaces.
+  // 🔴 OPERATOR FEEDBACK #2 — the "System grid" BADGE is gone from both surfaces,
+  // and (2026-10-17) the NOTE went with it.
   //
-  // It restated the first two words of the note that sits directly beneath it, in a
-  // pill, and pushed the member summary along the row to do it. The NOTE stays: it is
-  // the sentence that explains why the entry has no vote control, which is the part a
-  // reader actually needs.
+  // The badge restated the first two words of the note beneath it, in a pill,
+  // and pushed the member summary along the row to do it. The note — the
+  // sentence that explained why the entry has no vote control — was deleted
+  // outright in the sidebar-pages pass; the NAME is the whole label now.
   //
   // 🔴 THE GUARD IS AN ENUMERATED SET OF BADGES, NOT A `queryByTestId(…)).toBeNull()`.
   // An absence keyed on the old testid is walkable by re-adding the same pill under
@@ -511,30 +530,35 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
         (b.textContent ?? '').trim(),
       );
 
-    // POSITIVE CONTROL for the selector itself: a PUBLISHED card, which has always
-    // carried a member badge, so a zero below is a measured zero rather than a
-    // mis-spelled attribute. (This also proves the reader can see badges at all.)
-    await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
-    const published = screen.getAllByTestId('grid-card')[0]!;
-    expect(badgeTexts(published).length, 'the badge selector matched nothing').toBeGreaterThan(0);
-
-    // THE OPEN SYSTEM PANEL: exactly one badge, and it is the member summary — no
-    // "System grid" pill, and no second pill of any other spelling.
+    // THE OPEN SYSTEM PANEL first, while Home is the mounted page: exactly one
+    // badge, and it is the member summary — no "System grid" pill, and no
+    // second pill of any other spelling. And no system note under the title:
+    // it is deleted, and its absence is pinned on both surfaces below.
     const panel = screen.getByTestId('grid-open-panel');
     expect(badgeTexts(panel)).toEqual([
       within(panel).getByTestId('grid-open-members').textContent?.trim(),
     ]);
-    expect(within(panel).getByTestId('grid-open-system-note')).toBeInTheDocument();
+    expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
+
+    // POSITIVE CONTROL for the selector itself: a PUBLISHED card, which has always
+    // carried a member badge, so a zero below is a measured zero rather than a
+    // mis-spelled attribute. (This also proves the reader can see badges at all.)
+    await openView('Grids');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
+    const published = screen.getAllByTestId('grid-card')[0]!;
+    expect(badgeTexts(published).length, 'the badge selector matched nothing').toBeGreaterThan(0);
 
     // THE SYSTEM CARD: same ledger, on the other surface. Open a published grid so
     // the Top Grid is pushed back into the list as a card.
     await openListed('gk-yank');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['__system__']));
     const card = screen.getAllByTestId('grid-card')[0]!;
     expect(badgeTexts(card)).toEqual([
       within(card).getByTestId('grid-card-members').textContent?.trim(),
     ]);
-    expect(within(card).getByTestId('grid-system-note')).toBeInTheDocument();
+    expect(within(card).queryByTestId('grid-system-note')).toBeNull();
+    await userEvent.click(await screen.findByTestId('nav-home'));
 
     // 🔴 AND THE PANEL NOW SHOWS THE PUBLISHED GRID — same ledger, third surface. A
     // "Private" pill belongs to a grid in per-viewer KV and `gk-yank` is a board row,
@@ -557,8 +581,10 @@ describe('🔴 criterion 10: the system-owned Top Grid', () => {
   it('offers no author affordances on the Top Grid — there is no author', async () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, OTHER] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-yank']));
     await openListed('gk-yank');
+    await openView('Grids');
 
     const first = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === '__system__')!,
@@ -583,11 +609,12 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, ONE, TWO] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
 
+    // The open grid's panel is where it renders instead (Home, first paint).
+    expect(screen.getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
     // POSITIVE CONTROL first: the list is populated, so the absence below is an
     // absence of ONE entry rather than of the whole list.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-one', 'gk-two']));
-    // The open grid's panel is where it renders instead.
-    expect(screen.getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
     // …and the card it used to have is GONE FROM THE DOM, not merely hidden.
     expect(
       screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === '__system__'),
@@ -596,9 +623,10 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     await openListed('gk-one');
 
     // The two swap: gk-one is now the panel, the Top Grid is back in the list.
-    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent('One');
     expect(screen.queryByTestId('grid-open-system-note')).toBeNull();
+    await openView('Grids');
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
   });
 
   it('🔴 exactly ONE entry is missing from the list, whichever grid is open', async () => {
@@ -610,10 +638,12 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     await screen.findByTestId('grid-view');
 
     const ALL = ['__system__', 'gk-one', 'gk-two'];
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toHaveLength(ALL.length - 1));
     expect(cardKeys()).toEqual(ALL.filter((k) => k !== '__system__'));
 
     await openListed('gk-two');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(ALL.filter((k) => k !== 'gk-two')));
     expect(cardKeys()).toHaveLength(ALL.length - 1);
   });
@@ -627,10 +657,11 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
 
+    await openView('Grids');
     const empty = await screen.findByTestId('grids-empty');
     expect((empty.textContent ?? '').replace(/\s+/g, ' ').trim()).toBe(
       'No published grids yet' +
-        'The grid open above is all there is for now. Build your own from any matchups and ' +
+        'The Top Grid is all there is for now. Build your own from any matchups and ' +
         'prompts on the board, then publish it for the community to vote on.',
     );
     // 🔴 AND IT OFFERS NO SECOND CREATE ROUTE. `grid-new` was removed from this
@@ -679,12 +710,15 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
 
     // `gk-mine` (6) outranks `gk-two` (4), so this order is the vote order and not the
     // seed order.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-mine', 'gk-two']));
     await openListed('gk-mine');
     // PREMISE: the viewer's own grid really is the open one, and the Top Grid has taken
     // its place in the list. Without this the fallback below would have nothing to do.
-    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent('My grid');
+    await openView('Grids');
+    await waitFor(() => expect(cardKeys()).toEqual(['__system__', 'gk-two']));
+    await userEvent.click(await screen.findByTestId('nav-home'));
 
     // Remove it from the panel — the route this round added.
     const panel = screen.getByTestId('grid-open-panel');
@@ -698,6 +732,7 @@ describe('🔴 the all-grids list never lists the grid that is already open', ()
     // 🔴 …AND THE LIST DROPS IT AGAIN. This is the assertion the raw-key defect fails:
     // with `openKey` carrying `'gk-mine'`, nothing in `communityEntries` matches it, so
     // the Top Grid stays listed AND renders in the panel.
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-two']));
     // Stated as the relationship too: EXACTLY ONE rendering of the Top Grid on the page.
     expect(
@@ -772,6 +807,7 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     const { shared, votes } = sharedWithVotes(seed);
     renderApp({ shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-zulu']));
     await openListed('gk-zulu');
 
@@ -809,6 +845,7 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     const { shared, withdraws } = fakeShared({ seed });
     renderApp({ shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-mine']));
     await openListed('gk-mine');
 
@@ -833,32 +870,30 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     await waitFor(() => expect(withdraws).toContain('gk-mine'));
   });
 
-  it('🔴 the SYSTEM entry offers NONE of the three, and says why in words', async () => {
+  it('🔴 the SYSTEM entry offers NONE of the three, and no explainer either', async () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS] }).shared, appStorage: fakeAppStorage().appStorage });
     const panel = await screen.findByTestId('grid-open-panel');
 
     // POSITIVE CONTROL: this really is the Top Grid's panel and it really rendered, so
-    // the FIVE nulls below are not five ways of saying "nothing is on screen". (A draft
-    // said "three"; there are four controls plus the description.)
+    // the nulls below are not ways of saying "nothing is on screen".
     //
     // ⚠️ IT USED TO BE THE "System grid" BADGE, which is gone — removed on operator
-    // feedback, the note beside it having always said the same thing in a sentence.
-    // The TITLE carries the control now, and deliberately not the note: the note is
-    // one of the things this case is testing, and a control has to be independent of
-    // the claim it licenses.
+    // feedback. The TITLE carries the control now.
     expect(within(panel).getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
+    expect(within(panel).getByTestId('grid-open-members')).toBeInTheDocument();
 
     expect(within(panel).queryByTestId('grid-open-vote')).toBeNull();
     expect(within(panel).queryByTestId('grid-open-withdraw')).toBeNull();
     expect(within(panel).queryByTestId('grid-open-report')).toBeNull();
     expect(within(panel).queryByTestId('grid-open-own-badge')).toBeNull();
 
-    // …and it says so where the reader is, rather than leaving the absence unexplained.
-    expect(within(panel).getByTestId('grid-open-system-note')).toHaveTextContent(
-      /cannot be voted on and it is not part of the vote order/i,
-    );
-    // A system entry has no description of its own, so that slot is the note and
-    // nothing else — an either/or, not both.
+    // 🔴 AND IT NO LONGER SAYS WHY IN WORDS (operator, 2026-10-17): the sentence
+    // that explained the absence ("Nobody owns it, so it cannot be voted on…")
+    // was deleted outright. The absence of the controls is the whole statement
+    // now, and the note's absence is pinned so it cannot creep back.
+    expect(within(panel).queryByTestId('grid-open-system-note')).toBeNull();
+    expect(panel.textContent).not.toMatch(/cannot be voted on/i);
+    // A system entry has no description of its own either.
     expect(within(panel).queryByTestId('grid-open-description')).toBeNull();
   });
 
@@ -874,6 +909,7 @@ describe('🔴 the OPEN grid carries the controls its card used to', () => {
     ];
     renderApp({ shared: fakeShared({ seed }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(cardKeys()).toEqual(['gk-impostor']));
     await openListed('gk-impostor');
 
@@ -905,6 +941,7 @@ describe('🔴 criterion 11: grid votes, hydrated from the host and ordered by c
   it('orders Community Grids by count DESCENDING, ties broken by key', async () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, ...GRID_ROWS] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     // FOUR cards, not five: the system entry is the OPEN grid on a default load and
     // the open grid is not listed. The vote order below is therefore the whole list.
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(4));
@@ -919,6 +956,7 @@ describe('🔴 criterion 11: grid votes, hydrated from the host and ordered by c
     // …and the ordering still PINS the system entry first once it is listed, which
     // is the half a default load can no longer observe.
     await openListed('gk-zulu');
+    await openView('Grids');
     await waitFor(() =>
       expect(cardKeys()).toEqual(['__system__', 'gk-alpha', 'gk-bravo', 'gk-mike']),
     );
@@ -935,6 +973,7 @@ describe('🔴 criterion 11: grid votes, hydrated from the host and ordered by c
     const { appStorage, store } = fakeAppStorage();
     renderApp({ shared: sharedWithVotes(seed).shared, appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     // TWO, not three: the system entry is open and therefore unlisted.
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
 
@@ -963,6 +1002,7 @@ describe('🔴 criterion 11: grid votes, hydrated from the host and ordered by c
     const track = vi.fn();
     renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage, track });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
 
     const target = screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-target')!;
@@ -990,6 +1030,7 @@ describe('🔴 criterion 11: grid votes, hydrated from the host and ordered by c
     const s = sharedWithVotes(seed);
     renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 
     const card = screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-mine')!;
@@ -1035,6 +1076,7 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
   async function openDangling() {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, DANGLING] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     const card = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-dangling')!,
     );
@@ -1088,6 +1130,7 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     const intact = row('gk-intact', 17, 'Intact grid', gridData(['mk-alpha', 'mk-echo'], ['qk-tango']));
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, intact] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
 
     const card = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-intact')!,
@@ -1108,6 +1151,7 @@ describe('🔴 criterion 8: a grid whose members were withdrawn', () => {
     const orphan = row('gk-orphan', 4, 'Orphan grid', gridData(['mk-nope-a', 'mk-nope-b'], ['qk-nope-c']));
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, orphan] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
 
     const card = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-orphan')!,
@@ -1465,10 +1509,11 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     await screen.findByTestId('grid-view');
 
     // The Top Grid is READABLE — as the open panel, since the open grid is no longer
-    // listed — and the published grid is the one card.
-    await waitFor(() => expect(cardKeys()).toEqual(['gk-public']));
+    // listed — and the published grid is the one card (read on its own page).
     expect(screen.getByTestId('grid-open-title')).toHaveTextContent(TOP_GRID_NAME);
     expect(await screen.findByTestId('results-grid')).toBeInTheDocument();
+    await openView('Grids');
+    await waitFor(() => expect(cardKeys()).toEqual(['gk-public']));
 
     // 🔴 THERE IS NO GRID CREATE AFFORDANCE ON THIS BOARD AT ALL, for any viewer.
     // Its history in three steps, because each step retired the last one's reasoning:
@@ -1573,6 +1618,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     const requestSignIn = vi.fn();
     renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage, requestSignIn }, null);
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 
     const card = screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-public')!;
@@ -1591,6 +1637,7 @@ describe('🔴 an anonymous viewer gets a readable Community and no rejecting wr
     const s = sharedWithVotes(seed);
     renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage }, null);
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 
     const card = screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-public')!;
@@ -1610,6 +1657,7 @@ describe('the My / Community partition for grids (§11.1)', () => {
   it('shows an authored grid under My AND in Community, with Remove only on My own', async () => {
     renderApp({ shared: fakeShared({ seed: [...MATCHUPS, ...PROMPTS, MINE, THEIRS] }).shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     // TWO cards: the system entry is the open grid and is not listed.
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
 
@@ -1633,6 +1681,7 @@ describe('the My / Community partition for grids (§11.1)', () => {
     // The system entry is nobody's — open another grid so it is listed and can be
     // read as a card at all.
     await openListed('gk-theirs');
+    await openView('Grids');
     const system = await waitFor(() =>
       screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === '__system__')!,
     );
@@ -1659,6 +1708,7 @@ describe('the My / Community partition for grids (§11.1)', () => {
     const s = fakeShared({ seed: [...MATCHUPS, ...PROMPTS, MINE, THEIRS] });
     renderApp({ shared: s.shared, appStorage: fakeAppStorage().appStorage });
     await screen.findByTestId('grid-view');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(2));
 
     const mine = screen.getAllByTestId('grid-card').find((el) => el.getAttribute('data-key') === 'gk-mine')!;

@@ -112,18 +112,15 @@ import { App } from './App.js';
 import {
   COMPACT_ATTR,
   ICON_BUTTON_SELECTOR,
-  LAYOUT_ATTR,
   MENU_ITEM_SELECTOR,
   MIN_TAP_TARGET_PX,
   MOBILE_BREAKPOINT_PX,
-  NAV_COMPACT_INSET_PX,
-  NAV_ITEM_SELECTOR,
+  NAV_BUTTON_PART_SELECTOR,
+  NAV_LINK_PART_SELECTOR,
   TOOLTIP_GAP_PX,
   TOOLTIP_GUTTER_PX,
   compactTapTargetCss,
-  layoutCss,
 } from './compact.js';
-import { NAV_BASE_INSET_PX } from './components/SideNav.js';
 import { contentStyle, pageStyle, palette } from './theme.js';
 import {
   contribute,
@@ -220,8 +217,8 @@ function renderApp() {
  * app not rendering. It renders; the role differs.)
  */
 async function tabs() {
-  await screen.findByTestId('board-nav');
-  return screen.getAllByRole('tab');
+  await screen.findByTestId('section-open-grid');
+  return screen.queryAllByRole('tab');
 }
 
 /** Wait for the matrix to mount. The grids section is always rendered now — there
@@ -278,31 +275,25 @@ describe('420 — narrow viewport: the compact layout is mounted through the sea
     // pin that each selector resolves to real, rendered controls.
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('board-nav');
+    await screen.findByTestId('section-open-grid');
 
-    // 3 segments: the BOARD subnav's Grids / Matchups / Prompts. It was 5 while a
-    // 3-tab `view-switch` strip sat above a single mounted view, then 4 when the IA
-    // refactor deleted the strip and mounted both My/Community sub-tab strips
-    // together, and it is 3 now that those strips are deleted and "my work" is a
-    // sidebar destination. A literal rather than a `>= 3`: this is the reachability
-    // ledger, so a segment appearing or disappearing should be a decision someone
-    // takes on purpose.
+    // 🔴 ZERO SEGMENTS (operator, 2026-10-17): the board switcher this count
+    // used to ledger — 5, then 4, then 3 across the IA passes — is DELETED.
+    // Navigation is the sidebar's upstream list; there is no segmented
+    // control left for the compact rule to reach, and a segment reappearing
+    // should be a decision someone takes on purpose.
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui-segment]`),
-    ).toHaveLength(3);
+    ).toHaveLength(0);
     expect(
       document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-civitai-ui='button']`).length,
     ).toBeGreaterThan(0);
   });
 
-  it('gives every board-subnav segment a computed min-height of at least 44px', async () => {
+  it('there are no board segments left to floor — the switcher is deleted', async () => {
     setViewport('mobile');
     renderApp();
-    const t = await tabs();
-    expect(t).toHaveLength(3);
-    for (const tab of t) {
-      expect(minHeightPx(tab)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    }
+    expect(await tabs()).toHaveLength(0);
   });
 
   it('gives the vote control a computed min-height of at least 44px', async () => {
@@ -334,22 +325,17 @@ describe('420 — wide viewport: the desktop rendering is untouched', () => {
 
     expect(document.querySelector(`[${COMPACT_ATTR}='true']`)).toBeNull();
     expect(screen.queryByTestId('compact-styles')).toBeNull();
-    // 🔴 THE LAYOUT SHEET IS UNCONDITIONAL, and asserting it HERE is what stops the
-    // two being confused: the compact sheet is the narrow override, the layout sheet
-    // carries the wide case and must be present on BOTH viewports.
-    expect(screen.getByTestId('layout-styles')).toBeInTheDocument();
+    // 🔴 AND NO LAYOUT SHEET EITHER (2026-10-17): it used to be unconditional
+    // and asserted present here precisely so the two sheets could not be
+    // confused. The layout sheet is DELETED — the sidebar is a fixed drawer
+    // that needs no rail — so its absence is pinned on the wide arm too.
+    expect(screen.queryByTestId('layout-styles')).toBeNull();
   });
 
-  it('leaves the segment controls on the pack’s own sizing (no tap-target override)', async () => {
-    // The mirror of the mobile case, and the reason the mobile one is not
-    // vacuous: if this ever also reported >=44px, the "compact" layout would be
-    // unconditional and the seam would be doing nothing.
+  it('has no segment controls to size on the wide arm either', async () => {
     setViewport('desktop');
     renderApp();
-    const t = await tabs();
-    for (const tab of t) {
-      expect(minHeightPx(tab)).toBeLessThan(MIN_TAP_TARGET_PX);
-    }
+    expect(await tabs()).toHaveLength(0);
   });
 
   // 🔴 THE NEGATIVE CONTROL FOR `minWidthPx`, AND IT IS DOING TWO JOBS. (1) It is the
@@ -653,40 +639,32 @@ describe('420 — the 44px figure itself', () => {
   //
   // ⚠ jsdom does NO layout, so this asserts the CASCADE (computed `min-height` on the
   // real rendered items), never the geometry — same ceiling as every case here.
-  it('SELECTOR REACHABILITY: the nav-item rule matches the live SideNav items', async () => {
+  it('SELECTOR REACHABILITY: the nav-item rule reaches the live SideNav hosts', async () => {
+    // 🔴 RETARGETED AT THE UPSTREAM ELEMENTS (operator, 2026-10-17). The rows
+    // this rule floors are no longer this app's `<button data-mb-nav-item>`s —
+    // they are the shadow rows of `<civitai-nav-item>`, reachable from a
+    // document stylesheet ONLY through `::part()`. jsdom cannot evaluate a
+    // `::part()` selector against a shadow tree, so the reachability claim is
+    // split into the two halves jsdom CAN settle, and the seam between them
+    // is one literal tag name:
+    //
+    //   1. the live hosts are `<civitai-nav-item>` elements — 8 of them, the
+    //      ledgered set from `SideNav` — inside the compact-stamped root;
+    //   2. both part selectors in the sheet are spelled off exactly that tag
+    //      (asserted in the floors case below, from the imported constants).
+    //
+    // A rename on either side breaks one half or the other.
     setViewport('mobile');
     renderApp();
     await screen.findByTestId('side-nav');
 
-    // The three My Benchmarks sub-items only exist while the group is expanded.
-    //
-    // ⚠️ THIS SETUP HAS NOW CHANGED TWICE, AND BOTH HISTORIES MATTER. It took a click
-    // originally; operator feedback #1 made the group open by DEFAULT and the click
-    // became the bug (it would COLLAPSE the group, leaving two nodes where the ledger
-    // below counts five), so the press was replaced by an assertion. The press is BACK
-    // — on this viewport only — because the default is viewport-dependent now: the
-    // ≤720px STRIP starts shut, since five rows in a 345px horizontal scroller measured
-    // `scrollWidth` 411 (see `SideNav`'s `expanded` docblock). `setViewport('mobile')`
-    // above is what decides which of the two shapes this case gets.
-    //
-    // 🔴 THE EXPANDED STATE IS STILL ASSERTED, NOT ASSUMED — before AND after the
-    // press. Without the "before" the press could be a no-op on an already-open group
-    // and this setup would be silently back to the version that collapsed it.
-    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(screen.getByTestId('nav-my'));
-    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'true');
-    await screen.findByTestId('nav-my-group');
-
-    const items = document.querySelectorAll(`[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR}`);
-    // POSITIVE CONTROL for the query itself: at 0 the loop below is empty and the case
-    // passes vacuously — the failure mode this whole family exists to prevent. A
-    // literal 5 rather than `> 0`, because the nav's item count is a ledgered decision
-    // (`SIDE_NAV_ITEMS` in `SideNav.tsx` asserts the same set): Home, My Benchmarks,
-    // and its three sub-items.
-    expect(items, 'the nav-item selector reached no live node').toHaveLength(5);
-    for (const i of items) {
-      expect(minHeightPx(i)).toBeGreaterThanOrEqual(MIN_TAP_TARGET_PX);
-    }
+    const hosts = document.querySelectorAll(
+      `[${COMPACT_ATTR}='true'] civitai-nav-item`,
+    );
+    // POSITIVE CONTROL, as a literal: at 0 the claim below is vacuous.
+    expect(hosts, 'no civitai-nav-item hosts under the compact root').toHaveLength(8);
+    expect(NAV_LINK_PART_SELECTOR.startsWith('civitai-nav-item::part(')).toBe(true);
+    expect(NAV_BUTTON_PART_SELECTOR.startsWith('civitai-nav-item::part(')).toBe(true);
   });
 
   it('the emitted stylesheet floors the SideNav items with the IMPORTED constant', () => {
@@ -694,8 +672,12 @@ describe('420 — the 44px figure itself', () => {
     // refactor of the case above stops expanding the group. Interpolated from the
     // constants, never a second `44px` literal and never a second spelling of the
     // attribute.
-    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] ${NAV_ITEM_SELECTOR}`);
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] ${NAV_LINK_PART_SELECTOR}`);
+    expect(compactTapTargetCss()).toContain(`[${COMPACT_ATTR}='true'] ${NAV_BUTTON_PART_SELECTOR}`);
     expect(compactTapTargetCss()).toContain(`min-height: ${MIN_TAP_TARGET_PX}px`);
+    // 🔴 AND THE ORPHANED SPELLING IS GONE: the attribute the hand-built rows
+    // carried does not appear anywhere in the sheet any more.
+    expect(compactTapTargetCss()).not.toContain('[data-mb-nav-item]');
     // 🔴 RETARGETED, DELIBERATELY, AND SAY SO RATHER THAN DELETE IT. This line used
     // to be `expect(compactTapTargetCss()).not.toContain("[role='menuitem']")` — an
     // ORPHAN guard: `ContributeMenu` was deleted, nothing emitted that role any more,
@@ -1181,7 +1163,7 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
     // stopped at the string.
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('section-grids');
+    await screen.findByTestId('section-open-grid');
 
     const mounted = screen.getByTestId('compact-styles').textContent ?? '';
     expect(mounted.replace(/\s+/g, ' ')).toContain(tooltipBlock());
@@ -1250,246 +1232,58 @@ describe('the compact tooltip rule (CSS text only — jsdom cannot see layout)',
 // "the top bar works".
 // ===========================================================================
 
-describe('the sidebar → top-bar collapse (CSS text and reachability only)', () => {
-  it('emits the single-column override, scoped to the compact root', () => {
-    const css = compactTapTargetCss();
-    // The WHOLE declaration block, not a property name: a `grid-template-columns`
-    // whose value drifted to something two-column would satisfy a name check.
-    expect(css).toContain(`[${COMPACT_ATTR}='true'] [${LAYOUT_ATTR}] {`);
-    expect(css).toContain('grid-template-columns: minmax(0, 1fr);');
-    // …and the nav's own rows go horizontal, which is what makes it a BAR.
-    expect(css).toContain(`[${COMPACT_ATTR}='true'] [data-testid='side-nav-list']`);
-    expect(css).toContain(`[${COMPACT_ATTR}='true'] [data-testid='nav-my-group']`);
-    expect(css).toContain('grid-auto-flow: column;');
-    expect(css).toContain('overflow-x: auto;');
+// ===========================================================================
+// 🔴 THE LAYOUT SHEET AND THE TOP-BAR STRIP ARE DELETED (operator, 2026-10-17).
+//
+// The two-column layout (sidebar rail + content) and its ≤720px collapse into
+// a horizontal top-bar strip existed to serve a nav that lived ON the page.
+// The nav is a slide-out drawer now — `position: fixed`, translated
+// off-canvas until opened — so there is no rail for a stylesheet to lay out
+// and no strip for it to collapse into. `layoutCss` / `LAYOUT_ATTR` are gone
+// from `compact.ts`, App mounts no layout sheet, and the root carries no
+// layout attribute. What these cases pin is the DELETION, from three sides:
+// the document, the root, and the one sheet that remains.
+// ===========================================================================
+
+describe('the layout sheet is gone — the drawer needs no rail', () => {
+  it('mounts NO layout stylesheet and stamps NO layout attribute, on either viewport', async () => {
+    for (const viewport of ['mobile', 'desktop'] as const) {
+      setViewport(viewport);
+      renderApp();
+      await screen.findByTestId('section-open-grid');
+      expect(screen.queryByTestId('layout-styles'), viewport).toBeNull();
+      expect(document.querySelector('[data-mb-layout]'), viewport).toBeNull();
+      cleanup();
+    }
   });
 
-  it('the WIDE case lives in its own always-mounted sheet, and it is two columns', () => {
-    // 🔴 THE PAIR IS THE CLAIM. A single-column rule proves nothing on its own: if the
-    // wide case were also one column the "collapse" would be unconditional and the
-    // breakpoint would decide nothing. This is the negative control for the case above,
-    // the same way the desktop describe block is for the tap-target rule.
-    const css = layoutCss();
-    expect(css).toContain(`[${LAYOUT_ATTR}] {`);
-    expect(css).toContain('display: grid;');
-    expect(css).toMatch(/grid-template-columns: \d+px minmax\(0, 1fr\);/);
-    // …and the two really do differ, so the override is an override.
-    expect(css).not.toContain('grid-template-columns: minmax(0, 1fr);');
-  });
-
-  it('SELECTOR REACHABILITY: both sheets reach the live layout and nav nodes', async () => {
+  it('the sidebar is a FIXED overlay, not a laid-out column', async () => {
     setViewport('mobile');
     renderApp();
-    await screen.findByTestId('side-nav');
+    await screen.findByTestId('section-open-grid');
+    const aside = screen.getByTestId('sidebar');
+    expect((aside as HTMLElement).style.position).toBe('fixed');
+  });
 
-    // 🔴 THE POSITIVE CONTROL THAT MAKES THE TWO TEXT CASES NON-VACUOUS: the selectors
-    // resolve against the real rendered tree. A rule aimed at an attribute the app
-    // stopped stamping would pass both cases above and reach nothing.
-    const layout = document.querySelectorAll(`[${COMPACT_ATTR}='true'] [${LAYOUT_ATTR}]`);
-    expect(layout, 'the layout selector reached no live node').toHaveLength(1);
-    expect(
-      document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-testid='side-nav-list']`),
-      'the nav-list selector reached no live node',
-    ).toHaveLength(1);
-    // Both sheets are actually in the document, not merely returned by a function.
-    expect(screen.getByTestId('compact-styles')).toBeInTheDocument();
-    expect(screen.getByTestId('layout-styles')).toBeInTheDocument();
+  it('the surviving sheet carries no rail, strip or indent machinery', () => {
+    const css = compactTapTargetCss();
+    expect(css).not.toContain('data-mb-layout');
+    expect(css).not.toContain('--mb-sidebar-width');
+    expect(css).not.toContain('side-nav-list');
+    expect(css).not.toContain('nav-my-group');
+    expect(css).not.toContain('--mb-nav-indent');
+    expect(css).not.toContain('[data-mb-nav-item]');
   });
 
   it('the breakpoint is stated ONCE and the hook reads it', () => {
-    // 🔴 720 IS THE WCAG-adjacent boundary this repo already chose, and it used to be
-    // a literal inside `useMediaQuery.ts` while `compact.ts` merely described it in
-    // prose. Now the hook imports it. Pinned as the LITERAL here rather than compared
-    // against itself — an assertion that read the constant on both sides would pass at
-    // any value, which is the shape of a guard that pins nothing.
+    // 🔴 720 IS THE boundary this repo already chose. Pinned as the LITERAL
+    // here rather than compared against itself — an assertion that read the
+    // constant on both sides would pass at any value.
     expect(MOBILE_BREAKPOINT_PX).toBe(720);
-    // …and the emitted sheet's own comment carries the same number, so the two cannot
-    // describe different breakpoints.
-    expect(compactTapTargetCss()).toContain('under 720px');
-  });
-});
-
-// ===========================================================================
-// 🔴 OPERATOR FEEDBACK #5 (F2) — the top bar lost the GROUPING, and clipped.
-//
-// MEASURED LIVE, at a 390px viewport: the nav strip's `scrollWidth` was 437 against a
-// `clientWidth` of 347, with `Prompts` past the right edge. And with the rows laid
-// out horizontally, `SideNav`'s depth `padding-left` stopped being an indent at all —
-// on a row it is just a gap before the label — so Home / My Benchmarks / Grids /
-// Matchups / Prompts read as FIVE FLAT PEERS, with nothing saying that the last three
-// live inside the second. The strip also had no background, border or padding, so the
-// page's only primary navigation read as a line of body copy.
-//
-// THREE CHANGES, and they are not equally well covered:
-//
-//   1. THE NESTING becomes a BRACKET (`border-left` in the primary colour, plus its
-//      own inset) — a device that survives the axis change, unlike an indent.
-//   2. THE DEAD INDENT is zeroed THROUGH A CUSTOM PROPERTY, which is the only lever a
-//      stylesheet has over a value `SideNav` writes inline. This is the one change
-//      that provably removes width from the strip.
-//   3. THE STRIP BECOMES CHROME — `elevate()` fill, border, radius, padding — plus a
-//      thin scrollbar and inline scroll-snap, so that an overflowing strip READS as
-//      scrollable rather than as truncated.
-//
-// ⚠️ AND THE HONEST CEILING, WHICH IS LOWER THAN THE FEEDBACK ASKS FOR. jsdom performs
-// NO LAYOUT: `scrollWidth`/`clientWidth` are 0 here and no grid is resolved. NOTHING
-// below observes the 437-vs-347 number, whether the bracket is visible, or whether a
-// partly-scrolled row is still mistakable for a truncated one. What these cases pin is
-// what `compact.ts`'s header already scopes itself to — the declarations are in the
-// emitted sheet, and the selectors match live nodes — plus ONE seam that is worth more
-// than either: that the property `SideNav` READS is the property this sheet SETS.
-// A LIVE READING AT 390px IS OWED and has not been taken.
-// ===========================================================================
-
-/** The declaration block for `selector`, as `prop -> value`, from an emitted sheet. */
-function declarationsFor(css: string, selector: string): Record<string, string> {
-  const at = css.indexOf(selector);
-  if (at < 0) return {};
-  const open = css.indexOf('{', at);
-  const close = css.indexOf('}', open);
-  if (open < 0 || close < 0) return {};
-  const out: Record<string, string> = {};
-  for (const decl of css.slice(open + 1, close).split(';')) {
-    const colon = decl.indexOf(':');
-    if (colon < 0) continue;
-    out[decl.slice(0, colon).trim()] = decl.slice(colon + 1).trim().replace(/\s+/g, ' ');
-  }
-  return out;
-}
-
-describe('the compact nav strip: grouping, chrome, and one scroll boundary', () => {
-  const stripSelector = `[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] {`;
-  const groupSelector = `[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] {`;
-
-  it('🔴 PREMISE: both blocks parse, so every assertion below reads a real block', () => {
-    // The positive control for this whole describe. `declarationsFor` returns `{}`
-    // for a selector it cannot find, and `{}[x]` is `undefined` — which compares
-    // equal to nothing and silently satisfies a `not.toBe` chain. Prove the parse
-    // first, by a property that is not itself under test.
-    const css = compactTapTargetCss();
-    expect(declarationsFor(css, stripSelector)['grid-auto-flow']).toBe('column');
-    expect(declarationsFor(css, groupSelector)['grid-auto-flow']).toBe('column');
-  });
-
-  it('🔴 the sub-group is drawn as a BRACKET, not as an indent', () => {
-    const group = declarationsFor(compactTapTargetCss(), groupSelector);
-    // A left rule in the PRIMARY colour, so the sub-items read as belonging to the
-    // trigger on their left. The colour is asserted because a `border-left` in the
-    // border token would be indistinguishable from the strip's own edge.
-    expect(group['border-left']).toBe('2px solid var(--civitai-color-primary)');
-    // …and the bracket needs its own inset, or the rule sits flush against a label.
-    expect(group['padding-left']).toBeTruthy();
-  });
-
-  it('🔴 there is exactly ONE scroll boundary — the group is no longer a scroller', () => {
-    // 🔴 THE GROUP USED TO CARRY `overflow-x: auto` TOO, nested inside the strip's
-    // own scroller: a second place content can be cut, and one the OUTER scroller
-    // cannot scroll to. `visible` is asserted rather than merely "not auto", because
-    // an absent declaration and a correct one must not read the same.
-    const css = compactTapTargetCss();
-    expect(declarationsFor(css, stripSelector)['overflow-x']).toBe('auto');
-    expect(declarationsFor(css, groupSelector)['overflow-x']).toBe('visible');
-  });
-
-  it('🔴 the strip is CHROME: a fill that works in both themes, a border, and padding', () => {
-    const strip = declarationsFor(compactTapTargetCss(), stripSelector);
-    expect(strip['border']).toBe('1px solid var(--civitai-color-border)');
-    expect(strip['border-radius']).toBe('var(--civitai-radius)');
-    expect(strip['padding']).toBeTruthy();
-    // 🔴 THE FILL IS A `color-mix`, NEVER `surface-2` — AND THIS ASSERTION STAYS.
-    // ⚠️ Its stated reason used to be "surface-2 equals `body` in light theme, so the
-    // strip would have no fill there". That is a reading of `@civitai/theme`'s STOCK
-    // token set and no longer holds inside this block: the skin gives surface-2 a value
-    // distinct from body in BOTH themes. **Do not delete this assertion on the strength
-    // of that.** The ban survives on the two grounds in `recessedSurface`'s docblock
-    // (`src/theme.ts`), neither of which depended on the collision: the app's recess
-    // needs ONE home, and a call site cannot tell by reading whether the skin is live.
-    expect(strip['background']).toContain('color-mix(');
-    expect(strip['background']).not.toContain('var(--civitai-color-surface-2)');
-    // …and the overflow is made legible rather than left to overlay scrollbars.
-    expect(strip['scrollbar-width']).toBe('thin');
-    expect(strip['scroll-snap-type']).toBe('inline proximity');
-    expect(
-      declarationsFor(compactTapTargetCss(), `[${COMPACT_ATTR}='true'] [data-testid='side-nav-list'] > * {`)[
-        'scroll-snap-align'
-      ],
-      'the snap axis is set but nothing snaps to it',
-    ).toBe('start');
-    // 🔴 AND THE SUB-ITEMS NEED THEIR OWN RULE, WHICH IS THE HALF THAT WAS MISSING.
-    // `scroll-snap-align` is NOT inherited and the strip has exactly THREE direct
-    // children — Home, My Benchmarks, and `nav-my-group` as one unit — so the `> *`
-    // rule above gives Grids/Matchups/Prompts no snap point at all. `Prompts` is the
-    // row the 390px reading found clipped, so the affordance was aimed precisely at the
-    // rows it did not cover. The assertion above stayed GREEN throughout, because the
-    // group-as-a-whole does snap; only this second one can see the gap.
-    expect(
-      declarationsFor(compactTapTargetCss(), `[${COMPACT_ATTR}='true'] [data-testid='nav-my-group'] > * {`)[
-        'scroll-snap-align'
-      ],
-      'the sub-items are grandchildren of the strip and get no snap point of their own',
-    ).toBe('start');
-  });
-
-  it('🔴 SEAM: the sheet sets the SAME custom property the nav row reads', async () => {
-    // 🔴 THE ONE CASE HERE THAT IS WORTH MORE THAN A TEXT CHECK, because the two ends
-    // of this seam live in different files and one of them is an INLINE style the
-    // other cannot override by any other means. `SideNav` writes
-    // `padding-left: var(--mb-nav-indent-1, 24px)`; this sheet sets
-    // `--mb-nav-indent-1`. Rename either and the sub-items silently keep a depth step
-    // of dead gap on a strip that is already overflowing — no error, no visual
-    // difference a reviewer would catch, and the whole width saving gone.
-    //
-    // BOTH SIDES ARE SPELLED HERE AS LITERALS. Importing `navIndentVar` and using it
-    // on both sides would pass at any value, which is the shape of a guard that pins
-    // nothing.
-    const group = declarationsFor(compactTapTargetCss(), groupSelector);
-    expect(group['--mb-nav-indent-1']).toBe('10px');
-
-    // 🔴 AND THE TWO INSETS ARE ONE PREDICATE IN TWO FILES. `compact.ts` states the
-    // invariant in prose — "the depth-0 inset, applied at every depth" — and nothing
-    // pinned it. Depth-0 rows take their inset from `SideNav`'s `NAV_BASE_INSET_PX`
-    // (through the `var()` fallback, since `--mb-nav-indent-0` is never set); depth-1
-    // rows take theirs from `compact.ts`'s `NAV_COMPACT_INSET_PX`. Change the first for
-    // the wide rail and the sub-items sit LEFT of their parents on the strip — the exact
-    // misalignment the compact inset exists to prevent — with the literal assertion above
-    // still true and the whole suite green. Found by a round-1 audit. This is the same
-    // one-rule-two-homes shape the `surface2` deletion in this PR closes elsewhere.
-    expect(
-      NAV_COMPACT_INSET_PX,
-      'the compact strip flattens every row to the DEPTH-0 inset, so these two must agree',
-    ).toBe(NAV_BASE_INSET_PX);
-    // ⚠️ WHICH MUTATION REACHES THIS, MEASURED — because only one of the two does.
-    // Changing `NAV_COMPACT_INSET_PX` does NOT reach it: the literal `'10px'` assertion
-    // above reads the same value and fails first, in this very test. The mutation that
-    // reaches it is the one the hazard is actually about — `NAV_BASE_INSET_PX` moved for
-    // the wide rail, which leaves the emitted `--mb-nav-indent-1` at 10px so the literal
-    // stays GREEN. Measured: that mutant turns 2 cases red and this assertion's own
-    // message is one of them. The two assertions cover the two directions; neither alone
-    // covers both.
-
-    setViewport('mobile');
-    renderApp();
-    await screen.findByTestId('side-nav');
-    // 🔴 THE GROUP IS SHUT BY DEFAULT ON *THIS* VIEWPORT, so it takes a press to put
-    // the sub-items on screen. That is not setup noise: the sheet's `--mb-nav-indent-1`
-    // rule above is scoped to `nav-my-group`, and on the strip that node does not exist
-    // until the group is opened — the state the rule has to be reachable in is
-    // therefore the OPENED one, and that is what the control below measures. See
-    // `SideNav`'s `expanded` docblock for the 411-vs-345 overflow that shut it.
-    expect(screen.getByTestId('nav-my')).toHaveAttribute('aria-expanded', 'false');
-    await userEvent.click(screen.getByTestId('nav-my'));
-    // …and this is also the reachability control for the rule above: at 0 the two
-    // `paddingLeft` assertions below would be about nodes the sheet never reaches.
-    expect(
-      document.querySelectorAll(`[${COMPACT_ATTR}='true'] [data-testid='nav-my-group']`),
-      'the sub-group selector reached no live node',
-    ).toHaveLength(1);
-
-    const sub = screen.getByTestId('nav-my-grid');
-    expect(sub.style.paddingLeft).toBe('var(--mb-nav-indent-1, 24px)');
-    // …and the depth-0 rows read a DIFFERENT property, so zeroing the sub-item indent
-    // cannot silently move Home as well.
-    expect(screen.getByTestId('nav-home').style.paddingLeft).toBe('var(--mb-nav-indent-0, 10px)');
+    // …and the emitted sheet's own comment carries the same number (it is
+    // interpolated from the constant), so the two cannot describe different
+    // breakpoints.
+    expect(compactTapTargetCss()).toContain('720px');
   });
 });
 

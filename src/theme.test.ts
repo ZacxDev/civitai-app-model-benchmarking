@@ -60,7 +60,7 @@ import * as theme from './theme.js';
 // spells as literals — if one of them stops existing, "the lockstep broke" is exactly
 // the right failure, and a link-time error naming the constant says so more clearly
 // than an `undefined` passed to `toContain`.
-import { ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR, NAV_ITEM_SELECTOR } from './compact.js';
+import { ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR } from './compact.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcRoot = here;
@@ -493,21 +493,27 @@ describe('the emitted skin sheet carries both themes, and wins the cascade by sh
     // `theme.ts`, so the dependency cannot run the other way and the two attribute
     // selectors below are spelled as LITERALS in the sheet. That makes a rename in
     // `compact.ts` a silently dead rule — the `⋮` trigger back to no resting box, the
-    // app's own controls back to no focus ring — with the whole suite green. This is
-    // the same two-ends-pinned discipline `navIndentVar` uses.
+    // app's own controls back to no focus ring — with the whole suite green.
+    //
+    // 🔴 THE THIRD ARM IS AN ABSENCE NOW (2026-10-17). This case used to pin the
+    // sheet reaching `NAV_ITEM_SELECTOR` (`[data-mb-nav-item]`) with a focus ring.
+    // The hand-built nav rows are gone; `<civitai-nav-item>` draws its own ring
+    // in its shadow, so the sheet's ring rule dropped the selector and
+    // `compact.ts` dropped the constant. What lockstep means in this direction
+    // is that the orphan spelling cannot creep back into either sheet.
     const css = sheet();
     expect(css, 'the icon-button rules no longer reach ICON_BUTTON_SELECTOR').toContain(
       ICON_BUTTON_SELECTOR,
     );
-    expect(css, 'the focus ring no longer reaches NAV_ITEM_SELECTOR').toContain(
-      NAV_ITEM_SELECTOR,
-    );
     expect(css, 'the focus ring no longer reaches MENU_ITEM_SELECTOR').toContain(
       MENU_ITEM_SELECTOR,
     );
-    // POSITIVE CONTROL for the three above: these constants are not empty strings, and
+    expect(css, 'the orphaned nav-item attribute is back in the skin sheet').not.toContain(
+      'data-mb-nav-item',
+    );
+    // POSITIVE CONTROL for the two above: these constants are not empty strings, and
     // `toContain('')` is true of every sheet ever written.
-    for (const sel of [ICON_BUTTON_SELECTOR, NAV_ITEM_SELECTOR, MENU_ITEM_SELECTOR]) {
+    for (const sel of [ICON_BUTTON_SELECTOR, MENU_ITEM_SELECTOR]) {
       expect(sel.length).toBeGreaterThan(1);
     }
   });

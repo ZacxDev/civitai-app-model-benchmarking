@@ -65,6 +65,7 @@ import {
   immediateSleep,
   openMyList,
   openRowMenu,
+  openView,
 } from './test-helpers.js';
 import type {
   CombinationData,
@@ -177,7 +178,7 @@ describe('🔴 My Benchmarks mounts ONE noun, and the community boards are gone'
     }
   });
 
-  it('Home comes back, with its board subnav and its matrix', async () => {
+  it('Home comes back, with its open grid and its matrix', async () => {
     // The negative control for the case above: if Home did not return, "the boards are
     // gone" would be satisfied by a nav that breaks the app.
     mountApp({ shared: fakeShared({ seed }).shared, appStorage: fakeAppStorage().appStorage }, {
@@ -191,7 +192,7 @@ describe('🔴 My Benchmarks mounts ONE noun, and the community boards are gone'
     await userEvent.click(screen.getByTestId('nav-home'));
 
     expect(await screen.findByTestId('results-grid')).toBeInTheDocument();
-    expect(screen.getByTestId('board-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('section-open-grid')).toBeInTheDocument();
     expect(screen.queryByTestId('section-my-prompt')).toBeNull();
   });
 });
@@ -237,7 +238,7 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
     expect(listed.items.map((i) => i.key)).toContain('gk-mine');
     expect(listed.items.find((i) => i.key === 'gk-mine')!.count).toBe(VOTES);
     //   (c) and the archiver still sees it on the COMMUNITY board, votes and all.
-    await userEvent.click(screen.getByTestId('nav-home'));
+    await openView('Grids');
     await waitFor(() => expect(keysOf('grid-card').sort()).toEqual(['gk-mine', 'gk-theirs']));
     const stillThere = screen
       .queryAllByTestId('grid-card')
@@ -305,7 +306,7 @@ describe('🔴 criterion 12 for GRIDS: Archive hides from My only, and says so i
     expect(note).toHaveTextContent(ARCHIVE_NOTE);
 
     // …and still on the community board, for the archiver too.
-    await userEvent.click(screen.getByTestId('nav-home'));
+    await openView('Grids');
     await waitFor(() => expect(keysOf('grid-card').sort()).toEqual(['gk-mine', 'gk-theirs']));
   });
 
@@ -924,6 +925,7 @@ describe('🔴 change 2: a published grid is editable in place', () => {
     await screen.findByTestId('grid-view');
 
     // COMMUNITY board: both grids are listed, and NEITHER offers an edit control.
+    await openView('Grids');
     await waitFor(() => expect(keysOf('grid-card').sort()).toEqual(['gk-mine', 'gk-theirs']));
     expect(screen.queryAllByTestId('grid-edit')).toEqual([]);
 
