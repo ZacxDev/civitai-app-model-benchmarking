@@ -172,31 +172,42 @@ describe('board scan truncation', () => {
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 
-  // 🔴 CRITERION: ONE notice serves the GRIDS section, which is where the
+  // 🔴 CRITERION: ONE notice serves the GRIDS surface, which is where the
   // truncated ranking does the most work — it decides the Top Grid's members and
   // orders the grids list. This is deliberately NOT a second notice.
   //
   // ⚠ WHAT THIS CASE USED TO ASSERT, AND WHY IT NO LONGER CAN. It read the grids
   // view's presence together with `queryByTestId('matchups-view')` being NULL, to
   // prove Grids was the DEFAULT of three mutually-exclusive tabs. The IA refactor
-  // deleted the tab strip: all three sections are mounted at once, so "the default
-  // view" is not a fact about the app any more and the absence assertion would be
-  // asserting the opposite of the intended design. What survives — and is what the
-  // case was actually for — is that the one notice is rendered ABOVE the grids
-  // section rather than inside any one of them, so every reader of the truncated
-  // ranking sees it. That ordering is asserted structurally below.
-  it('🔴 ONE notice covers the grids section, rendered above all three sections', async () => {
+  // deleted the tab strip, and the pages pass (2026-10-17) then split the one
+  // remaining page into Home + three board pages. What survives — and is what the
+  // case was actually for — is that the one notice is rendered ABOVE whichever
+  // surface is mounted rather than inside any one of them, so every reader of
+  // the truncated ranking sees it. That ordering is asserted structurally below,
+  // on Home and on the Grids page.
+  it('🔴 ONE notice covers every page, rendered above the mounted surface', async () => {
     const { shared, pages } = endlessShared();
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
     expect(await screen.findByTestId('grid-view')).toBeInTheDocument();
-    // Exactly one notice, not one per section.
+    // Exactly one notice, not one per page.
     await waitFor(() => expect(screen.getAllByTestId('board-truncated-notice')).toHaveLength(1));
-    // …and it PRECEDES the first section, so it is not scoped to any one of them.
+    // …and it PRECEDES the mounted surface, so it is not scoped to any one of them.
     const notice0 = screen.getByTestId('board-truncated-notice');
-    const grids = screen.getByTestId('section-grids');
-    expect(notice0.compareDocumentPosition(grids) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(grids.contains(notice0)).toBe(false);
+    const home = screen.getByTestId('section-open-grid');
+    expect(notice0.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(home.contains(notice0)).toBe(false);
+
+    // The same single notice still precedes the surface on the Grids page.
+    await openView('Grids');
+    const grids = await screen.findByTestId('section-grids');
+    expect(screen.getAllByTestId('board-truncated-notice')).toHaveLength(1);
+    expect(
+      screen
+        .getByTestId('board-truncated-notice')
+        .compareDocumentPosition(grids) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(grids.contains(screen.getByTestId('board-truncated-notice'))).toBe(false);
 
     const notice = await screen.findByTestId('board-truncated-notice');
     expect(notice).toHaveTextContent(/only the entries loaded so far/i);
@@ -221,12 +232,13 @@ describe('board scan truncation', () => {
     // exact failure this file already names at the sibling case a few lines up, which
     // is why THAT one navigates to Matchups.
     //
-    // ⚠️ THE MARKER ITSELF MOVED. The "System grid" BADGE is gone (operator feedback);
-    // `grid-open-system-note` — the sentence explaining that the Top Grid cannot be
-    // voted on — is rendered under the SAME `entry.system` condition and is the system
-    // marker on this surface now. The retraction above is unaffected: what was vacuous
-    // about the old anchor was its TIMING, not which element carried it, and the note
-    // is on first paint for exactly the same reason. Same hazard, same fix.
+    // ⚠️ THE MARKER ITSELF MOVED, THEN WAS DELETED. The "System grid" BADGE went
+    // first (operator feedback); `grid-open-system-note` — the sentence explaining
+    // that the Top Grid cannot be voted on — carried the marker next; the pages
+    // pass (2026-10-17) deleted the note outright. The retraction above is
+    // unaffected: what was vacuous about those anchors was their TIMING, not which
+    // element carried them. The anchor below is the section itself, reached by
+    // navigation after the scan settled — the same fix, one level up.
     //
     // 🔴 WHY MATCHUPS IS A REAL ANCHOR AND THE SYSTEM MARKER IS NOT: `matchup-card` renders only
     // for a row the scan actually READ (`finiteShared` seeds exactly one), so its
@@ -237,7 +249,7 @@ describe('board scan truncation', () => {
     // …then back to the GRIDS board, which is what this case is about. The scan is
     // settled by now, so the absence below is an absence.
     await openView('Grids');
-    expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument();
+    expect(await screen.findByTestId('section-grids')).toBeInTheDocument();
     expect(screen.queryByTestId('board-truncated-notice')).toBeNull();
   });
 
@@ -253,14 +265,23 @@ describe('board scan truncation', () => {
   it('🔴 ANCHOR CONTROL: the system marker renders while the board scan is still in flight', async () => {
     renderApp({ shared: pendingShared(), appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
-    // The note is there on first paint: `openGridRef` starts `{ kind: 'system' }` and
+    // The marker is there on first paint: `openGridRef` starts `{ kind: 'system' }` and
     // `buildTopGrid([], [])` yields a system entry regardless of what the scan found.
-    await waitFor(() => expect(screen.getByTestId('grid-open-system-note')).toBeInTheDocument());
-    // …and the board it sits above has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it
+    // 🔴 THE MARKER IS THE TITLE NOW (2026-10-17): the badge and then the note that
+    // used to carry it are both deleted, so the anchor is `grid-open-title` reading
+    // the Top Grid's name — a literal here, not the imported constant, for the same
+    // reason the original badge text was spelled out.
+    await waitFor(() =>
+      expect(screen.getByTestId('grid-open-title')).toHaveTextContent('Top Grid'),
+    );
+    // …and the board has NOT loaded. 🔴 THIS IS THE POSITIVE CONTROL: it
     // is a PRESENCE, so it cannot be satisfied by a stale selector or an empty render,
     // and it is what proves the two facts are simultaneous rather than sequential.
+    // (The loading spinner lives on the Grids page now; the trip there changes
+    // nothing about the scan, which is still in flight.)
+    await openView('Grids');
     expect(screen.getByTestId('grids-loading')).toBeInTheDocument();
-    // …and the matrix is empty of scanned rows, so the note cannot have come from one.
+    // …and the matrix is empty of scanned rows, so the title cannot have come from one.
     // ⚠ AN ABSENCE, NOT A CONTROL — a draft labelled it "POSITIVE CONTROL", which it
     // cannot be: a wrong testid would produce the same `[]`. It is corroboration, and the
     // presence assertion above is what carries the case. (`grid-group-matchup` is real —
@@ -352,6 +373,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
     // `waitFor` must THROW to retry — a bare `.find()` returning `undefined`
     // resolves on the first tick and the case dies on an undefined card instead
     // of waiting for the scan.
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen
         .getAllByTestId('grid-card')
@@ -383,6 +405,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
     } as unknown as SharedStore;
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen
         .getAllByTestId('grid-card')
@@ -566,6 +589,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
     // ---- PHASE 1: a COMPLETE read, with neither subject claiming truncation ----
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen
         .getAllByTestId('grid-card')
@@ -654,6 +678,7 @@ describe("a grid's missing members, on a board the app could not finish reading"
     renderApp({ shared, appStorage: fakeAppStorage().appStorage, track: vi.fn() });
 
     // ---- PHASE 1: the truncated read, with BOTH of this file's subjects on screen ----
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen
         .getAllByTestId('grid-card')

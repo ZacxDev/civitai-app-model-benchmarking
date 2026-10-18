@@ -3,8 +3,11 @@
 // + its LoRA stack); rows sharing a combination are visually grouped (a heavier
 // separator + the combo name on the first row of the group). Each cell shows
 // that config's published outputs on that prompt so models compare side-by-side
-// on identical prompts. The matrix layout itself is HAND-ROLLED (a CSS grid with
-// sticky headers) — too bespoke for the /ui pack (per rule 112) — but every atom
+// on identical prompts. The matrix layout itself is HAND-ROLLED (a CSS grid; the
+// column headers stick to the TOP only — the row-header column is NOT pinned to
+// the left any more, operator 2026-10-17: the whole matrix scrolls horizontally
+// as one unit, because a fixed matchup column permanently ate ~200px of a
+// phone's width) — too bespoke for the /ui pack (per rule 112) — but every atom
 // (Button/Badge/Card/Loader) and the gated cell come from the pack, styled off
 // the pack's `--civitai-*` theme tokens + the app palette so it reads as one system.
 //
@@ -838,9 +841,11 @@ function GroupBand({
   const name = row.comboName || `#${row.comboKey}`;
   const base: React.CSSProperties = {
     gridColumn: '1 / -1',
-    position: 'sticky',
-    left: 0,
-    zIndex: 2,
+    // 🔴 NOT sticky-left any more (operator, 2026-10-17): the band used to pin
+    // itself to the scroller's left edge so the matchup name stayed visible
+    // while the cells scrolled — the same fixed-column behaviour the row
+    // headers lost in the same pass. The whole matrix scrolls as one unit
+    // now, band included.
     display: 'flex',
     alignItems: 'center',
     gap: 8,
@@ -907,9 +912,11 @@ function HeaderCorner({ c }: { c: Palette }): React.JSX.Element {
   return (
     <div
       style={{
+        // 🔴 TOP-sticky only, NOT left (operator, 2026-10-17): the corner
+        // scrolls horizontally WITH the matrix like every other element; it
+        // keeps its place in the header row, which itself sticks to the top.
         position: 'sticky',
         top: 0,
-        left: 0,
         zIndex: 3,
         background: c.headerBg,
         borderBottom: `1px solid ${c.border}`,
@@ -977,16 +984,17 @@ function RowFragment({
           on the first config. It is also the only clickable landmark on a config
           row — the header below stays inert. */}
       {groupStart && <GroupBand row={row} c={c} onOpen={onOpenMatchup} />}
-      {/* Sticky row header (the config, labeled under its combination). INERT by
-          design: see `ResultsGridProps.onOpenMatchup`. */}
+      {/* Row header (the config, labeled under its combination). INERT by
+          design: see `ResultsGridProps.onOpenMatchup`.
+          🔴 NOT sticky-left (operator, 2026-10-17): it used to pin to the
+          scroller's left edge, permanently occupying its 180–220px track of
+          the viewport while only the image columns scrolled. It scrolls with
+          the whole matrix now. */}
       <div
         data-testid="grid-row-header"
         data-combo-key={row.comboKey}
         data-config-id={row.config.id}
         style={{
-          position: 'sticky',
-          left: 0,
-          zIndex: 1,
           background: c.headerBg,
           borderTop: topBorder,
           padding: '8px 10px',

@@ -45,9 +45,12 @@ import type { GatedCellComponent } from './components/GatedCell.js';
  */
 export async function openView(name: 'Matchups' | 'Prompts' | 'Grids'): Promise<HTMLElement> {
   const board = name === 'Matchups' ? 'matchups' : name === 'Prompts' ? 'prompts' : 'grids';
-  // The sidebar has to be on Home for the board subnav to exist at all.
-  await userEvent.click(await screen.findByTestId('nav-home'));
-  await userEvent.click(await screen.findByTestId(`board-nav-${board}`));
+  // The boards are pages in the slide-out sidebar now: open it, then press the
+  // board's item. (The item hosts are in the DOM with the drawer closed too,
+  // but driving the real route — toggle, then item — is what a viewer does,
+  // and it is what keeps this helper honest if the drawer ever unmounts.)
+  await userEvent.click(await screen.findByTestId('nav-toggle'));
+  await userEvent.click(await screen.findByTestId(`nav-${board}`));
   return screen.findByTestId(`section-${board}`);
 }
 
@@ -65,8 +68,13 @@ export async function openView(name: 'Matchups' | 'Prompts' | 'Grids'): Promise<
  * in the open direction, so clicking it first is safe from any starting state.
  */
 export async function openMyList(noun: 'matchup' | 'prompt' | 'grid'): Promise<HTMLElement> {
-  const trigger = await screen.findByTestId('nav-my');
-  if (trigger.getAttribute('aria-expanded') !== 'true') await userEvent.click(trigger);
+  // The My items live inside the sidebar's My Benchmarks group. Expanding the
+  // group is the upstream element's own behaviour (its disclosure button
+  // toggles it in a real browser; the list also opens it automatically once
+  // `current` names a child) — in jsdom the child HOST is directly clickable
+  // either way, and the press is what routes. Open the drawer first, for the
+  // same reason `openView` does.
+  await userEvent.click(await screen.findByTestId('nav-toggle'));
   await userEvent.click(await screen.findByTestId(`nav-my-${noun}`));
   return screen.findByTestId(`section-my-${noun}`);
 }

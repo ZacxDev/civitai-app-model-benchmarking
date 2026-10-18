@@ -16,6 +16,16 @@
 // Overlap is also the EXPECTED case, not an edge one — the Top Grid is the
 // top-voted members and community grids are built from those same popular ones. If
 // that assumption ever has to change, a dedupe belongs at the read path, not here.
+
+// 🔴 THE PAGES PASS (2026-10-17) MOVED THE TWO SURFACES APART, AND THE GUARD
+// MOVED WITH THEM. The matrix is on Home and the card list is on the Grids
+// page; they are never mounted together, so the seam's worst case — the open
+// grid's card re-reading the cells on screen — is now impossible BY
+// CONSTRUCTION rather than by the open/listed filter alone. The filter still
+// matters on the Grids page (the open grid must not be listed there), and
+// the read ledgers below are asserted ACROSS the navigation: on Home the
+// reads are the matrix's alone, and the open grid's batched preview read
+// (`[11,22]`) happens on NEITHER page.
 //
 // ── THE DEFECT THIS FILE EXISTS TO PREVENT ──────────────────────────────────
 //
@@ -89,7 +99,7 @@ vi.mock('@civitai/blocks-react', async (importOriginal) => {
 import { Harness } from './test-harness.js';
 
 import { App } from './App.js';
-import { fakeAppStorage, fakeShared, immediateSleep } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openView } from './test-helpers.js';
 import type { CombinationData, GridData, PromptData, ResultData } from './types.js';
 
 const VIEWER_ID = 99;
@@ -237,104 +247,81 @@ describe('🔴 the matrix/card seam: the open grid has no card, so it cannot re-
     // ⚠️ THIS SAID "`openKey === null`", WHICH IS NOW FALSE: `null` means "nothing in
     // the list is open", the state a PRIVATE grid being open produces. This case passes
     // either way because it drives the real `App`; only the comment was wrong.
-    // ONE card, not two: the open grid is not listed.
-    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 
-    // ---- ANCHORS FIRST, and deliberately ones that do NOT depend on the claim
-    //      under test: the matrix's own images, and the listed card's strip. Both
-    //      are present whether or not the partition exists, so waiting on them
-    //      cannot mask the failure the counts below are here to produce. ----
+    // ---- THE HOME LEG (2026-10-17): the matrix alone, and NO card anywhere ----
     //
     // 2 of the Top Grid's 4 cells are run, so the matrix holds exactly 2 outputs.
     await waitFor(() => expect(within(matrix).getAllByTestId('result-image')).toHaveLength(2));
+    expect(screen.getByTestId('grid-open-title')).toHaveTextContent('Top Grid');
+    // The list is another page, so there is nothing here to exclude the open
+    // grid FROM — the partition is the mount, not a filter.
+    expect(screen.queryAllByTestId('grid-card')).toEqual([]);
+    // EXACTLY TWO reads: one per run matrix cell. The defect added a third and
+    // a fourth for the open grid's own strip — there is no strip on this page.
+    expect(mockGetImages).toHaveBeenCalledTimes(2);
+    expect(readLedger()).toEqual(['[11]', '[22]']);
+
+    // ---- THE GRIDS-PAGE LEG: the open grid is the one entry missing ----
+    await openView('Grids');
+    await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
     const listed = card('gk-1');
     const strip = within(listed).getByTestId('grid-preview');
     expect(strip).toHaveAttribute('data-preview-count', '1');
     await waitFor(() => expect(within(strip).getAllByTestId('result-image')).toHaveLength(1));
-
-    // ---- THE COUNTS, BEFORE THE PER-ENTRY ARMS ----
-    //
-    // 🔴 ORDER IS LOAD-BEARING HERE. These assertions were written after the
-    // per-card absence checks below, and a mutant that removed the gate killed the
-    // case on the absence — so the COUNT, which is the claim that distinguishes
-    // "present once" from "present twice", never executed. Anchored above and
-    // counted here, the mutant dies on the count itself: 5 outputs and 4 reads
-    // instead of 3 and 3.
-    //
-    // EXACTLY THREE outputs on the page: two in the matrix + one in the listed
-    // card's strip. A presence assertion cannot tell three from five.
-    expect(screen.getAllByTestId('result-image')).toHaveLength(3);
-    // …and the same relationship at the READ, which is the thing that actually
-    // costs. Three calls: one per run matrix cell, one for the listed card's strip.
-    // The defect added a fourth for `[11,22]` — the open grid's own strip.
-    expect(mockGetImages).toHaveBeenCalledTimes(3);
-    // 🔴 AND NOTE WHAT THIS LEDGER ADMITS: `[22]` appears TWICE — a matrix cell
-    // and the listed card's strip both read image 22, because they share that cell.
-    // There is no id-level dedupe and this file never claimed one should exist; the
-    // invariant is the open/listed partition. Written out as a literal so the
-    // duplication is visible in the expectation rather than implied by a count.
-    expect(readLedger()).toEqual(['[11]', '[22]', '[22]']);
-    // Stated as its own claim, because it is the one a future reader will care
-    // about: NO call is the open grid's full preview set.
-    expect(readLedger()).not.toContain('[11,22]');
-
-    // ---- ARM 1: the OPEN grid contributes NOTHING, because it has NO CARD ----
     expect(
       screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === '__system__'),
       'the open grid is listed — the card that used to re-read its images is back',
     ).toEqual([]);
-    // 🔴 THE POSITIVE MARKER, so the absence above is an absence of the OPEN grid's
-    // card and not of the list. Without it, a crashed subtree / deleted preview
-    // feature / dropped `GatedCell` prop all satisfy arm 1.
-    expect(screen.getByTestId('grid-open-title')).toHaveTextContent('Top Grid');
     expect(screen.getByTestId('grids-list')).toBeInTheDocument();
     expect(within(listed).getByTestId('grid-open')).toBeInTheDocument();
 
-    // ---- ARM 2: the MATRIX is where those images ARE ----
-    expect(
-      within(matrix)
-        .getAllByTestId('result-image')
-        .map((el) => el.getAttribute('src'))
-        .sort(),
-    ).toEqual([
-      'https://image.civitai.com/gated-11.jpeg',
-      'https://image.civitai.com/gated-22.jpeg',
-    ]);
+    // ---- THE LEDGER ACROSS BOTH PAGES ----
+    //
+    // Three calls in total: one per run matrix cell, one for the listed card's
+    // strip. 🔴 AND NOTE WHAT THIS LEDGER ADMITS: `[22]` appears TWICE — a
+    // matrix cell and the listed card's strip both read image 22, because they
+    // share that cell. There is no id-level dedupe and this file never claimed
+    // one should exist; the invariant is the open/listed partition.
+    expect(mockGetImages).toHaveBeenCalledTimes(3);
+    expect(readLedger()).toEqual(['[11]', '[22]', '[22]']);
+    // Stated as its own claim, because it is the one a future reader will care
+    // about: NO call, on either page, is the open grid's full preview set.
+    expect(readLedger()).not.toContain('[11,22]');
   });
 
   it('🔴 THE SWAP: opening another grid MOVES the strip — it never duplicates a read', async () => {
     renderApp();
     await screen.findByTestId('results-grid');
+    // Start on the list page: exactly ONE card, and its strip is gk-1's.
+    // Without this the post-click state proves nothing MOVED.
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
-    // Premise, asserted as a COUNT so it fails on the invariant rather than on a
-    // per-card absence: exactly ONE strip on the page, and it is gk-1's. Without
-    // this the post-click state proves nothing MOVED.
     expect(screen.getAllByTestId('grid-preview')).toHaveLength(1);
     expect(within(card('gk-1')).getByTestId('grid-preview')).toBeInTheDocument();
 
     await userEvent.click(within(card('gk-1')).getByTestId('grid-open'));
 
-    // The arms have SWAPPED. A guard spelled "the system card never previews"
-    // would pass here while the hazard simply moved to the other card.
+    // gk-1 is open on Home now: its matrix is ONE run cell, one output.
+    const matrix = await screen.findByTestId('results-grid');
+    await waitFor(() => expect(within(matrix).getAllByTestId('result-image')).toHaveLength(1));
+
+    // Back on the list page the arms have SWAPPED. A guard spelled "the system
+    // card never previews" would pass here while the hazard simply moved to
+    // the other card.
+    await openView('Grids');
     await waitFor(() =>
       expect(
         screen.queryAllByTestId('grid-card').filter((el) => el.getAttribute('data-key') === 'gk-1'),
       ).toEqual([]),
     );
     expect(within(card('__system__')).getByTestId('grid-preview')).toBeInTheDocument();
-
-    // gk-1's matrix is ONE cell and it is run, so exactly one output is on screen
-    // from the matrix; the now-listed system card previews the two it holds.
-    const matrix = screen.getByTestId('results-grid');
-    await waitFor(() => expect(within(matrix).getAllByTestId('result-image')).toHaveLength(1));
     await waitFor(() =>
       expect(within(card('__system__')).getAllByTestId('result-image')).toHaveLength(2),
     );
-    expect(screen.getAllByTestId('result-image')).toHaveLength(3);
 
-    // 🔴 EXACTLY ONE preview strip on the page, whichever grid is open, and exactly
-    // one card. This is the invariant in its shortest form, and it holds across the
-    // transition.
+    // 🔴 EXACTLY ONE preview strip on the list page, whichever grid is open,
+    // and exactly one card. This is the invariant in its shortest form, and it
+    // holds across the transition.
     expect(screen.getAllByTestId('grid-preview')).toHaveLength(1);
     expect(screen.getAllByTestId('grid-card')).toHaveLength(1);
   });
@@ -342,6 +329,7 @@ describe('🔴 the matrix/card seam: the open grid has no card, so it cannot re-
   it('LEDGER: every LISTED card carries a strip, and the open grid is the one entry missing', async () => {
     renderApp();
     await screen.findByTestId('results-grid');
+    await openView('Grids');
     await waitFor(() => expect(screen.getAllByTestId('grid-card')).toHaveLength(1));
 
     // A relationship over the whole list, so a THIRD grid appearing later cannot

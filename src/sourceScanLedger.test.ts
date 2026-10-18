@@ -151,7 +151,16 @@ describe("🔴 src/main.tsx's import graph, and the scanner that reads it", () =
     expect(
       TEST_ONLY,
       'a scanned file entered or left the production graph — update this ledger on purpose',
-    ).toEqual(['lib/sourceScan.ts', 'manifest.ts', 'test-helpers.tsx', 'test-setup.ts']);
+    ).toEqual([
+      // 🔴 `civitai-elements.d.ts` (2026-10-17): the ambient JSX typings for the
+      // upstream nav elements. A `.d.ts` is type-only — nothing imports it at
+      // runtime, so it is outside the graph BY CONSTRUCTION, like the others.
+      'civitai-elements.d.ts',
+      'lib/sourceScan.ts',
+      'manifest.ts',
+      'test-helpers.tsx',
+      'test-setup.ts',
+    ]);
   });
 
   it('VALIDATE THE INSTRUMENT: the scan reads real code, and only code', () => {
@@ -167,7 +176,7 @@ describe("🔴 src/main.tsx's import graph, and the scanner that reads it", () =
       'data-testid="resource-name"',
     );
     expect(ALL_CODE, 'SideNav.tsx did not survive the stripper').toContain(
-      'export const NAV_ITEM_ATTR',
+      'export const SIDE_NAV_ITEMS',
     );
     // …including a `//` inside a string, which the `:`-guarded rule exists for.
     expect(stripComments("const u = 'https://x.test/a'; // gone")).toContain('https://x.test/a');

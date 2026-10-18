@@ -57,8 +57,10 @@
 // `grid-open-panel`, `grid-open-title`, `grid-open-system-badge` and
 // `grid-missing-notice` are the originals. Extracting a component is not a reason to
 // rename a selector. (⚠️ `grid-open-system-badge` has since been DELETED, not
-// renamed — the "System grid" pill was removed on operator feedback and
-// `grid-open-system-note` is the system marker now. The don't-rename rule is
+// renamed — the "System grid" pill was removed on operator feedback.
+// ⚠️ `grid-open-system-note`, the explainer sentence that replaced it as the
+// system marker, has ALSO been deleted (operator, 2026-10-17): the name
+// "Top Grid" in `grid-open-title` is the marker now. The don't-rename rule is
 // unaffected: deleting a control deletes its selector.)
 //
 // ⚠️ THE REASON GIVEN FOR THAT USED TO BE A FALSE CROSS-REFERENCE: "`grid-open-panel`
@@ -73,7 +75,7 @@
 // ⚠️ THE SET HAS SINCE GROWN, so do not read the paragraph above as "these four are all
 // of them" — it said exactly that for one round and was falsified by the very next
 // change. `grid-open-members` came with the member count; `grid-open-own-badge`,
-// `grid-open-withdraw`, `grid-open-report`, `grid-open-vote`, `grid-open-system-note`
+// `grid-open-withdraw`, `grid-open-report`, `grid-open-vote`
 // and `grid-open-description` came with the controls above. Every one is prefixed
 // `grid-open-` and DISTINCT from the card's equivalent, for the reason spelled out on
 // `grid-open-members` below: the panel and a card are both on screen as soon as
@@ -85,7 +87,7 @@ import { Alert, Badge, Group, Stack } from '@civitai/blocks-react/ui';
 import { ReportButton } from '@civitai/blocks-react/ui';
 
 import { isOwnRow } from '../lib/benchmark.js';
-import { TOP_GRID_NOTE, type OpenGrid } from '../lib/gridEntries.js';
+import type { OpenGrid } from '../lib/gridEntries.js';
 import { mutedText } from '../theme.js';
 import { VoteButton } from './VoteButton.js';
 import { WithdrawButton } from './WithdrawButton.js';
@@ -241,11 +243,11 @@ export function GridOpenPanel({
           <strong style={{ fontSize: 15 }} data-testid="grid-open-title">
             {name}
           </strong>
-          {/* 🔴 NO "System grid" BADGE — removed on operator feedback, same call as
-              the card's in `GridsView.tsx`. `grid-open-system-note` below already
-              says what this entry is, in a sentence, under the same `entry.system`
-              condition; the badge was its first two words in a pill. The NOTE is the
-              system marker on this surface now, and it is what the tests read. */}
+          {/* 🔴 NO "System grid" BADGE AND NO SYSTEM NOTE — both removed on
+              operator feedback (the note on 2026-10-17, the badge before it).
+              The name "Top Grid" is the whole marker; the absence of a vote
+              control beside the title is what says it cannot be voted on. Do
+              not re-add either without an operator call reversing both. */}
           {/* 🔴 OWNERSHIP AS A BADGE, from the SAME `isOwn` that gates Remove below —
               one predicate, so the label and the affordance cannot disagree. A
               DISTINCT testid from the card's `grid-own-badge` for the reason every
@@ -327,20 +329,18 @@ export function GridOpenPanel({
         </Group>
       </Group>
 
-      {/* ---- THE ROW'S OWN WORDS, which also only ever rendered on a card. The
-           system entry's note is the one that earns its place twice over: it is
-           where a viewer learns WHY there is no vote control beside the title. ---- */}
+      {/* ---- THE ROW'S OWN WORDS, which also only ever rendered on a card. ---- */}
       {/* 🔴 BRANCHED ON `open.kind`, NOT ON `row === null`. It used to be the latter,
            which was equivalent while `null` meant "the system entry" and ONLY that;
-           the private grid makes `row === null` ambiguous, and the system note
-           ("Nobody owns it, so it cannot be voted on") is flatly wrong about a grid the
-           viewer owns. A `switch`-shaped read is also what makes a fourth kind a
-           compile error here rather than a silently-taken else. */}
-      {open.kind === 'system' ? (
-        <span style={mutedText} data-testid="grid-open-system-note">
-          {TOP_GRID_NOTE}
-        </span>
-      ) : open.kind === 'private' ? (
+           the private grid makes `row === null` ambiguous. A `switch`-shaped read
+           is also what makes a fourth kind a compile error here rather than a
+           silently-taken else.
+           🔴 THE SYSTEM ARM RENDERS NOTHING (operator, 2026-10-17): the explainer
+           sentence that used to sit here ("Nobody owns it, so it cannot be voted
+           on…") was deleted outright, not reworded — the name in the title is
+           the marker. The arm stays in the branch so the kind set stays
+           exhaustive. */}
+      {open.kind === 'system' ? null : open.kind === 'private' ? (
         open.rec.description && (
           <span style={mutedText} data-testid="grid-open-description">
             {open.rec.description}

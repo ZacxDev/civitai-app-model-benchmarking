@@ -111,7 +111,7 @@ import { ARCHIVE_KEY } from './lib/archive.js';
 import { draftKey } from './lib/drafts.js';
 import { unpubGridKey } from './lib/grids.js';
 import { unpubPromptKey } from './lib/unpubPrompts.js';
-import { fakeAppStorage, fakeShared, immediateSleep, openMyList } from './test-helpers.js';
+import { fakeAppStorage, fakeShared, immediateSleep, openMyList, openView } from './test-helpers.js';
 import type {
   CombinationData,
   DraftUnsubmitted,
@@ -559,6 +559,7 @@ describe('🔴 the private open path leaves the community board intact', () => {
     await screen.findByTestId('grid-view');
     await openPrivateGrid();
 
+    await openView('Grids');
     const keys = await waitFor(() => {
       const found = screen.getAllByTestId('grid-card').map((c) => c.getAttribute('data-key'));
       if (!found.includes('gk-pub')) throw new Error(`the board grid is missing: ${found}`);
@@ -580,11 +581,14 @@ describe('🔴 the private open path leaves the community board intact', () => {
 
     // POSITIVE CONTROL FIRST, in the state the banner is FOR: nothing published, the Top
     // Grid open, so the list really is empty and the sentence really is the whole story.
+    // (The banner lives on the Grids page now; the trip there is part of the state.)
+    await openView('Grids');
     await waitFor(() => expect(screen.getByTestId('grids-empty')).toBeInTheDocument());
     expect(screen.queryAllByTestId('grid-card')).toHaveLength(0);
 
     // …then open a private grid, which pushes the Top Grid into the list.
     await openPrivateGrid();
+    await openView('Grids');
 
     const keys = await waitFor(() => {
       const found = screen.getAllByTestId('grid-card').map((c) => c.getAttribute('data-key'));
@@ -734,6 +738,7 @@ describe('🔴 the confirm path for a PRIVATE grid says the images go public any
     mountApp({ shared });
     await screen.findByTestId('grid-view');
 
+    await openView('Grids');
     const card = await waitFor(() => {
       const el = screen.getAllByTestId('grid-card').find((c) => c.getAttribute('data-key') === 'gk-pub');
       if (!el) throw new Error('the published grid is not listed');

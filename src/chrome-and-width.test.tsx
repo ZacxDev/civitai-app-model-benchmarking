@@ -14,6 +14,7 @@
 // (2) is the one that matters: (1) alone is satisfied by deleting the hook.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Harness } from './test-harness.js';
@@ -81,8 +82,10 @@ function renderApp(balance: { blue: number; green: number; yellow: number } | nu
  * mounted — is the thing that put two of them outside the host iframe's crop. Recorded
  * as a known weakening, not as an equivalent.
  *
- * The OPEN-GRID section is included: it is on Home whichever board is selected, and it
- * is where the results matrix (and therefore the money path) lives.
+ * 🔴 GENERATION 4 (2026-10-17): the boards are PAGES and the open grid is on
+ * Home ALONE — it no longer coexists with a selected board. The walk is the
+ * same shape; it just ends back on Home, which is where the results matrix
+ * (and therefore the money path) lives.
  */
 async function sections() {
   const out: HTMLElement[] = [];
@@ -90,8 +93,8 @@ async function sections() {
   out.push(await openView('Grids'));
   out.push(await openView('Matchups'));
   out.push(await openView('Prompts'));
-  // Back to the default board, so a caller that goes on to read the grid finds it.
-  await openView('Grids');
+  // Back to Home, so a caller that goes on to read the grid finds it.
+  await userEvent.click(await screen.findByTestId('nav-home'));
   return out;
 }
 

@@ -62,6 +62,7 @@ import {
   immediateSleep,
   openMyList,
   openRowMenu,
+  openView,
 } from './test-helpers.js';
 import type {
   CombinationData,
@@ -1444,7 +1445,7 @@ describe('🔴 a RESULT row can never carry a private member’s local id', () =
     expect(gridKeysOf(appends[2]!)).toEqual({ matchupKeys: ['fk_1'], promptKeys: ['fk_2'] });
 
     // ---- open the now-published grid and run its one cell ----
-    await userEvent.click(await screen.findByTestId('nav-home'));
+    await openView('Grids');
     const openCard = await waitFor(() => {
       const el = screen
         .getAllByTestId('grid-card')
